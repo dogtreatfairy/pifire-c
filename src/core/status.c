@@ -42,6 +42,7 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 	cJSON_AddStringToObject(o, "mode", pf_mode_name(s->mode));
 	cJSON_AddStringToObject(o, "next_mode", pf_mode_name(s->next_mode));
 	cJSON_AddNumberToObject(o, "mode_elapsed", s->t - s->mode_start);
+	cJSON_AddNumberToObject(o, "cook_elapsed", s->cook_start_wall > 0 ? round(s->wall - s->cook_start_wall) : 0);
 	cJSON_AddNumberToObject(o, "setpoint", r1(conv(s->setpoint_c, units)));
 	cJSON_AddBoolToObject(o, "s_plus", s->s_plus);
 	cJSON_AddBoolToObject(o, "pwm_control", s->pwm_control);

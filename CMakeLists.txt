@@ -59,7 +59,9 @@ add_executable(bin2c tools/bin2c.c)
 
 set(PF_EMBED_INPUTS
   ${CMAKE_SOURCE_DIR}/share/settings.default.json
-  ${CMAKE_SOURCE_DIR}/share/manifest.json)
+  ${CMAKE_SOURCE_DIR}/share/manifest.json
+  ${CMAKE_SOURCE_DIR}/share/fonts/Inter-Regular.ttf
+  ${CMAKE_SOURCE_DIR}/share/fonts/Inter-SemiBold.ttf)
 set(PF_EMBED_OUT ${CMAKE_BINARY_DIR}/gen/embedded_share.c)
 add_custom_command(
   OUTPUT ${PF_EMBED_OUT}
@@ -157,7 +159,7 @@ add_library(pfcore STATIC
   src/web/server.c
   ${PF_EMBED_OUT}
   ${PF_WEB_OUT})
-target_include_directories(pfcore PUBLIC include src)
+target_include_directories(pfcore PUBLIC include src third_party/stb)
 target_compile_options(pfcore PRIVATE ${PF_WARN})
 target_link_libraries(pfcore PUBLIC cjson civetweb PkgConfig::SQLITE Threads::Threads m ${PF_OPTIONAL_LIBS})
 if(PF_WITH_MQTT)

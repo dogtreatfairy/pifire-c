@@ -11,6 +11,7 @@
 #include "display/screens.h"
 #include "hal/gpio.h"
 #include "hal/spi.h"
+#include <math.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -137,7 +138,7 @@ static void *create(const char *cfg_json, const pf_env *env)
 	t->backlight_timeout = pf_json_num(c, "backlight_timeout_s", 0);
 	int spi_dev = pf_json_int(c, "spi_device", 0), hz = pf_json_int(c, "spi_hz", 24000000);
 	t->encoder = pf_json_bool(c, "encoder", true);
-	pf_strlcpy(t->theme, pf_json_str(c, "theme", "follow"), sizeof t->theme);
+	pf_strlcpy(t->theme, pf_json_str(c, "theme", "dark"), sizeof t->theme);
 	int dc = pf_json_int(c, "devices.display.dc", 24), rst = pf_json_int(c, "devices.display.rst", 25), led = pf_json_int(c, "devices.display.led", 5);
 	int clk = pf_json_int(c, "devices.input.up_clk", 16), dt = pf_json_int(c, "devices.input.down_dt", 20), sw = pf_json_int(c, "devices.input.enter_sw", 21);
 	cJSON_Delete(c);
@@ -200,10 +201,7 @@ static unsigned hash_fb(const pf_gfx *g)
 
 static void apply_theme(tft_t *t)
 {
-	char th[8];
-	if (!strcmp(t->theme, "follow")) pf_set_str("globals.theme", th, sizeof th, "dark");
-	else pf_strlcpy(th, t->theme, sizeof th);
-	pf_gfx_set_theme(&t->fb, !strcmp(th, "light") ? "light" : "dark");
+	pf_gfx_set_theme(&t->fb, !strcmp(t->theme, "light") ? "light" : "dark");
 }
 
 static void redraw(tft_t *t)
@@ -220,34 +218,52 @@ static void handle_key(tft_t *t, pf_key k)
 	t->last_activity = pf_now();
 	if (!t->backlight_on) { backlight(t, true); return; }
 	const char *units = pf_json_str(t->status, "units", "F");
-	double step = units[0] == 'C' ? 5 : 5;
+	double step = 5;
+	pf_menu_item items[PF_MENU_MAX];
+	int n;
 	switch (t->ui.screen) {
 	case PF_SCR_MAIN:
 		if (k == PF_KEY_ENTER) { t->ui.screen = PF_SCR_MENU; t->ui.menu_index = 0; }
 		break;
 	case PF_SCR_MENU:
-		if (k == PF_KEY_UP) t->ui.menu_index = (t->ui.menu_index + 1) % PF_MENU_COUNT;
-		else if (k == PF_KEY_DOWN) t->ui.menu_index = (t->ui.menu_index + PF_MENU_COUNT - 1) % PF_MENU_COUNT;
+		n = pf_menu_build(t->status, items, PF_MENU_MAX);
+		if (n <= 0) { t->ui.screen = PF_SCR_MAIN; break; }
+		if (t->ui.menu_index >= n) t->ui.menu_index = n - 1;
+		if (k == PF_KEY_UP) t->ui.menu_index = (t->ui.menu_index + 1) % n;
+		else if (k == PF_KEY_DOWN) t->ui.menu_index = (t->ui.menu_index + n - 1) % n;
 		else if (k == PF_KEY_ENTER) {
 			pf_cmd c = { 0 };
-			switch (t->ui.menu_index) {
-			case 0: c.type = PF_CMD_MODE; c.mode = PF_MODE_SMOKE; pf_cmdq_push(&c); break;
-			case 1: t->ui.edit_setpoint = pf_json_num(t->status, "setpoint", units[0] == 'C' ? 107 : 225); t->ui.screen = PF_SCR_SETPOINT; return;
-			case 2: c.type = PF_CMD_MODE; c.mode = PF_MODE_SMOKE; pf_cmdq_push(&c); break;
-			case 3: c.type = PF_CMD_SMOKE_PLUS; c.flag = !pf_json_bool(t->status, "s_plus", false); pf_cmdq_push(&c); break;
-			case 4: c.type = PF_CMD_MODE; c.mode = PF_MODE_SHUTDOWN; pf_cmdq_push(&c); break;
-			case 5: c.type = PF_CMD_STOP; pf_cmdq_push(&c); break;
+			double sp = pf_json_num(t->status, "setpoint", 0);
+			if (sp <= 0) sp = units[0] == 'C' ? 107 : 225;
+			switch (items[t->ui.menu_index].id) {
+			case PF_MI_START_SMOKE: c.type = PF_CMD_MODE; c.mode = PF_MODE_SMOKE; pf_cmdq_push(&c); break;
+			case PF_MI_START_HOLD:
+			case PF_MI_HOLD: t->ui.edit_setpoint = sp; t->ui.edit_is_change = false; t->ui.screen = PF_SCR_SETPOINT; return;
+			case PF_MI_SETPOINT: t->ui.edit_setpoint = sp; t->ui.edit_is_change = true; t->ui.screen = PF_SCR_SETPOINT; return;
+			case PF_MI_MONITOR: c.type = PF_CMD_MODE; c.mode = PF_MODE_MONITOR; pf_cmdq_push(&c); break;
+			case PF_MI_SMOKE: c.type = PF_CMD_MODE; c.mode = PF_MODE_SMOKE; pf_cmdq_push(&c); break;
+			case PF_MI_SMOKE_PLUS: c.type = PF_CMD_SMOKE_PLUS; c.flag = !pf_json_bool(t->status, "s_plus", false); pf_cmdq_push(&c); break;
+			case PF_MI_SHUTDOWN: c.type = PF_CMD_MODE; c.mode = PF_MODE_SHUTDOWN; pf_cmdq_push(&c); break;
+			case PF_MI_STOP:
+			case PF_MI_CLEAR: c.type = PF_CMD_STOP; pf_cmdq_push(&c); break;
 			default: break;
 			}
 			t->ui.screen = PF_SCR_MAIN;
 		}
 		break;
-	case PF_SCR_SETPOINT:
-		if (k == PF_KEY_UP) t->ui.edit_setpoint += step;
-		else if (k == PF_KEY_DOWN) t->ui.edit_setpoint -= step;
-		else if (k == PF_KEY_ENTER) { pf_cmd c = { .type = PF_CMD_MODE, .mode = PF_MODE_HOLD, .num = t->ui.edit_setpoint }; pf_cmdq_push(&c); t->ui.screen = PF_SCR_MAIN; }
+	case PF_SCR_SETPOINT: {
+		double max = units[0] == 'C' ? 320 : 600, min = units[0] == 'C' ? 40 : 100;
+		if (k == PF_KEY_UP) t->ui.edit_setpoint = fmin(max, t->ui.edit_setpoint + step);
+		else if (k == PF_KEY_DOWN) t->ui.edit_setpoint = fmax(min, t->ui.edit_setpoint - step);
+		else if (k == PF_KEY_ENTER) {
+			pf_cmd c = t->ui.edit_is_change ? (pf_cmd){ .type = PF_CMD_SETPOINT, .num = t->ui.edit_setpoint }
+			                                : (pf_cmd){ .type = PF_CMD_MODE, .mode = PF_MODE_HOLD, .num = t->ui.edit_setpoint };
+			pf_cmdq_push(&c);
+			t->ui.screen = PF_SCR_MAIN;
+		}
 		else if (k == PF_KEY_LONG_ENTER) t->ui.screen = PF_SCR_MAIN;
 		break;
+	}
 	default: t->ui.screen = PF_SCR_MAIN; break;
 	}
 }

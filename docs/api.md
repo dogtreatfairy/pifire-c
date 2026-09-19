@@ -49,6 +49,7 @@ Convenience REST aliases exist: `POST /mode`, `/setpoint`, `/stop`, `/smoke_plus
 | GET | `/manifest` — board profiles, probe device schemas (the hardware wizard) |
 | GET | `/controllers` — list with option schemas and recommendations |
 | GET | `/probes/devices` — per-device status (connected, battery, address) |
+| POST | `/probes/tune` | body `{"points":[{"temp":T,"ohms":R},×3]}` in user units → Steinhart-Hart `{A,B,C,check:[T1,T2,T3]}` for a new probe profile (the web Probes page captures live resistance) |
 | POST | `/probes/ble/scan?seconds=8` — Bluetooth devices in range |
 | GET | `/learning`, POST `/learning/reset` |
 

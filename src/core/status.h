@@ -26,6 +26,7 @@ typedef struct {
 	bool coldstart_active, coldstart_reached;
 	double coldstart_baseline_c, coldstart_deadline;
 	double startup_exit_c;      /* 0 = startup runs the full timer */
+	double cook_start_wall;     /* 0 when no cook is running */
 	char error_code[32];
 	char error_msg[128];
 	char controller_id[32];

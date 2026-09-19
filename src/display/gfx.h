@@ -1,5 +1,5 @@
 #pragma once
-/* Tiny RGB565 framebuffer renderer for SPI TFT panels. */
+/* RGB565 framebuffer renderer for SPI TFT panels with anti-aliased TrueType text (Inter, embedded). */
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -17,6 +17,8 @@ typedef struct {
 	pf_gfx_theme th;
 } pf_gfx;
 
+typedef enum { PF_FONT_REGULAR = 0, PF_FONT_SEMIBOLD = 1 } pf_font;
+
 #define PF_RGB(r, g, b) ((uint16_t)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3)))
 
 int  pf_gfx_init(pf_gfx *g, int w, int h);
@@ -31,12 +33,17 @@ void pf_gfx_frame(pf_gfx *g, int x, int y, int w, int h, uint16_t c);
 void pf_gfx_disc(pf_gfx *g, int cx, int cy, int r, uint16_t c);
 /* anti-aliased ring segment: radii [r_in, r_out], angles in degrees clockwise from 3 o'clock */
 void pf_gfx_arc(pf_gfx *g, int cx, int cy, int r_in, int r_out, double a0, double a1, uint16_t c);
-/* scale 1 = 8x8, 2 = 16x16, ... Returns the width drawn. */
-int  pf_gfx_text(pf_gfx *g, int x, int y, const char *s, int scale, uint16_t fg);
-int  pf_gfx_text_width(const char *s, int scale);
-void pf_gfx_text_center(pf_gfx *g, int cx, int y, const char *s, int scale, uint16_t fg);
-void pf_gfx_text_right(pf_gfx *g, int rx, int y, const char *s, int scale, uint16_t fg);
 /* horizontal bar 0..1 */
 void pf_gfx_bar(pf_gfx *g, int x, int y, int w, int h, double frac, uint16_t fg, uint16_t bg);
+
+/* Text. `px` is the font size in pixels (cap height ~0.73 px); y is the TOP of the line box, and
+ * pf_gfx_line_height() gives the box height so callers can stack lines. UTF-8 in; the embedded
+ * subset covers ASCII plus ° · – → •. Returns the advance width. */
+int  pf_gfx_text(pf_gfx *g, pf_font f, int px, int x, int y, const char *s, uint16_t c);
+int  pf_gfx_text_width(pf_font f, int px, const char *s);
+int  pf_gfx_line_height(pf_font f, int px);
+int  pf_gfx_ascent(pf_font f, int px);
+void pf_gfx_text_center(pf_gfx *g, pf_font f, int px, int cx, int y, const char *s, uint16_t c);
+void pf_gfx_text_right(pf_gfx *g, pf_font f, int px, int rx, int y, const char *s, uint16_t c);
 /* Write as binary PPM (for tests / previews). */
 int  pf_gfx_write_ppm(const pf_gfx *g, const char *path);

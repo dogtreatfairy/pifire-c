@@ -29,7 +29,7 @@
     "system": { "SPI0": { "CE0": 8, "CE1": 7 }, "1WIRE": null }
   },
   "modules": { "grillplat": "sim", "display": "none", "dist": "none" },
-  "display": { "rotation": 90, "spi_device": 0, "spi_hz": 24000000, "backlight_timeout_s": 0, "theme": "follow" },
+  "display": { "rotation": 90, "spi_device": 0, "spi_hz": 24000000, "backlight_timeout_s": 0, "theme": "dark" },
   "distance": { "i2c_bus_addr": "0x29" },
   "cycle_data": {
     "HoldCycleTime": 25,
@@ -120,9 +120,9 @@
       ],
       "probe_info": [
         { "type": "Primary", "label": "Grill",  "name": "Grill",   "profile": "PT-1000-Ideal", "device": "sim_adc", "port": "ADC0", "enabled": true },
-        { "type": "Food",    "label": "Probe1", "name": "Probe-1", "profile": "TWPS00",        "device": "sim_adc", "port": "ADC1", "enabled": true },
-        { "type": "Food",    "label": "Probe2", "name": "Probe-2", "profile": "TWPS00",        "device": "sim_adc", "port": "ADC2", "enabled": true },
-        { "type": "Food",    "label": "Probe3", "name": "Probe-3", "profile": "TWPS00",        "device": "sim_adc", "port": "ADC3", "enabled": true }
+        { "type": "Food",    "label": "Probe1", "name": "Probe 1", "profile": "TWPS00",        "device": "sim_adc", "port": "ADC1", "enabled": true },
+        { "type": "Food",    "label": "Probe2", "name": "Probe 2", "profile": "TWPS00",        "device": "sim_adc", "port": "ADC2", "enabled": true },
+        { "type": "Food",    "label": "Probe3", "name": "Probe 3", "profile": "TWPS00",        "device": "sim_adc", "port": "ADC3", "enabled": true }
       ]
     }
   },

@@ -108,7 +108,7 @@ function probes(view) {
       card.append(f);
     });
     card.append(el('div', { class: 'form-actions' },
-      el('button', { class: 'btn', type: 'button', onclick: () => { const n = map.probe_info.length + 1; map.probe_info.push({ type: 'Food', label: `Probe${n}`, name: `Probe-${n}`, profile: 'TWPS00', device: map.probe_devices[0]?.device || '', port: map.probe_devices[0]?.ports?.[0] || '', enabled: true }); render(); } }, 'Add probe'),
+      el('button', { class: 'btn', type: 'button', onclick: () => { const n = map.probe_info.length + 1; map.probe_info.push({ type: 'Food', label: `Probe${n}`, name: `Probe ${n}`, profile: 'TWPS00', device: map.probe_devices[0]?.device || '', port: map.probe_devices[0]?.ports?.[0] || '', enabled: true }); render(); } }, 'Add probe'),
       el('button', { class: 'btn primary', type: 'button', onclick: async () => {
         if (map.probe_info.filter((p) => p.type === 'Primary' && p.enabled).length !== 1) { toast('Exactly one enabled Primary probe is required', true); return; }
         const labels = new Set();
@@ -117,7 +117,58 @@ function probes(view) {
       } }, 'Save probes')));
   };
   render();
-  view.append(el('h2', {}, 'Probes'), card);
+
+  // ---- profiles: Steinhart-Hart coefficients, editable, plus a 3-point tuner from live readings ----
+  const profCard = el('div', { class: 'card' });
+  const profs = structuredClone(profiles);
+  const num = (v, f) => el('input', { type: 'text', inputmode: 'decimal', value: v, style: 'width:140px;font-family:ui-monospace,monospace', onchange: (e) => f(Number(e.target.value)) });
+  const renderProfiles = () => {
+    profCard.innerHTML = '';
+    profCard.append(el('p', { class: 'muted', style: 'font-size:.85rem' }, 'Each probe converts its resistance to temperature with the Steinhart–Hart equation 1/T = A + B·ln(R) + C·ln(R)³. The divider resistor per ADC port is set in Hardware setup.'));
+    for (const pr of Object.values(profs)) {
+      profCard.append(el('details', { class: 'field' }, el('summary', {}, pr.name),
+        el('div', { class: 'field inline' }, el('label', {}, 'Name'), el('input', { type: 'text', value: pr.name, onchange: (e) => (pr.name = e.target.value) })),
+        el('div', { class: 'field inline' }, el('label', {}, 'A'), num(pr.A, (v) => (pr.A = v))),
+        el('div', { class: 'field inline' }, el('label', {}, 'B'), num(pr.B, (v) => (pr.B = v))),
+        el('div', { class: 'field inline' }, el('label', {}, 'C'), num(pr.C, (v) => (pr.C = v)))));
+    }
+    profCard.append(el('div', { class: 'form-actions' },
+      el('button', { class: 'btn', type: 'button', onclick: tuner }, 'Tune from 3 readings'),
+      el('button', { class: 'btn primary', type: 'button', onclick: async () => {
+        try { await patchSettings('probe_settings', { probe_profiles: profs }); toast('Profiles saved'); } catch (e) { toast(e.message, true); }
+      } }, 'Save profiles')));
+  };
+  // Tuner: pick a probe, capture its live resistance at three known temperatures (ice water, boiling, a reference thermometer), solve A/B/C.
+  async function tuner() {
+    const pts = [{ temp: '', ohms: '' }, { temp: '', ohms: '' }, { temp: '', ohms: '' }];
+    const result = await dialog((close) => {
+      const sel = el('select', {}, (PF.status?.probes || []).filter((p) => p.ohms > 0).map((p) => el('option', { value: p.label }, `${p.name} · ${p.ohms} Ω`)));
+      const rows = pts.map((pt, i) => {
+        const ohms = el('input', { type: 'text', inputmode: 'decimal', placeholder: 'Ω', style: 'width:110px', onchange: (e) => (pt.ohms = Number(e.target.value)) });
+        return el('div', { class: 'row', style: 'margin:6px 0' },
+          el('input', { type: 'text', inputmode: 'decimal', placeholder: `Temp ${i + 1} ${degUnit()}`, style: 'width:110px', onchange: (e) => (pt.temp = Number(e.target.value)) }),
+          ohms,
+          el('button', { class: 'btn sm', type: 'button', onclick: () => { const p = (PF.status?.probes || []).find((x) => x.label === sel.value); if (p) { ohms.value = p.ohms; pt.ohms = p.ohms; } } }, 'Capture'));
+      });
+      const name = el('input', { type: 'text', placeholder: 'Profile name', value: 'My probe' });
+      return el('div', {}, el('h3', {}, 'Probe tuner'),
+        el('p', { class: 'muted', style: 'font-size:.85rem' }, 'Put the probe at three known temperatures (e.g. ice water, boiling water, a reference thermometer), enter each temperature and press Capture to take the live resistance.'),
+        el('div', { class: 'field' }, el('label', {}, 'Probe'), sel), ...rows,
+        el('div', { class: 'field' }, el('label', {}, 'New profile name'), name),
+        el('div', { class: 'btnrow' }, el('button', { class: 'btn ghost', type: 'button', onclick: () => close(null) }, 'Cancel'),
+          el('button', { class: 'btn primary', type: 'button', onclick: () => close({ name: name.value.trim() || 'My probe', points: pts }) }, 'Solve')));
+    });
+    if (!result) return;
+    try {
+      const r = await api('/probes/tune', { body: { points: result.points } });
+      const id = result.name.replace(/[^A-Za-z0-9-]/g, '') || 'custom';
+      profs[id] = { id, name: result.name, A: r.A, B: r.B, C: r.C };
+      renderProfiles();
+      toast(`Solved: check temps ${r.check.join(' / ')}${degUnit()} — press Save profiles to keep it`);
+    } catch (e) { toast(e.message, true); }
+  }
+  renderProfiles();
+  view.append(el('h2', {}, 'Probes'), card, el('h2', {}, 'Probe profiles'), profCard);
 }
 
 // ---- hardware wizard: board + pins + probe devices, from the manifest ----

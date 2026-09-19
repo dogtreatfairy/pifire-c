@@ -1040,6 +1040,7 @@ static void publish(pf_control *c, double now)
 	s.coldstart_active = c->safety.coldstart_active;
 	s.coldstart_reached = c->safety.coldstart_reached;
 	s.startup_exit_c = c->startup_exit_c;
+	s.cook_start_wall = c->cook_start_wall;
 	s.coldstart_baseline_c = c->safety.baseline_c;
 	s.coldstart_deadline = c->safety.coldstart_deadline;
 	pf_strlcpy(s.error_code, c->safety.error_code, sizeof s.error_code);

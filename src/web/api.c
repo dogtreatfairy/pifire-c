@@ -18,7 +18,9 @@
 #include "net/wifi.h"
 #include "probes/ble/bluez.h"
 #include "probes/probes.h"
+#include "probes/shh.h"
 #include <cJSON.h>
+#include <math.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -276,6 +278,28 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		return;
 	}
 	if (get && !strcmp(p, "/probes/devices")) { reply(resp, 200, pf_probes_device_status()); return; }
+	if (post && !strcmp(p, "/probes/tune")) {
+		/* body: {"points":[{"temp":T,"ohms":R} x3]} in user units -> Steinhart-Hart A/B/C for a new profile */
+		cJSON *b = cJSON_Parse(req->body ? req->body : "{}");
+		cJSON *pts = cJSON_GetObjectItem(b, "points");
+		double t[3], r[3];
+		int n = 0;
+		cJSON *it;
+		pf_units u = pf_settings_units();
+		cJSON_ArrayForEach(it, pts) { if (n < 3) { t[n] = pf_to_c(pf_json_num(it, "temp", NAN), u); r[n] = pf_json_num(it, "ohms", NAN); n++; } }
+		cJSON_Delete(b);
+		pf_shh shh;
+		if (n != 3 || isnan(t[0]) || isnan(t[1]) || isnan(t[2]) || pf_shh_solve(t[0], r[0], t[1], r[1], t[2], r[2], &shh)) { reply_err(resp, 400, "need three distinct (temp, ohms) points"); return; }
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddNumberToObject(o, "A", shh.A);
+		cJSON_AddNumberToObject(o, "B", shh.B);
+		cJSON_AddNumberToObject(o, "C", shh.C);
+		/* sanity: the fit must reproduce its own points */
+		cJSON *chk = cJSON_AddArrayToObject(o, "check");
+		for (int i = 0; i < 3; i++) cJSON_AddItemToArray(chk, cJSON_CreateNumber(round(pf_from_c(pf_shh_ohms_to_c(r[i], &shh), u) * 10) / 10));
+		reply(resp, 200, o);
+		return;
+	}
 	if (post && !strcmp(p, "/probes/ble/scan")) {
 		if (!pf_ble_available()) { pf_ble_start(); pf_sleep_ms(1500); }
 		if (!pf_ble_available()) { reply_err(resp, 503, "Bluetooth adapter not available"); return; }

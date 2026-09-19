@@ -1,9 +1,16 @@
 #include "display/gfx.h"
-#include "display/font8x8.h"
+#include "core/embedded.h"
 #include <math.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define STB_TRUETYPE_IMPLEMENTATION
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#include "stb_truetype.h"
+#pragma GCC diagnostic pop
 
 static inline uint16_t swap16(uint16_t v) { return (uint16_t)((v << 8) | (v >> 8)); }
 
@@ -22,12 +29,12 @@ void pf_gfx_set_theme(pf_gfx *g, const char *name)
 	if (light) {
 		/* web light tokens, with text pushed to full black for sunlight */
 		t = (pf_gfx_theme){ .bg = PF_RGB(0xF3, 0xF3, 0xF5), .card = PF_RGB(0xFF, 0xFF, 0xFF), .card2 = PF_RGB(0xE4, 0xE6, 0xEC), .line = PF_RGB(0xC8, 0xCA, 0xD2),
-		                    .text = PF_RGB(0x00, 0x00, 0x00), .muted = PF_RGB(0x3C, 0x3E, 0x46), .accent = PF_RGB(0xE8, 0x6E, 0x00), .accent_text = PF_RGB(0xFF, 0xFF, 0xFF),
+		                    .text = PF_RGB(0x00, 0x00, 0x00), .muted = PF_RGB(0x4A, 0x4C, 0x55), .accent = PF_RGB(0xE8, 0x6E, 0x00), .accent_text = PF_RGB(0xFF, 0xFF, 0xFF),
 		                    .ok = PF_RGB(0x0E, 0x8A, 0x2E), .warn = PF_RGB(0xB0, 0x7A, 0x00), .danger = PF_RGB(0xD3, 0x1F, 0x14), .info = PF_RGB(0x00, 0x6C, 0xB8), .light = true };
 	} else {
 		/* web dark tokens; background pulled to true black and "muted" lifted so it survives glare */
-		t = (pf_gfx_theme){ .bg = PF_RGB(0x00, 0x00, 0x00), .card = PF_RGB(0x1B, 0x1C, 0x20), .card2 = PF_RGB(0x2A, 0x2B, 0x32), .line = PF_RGB(0x3A, 0x3B, 0x44),
-		                    .text = PF_RGB(0xFF, 0xFF, 0xFF), .muted = PF_RGB(0xC4, 0xC5, 0xCC), .accent = PF_RGB(0xFF, 0x8A, 0x1F), .accent_text = PF_RGB(0x1A, 0x10, 0x02),
+		t = (pf_gfx_theme){ .bg = PF_RGB(0x00, 0x00, 0x00), .card = PF_RGB(0x16, 0x17, 0x1B), .card2 = PF_RGB(0x24, 0x25, 0x2B), .line = PF_RGB(0x34, 0x35, 0x3E),
+		                    .text = PF_RGB(0xFF, 0xFF, 0xFF), .muted = PF_RGB(0xA9, 0xAA, 0xB3), .accent = PF_RGB(0xFF, 0x8A, 0x1F), .accent_text = PF_RGB(0x1A, 0x10, 0x02),
 		                    .ok = PF_RGB(0x4C, 0xD9, 0x64), .warn = PF_RGB(0xFF, 0xCC, 0x00), .danger = PF_RGB(0xFF, 0x45, 0x3A), .info = PF_RGB(0x5A, 0xC8, 0xFA), .light = false };
 	}
 	g->th = t;
@@ -119,55 +126,150 @@ void pf_gfx_frame(pf_gfx *g, int x, int y, int w, int h, uint16_t c)
 	pf_gfx_rect(g, x, y, 1, h, c); pf_gfx_rect(g, x + w - 1, y, 1, h, c);
 }
 
-int pf_gfx_text_width(const char *s, int scale) { return (int)strlen(s) * 8 * scale; }
-
-int pf_gfx_text(pf_gfx *g, int x, int y, const char *s, int scale, uint16_t fg)
-{
-	uint16_t v = swap16(fg);
-	int cx = x;
-	for (; *s; s++) {
-		unsigned ch = (unsigned char)*s;
-		if (ch == 0xC2 || ch == 0xC3) continue;          /* skip UTF-8 lead bytes (degree sign etc.) */
-		if (ch == 0xB0) ch = 0x7F;                       /* degree sign -> special glyph below */
-		const uint8_t *glyph = (ch >= 0x20 && ch < 0x7F) ? font8x8[ch - 0x20] : NULL;
-		static const uint8_t degree[8] = { 0x06, 0x09, 0x09, 0x06, 0x00, 0x00, 0x00, 0x00 };
-		if (ch == 0x7F) glyph = degree;
-		if (!glyph) glyph = font8x8[0];
-		for (int r = 0; r < 8; r++) {
-			uint8_t bits = glyph[r];
-			for (int c = 0; c < 8; c++) {
-				if (!(bits & (1 << c))) continue;
-				for (int sy = 0; sy < scale; sy++) {
-					int py = y + r * scale + sy;
-					if (py < 0 || py >= g->h) continue;
-					for (int sx = 0; sx < scale; sx++) {
-						int px = cx + c * scale + sx;
-						if (px >= 0 && px < g->w) g->px[py * g->w + px] = v;
-					}
-				}
-			}
-		}
-		cx += 8 * scale;
-	}
-	return cx - x;
-}
-
-void pf_gfx_text_center(pf_gfx *g, int cx, int y, const char *s, int scale, uint16_t fg)
-{
-	pf_gfx_text(g, cx - pf_gfx_text_width(s, scale) / 2, y, s, scale, fg);
-}
-
-void pf_gfx_text_right(pf_gfx *g, int rx, int y, const char *s, int scale, uint16_t fg)
-{
-	pf_gfx_text(g, rx - pf_gfx_text_width(s, scale), y, s, scale, fg);
-}
-
 void pf_gfx_bar(pf_gfx *g, int x, int y, int w, int h, double frac, uint16_t fg, uint16_t bg)
 {
 	if (frac < 0) frac = 0;
 	if (frac > 1) frac = 1;
-	pf_gfx_rect(g, x, y, w, h, bg);
-	pf_gfx_rect(g, x, y, (int)(w * frac + 0.5), h, fg);
+	pf_gfx_rrect(g, x, y, w, h, h / 2, bg);
+	int fw = (int)(w * frac + 0.5);
+	if (fw > 0) pf_gfx_rrect(g, x, y, fw < h ? h : fw, h, h / 2, fg);
+}
+
+/* ---------------- TrueType text ---------------- */
+
+typedef struct {
+	stbtt_fontinfo info;
+	bool ok;
+	int ascent, descent, linegap;
+} font_t;
+
+static font_t g_fonts[2];
+static pthread_once_t g_fonts_once = PTHREAD_ONCE_INIT;
+
+/* small glyph cache: rasterised coverage bitmaps keyed by (font, px, codepoint) */
+typedef struct {
+	int font, px; unsigned cp;
+	unsigned char *bmp; int w, h, xoff, yoff; int advance;
+	unsigned age;
+} glyph_t;
+#define GLYPH_CACHE 384
+static glyph_t g_cache[GLYPH_CACHE];
+static unsigned g_tick;
+static pthread_mutex_t g_cache_mu = PTHREAD_MUTEX_INITIALIZER;
+
+static void fonts_load(void)
+{
+	static const char *const names[2] = { "Inter-Regular.ttf", "Inter-SemiBold.ttf" };
+	for (int i = 0; i < 2; i++) {
+		const pf_embedded_file *f = pf_embedded_share(names[i]);
+		if (!f) continue;
+		if (!stbtt_InitFont(&g_fonts[i].info, f->data, stbtt_GetFontOffsetForIndex(f->data, 0))) continue;
+		stbtt_GetFontVMetrics(&g_fonts[i].info, &g_fonts[i].ascent, &g_fonts[i].descent, &g_fonts[i].linegap);
+		g_fonts[i].ok = true;
+	}
+}
+
+static font_t *font_get(pf_font f)
+{
+	pthread_once(&g_fonts_once, fonts_load);
+	font_t *ft = &g_fonts[f == PF_FONT_SEMIBOLD ? 1 : 0];
+	if (!ft->ok) ft = g_fonts[0].ok ? &g_fonts[0] : g_fonts[1].ok ? &g_fonts[1] : NULL;
+	return ft;
+}
+
+static unsigned utf8_next(const char **s)
+{
+	const unsigned char *p = (const unsigned char *)*s;
+	unsigned cp = p[0];
+	int n = 1;
+	if (cp >= 0xF0 && p[1] && p[2] && p[3]) { cp = ((cp & 7) << 18) | ((p[1] & 63) << 12) | ((p[2] & 63) << 6) | (p[3] & 63); n = 4; }
+	else if (cp >= 0xE0 && p[1] && p[2]) { cp = ((cp & 15) << 12) | ((p[1] & 63) << 6) | (p[2] & 63); n = 3; }
+	else if (cp >= 0xC0 && p[1]) { cp = ((cp & 31) << 6) | (p[1] & 63); n = 2; }
+	*s += n;
+	return cp;
+}
+
+/* must be called with g_cache_mu held */
+static glyph_t *glyph_get(font_t *ft, int fidx, int px, unsigned cp)
+{
+	unsigned h = (unsigned)(fidx * 7919 + px * 131 + (int)cp) % GLYPH_CACHE;
+	for (unsigned i = 0; i < GLYPH_CACHE; i++) {
+		glyph_t *e = &g_cache[(h + i) % GLYPH_CACHE];
+		if (e->bmp && e->font == fidx && e->px == px && e->cp == cp) { e->age = ++g_tick; return e; }
+		if (!e->bmp) break;
+	}
+	/* evict the oldest of a small probe window */
+	glyph_t *victim = &g_cache[h];
+	for (unsigned i = 0; i < 8; i++) { glyph_t *e = &g_cache[(h + i) % GLYPH_CACHE]; if (!e->bmp) { victim = e; break; } if (e->age < victim->age) victim = e; }
+	free(victim->bmp);
+	memset(victim, 0, sizeof *victim);
+	float scale = stbtt_ScaleForPixelHeight(&ft->info, (float)px);
+	int gi = stbtt_FindGlyphIndex(&ft->info, (int)cp);
+	if (!gi) gi = stbtt_FindGlyphIndex(&ft->info, '?');
+	int adv, lsb;
+	stbtt_GetGlyphHMetrics(&ft->info, gi, &adv, &lsb);
+	victim->bmp = stbtt_GetGlyphBitmap(&ft->info, scale, scale, gi, &victim->w, &victim->h, &victim->xoff, &victim->yoff);
+	if (!victim->bmp) { victim->bmp = malloc(1); victim->w = victim->h = 0; }  /* space: keep a valid (empty) entry */
+	victim->advance = (int)lroundf(adv * scale);
+	victim->font = fidx; victim->px = px; victim->cp = cp; victim->age = ++g_tick;
+	return victim;
+}
+
+int pf_gfx_ascent(pf_font f, int px)
+{
+	font_t *ft = font_get(f);
+	if (!ft) return px;
+	return (int)lroundf(ft->ascent * stbtt_ScaleForPixelHeight(&ft->info, (float)px));
+}
+
+int pf_gfx_line_height(pf_font f, int px)
+{
+	font_t *ft = font_get(f);
+	if (!ft) return px;
+	float s = stbtt_ScaleForPixelHeight(&ft->info, (float)px);
+	return (int)lroundf((ft->ascent - ft->descent) * s);
+}
+
+int pf_gfx_text_width(pf_font f, int px, const char *s)
+{
+	font_t *ft = font_get(f);
+	if (!ft) return 0;
+	int fidx = ft == &g_fonts[1] ? 1 : 0, w = 0;
+	pthread_mutex_lock(&g_cache_mu);
+	while (*s) w += glyph_get(ft, fidx, px, utf8_next(&s))->advance;
+	pthread_mutex_unlock(&g_cache_mu);
+	return w;
+}
+
+int pf_gfx_text(pf_gfx *g, pf_font f, int px, int x, int y, const char *s, uint16_t c)
+{
+	font_t *ft = font_get(f);
+	if (!ft) return 0;
+	int fidx = ft == &g_fonts[1] ? 1 : 0;
+	int base = y + pf_gfx_ascent(f, px), cx = x;
+	pthread_mutex_lock(&g_cache_mu);
+	while (*s) {
+		glyph_t *gl = glyph_get(ft, fidx, px, utf8_next(&s));
+		for (int r = 0; r < gl->h; r++) {
+			int py = base + gl->yoff + r;
+			if (py < 0 || py >= g->h) continue;
+			const unsigned char *row = gl->bmp + r * gl->w;
+			for (int k = 0; k < gl->w; k++) if (row[k]) blend_px(g, cx + gl->xoff + k, py, c, row[k] / 255.0);
+		}
+		cx += gl->advance;
+	}
+	pthread_mutex_unlock(&g_cache_mu);
+	return cx - x;
+}
+
+void pf_gfx_text_center(pf_gfx *g, pf_font f, int px, int cx, int y, const char *s, uint16_t c)
+{
+	pf_gfx_text(g, f, px, cx - pf_gfx_text_width(f, px, s) / 2, y, s, c);
+}
+
+void pf_gfx_text_right(pf_gfx *g, pf_font f, int px, int rx, int y, const char *s, uint16_t c)
+{
+	pf_gfx_text(g, f, px, rx - pf_gfx_text_width(f, px, s), y, s, c);
 }
 
 int pf_gfx_write_ppm(const pf_gfx *g, const char *path)
