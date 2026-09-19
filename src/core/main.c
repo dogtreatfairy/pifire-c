@@ -5,6 +5,7 @@
 #include "core/env.h"
 #include "core/events.h"
 #include "core/history.h"
+#include "display/registry.h"
 #include "features/cookfile.h"
 #include "features/learning.h"
 #include "features/mqtt.h"
@@ -52,6 +53,7 @@ static void usage(const char *argv0)
 	        "  -s, --sim           simulator mode: no hardware, dev paths under ./run/\n"
 	        "  -x, --speed N       simulator time scale (default 1)\n"
 	        "  -p, --port N        override web port\n"
+	        "  -P, --plugins DIR   plugin root (default " PLUGIN_DIR ")\n"
 	        "  -l, --log LEVEL     debug|info|warn|error\n"
 	        "  -v, --version\n",
 	        argv0, PF_DEFAULT_CONFIG, PF_DEFAULT_DATA_DIR);
@@ -61,6 +63,7 @@ int main(int argc, char **argv)
 {
 	const char *config = PF_DEFAULT_CONFIG;
 	const char *data_dir = PF_DEFAULT_DATA_DIR;
+	const char *plugin_dir = PLUGIN_DIR;
 	bool sim = false;
 	double speed = 1;
 	int port_override = 0;
@@ -70,13 +73,15 @@ int main(int argc, char **argv)
 		{ "config", required_argument, NULL, 'c' }, { "data", required_argument, NULL, 'd' },
 		{ "sim", no_argument, NULL, 's' },           { "speed", required_argument, NULL, 'x' },
 		{ "port", required_argument, NULL, 'p' },    { "log", required_argument, NULL, 'l' },
+		{ "plugins", required_argument, NULL, 'P' },
 		{ "version", no_argument, NULL, 'v' },       { "help", no_argument, NULL, 'h' },  { 0, 0, 0, 0 }
 	};
 	int c;
-	while ((c = getopt_long(argc, argv, "c:d:sx:p:l:vh", opts, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "c:d:sx:p:l:P:vh", opts, NULL)) != -1) {
 		switch (c) {
 		case 'c': config = optarg; break;
 		case 'd': data_dir = optarg; break;
+		case 'P': plugin_dir = optarg; break;
 		case 's': sim = true; break;
 		case 'x': speed = atof(optarg); break;
 		case 'p': port_override = atoi(optarg); break;
@@ -111,8 +116,11 @@ int main(int argc, char **argv)
 	pf_db_event(PF_LVL_INFO, "SYS_START", sim ? "pifired started (simulator)" : "pifired started");
 
 	/* plugins and hardware */
-	pf_controllers_init(sim ? NULL : PLUGIN_DIR "/controllers");
-	pf_probe_drivers_init(sim ? NULL : PLUGIN_DIR "/probes");
+	char pdir[600];
+	snprintf(pdir, sizeof pdir, "%s/controllers", plugin_dir);
+	pf_controllers_init(pdir);
+	snprintf(pdir, sizeof pdir, "%s/probes", plugin_dir);
+	pf_probe_drivers_init(pdir);
 
 	char sys_type[16];
 	pf_set_str("platform.system_type", sys_type, sizeof sys_type, "sim");
@@ -134,6 +142,7 @@ int main(int argc, char **argv)
 	pf_pellets_init(sim);
 	pf_recipes_init();
 	pf_learning_init();
+	pf_display_init();
 	pf_probes_init();
 	static pf_control ctrl;
 	pf_control_init(&ctrl, sim);
@@ -171,6 +180,7 @@ int main(int argc, char **argv)
 	pf_control_shutdown(&ctrl);
 	pf_probes_shutdown();
 	pf_pellets_shutdown();
+	pf_display_shutdown();
 	pf_outputs_shutdown();
 	pf_db_event(PF_LVL_INFO, "SYS_STOP", "pifired stopped");
 	pf_db_close();

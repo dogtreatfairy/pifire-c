@@ -140,6 +140,7 @@ add_library(pfcore STATIC
   src/features/learning.c
   src/features/mqtt.c
   src/features/webhook.c
+  src/display/registry.c
   src/distance/registry.c
   src/distance/hcsr04.c
   src/features/pellets.c

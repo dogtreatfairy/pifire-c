@@ -8,6 +8,7 @@
 #include "core/settings.h"
 #include "core/status.h"
 #include "core/util.h"
+#include "display/registry.h"
 #include "features/mqtt.h"
 #include "features/pellets.h"
 #include "platform/sim.h"
@@ -76,6 +77,12 @@ static void *services_thread(void *arg)
 		bool cooking = st.mode == PF_MODE_STARTUP || st.mode == PF_MODE_REIGNITE || st.mode == PF_MODE_SMOKE || st.mode == PF_MODE_HOLD;
 		pf_pellets_tick(now, g_ctrl->auger_total_on_s, cooking);
 		pf_mqtt_tick(now);
+		{
+			cJSON *j = pf_status_to_json(&st, pf_settings_units());
+			char *txt = cJSON_PrintUnformatted(j);
+			cJSON_Delete(j);
+			if (txt) { pf_display_tick(txt); free(txt); }
+		}
 		if (now - last_flush > 15) { last_flush = now; pf_history_flush(); }
 		if (now - last_prune > 600) {
 			last_prune = now;

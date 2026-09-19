@@ -17,13 +17,13 @@ export function renderLearning(view) {
     const s = PF.status;
     const f = data.feedforward;
     ffCard.innerHTML = '';
-    ffCard.append(
+    ffCard.append(...[
       el('label', { class: 'toggle' }, el('div', {}, el('div', {}, 'Learn from cooks'), el('div', { class: 'help muted', style: 'font-size:.76rem' }, 'Record steady-state feed at each set point and ambient temperature')),
         el('span', { class: 'switch' }, el('input', { type: 'checkbox', checked: data.enabled, onchange: async (e) => { await patchSettings('learning', { enabled: e.target.checked }); load(); } }), el('span'))),
       el('p', { class: 'muted', style: 'font-size:.85rem' }, `Model: feed = ${f.a.toFixed(3)} + ${f.b_per_degC.toFixed(4)} × (set point − ambient, °C). Fitted from ${f.observations} observation${f.observations === 1 ? '' : 's'}${f.observations ? `, rms error ${f.rms.toFixed(3)}` : ' (using the built-in prior until real cooks accumulate)'}.`),
       el('div', { class: 'kv' }, ...f.examples.flatMap((e) => [el('div', {}, `Hold ${e.setpoint}${degUnit()} at ${f.example_ambient}${degUnit()} ambient`), el('div', {}, `${(e.u * 100).toFixed(0)}% feed`)])),
       s?.mode === 'Hold' ? el('p', { class: 'muted', style: 'font-size:.85rem' }, `Right now: feed-forward ${(s.cycle.u_ff * 100).toFixed(0)}%, applied ${(s.cycle.u_applied * 100).toFixed(0)}%.`) : null,
-      el('div', { class: 'form-actions' }, el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog('Reset learning?', 'All observations, plant estimates and autotune results are erased.', 'Reset', true)) { await api('/learning/reset', { body: {} }); load(); } } }, 'Reset learning')));
+      el('div', { class: 'form-actions' }, el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog('Reset learning?', 'All observations, plant estimates and autotune results are erased.', 'Reset', true)) { await api('/learning/reset', { body: {} }); load(); } } }, 'Reset learning'))].filter(Boolean));
 
     const p = data.plant;
     plantCard.innerHTML = '';
