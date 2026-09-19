@@ -92,6 +92,19 @@ typedef struct {
 		double step_start;
 		pf_recipe r;
 	} recipe;
+	/* learning: steady-state observation window and startup-rise identification */
+	struct {
+		double steady_since, last_obs_t, last_disturb_t;
+		double u_sum, pit_sum, pit_sq; int n;
+		double u_ff;
+		double rise_t0, rise_T0_c, rise_u_sum; int rise_n; double rise_t28, rise_t63; bool rise_active;
+	} learn;
+	/* relay autotune (core-owned; controller update() is bypassed while active) */
+	struct {
+		bool active; int phase; double u_center, h, hyst_c, start_t, last_cross_t;
+		double peak_max, peak_min; int crossings; double periods[8]; double amps[8];
+		char note[64];
+	} autotune;
 	/* sensors */
 	pf_sensors sensors; double pit_c; bool pit_valid; double ambient_c; bool ambient_from_probe;
 	/* bookkeeping */

@@ -40,6 +40,7 @@ typedef struct {
 	double now_s;                        /* CLOCK_MONOTONIC */
 	double pit_c, setpoint_c, ambient_c;
 	double u_prev_raw, u_prev_applied;
+	double u_ff;                         /* learned steady-state feed for this set point/ambient (daemon) */
 	int    saturated;                    /* -1 clamped at u_min, +1 at u_max, 0 free */
 	double cycle_time_s, u_min, u_max;
 	bool   target_reached;               /* pit has reached setpoint at least once this HOLD */

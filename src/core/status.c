@@ -62,6 +62,10 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 	cJSON_AddNumberToObject(cy, "u_applied", round(s->u_applied * 1000) / 1000);
 	cJSON_AddNumberToObject(cy, "saturated", s->saturated);
 	cJSON_AddNumberToObject(cy, "cycle_s", s->cycle_s);
+	cJSON_AddNumberToObject(cy, "u_ff", round(s->u_ff * 1000) / 1000);
+	cJSON *at = cJSON_AddObjectToObject(o, "autotune");
+	cJSON_AddBoolToObject(at, "active", s->autotune_active);
+	cJSON_AddNumberToObject(at, "crossings", s->autotune_crossings);
 
 	cJSON *tm = cJSON_AddObjectToObject(o, "timers");
 	cJSON_AddNumberToObject(tm, "startup_duration", s->startup_duration);

@@ -2,8 +2,9 @@ import { PF, el, api, cmd, patchSettings, toast, onStatus, confirmDialog, dialog
 import { fieldInput, readField } from './settings.js';
 import { renderNetwork } from './network.js';
 import { renderPellets } from './pellets.js';
+import { renderLearning } from './learning.js';
 
-const subpages = { events, logs, system, hardware, probes, manual, network, about, pellets: renderPellets };
+const subpages = { events, logs, system, hardware, probes, manual, network, about, pellets: renderPellets, learning: renderLearning };
 
 export function renderMore(view, rest) {
   const page = rest[0];
@@ -12,7 +13,7 @@ export function renderMore(view, rest) {
     return subpages[page](view, rest.slice(1));
   }
   view.append(el('div', { class: 'menu' },
-    ...[['pellets', 'Pellets', 'Brands, hopper level and usage'], ['hardware', 'Hardware setup', 'Board, pins and probe devices'], ['probes', 'Probes', 'Names, types and profiles'], ['network', 'Network', 'Wi-Fi and hotspot'],
+    ...[['learning', 'Learning & autotune', 'Feed-forward model, plant estimate, autotune'], ['pellets', 'Pellets', 'Brands, hopper level and usage'], ['hardware', 'Hardware setup', 'Board, pins and probe devices'], ['probes', 'Probes', 'Names, types and profiles'], ['network', 'Network', 'Wi-Fi and hotspot'],
         ['manual', 'Manual outputs', 'Drive relays directly'], ['events', 'Events', 'Alerts and mode changes'], ['logs', 'Logs', 'Daemon log'], ['system', 'System', 'Health, restart, power'], ['about', 'About', '']]
       .map(([id, title, sub]) => el('button', { class: 'btn', onclick: () => (location.hash = `#/more/${id}`) }, el('div', {}, el('div', {}, title), el('div', { class: 'muted', style: 'font-size:.76rem;font-weight:400' }, sub))))));
 }

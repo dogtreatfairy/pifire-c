@@ -143,6 +143,7 @@
     "force_setup": false,
     "setup_timeout_s": 45
   },
+  "learning": { "enabled": true, "half_life_obs": 60 },
   "history": { "minutes": 15, "clear_on_startup": true, "retention_hours": 48, "sample_s": 3 },
   "web": { "port": 80, "bind": "0.0.0.0" }
 }

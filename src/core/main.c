@@ -6,6 +6,7 @@
 #include "core/events.h"
 #include "core/history.h"
 #include "features/cookfile.h"
+#include "features/learning.h"
 #include "features/mqtt.h"
 #include "features/pellets.h"
 #include "features/recipe.h"
@@ -132,6 +133,7 @@ int main(int argc, char **argv)
 	pf_cookfile_init(data_dir);
 	pf_pellets_init(sim);
 	pf_recipes_init();
+	pf_learning_init();
 	pf_probes_init();
 	static pf_control ctrl;
 	pf_control_init(&ctrl, sim);

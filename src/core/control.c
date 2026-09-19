@@ -11,6 +11,7 @@
 #include "core/util.h"
 #include "controllers/registry.h"
 #include "features/cookfile.h"
+#include "features/learning.h"
 #include "features/pellets.h"
 #include "platform/sim.h"
 #include <math.h>
@@ -23,6 +24,10 @@
 static void enter_mode(pf_control *c, pf_mode m, double now);
 static void recipe_begin_step(pf_control *c, double now);
 static void recipe_advance(pf_control *c, double now);
+static void learn_reset_window(pf_control *c, double now);
+static void learn_rise_begin(pf_control *c, double now);
+static void autotune_start(pf_control *c, double now);
+static void autotune_finish(pf_control *c, bool ok, const char *why);
 
 /* ------------------------------------------------------------------ settings -> cfg */
 
@@ -244,6 +249,8 @@ static void enter_mode(pf_control *c, pf_mode m, double now)
 	c->target_reached = false;
 	memset(c->manual_until, 0, sizeof c->manual_until);
 	pf_cycle_stop(&c->cycle);
+	if (c->autotune.active) autotune_finish(c, false, "Mode changed.");
+	learn_reset_window(c, now);
 	c->safety.igniter_locked_out = false;
 	c->safety.igniter_on_since = 0;
 	c->safety.primary_invalid_since = 0;
@@ -285,6 +292,7 @@ static void enter_mode(pf_control *c, pf_mode m, double now)
 			pf_safety_reset(c);
 			if (c->cfg.clear_history_on_startup && prev == PF_MODE_STOP) pf_history_clear();
 			if (!c->ambient_from_probe) c->ambient_c = c->pit_c; /* provisional; refined by cold-start baseline */
+			learn_rise_begin(c, now);
 		}
 		pf_outputs_set(PF_OUT_POWER, true);
 		fan_on(c, c->cfg.dc_fan ? c->cfg.startup_pwm_duty : 100);
@@ -378,6 +386,7 @@ static void apply_request(pf_control *c, double now)
 		/* setpoint change only */
 		c->target_reached = false;
 		if (c->cinst) { c->ctrl_reset_needed = true; }
+		learn_reset_window(c, now);
 		return;
 	}
 	enter_mode(c, m, now);
@@ -402,6 +411,7 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 		if (cmd->num > 0) {
 			c->setpoint_c = pf_to_c(cmd->num, u);
 			c->target_reached = false;
+			learn_reset_window(c, now);
 			if (c->mode == PF_MODE_HOLD) c->ctrl_reset_needed = true;
 			else if (c->mode == PF_MODE_SMOKE) pf_control_request(c, PF_MODE_HOLD, c->setpoint_c);
 		}
@@ -475,6 +485,31 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 	case PF_CMD_RECIPE_STOP:
 		if (c->recipe.active) { c->recipe.active = false; LOGI(TAG, "recipe stopped by user"); }
 		break;
+	case PF_CMD_AUTOTUNE_START: autotune_start(c, now); break;
+	case PF_CMD_AUTOTUNE_STOP: if (c->autotune.active) autotune_finish(c, false, "Stopped by user."); break;
+	case PF_CMD_TUNING_APPLY: {
+		if (!c->cinst || !c->cops->apply_tuning) { LOGW(TAG, "controller '%s' does not accept tuning", c->cops ? c->cops->id : "?"); break; }
+		pf_autotune_result a = pf_learning_autotune();
+		pf_fopdt p = pf_learning_fopdt();
+		c->cops->apply_tuning(c->cinst, a.valid ? a.Ku : 0, a.valid ? a.Pu : 0, p.valid ? p.K : 0, p.valid ? p.tau : 0, p.valid ? p.theta : 0);
+		/* persist PB/Ti/Td into settings for controllers that use the standard names */
+		if (a.valid) {
+			char path[96];
+			snprintf(path, sizeof path, "controller.config.%s.PB", c->cops->id);
+			pf_set_put_num(path, round(pf_delta_from_c(a.PB_c, c->cfg.units) * 10) / 10);
+			snprintf(path, sizeof path, "controller.config.%s.Ti", c->cops->id);
+			pf_set_put_num(path, round(a.Ti));
+			snprintf(path, sizeof path, "controller.config.%s.Td", c->cops->id);
+			pf_set_put_num(path, round(a.Td));
+		}
+		if (p.valid && !strcmp(c->cops->id, "pid_sp")) {
+			pf_set_put_num("controller.config.pid_sp.tau", round(p.tau));
+			pf_set_put_num("controller.config.pid_sp.theta", round(p.theta));
+		}
+		pf_settings_save();
+		pf_events_emit("Tuning_Applied", "Tuning applied", "Controller '%s' now uses the learned tuning.", c->cops->id);
+		break;
+	}
 	default: break;
 	}
 }
@@ -574,16 +609,145 @@ static void run_notify(pf_control *c, double now)
 
 /* ------------------------------------------------------------------ per-mode logic */
 
+/* ------------------------------------------------------------------ learning hooks */
+
+static void learn_reset_window(pf_control *c, double now)
+{
+	c->learn.steady_since = 0;
+	c->learn.u_sum = c->learn.pit_sum = c->learn.pit_sq = 0;
+	c->learn.n = 0;
+	c->learn.last_disturb_t = now;
+}
+
+/* called every HOLD cycle with the applied duty */
+static void learn_track_steady(pf_control *c, double now)
+{
+	if (!pf_learning_enabled() || c->autotune.active) return;
+	double err = c->pit_c - c->setpoint_c;
+	bool calm = fabs(err) < 3.0 && !c->lid_open && now - c->learn.last_disturb_t > 300 && c->saturated >= 0 && c->u_applied > c->cfg.u_min + 0.005;
+	if (!calm) { c->learn.steady_since = 0; c->learn.u_sum = c->learn.pit_sum = c->learn.pit_sq = 0; c->learn.n = 0; return; }
+	if (c->learn.steady_since == 0) c->learn.steady_since = now;
+	c->learn.u_sum += c->u_applied; c->learn.pit_sum += c->pit_c; c->learn.pit_sq += c->pit_c * c->pit_c; c->learn.n++;
+	if (now - c->learn.steady_since >= 180 && now - c->learn.last_obs_t >= 300 && c->learn.n >= 3) {
+		double mean = c->learn.pit_sum / c->learn.n;
+		double var = c->learn.pit_sq / c->learn.n - mean * mean;
+		double amb = isnan(c->ambient_c) ? 20 : c->ambient_c;
+		pf_learning_observe(c->cops ? c->cops->id : "?", c->setpoint_c, amb, c->learn.u_sum / c->learn.n, sqrt(fmax(0, var)), "");
+		c->learn.last_obs_t = now;
+		c->learn.u_sum = c->learn.pit_sum = c->learn.pit_sq = 0; c->learn.n = 0;
+	}
+}
+
+/* passive FOPDT: watch the rise from STARTUP entry until the pit first settles near the set point */
+static void learn_rise_begin(pf_control *c, double now)
+{
+	c->learn.rise_active = pf_learning_enabled() && c->pit_valid;
+	c->learn.rise_t0 = now; c->learn.rise_T0_c = c->pit_c; c->learn.rise_u_sum = 0; c->learn.rise_n = 0;
+	c->learn.rise_t28 = c->learn.rise_t63 = 0;
+}
+
+static void learn_rise_track(pf_control *c, double now)
+{
+	if (!c->learn.rise_active) return;
+	if (now - c->learn.rise_t0 > 3600 || c->mode == PF_MODE_STOP || c->mode == PF_MODE_ERROR || c->mode == PF_MODE_SHUTDOWN) { c->learn.rise_active = false; return; }
+	if (c->mode != PF_MODE_HOLD) return;
+	double span = c->setpoint_c - c->learn.rise_T0_c;
+	if (span < 20) { c->learn.rise_active = false; return; }
+	double frac = (c->pit_c - c->learn.rise_T0_c) / span;
+	if (!c->learn.rise_t28 && frac >= 0.283) c->learn.rise_t28 = now - c->learn.rise_t0;
+	if (!c->learn.rise_t63 && frac >= 0.632) c->learn.rise_t63 = now - c->learn.rise_t0;
+	if (c->learn.rise_t63 && c->learn.rise_t28 && fabs(c->pit_c - c->setpoint_c) < 3.0) {
+		double tau = 1.5 * (c->learn.rise_t63 - c->learn.rise_t28);
+		double theta = c->learn.rise_t63 - tau;
+		if (theta < 5) theta = 5;
+		double u_mean = c->learn.rise_n ? c->learn.rise_u_sum / c->learn.rise_n : c->cfg.u_max;
+		double K = u_mean > 0.05 ? span / u_mean : 0;
+		if (tau > 30 && tau < 3600 && K > 0) pf_learning_store_fopdt(K, tau, theta);
+		c->learn.rise_active = false;
+	}
+}
+
+/* ------------------------------------------------------------------ relay autotune */
+
+static void autotune_finish(pf_control *c, bool ok, const char *why)
+{
+	c->autotune.active = false;
+	if (!ok) { pf_events_emit("Autotune_Failed", "Autotune stopped", "%s", why); return; }
+	int n = c->autotune.crossings > 8 ? 8 : c->autotune.crossings;
+	double Pu = 0, A = 0; int k = 0;
+	for (int i = 1; i < n; i++) { Pu += c->autotune.periods[i]; A += c->autotune.amps[i]; k++; }
+	if (k < 2) { pf_events_emit("Autotune_Failed", "Autotune stopped", "Not enough oscillations were captured."); return; }
+	Pu /= k; A /= k;
+	if (A < 0.5) { pf_events_emit("Autotune_Failed", "Autotune stopped", "Oscillation too small to measure."); return; }
+	double Ku = 4.0 * c->autotune.h / (M_PI * A);
+	pf_autotune_result r = { .Ku = Ku, .Pu = Pu, .amplitude_c = A };
+	double kc = Ku / 3.2;                 /* Tyreus-Luyben PI(D) */
+	r.PB_c = 1.0 / kc;
+	r.Ti = 2.2 * Pu;
+	r.Td = Pu / 6.3;
+	pf_learning_store_autotune(&r);
+	pf_events_emit("Autotune_Done", "Autotune complete", "Ku %.3f, period %.0f s, amplitude ±%.1f. Suggested PB %.0f (%s), Ti %.0f s, Td %.0f s - review under Settings > Learning.",
+	               Ku, Pu, pf_delta_from_c(A, c->cfg.units), pf_delta_from_c(r.PB_c, c->cfg.units), c->cfg.units == PF_UNITS_C ? "C" : "F", r.Ti, r.Td);
+}
+
+static void autotune_start(pf_control *c, double now)
+{
+	if (c->mode != PF_MODE_HOLD || !c->target_reached) { pf_events_emit("Autotune_Failed", "Autotune not started", "Hold at the set point first (the pit must have reached it)."); return; }
+	memset(&c->autotune, 0, sizeof c->autotune);
+	c->autotune.active = true;
+	c->autotune.u_center = pf_clamp(c->learn.u_ff > 0 ? c->learn.u_ff : c->u_applied, c->cfg.u_min + 0.05, c->cfg.u_max - 0.2);
+	c->autotune.h = 0.15;
+	c->autotune.hyst_c = 1.0;
+	c->autotune.start_t = now;
+	c->autotune.last_cross_t = now;
+	c->autotune.phase = c->pit_c > c->setpoint_c ? -1 : +1;
+	c->autotune.peak_max = c->autotune.peak_min = c->pit_c;
+	pf_events_emit("Autotune_Started", "Autotune running", "The grill will oscillate a few degrees around %.0f for 15-40 minutes. Do not cook food during the test.", pf_from_c(c->setpoint_c, c->cfg.units));
+	pf_cycle_begin(&c->cycle, &c->ccfg, now, c->autotune.u_center + c->autotune.h * c->autotune.phase);
+	c->u_raw = c->u_applied = c->cycle.u_applied;
+}
+
+/* returns the relay output for this cycle */
+static double autotune_step(pf_control *c, double now)
+{
+	double e = c->pit_c - c->setpoint_c;
+	if (c->pit_c > c->autotune.peak_max) c->autotune.peak_max = c->pit_c;
+	if (c->pit_c < c->autotune.peak_min) c->autotune.peak_min = c->pit_c;
+	int want = c->autotune.phase;
+	if (c->autotune.phase > 0 && e > c->autotune.hyst_c) want = -1;
+	if (c->autotune.phase < 0 && e < -c->autotune.hyst_c) want = +1;
+	if (want != c->autotune.phase) {
+		c->autotune.phase = want;
+		int k = c->autotune.crossings;
+		if (k < 8) {
+			c->autotune.periods[k] = 2.0 * (now - c->autotune.last_cross_t);   /* half period x2 */
+			c->autotune.amps[k] = (c->autotune.peak_max - c->autotune.peak_min) / 2.0;
+		}
+		c->autotune.crossings++;
+		c->autotune.last_cross_t = now;
+		c->autotune.peak_max = c->autotune.peak_min = c->pit_c;
+		if (c->autotune.crossings >= 7) { autotune_finish(c, true, ""); return c->autotune.u_center; }
+	}
+	if (e > pf_delta_to_c(50, PF_UNITS_F)) { autotune_finish(c, false, "Pit ran too far above the set point."); return c->cfg.u_min; }
+	if (now - c->autotune.last_cross_t > 900) { autotune_finish(c, false, "No oscillation within 15 minutes."); return c->autotune.u_center; }
+	return c->autotune.u_center + c->autotune.h * c->autotune.phase;
+}
+
 static void run_hold_cycle(pf_control *c, double now)
 {
 	if (!pf_cycle_done(&c->cycle, now)) return;
 	double u;
 	if (c->lid_open || !c->cinst) {
 		u = c->cfg.u_min;
+	} else if (c->autotune.active) {
+		u = autotune_step(c, now);
+		c->ctrl_reset_needed = true;
 	} else {
+		int nobs = 0;
+		c->learn.u_ff = pf_learning_uff(c->setpoint_c, isnan(c->ambient_c) ? 20 : c->ambient_c, c->cfg.u_min, c->cfg.u_max, &nobs);
 		pf_ctrl_in in = {
 			.now_s = now, .pit_c = c->pit_c, .setpoint_c = c->setpoint_c, .ambient_c = c->ambient_c,
-			.u_prev_raw = c->u_raw, .u_prev_applied = c->u_applied, .saturated = c->saturated,
+			.u_prev_raw = c->u_raw, .u_prev_applied = c->u_applied, .u_ff = c->learn.u_ff, .saturated = c->saturated,
 			.cycle_time_s = c->ccfg.cycle_s, .u_min = c->ccfg.u_min, .u_max = c->ccfg.u_max,
 			.target_reached = c->target_reached, .fan_on = pf_outputs_get(PF_OUT_FAN), .fan_pct = pf_outputs_get_fan_pct(),
 			.hist = pf_history_ctrl_view(),
@@ -603,6 +767,8 @@ static void run_hold_cycle(pf_control *c, double now)
 	pf_cycle_begin(&c->cycle, &c->ccfg, now, u);
 	c->u_applied = c->cycle.u_applied;
 	c->saturated = c->cycle.saturated;
+	learn_track_steady(c, now);
+	if (c->learn.rise_active) { c->learn.rise_u_sum += c->u_applied; c->learn.rise_n++; }
 	/* fan-PID: below u_min on a non-PWM fan, modulate the fan instead (control.py:923) */
 	c->fan_pid_active = c->cfg.fan_pid && !c->pwm_control && c->target_reached && u < c->cfg.u_min;
 }
@@ -688,6 +854,7 @@ static void run_mode(pf_control *c, double now)
 			pf_outputs_set(PF_OUT_AUGER, false);
 			pf_outputs_set(PF_OUT_FAN, false);
 			pf_cycle_stop(&c->cycle);
+			learn_reset_window(c, now);
 			LOGI(TAG, "lid open detected: pausing feed for %.0f s", g->lid_pause_s);
 			event(PF_LVL_INFO, "LID_OPEN", "Lid open detected, feed paused");
 		}
@@ -891,6 +1058,9 @@ static void publish(pf_control *c, double now)
 	s.timer.remaining = c->notify.timer.running ? (c->notify.timer.paused ? c->notify.timer.remaining : c->notify.timer.end_t - now) : 0;
 	s.timer.duration = c->notify.timer.duration;
 	s.timer.after = c->notify.timer.after;
+	s.autotune_active = c->autotune.active;
+	s.autotune_crossings = c->autotune.crossings;
+	s.u_ff = c->learn.u_ff;
 	s.recipe.active = c->recipe.active;
 	if (c->recipe.active) {
 		const pf_recipe_step *rs = &c->recipe.r.steps[c->recipe.step];
@@ -916,6 +1086,7 @@ void pf_control_step(pf_control *c, double now)
 	apply_request(c, now);
 	run_notify(c, now);
 	run_recipe(c, now);
+	learn_rise_track(c, now);
 
 	int action = pf_safety_tick(c, now);
 	if (action == PF_MODE_ERROR) enter_mode(c, PF_MODE_ERROR, now);

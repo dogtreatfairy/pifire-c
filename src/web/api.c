@@ -10,6 +10,7 @@
 #include "core/util.h"
 #include "controllers/registry.h"
 #include "features/cookfile.h"
+#include "features/learning.h"
 #include "features/pellets.h"
 #include "features/recipe.h"
 #include "net/netmgr.h"
@@ -136,6 +137,10 @@ int pf_api_command_json(const char *json, char *err, size_t errn)
 		else { snprintf(err, errn, "unknown timer op"); rc = -1; }
 	} else if (!strcmp(cmd, "test_notify")) {
 		c.type = PF_CMD_NOTIFY_TEST;
+	} else if (!strcmp(cmd, "autotune")) {
+		c.type = pf_json_bool(j, "start", true) ? PF_CMD_AUTOTUNE_START : PF_CMD_AUTOTUNE_STOP;
+	} else if (!strcmp(cmd, "apply_tuning")) {
+		c.type = PF_CMD_TUNING_APPLY;
 	} else if (!strcmp(cmd, "recipe")) {
 		const char *op = pf_json_str(j, "op", "start");
 		if (!strcmp(op, "start")) { c.type = PF_CMD_RECIPE_START; c.num = pf_json_num(j, "id", 0); if (c.num <= 0) { snprintf(err, errn, "id required"); rc = -1; } }
@@ -301,6 +306,8 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		return;
 	}
 	if (post && !strcmp(p, "/pellets/check")) { pf_pellets_request_check(); reply_ok(resp); return; }
+	if (get && !strcmp(p, "/learning")) { reply(resp, 200, pf_learning_json()); return; }
+	if (post && !strcmp(p, "/learning/reset")) { pf_learning_reset(); reply_ok(resp); return; }
 	if (get && !strcmp(p, "/recipes")) { reply(resp, 200, pf_recipes_list()); return; }
 	if (post && !strcmp(p, "/recipes")) {
 		char err[128] = "";

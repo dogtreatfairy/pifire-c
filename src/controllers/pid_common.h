@@ -31,3 +31,4 @@ const pf_controller_ops *pf_controller_pid_clamping_percent_pb(void);
 const pf_controller_ops *pf_controller_pid_ac(void);
 const pf_controller_ops *pf_controller_pid_sp(void);
 const pf_controller_ops *pf_controller_pid_parallel(void);
+const pf_controller_ops *pf_controller_adaptive(void);

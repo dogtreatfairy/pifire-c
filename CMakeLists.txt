@@ -70,7 +70,7 @@ add_custom_command(
 
 # ---- web assets: gzip at build time, embed ---------------------------------
 set(PF_WEB_FILES index.html style.css app.js sw.js manifest.webmanifest icon.svg
-    pages/home.js pages/history.js pages/cook.js pages/settings.js pages/more.js pages/network.js pages/pellets.js)
+    pages/home.js pages/history.js pages/cook.js pages/settings.js pages/more.js pages/network.js pages/pellets.js pages/learning.js)
 set(PF_WEB_GZ "")
 foreach(f ${PF_WEB_FILES})
   get_filename_component(base ${f} NAME)
@@ -136,6 +136,8 @@ add_library(pfcore STATIC
   src/controllers/registry.c
   src/controllers/pid.c
   src/controllers/pid_variants.c
+  src/controllers/adaptive.c
+  src/features/learning.c
   src/features/mqtt.c
   src/features/webhook.c
   src/distance/registry.c
@@ -193,4 +195,5 @@ if(PF_BUILD_TESTS)
   pf_test(test_shh)
   pf_test(test_sim_cook)
   pf_test(test_controllers)
+  pf_test(test_learning)
 endif()

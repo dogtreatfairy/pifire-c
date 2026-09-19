@@ -42,6 +42,7 @@ void pf_controllers_init(const char *plugin_dir)
 	add(pf_controller_pid_ac(), "builtin");
 	add(pf_controller_pid_sp(), "builtin");
 	add(pf_controller_pid_parallel(), "builtin");
+	add(pf_controller_adaptive(), "builtin");
 
 	if (!plugin_dir) return;
 	DIR *d = opendir(plugin_dir);

@@ -35,6 +35,7 @@ typedef struct {
 	struct { int after; double eta_s, limit_high_c, limit_low_c; } notify[PF_MAX_PROBES]; /* parallel to sensors.p */
 	struct { bool running, paused; double remaining, duration; int after; } timer;
 	struct { bool active, waiting; char name[64]; int step, nsteps; pf_mode step_mode; double remaining_s; char message[128]; } recipe;
+	bool autotune_active; int autotune_crossings; double u_ff;
 	int hopper_pct;           /* -1 unknown */
 	bool sim;
 } pf_status;
