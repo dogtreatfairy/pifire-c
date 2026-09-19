@@ -132,6 +132,9 @@ add_library(pfcore STATIC
   src/probes/probes.c
   src/controllers/registry.c
   src/controllers/pid.c
+  src/controllers/pid_variants.c
+  src/features/mqtt.c
+  src/features/webhook.c
   src/distance/registry.c
   src/distance/hcsr04.c
   src/features/pellets.c
@@ -146,7 +149,7 @@ add_library(pfcore STATIC
   ${PF_WEB_OUT})
 target_include_directories(pfcore PUBLIC include src)
 target_compile_options(pfcore PRIVATE ${PF_WARN})
-target_link_libraries(pfcore PUBLIC cjson civetweb PkgConfig::SQLITE Threads::Threads m)
+target_link_libraries(pfcore PUBLIC cjson civetweb PkgConfig::SQLITE Threads::Threads m ${PF_OPTIONAL_LIBS})
 if(PF_WITH_MQTT)
   target_compile_definitions(pfcore PUBLIC PF_WITH_MQTT=1)
 endif()
@@ -186,4 +189,5 @@ if(PF_BUILD_TESTS)
   pf_test(test_cycle)
   pf_test(test_shh)
   pf_test(test_sim_cook)
+  pf_test(test_controllers)
 endif()

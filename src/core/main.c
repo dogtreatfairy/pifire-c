@@ -6,7 +6,10 @@
 #include "core/events.h"
 #include "core/history.h"
 #include "features/cookfile.h"
+#include "features/mqtt.h"
 #include "features/pellets.h"
+#include "features/recipe.h"
+#include "features/webhook.h"
 #include "core/log.h"
 #include "core/outputs.h"
 #include "core/sdnotify.h"
@@ -145,6 +148,8 @@ int main(int argc, char **argv)
 	pf_set_str("web.bind", bind, sizeof bind, "0.0.0.0");
 	if (pf_web_start(bind, pf_set_int("web.port", 80))) return 1;
 	pf_netmgr_start(sim);
+	pf_mqtt_init();
+	pf_webhook_init();
 
 	pf_sd_notify("READY=1\nSTATUS=running");
 	LOGI(TAG, "ready (units=%s, controller=%s)", pf_settings_units() == PF_UNITS_C ? "C" : "F", ctrl.cfg.controller_id);
@@ -156,6 +161,8 @@ int main(int argc, char **argv)
 
 	pf_sd_notify("STOPPING=1");
 	LOGI(TAG, "shutting down");
+	pf_webhook_shutdown();
+	pf_mqtt_shutdown();
 	pf_netmgr_stop();
 	pf_web_stop();
 	pf_threads_stop();

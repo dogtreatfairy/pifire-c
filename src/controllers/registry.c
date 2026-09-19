@@ -37,6 +37,11 @@ void pf_controllers_init(const char *plugin_dir)
 {
 	g_count = 0;
 	add(pf_controller_pid(), "builtin");
+	add(pf_controller_pid_clamping(), "builtin");
+	add(pf_controller_pid_clamping_percent_pb(), "builtin");
+	add(pf_controller_pid_ac(), "builtin");
+	add(pf_controller_pid_sp(), "builtin");
+	add(pf_controller_pid_parallel(), "builtin");
 
 	if (!plugin_dir) return;
 	DIR *d = opendir(plugin_dir);
