@@ -1,0 +1,3279 @@
+{
+ "modules": {
+  "grillplatform": {
+   "custom": {
+    "friendly_name": "Custom Build",
+    "filename": "rpi",
+    "description": "Choose this configuration if you have a custom configuration and need to modify all available platform settings.",
+    "default": false,
+    "image": "custom.png",
+    "reboot_required": true,
+    "settings_dependencies": {
+     "current": {
+      "friendly_name": "Platform Selected",
+      "description": "Selects the current platform.",
+      "options": {
+       "custom": "Custom Build"
+      },
+      "settings": [
+       "platform",
+       "current"
+      ],
+      "hidden": true
+     },
+     "system_type": {
+      "friendly_name": "System Type",
+      "description": "Select the system that you will be using.  By default on most platforms will be the Raspberry Pi.  Select Prototype only if you are doing development testing.",
+      "options": {
+       "rpi": "Raspberry Pi (ALL)",
+       "sim": "Simulator / Test Only"
+      },
+      "settings": [
+       "platform",
+       "system_type"
+      ]
+     },
+     "standalone": {
+      "friendly_name": "Standalone",
+      "description": "Select if your are using PiFire alongside the OEM Controller. ",
+      "options": {
+       "True": "PiFire Only",
+       "False": "OEM Controller Present"
+      },
+      "settings": [
+       "platform",
+       "standalone"
+      ]
+     },
+     "triggerlevel": {
+      "friendly_name": "Relay Type",
+      "description": "Select the trigger level for the relays on the platform.  ",
+      "options": {
+       "LOW": "Active Low",
+       "HIGH": "Active High"
+      },
+      "settings": [
+       "platform",
+       "triggerlevel"
+      ]
+     },
+     "dc_fan": {
+      "friendly_name": "Fan Type",
+      "description": "Select if your platform supports a DC(PWM) fan or uses a regular AC Fan. ",
+      "options": {
+       "True": "DC Fan (PWM)",
+       "False": "AC Fan"
+      },
+      "settings": [
+       "platform",
+       "dc_fan"
+      ]
+     },
+     "output_auger": {
+      "friendly_name": "Auger Relay GPIO Pin",
+      "description": "Select the GPIO used for the Auger relay.",
+      "options": {
+       "14": "GPIO14",
+       "2": "GPIO2",
+       "3": "GPIO3",
+       "4": "GPIO4",
+       "5": "GPIO5",
+       "6": "GPIO6",
+       "7": "GPIO7",
+       "8": "GPIO8",
+       "9": "GPIO9",
+       "10": "GPIO10",
+       "11": "GPIO11",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "15": "GPIO15",
+       "16": "GPIO16",
+       "17": "GPIO17",
+       "18": "GPIO18",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "24": "GPIO24",
+       "25": "GPIO25",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "auger"
+      ]
+     },
+     "output_dc_fan": {
+      "friendly_name": "DC Fan GPIO Pin",
+      "description": "Select the GPIO used for the DC Fan.",
+      "options": {
+       "26": "GPIO26",
+       "2": "GPIO2",
+       "3": "GPIO3",
+       "4": "GPIO4",
+       "5": "GPIO5",
+       "6": "GPIO6",
+       "7": "GPIO7",
+       "8": "GPIO8",
+       "9": "GPIO9",
+       "10": "GPIO10",
+       "11": "GPIO11",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "14": "GPIO14",
+       "15": "GPIO15",
+       "16": "GPIO16",
+       "17": "GPIO17",
+       "18": "GPIO18",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "24": "GPIO24",
+       "25": "GPIO25",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "dc_fan"
+      ]
+     },
+     "output_fan": {
+      "friendly_name": "AC Fan Relay GPIO Pin",
+      "description": "Select the GPIO used for enabling/disabling fan.",
+      "options": {
+       "15": "GPIO15",
+       "2": "GPIO2",
+       "3": "GPIO3",
+       "4": "GPIO4",
+       "5": "GPIO5",
+       "6": "GPIO6",
+       "7": "GPIO7",
+       "8": "GPIO8",
+       "9": "GPIO9",
+       "10": "GPIO10",
+       "11": "GPIO11",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "14": "GPIO14",
+       "16": "GPIO16",
+       "17": "GPIO17",
+       "18": "GPIO18",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "24": "GPIO24",
+       "25": "GPIO25",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "fan"
+      ]
+     },
+     "output_igniter": {
+      "friendly_name": "Igniter Relay GPIO Pin",
+      "description": "Select the GPIO used for the Igniter relay.",
+      "options": {
+       "18": "GPIO18",
+       "2": "GPIO2",
+       "3": "GPIO3",
+       "4": "GPIO4",
+       "5": "GPIO5",
+       "6": "GPIO6",
+       "7": "GPIO7",
+       "8": "GPIO8",
+       "9": "GPIO9",
+       "10": "GPIO10",
+       "11": "GPIO11",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "14": "GPIO14",
+       "15": "GPIO15",
+       "16": "GPIO16",
+       "17": "GPIO17",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "24": "GPIO24",
+       "25": "GPIO25",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "igniter"
+      ]
+     },
+     "output_power": {
+      "friendly_name": "Power Gate Relay GPIO Pin",
+      "description": "Select the GPIO used for the AC Power Gate.",
+      "options": {
+       "4": "GPIO4",
+       "2": "GPIO2",
+       "3": "GPIO3",
+       "5": "GPIO5",
+       "6": "GPIO6",
+       "7": "GPIO7",
+       "8": "GPIO8",
+       "9": "GPIO9",
+       "10": "GPIO10",
+       "11": "GPIO11",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "14": "GPIO14",
+       "15": "GPIO15",
+       "16": "GPIO16",
+       "17": "GPIO17",
+       "18": "GPIO18",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "24": "GPIO24",
+       "25": "GPIO25",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "power"
+      ]
+     },
+     "output_pwm": {
+      "friendly_name": "DC Fan PWM GPIO Pin",
+      "description": "Select the GPIO used for the DC Fan PWM.  Note that this should be a PWM capable GPIO.",
+      "options": {
+       "13": "GPIO13",
+       "2": "GPIO2",
+       "3": "GPIO3",
+       "4": "GPIO4",
+       "5": "GPIO5",
+       "6": "GPIO6",
+       "7": "GPIO7",
+       "8": "GPIO8",
+       "9": "GPIO9",
+       "10": "GPIO10",
+       "11": "GPIO11",
+       "12": "GPIO12",
+       "14": "GPIO14",
+       "15": "GPIO15",
+       "16": "GPIO16",
+       "17": "GPIO17",
+       "18": "GPIO18",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "24": "GPIO24",
+       "25": "GPIO25",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "pwm"
+      ]
+     },
+     "input_selector": {
+      "friendly_name": "Controller Select GPIO Pin",
+      "description": "If the OEM controller is present alongside the PiFire controller, this GPIO will be used to select the active controller. Note that this will not be utilized unless 'Standalone' is set to False.  This should be set to 'None' if not utilized.",
+      "options": {
+       "None": "None",
+       "2": "GPIO2",
+       "3": "GPIO3",
+       "4": "GPIO4",
+       "5": "GPIO5",
+       "6": "GPIO6",
+       "7": "GPIO7",
+       "8": "GPIO8",
+       "9": "GPIO9",
+       "10": "GPIO10",
+       "11": "GPIO11",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "14": "GPIO14",
+       "15": "GPIO15",
+       "16": "GPIO16",
+       "17": "GPIO17",
+       "18": "GPIO18",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "24": "GPIO24",
+       "25": "GPIO25",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "inputs",
+       "selector"
+      ]
+     },
+     "input_shutdown": {
+      "friendly_name": "System Shutdown GPIO Pin",
+      "description": "GPIO Pin configured to shutdown the system.  Used for the wake/shutdown button on some designs.  Set this to 'None' if not utilized.",
+      "options": {
+       "None": "None",
+       "2": "GPIO2",
+       "3": "GPIO3",
+       "4": "GPIO4",
+       "5": "GPIO5",
+       "6": "GPIO6",
+       "7": "GPIO7",
+       "8": "GPIO8",
+       "9": "GPIO9",
+       "10": "GPIO10",
+       "11": "GPIO11",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "14": "GPIO14",
+       "15": "GPIO15",
+       "16": "GPIO16",
+       "17": "GPIO17",
+       "18": "GPIO18",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "24": "GPIO24",
+       "25": "GPIO25",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "inputs",
+       "shutdown"
+      ]
+     },
+     "device_display_dc": {
+      "friendly_name": "SPI Display DC Pin",
+      "description": "GPIO Pin for the SPI Display DC Pin.",
+      "options": {
+       "24": "GPIO24",
+       "2": "GPIO2",
+       "3": "GPIO3",
+       "4": "GPIO4",
+       "5": "GPIO5",
+       "6": "GPIO6",
+       "7": "GPIO7",
+       "8": "GPIO8",
+       "9": "GPIO9",
+       "10": "GPIO10",
+       "11": "GPIO11",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "14": "GPIO14",
+       "15": "GPIO15",
+       "16": "GPIO16",
+       "17": "GPIO17",
+       "18": "GPIO18",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "25": "GPIO25",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "display",
+       "dc"
+      ]
+     },
+     "device_display_led": {
+      "friendly_name": "SPI Display LED Backlight Pin",
+      "description": "GPIO Pin for the SPI Display LED Backlight.",
+      "options": {
+       "5": "GPIO5",
+       "2": "GPIO2",
+       "3": "GPIO3",
+       "4": "GPIO4",
+       "6": "GPIO6",
+       "7": "GPIO7",
+       "8": "GPIO8",
+       "9": "GPIO9",
+       "10": "GPIO10",
+       "11": "GPIO11",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "14": "GPIO14",
+       "15": "GPIO15",
+       "16": "GPIO16",
+       "17": "GPIO17",
+       "18": "GPIO18",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "24": "GPIO24",
+       "25": "GPIO25",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "display",
+       "led"
+      ]
+     },
+     "device_display_rst": {
+      "friendly_name": "SPI Display Reset Pin",
+      "description": "GPIO Pin for the SPI Display Reset.",
+      "options": {
+       "25": "GPIO25",
+       "2": "GPIO2",
+       "3": "GPIO3",
+       "4": "GPIO4",
+       "5": "GPIO5",
+       "6": "GPIO6",
+       "7": "GPIO7",
+       "8": "GPIO8",
+       "9": "GPIO9",
+       "10": "GPIO10",
+       "11": "GPIO11",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "14": "GPIO14",
+       "15": "GPIO15",
+       "16": "GPIO16",
+       "17": "GPIO17",
+       "18": "GPIO18",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "24": "GPIO24",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "display",
+       "rst"
+      ]
+     },
+     "device_distance_echo": {
+      "friendly_name": "Distance Sensor ECHO GPIO",
+      "description": "GPIO Pin for the HCSR04 Ultrasonic distance sensor ECHO",
+      "options": {
+       "27": "GPIO27",
+       "2": "GPIO2",
+       "3": "GPIO3",
+       "4": "GPIO4",
+       "5": "GPIO5",
+       "6": "GPIO6",
+       "7": "GPIO7",
+       "8": "GPIO8",
+       "9": "GPIO9",
+       "10": "GPIO10",
+       "11": "GPIO11",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "14": "GPIO14",
+       "15": "GPIO15",
+       "16": "GPIO16",
+       "17": "GPIO17",
+       "18": "GPIO18",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "24": "GPIO24",
+       "25": "GPIO25",
+       "26": "GPIO26"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "distance",
+       "echo"
+      ]
+     },
+     "device_distance_trig": {
+      "friendly_name": "Distance Sensor Trigger GPIO",
+      "description": "GPIO Pin for the HCSR04 Ultrasonic distance sensor Trigger",
+      "options": {
+       "23": "GPIO23",
+       "2": "GPIO2",
+       "3": "GPIO3",
+       "4": "GPIO4",
+       "5": "GPIO5",
+       "6": "GPIO6",
+       "7": "GPIO7",
+       "8": "GPIO8",
+       "9": "GPIO9",
+       "10": "GPIO10",
+       "11": "GPIO11",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "14": "GPIO14",
+       "15": "GPIO15",
+       "16": "GPIO16",
+       "17": "GPIO17",
+       "18": "GPIO18",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "24": "GPIO24",
+       "25": "GPIO25",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "distance",
+       "trig"
+      ]
+     },
+     "device_input_down_dt": {
+      "friendly_name": "Down Button / Encoder DT",
+      "description": "GPIO Pin for Down Button / Encoder DT",
+      "options": {
+       "20": "GPIO20",
+       "2": "GPIO2",
+       "3": "GPIO3",
+       "4": "GPIO4",
+       "5": "GPIO5",
+       "6": "GPIO6",
+       "7": "GPIO7",
+       "8": "GPIO8",
+       "9": "GPIO9",
+       "10": "GPIO10",
+       "11": "GPIO11",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "14": "GPIO14",
+       "15": "GPIO15",
+       "16": "GPIO16",
+       "17": "GPIO17",
+       "18": "GPIO18",
+       "19": "GPIO19",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "24": "GPIO24",
+       "25": "GPIO25",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "input",
+       "down_dt"
+      ]
+     },
+     "device_input_enter_sw": {
+      "friendly_name": "Enter Button / Encoder SW",
+      "description": "GPIO Pin for Enter Button / Encoder SW",
+      "options": {
+       "21": "GPIO21",
+       "2": "GPIO2",
+       "3": "GPIO3",
+       "4": "GPIO4",
+       "5": "GPIO5",
+       "6": "GPIO6",
+       "7": "GPIO7",
+       "8": "GPIO8",
+       "9": "GPIO9",
+       "10": "GPIO10",
+       "11": "GPIO11",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "14": "GPIO14",
+       "15": "GPIO15",
+       "16": "GPIO16",
+       "17": "GPIO17",
+       "18": "GPIO18",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "24": "GPIO24",
+       "25": "GPIO25",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "input",
+       "enter_sw"
+      ]
+     },
+     "device_input_up_clk": {
+      "friendly_name": "Up Button / Encoder CLK",
+      "description": "GPIO Pin for Up Button / Encoder CLK",
+      "options": {
+       "16": "GPIO16",
+       "2": "GPIO2",
+       "3": "GPIO3",
+       "4": "GPIO4",
+       "5": "GPIO5",
+       "6": "GPIO6",
+       "7": "GPIO7",
+       "8": "GPIO8",
+       "9": "GPIO9",
+       "10": "GPIO10",
+       "11": "GPIO11",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "14": "GPIO14",
+       "15": "GPIO15",
+       "17": "GPIO17",
+       "18": "GPIO18",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "24": "GPIO24",
+       "25": "GPIO25",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "input",
+       "up_clk"
+      ]
+     },
+     "system_1wire": {
+      "friendly_name": "1Wire GPIO Pin",
+      "description": "GPIO Pin for 1Wire bus/interface.  Used for DS18B20 sensors.",
+      "options": {
+       "None": "None",
+       "4": "GPIO4",
+       "6": "GPIO6",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "16": "GPIO16",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "system",
+       "1WIRE"
+      ]
+     },
+     "real_hw": {
+      "friendly_name": "Real Hardware",
+      "description": "Select Yes if running on real hardware (Default).  Select No if running in a test environment.",
+      "options": {
+       "True": "Yes",
+       "False": "No (Test Only)"
+      },
+      "settings": [
+       "platform",
+       "real_hw"
+      ]
+     }
+    }
+   },
+   "pcb_2.00a": {
+    "friendly_name": "PiFire PCB v2.00a",
+    "filename": "rpi",
+    "description": "Default settings/configuration for the PiFire PCB v2.00a designed by Ben Parmeter.",
+    "default": false,
+    "image": "pcb_2.00a.png",
+    "reboot_required": true,
+    "settings_dependencies": {
+     "current": {
+      "friendly_name": "Platform Selected",
+      "description": "Selects the current platform.",
+      "options": {
+       "pcb_2.00a": "PiFire PCB v2.00a"
+      },
+      "settings": [
+       "platform",
+       "current"
+      ],
+      "hidden": true
+     },
+     "system_type": {
+      "friendly_name": "System Type",
+      "description": "Select the system that you will be using.  By default on most platforms will be the Raspberry Pi.  Select Prototype only if you are doing development testing.",
+      "options": {
+       "rpi": "Raspberry Pi (ALL)",
+       "sim": "Simulator / Test Only"
+      },
+      "settings": [
+       "platform",
+       "system_type"
+      ]
+     },
+     "standalone": {
+      "friendly_name": "Standalone",
+      "description": "Select if your are using PiFire alongside the OEM Controller. ",
+      "options": {
+       "True": "PiFire Only",
+       "False": "OEM Controller Present"
+      },
+      "settings": [
+       "platform",
+       "standalone"
+      ]
+     },
+     "triggerlevel": {
+      "friendly_name": "Relay Type",
+      "description": "Select the trigger level for the relays on the platform.  ",
+      "options": {
+       "LOW": "Active Low",
+       "HIGH": "Active High"
+      },
+      "settings": [
+       "platform",
+       "triggerlevel"
+      ]
+     },
+     "dc_fan": {
+      "friendly_name": "Fan Type",
+      "description": "Select if your platform supports a DC(PWM) fan or uses a regular AC Fan. ",
+      "options": {
+       "False": "AC Fan"
+      },
+      "settings": [
+       "platform",
+       "dc_fan"
+      ],
+      "hidden": true
+     },
+     "output_auger": {
+      "friendly_name": "Auger Relay GPIO Pin",
+      "description": "Select the GPIO used for the Auger relay.",
+      "options": {
+       "14": "GPIO14"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "auger"
+      ],
+      "hidden": true
+     },
+     "output_dc_fan": {
+      "friendly_name": "DC Fan GPIO Pin",
+      "description": "Select the GPIO used for the DC Fan.",
+      "options": {
+       "None": "None"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "dc_fan"
+      ],
+      "hidden": true
+     },
+     "output_fan": {
+      "friendly_name": "AC Fan Relay GPIO Pin",
+      "description": "Select the GPIO used for enabling/disabling fan.",
+      "options": {
+       "15": "GPIO15"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "fan"
+      ],
+      "hidden": true
+     },
+     "output_igniter": {
+      "friendly_name": "Igniter Relay GPIO Pin",
+      "description": "Select the GPIO used for the Igniter relay.",
+      "options": {
+       "18": "GPIO18"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "igniter"
+      ],
+      "hidden": true
+     },
+     "output_power": {
+      "friendly_name": "Power Gate Relay GPIO Pin",
+      "description": "Select the GPIO used for the AC Power Gate.",
+      "options": {
+       "4": "GPIO4"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "power"
+      ],
+      "hidden": true
+     },
+     "output_pwm": {
+      "friendly_name": "DC Fan PWM GPIO Pin",
+      "description": "Select the GPIO used for the DC Fan PWM.  Note that this should be a PWM capable GPIO.",
+      "options": {
+       "None": "None"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "pwm"
+      ],
+      "hidden": true
+     },
+     "input_selector": {
+      "friendly_name": "Controller Select GPIO Pin",
+      "description": "If the OEM controller is present alongside the PiFire controller, this GPIO will be used to select the active controller. Note that this will not be utilized unless 'Standalone' is set to False.  This should be set to 'None' if not utilized.",
+      "options": {
+       "17": "GPIO17"
+      },
+      "settings": [
+       "platform",
+       "inputs",
+       "selector"
+      ],
+      "hidden": true
+     },
+     "input_shutdown": {
+      "friendly_name": "System Shutdown GPIO Pin",
+      "description": "GPIO Pin configured to shutdown the system.  Used for the wake/shutdown button on some designs.  Set this to 'None' if not utilized.",
+      "options": {
+       "None": "None"
+      },
+      "settings": [
+       "platform",
+       "inputs",
+       "shutdown"
+      ],
+      "hidden": true
+     },
+     "device_display_dc": {
+      "friendly_name": "SPI Display DC Pin",
+      "description": "GPIO Pin for the SPI Display DC Pin.",
+      "options": {
+       "24": "GPIO24"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "display",
+       "dc"
+      ],
+      "hidden": true
+     },
+     "device_display_led": {
+      "friendly_name": "SPI Display LED Backlight Pin",
+      "description": "GPIO Pin for the SPI Display LED Backlight.",
+      "options": {
+       "5": "GPIO5"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "display",
+       "led"
+      ],
+      "hidden": true
+     },
+     "device_display_rst": {
+      "friendly_name": "SPI Display Reset Pin",
+      "description": "GPIO Pin for the SPI Display Reset.",
+      "options": {
+       "25": "GPIO25"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "display",
+       "rst"
+      ],
+      "hidden": true
+     },
+     "device_distance_echo": {
+      "friendly_name": "Distance Sensor ECHO GPIO",
+      "description": "GPIO Pin for the HCSR04 Ultrasonic distance sensor ECHO",
+      "options": {
+       "27": "GPIO27",
+       "6": "GPIO6",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "16": "GPIO16",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "26": "GPIO26"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "distance",
+       "echo"
+      ]
+     },
+     "device_distance_trig": {
+      "friendly_name": "Distance Sensor Trigger GPIO",
+      "description": "GPIO Pin for the HCSR04 Ultrasonic distance sensor Trigger",
+      "options": {
+       "23": "GPIO23",
+       "6": "GPIO6",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "16": "GPIO16",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "distance",
+       "trig"
+      ]
+     },
+     "device_input_down_dt": {
+      "friendly_name": "Down Button / Encoder DT",
+      "description": "GPIO Pin for Down Button / Encoder DT",
+      "options": {
+       "20": "GPIO20",
+       "6": "GPIO6",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "16": "GPIO16",
+       "19": "GPIO19",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "input",
+       "down_dt"
+      ]
+     },
+     "device_input_enter_sw": {
+      "friendly_name": "Enter Button / Encoder SW",
+      "description": "GPIO Pin for Enter Button / Encoder SW",
+      "options": {
+       "21": "GPIO21",
+       "6": "GPIO6",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "16": "GPIO16",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "input",
+       "enter_sw"
+      ]
+     },
+     "device_input_up_clk": {
+      "friendly_name": "Up Button / Encoder CLK",
+      "description": "GPIO Pin for Up Button / Encoder CLK",
+      "options": {
+       "16": "GPIO16",
+       "6": "GPIO6",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "input",
+       "up_clk"
+      ]
+     },
+     "system_1wire": {
+      "friendly_name": "1Wire GPIO Pin",
+      "description": "GPIO Pin for 1Wire bus/interface.  Used for DS18B20 sensors.",
+      "options": {
+       "None": "None",
+       "6": "GPIO6",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "16": "GPIO16",
+       "19": "GPIO19",
+       "20": "GPIO20",
+       "21": "GPIO21",
+       "22": "GPIO22",
+       "23": "GPIO23",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "system",
+       "1WIRE"
+      ]
+     },
+     "system_spi0_ce0": {
+      "friendly_name": "SPI0 CE0 GPIO Pin",
+      "description": "GPIO Pin for SPI0 bus/interface CE/CS0.",
+      "options": {
+       "8": "GPIO8"
+      },
+      "settings": [
+       "platform",
+       "system",
+       "SPI0",
+       "CE0"
+      ],
+      "hidden": true
+     },
+     "system_spi0_ce1": {
+      "friendly_name": "SPI0 CE1 GPIO Pin",
+      "description": "GPIO Pin for SPI0 bus/interface CE/CS1.",
+      "options": {
+       "7": "GPIO7"
+      },
+      "settings": [
+       "platform",
+       "system",
+       "SPI0",
+       "CE1"
+      ],
+      "hidden": true
+     },
+     "real_hw": {
+      "friendly_name": "Real Hardware",
+      "description": "Select Yes if running on real hardware (Default).  Select No if running in a test environment.",
+      "options": {
+       "True": "Yes",
+       "False": "No (Test Only)"
+      },
+      "settings": [
+       "platform",
+       "real_hw"
+      ]
+     }
+    }
+   },
+   "pcb_3.01a": {
+    "friendly_name": "PiFire PCB v3.01a",
+    "filename": "rpi",
+    "description": "Default settings/configuration for the PiFire PCB v3.01a designed by James Weber.",
+    "default": false,
+    "image": "pcb_3.01a.png",
+    "reboot_required": true,
+    "settings_dependencies": {
+     "current": {
+      "friendly_name": "Platform Selected",
+      "description": "Selects the current platform.",
+      "options": {
+       "pcb_3.01a": "PiFire PCB v3.01a"
+      },
+      "settings": [
+       "platform",
+       "current"
+      ],
+      "hidden": true
+     },
+     "system_type": {
+      "friendly_name": "System Type",
+      "description": "Select the system that you will be using.  By default on most platforms will be the Raspberry Pi.  Select Prototype only if you are doing development testing.",
+      "options": {
+       "rpi": "Raspberry Pi (ALL)",
+       "sim": "Simulator / Test Only"
+      },
+      "settings": [
+       "platform",
+       "system_type"
+      ]
+     },
+     "standalone": {
+      "friendly_name": "Standalone",
+      "description": "Select if your are using PiFire alongside the OEM Controller. ",
+      "options": {
+       "True": "PiFire Only",
+       "False": "OEM Controller Present"
+      },
+      "settings": [
+       "platform",
+       "standalone"
+      ]
+     },
+     "triggerlevel": {
+      "friendly_name": "Relay Type",
+      "description": "Select the trigger level for the relays on the platform.  ",
+      "options": {
+       "LOW": "Active Low",
+       "HIGH": "Active High"
+      },
+      "settings": [
+       "platform",
+       "triggerlevel"
+      ]
+     },
+     "dc_fan": {
+      "friendly_name": "Fan Type",
+      "description": "Select if your platform supports a DC(PWM) fan or uses a regular AC Fan. ",
+      "options": {
+       "False": "AC Fan"
+      },
+      "settings": [
+       "platform",
+       "dc_fan"
+      ],
+      "hidden": true
+     },
+     "output_auger": {
+      "friendly_name": "Auger Relay GPIO Pin",
+      "description": "Select the GPIO used for the Auger relay.",
+      "options": {
+       "14": "GPIO14"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "auger"
+      ],
+      "hidden": true
+     },
+     "output_dc_fan": {
+      "friendly_name": "DC Fan GPIO Pin",
+      "description": "Select the GPIO used for the DC Fan.",
+      "options": {
+       "None": "None"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "dc_fan"
+      ],
+      "hidden": true
+     },
+     "output_fan": {
+      "friendly_name": "AC Fan Relay GPIO Pin",
+      "description": "Select the GPIO used for enabling/disabling fan.",
+      "options": {
+       "15": "GPIO15"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "fan"
+      ],
+      "hidden": true
+     },
+     "output_igniter": {
+      "friendly_name": "Igniter Relay GPIO Pin",
+      "description": "Select the GPIO used for the Igniter relay.",
+      "options": {
+       "18": "GPIO18"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "igniter"
+      ],
+      "hidden": true
+     },
+     "output_power": {
+      "friendly_name": "Power Gate Relay GPIO Pin",
+      "description": "Select the GPIO used for the AC Power Gate.",
+      "options": {
+       "4": "GPIO4"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "power"
+      ],
+      "hidden": true
+     },
+     "output_pwm": {
+      "friendly_name": "DC Fan PWM GPIO Pin",
+      "description": "Select the GPIO used for the DC Fan PWM.  Note that this should be a PWM capable GPIO.",
+      "options": {
+       "None": "None"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "pwm"
+      ],
+      "hidden": true
+     },
+     "input_selector": {
+      "friendly_name": "Controller Select GPIO Pin",
+      "description": "If the OEM controller is present alongside the PiFire controller, this GPIO will be used to select the active controller. Note that this will not be utilized unless 'Standalone' is set to False.  This should be set to 'None' if not utilized.",
+      "options": {
+       "17": "GPIO17"
+      },
+      "settings": [
+       "platform",
+       "inputs",
+       "selector"
+      ],
+      "hidden": true
+     },
+     "input_shutdown": {
+      "friendly_name": "System Shutdown GPIO Pin",
+      "description": "GPIO Pin configured to shutdown the system.  Used for the wake/shutdown button on some designs.  Set this to 'None' if not utilized.",
+      "options": {
+       "None": "None"
+      },
+      "settings": [
+       "platform",
+       "inputs",
+       "shutdown"
+      ],
+      "hidden": true
+     },
+     "device_display_dc": {
+      "friendly_name": "SPI Display DC Pin",
+      "description": "GPIO Pin for the SPI Display DC Pin.",
+      "options": {
+       "24": "GPIO24"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "display",
+       "dc"
+      ],
+      "hidden": true
+     },
+     "device_display_led": {
+      "friendly_name": "SPI Display LED Backlight Pin",
+      "description": "GPIO Pin for the SPI Display LED Backlight.",
+      "options": {
+       "5": "GPIO5"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "display",
+       "led"
+      ],
+      "hidden": true
+     },
+     "device_display_rst": {
+      "friendly_name": "SPI Display Reset Pin",
+      "description": "GPIO Pin for the SPI Display Reset.",
+      "options": {
+       "25": "GPIO25"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "display",
+       "rst"
+      ],
+      "hidden": true
+     },
+     "device_distance_echo": {
+      "friendly_name": "Distance Sensor ECHO GPIO",
+      "description": "GPIO Pin for the HCSR04 Ultrasonic distance sensor ECHO",
+      "options": {
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "distance",
+       "echo"
+      ],
+      "hidden": true
+     },
+     "device_distance_trig": {
+      "friendly_name": "Distance Sensor Trigger GPIO",
+      "description": "GPIO Pin for the HCSR04 Ultrasonic distance sensor Trigger",
+      "options": {
+       "23": "GPIO23"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "distance",
+       "trig"
+      ],
+      "hidden": true
+     },
+     "device_input_down_dt": {
+      "friendly_name": "Down Button / Encoder DT",
+      "description": "GPIO Pin for Down Button / Encoder DT",
+      "options": {
+       "20": "GPIO20"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "input",
+       "down_dt"
+      ],
+      "hidden": true
+     },
+     "device_input_enter_sw": {
+      "friendly_name": "Enter Button / Encoder SW",
+      "description": "GPIO Pin for Enter Button / Encoder SW",
+      "options": {
+       "21": "GPIO21"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "input",
+       "enter_sw"
+      ],
+      "hidden": true
+     },
+     "device_input_up_clk": {
+      "friendly_name": "Up Button / Encoder CLK",
+      "description": "GPIO Pin for Up Button / Encoder CLK",
+      "options": {
+       "16": "GPIO16"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "input",
+       "up_clk"
+      ],
+      "hidden": true
+     },
+     "system_1wire": {
+      "friendly_name": "1Wire GPIO Pin",
+      "description": "GPIO Pin for 1Wire bus/interface.  Used for DS18B20 sensors.",
+      "options": {
+       "None": "None",
+       "6": "GPIO6",
+       "12": "GPIO12",
+       "13": "GPIO13",
+       "19": "GPIO19",
+       "23": "GPIO23",
+       "26": "GPIO26",
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "system",
+       "1WIRE"
+      ]
+     },
+     "system_spi0_ce0": {
+      "friendly_name": "SPI0 CE0 GPIO Pin",
+      "description": "GPIO Pin for SPI0 bus/interface CE/CS0.",
+      "options": {
+       "8": "GPIO8"
+      },
+      "settings": [
+       "platform",
+       "system",
+       "SPI0",
+       "CE0"
+      ],
+      "hidden": true
+     },
+     "system_spi0_ce1": {
+      "friendly_name": "SPI0 CE1 GPIO Pin",
+      "description": "GPIO Pin for SPI0 bus/interface CE/CS1.",
+      "options": {
+       "7": "GPIO7"
+      },
+      "settings": [
+       "platform",
+       "system",
+       "SPI0",
+       "CE1"
+      ],
+      "hidden": true
+     },
+     "real_hw": {
+      "friendly_name": "Real Hardware",
+      "description": "Select Yes if running on real hardware (Default).  Select No if running in a test environment.",
+      "options": {
+       "True": "Yes",
+       "False": "No (Test Only)"
+      },
+      "settings": [
+       "platform",
+       "real_hw"
+      ]
+     }
+    }
+   },
+   "pcb_pwm": {
+    "friendly_name": "PiFire PCB PWM",
+    "filename": "rpi",
+    "description": "Default settings/configuration for the PiFire PCB PWM designed by James Weber.",
+    "default": false,
+    "image": "pcb_pwm.png",
+    "reboot_required": true,
+    "settings_dependencies": {
+     "current": {
+      "friendly_name": "Platform Selected",
+      "description": "Selects the current platform.",
+      "options": {
+       "pcb_pwm": "PiFire PCB PWM"
+      },
+      "settings": [
+       "platform",
+       "current"
+      ],
+      "hidden": true
+     },
+     "system_type": {
+      "friendly_name": "System Type",
+      "description": "Select the system that you will be using.  By default on most platforms will be the Raspberry Pi.  Select Prototype only if you are doing development testing.",
+      "options": {
+       "rpi": "Raspberry Pi (ALL)",
+       "sim": "Simulator / Test Only"
+      },
+      "settings": [
+       "platform",
+       "system_type"
+      ]
+     },
+     "standalone": {
+      "friendly_name": "Standalone",
+      "description": "Select if your are using PiFire alongside the OEM Controller. ",
+      "options": {
+       "True": "PiFire Only",
+       "False": "OEM Controller Present"
+      },
+      "settings": [
+       "platform",
+       "standalone"
+      ]
+     },
+     "triggerlevel": {
+      "friendly_name": "Relay Type",
+      "description": "Select the trigger level for the relays on the platform.  ",
+      "options": {
+       "HIGH": "Active High"
+      },
+      "settings": [
+       "platform",
+       "triggerlevel"
+      ],
+      "hidden": true
+     },
+     "dc_fan": {
+      "friendly_name": "Fan Type",
+      "description": "Select if your platform supports a DC(PWM) fan or uses a regular AC Fan. ",
+      "options": {
+       "True": "DC Fan"
+      },
+      "settings": [
+       "platform",
+       "dc_fan"
+      ],
+      "hidden": true
+     },
+     "output_auger": {
+      "friendly_name": "Auger Relay GPIO Pin",
+      "description": "Select the GPIO used for the Auger relay.",
+      "options": {
+       "14": "GPIO14"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "auger"
+      ],
+      "hidden": true
+     },
+     "output_dc_fan": {
+      "friendly_name": "DC Fan GPIO Pin",
+      "description": "Select the GPIO used for the DC Fan.",
+      "options": {
+       "26": "GPIO26"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "dc_fan"
+      ],
+      "hidden": true
+     },
+     "output_fan": {
+      "friendly_name": "AC Fan Relay GPIO Pin",
+      "description": "Select the GPIO used for enabling/disabling fan.",
+      "options": {
+       "15": "GPIO15"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "fan"
+      ],
+      "hidden": true
+     },
+     "output_igniter": {
+      "friendly_name": "Igniter Relay GPIO Pin",
+      "description": "Select the GPIO used for the Igniter relay.",
+      "options": {
+       "18": "GPIO18"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "igniter"
+      ],
+      "hidden": true
+     },
+     "output_power": {
+      "friendly_name": "Power Gate Relay GPIO Pin",
+      "description": "Select the GPIO used for the AC Power Gate.",
+      "options": {
+       "4": "GPIO4"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "power"
+      ],
+      "hidden": true
+     },
+     "output_pwm": {
+      "friendly_name": "DC Fan PWM GPIO Pin",
+      "description": "Select the GPIO used for the DC Fan PWM.  Note that this should be a PWM capable GPIO.",
+      "options": {
+       "13": "GPIO13"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "pwm"
+      ],
+      "hidden": true
+     },
+     "input_selector": {
+      "friendly_name": "Controller Select GPIO Pin",
+      "description": "If the OEM controller is present alongside the PiFire controller, this GPIO will be used to select the active controller. Note that this will not be utilized unless 'Standalone' is set to False.  This should be set to 'None' if not utilized.",
+      "options": {
+       "17": "GPIO17"
+      },
+      "settings": [
+       "platform",
+       "inputs",
+       "selector"
+      ],
+      "hidden": true
+     },
+     "input_shutdown": {
+      "friendly_name": "System Shutdown GPIO Pin",
+      "description": "GPIO Pin configured to shutdown the system.  Used for the wake/shutdown button on some designs.  Set this to 'None' if not utilized.",
+      "options": {
+       "None": "None"
+      },
+      "settings": [
+       "platform",
+       "inputs",
+       "shutdown"
+      ],
+      "hidden": true
+     },
+     "device_display_dc": {
+      "friendly_name": "SPI Display DC Pin",
+      "description": "GPIO Pin for the SPI Display DC Pin.",
+      "options": {
+       "24": "GPIO24"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "display",
+       "dc"
+      ],
+      "hidden": true
+     },
+     "device_display_led": {
+      "friendly_name": "SPI Display LED Backlight Pin",
+      "description": "GPIO Pin for the SPI Display LED Backlight.",
+      "options": {
+       "5": "GPIO5"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "display",
+       "led"
+      ],
+      "hidden": true
+     },
+     "device_display_rst": {
+      "friendly_name": "SPI Display Reset Pin",
+      "description": "GPIO Pin for the SPI Display Reset.",
+      "options": {
+       "25": "GPIO25"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "display",
+       "rst"
+      ],
+      "hidden": true
+     },
+     "device_distance_echo": {
+      "friendly_name": "Distance Sensor ECHO GPIO",
+      "description": "GPIO Pin for the HCSR04 Ultrasonic distance sensor ECHO",
+      "options": {
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "distance",
+       "echo"
+      ],
+      "hidden": true
+     },
+     "device_distance_trig": {
+      "friendly_name": "Distance Sensor Trigger GPIO",
+      "description": "GPIO Pin for the HCSR04 Ultrasonic distance sensor Trigger",
+      "options": {
+       "23": "GPIO23"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "distance",
+       "trig"
+      ],
+      "hidden": true
+     },
+     "device_input_down_dt": {
+      "friendly_name": "Down Button / Encoder DT",
+      "description": "GPIO Pin for Down Button / Encoder DT",
+      "options": {
+       "20": "GPIO20"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "input",
+       "down_dt"
+      ],
+      "hidden": true
+     },
+     "device_input_enter_sw": {
+      "friendly_name": "Enter Button / Encoder SW",
+      "description": "GPIO Pin for Enter Button / Encoder SW",
+      "options": {
+       "21": "GPIO21"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "input",
+       "enter_sw"
+      ],
+      "hidden": true
+     },
+     "device_input_up_clk": {
+      "friendly_name": "Up Button / Encoder CLK",
+      "description": "GPIO Pin for Up Button / Encoder CLK",
+      "options": {
+       "16": "GPIO16"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "input",
+       "up_clk"
+      ],
+      "hidden": true
+     },
+     "system_1wire": {
+      "friendly_name": "1Wire GPIO Pin",
+      "description": "GPIO Pin for 1Wire bus/interface.  Used for DS18B20 sensors.",
+      "options": {
+       "None": "None"
+      },
+      "settings": [
+       "platform",
+       "system",
+       "1WIRE"
+      ],
+      "hidden": true
+     },
+     "system_spi0_ce0": {
+      "friendly_name": "SPI0 CE0 GPIO Pin",
+      "description": "GPIO Pin for SPI0 bus/interface CE/CS0.",
+      "options": {
+       "8": "GPIO8"
+      },
+      "settings": [
+       "platform",
+       "system",
+       "SPI0",
+       "CE0"
+      ],
+      "hidden": true
+     },
+     "system_spi0_ce1": {
+      "friendly_name": "SPI0 CE1 GPIO Pin",
+      "description": "GPIO Pin for SPI0 bus/interface CE/CS1.",
+      "options": {
+       "7": "GPIO7"
+      },
+      "settings": [
+       "platform",
+       "system",
+       "SPI0",
+       "CE1"
+      ],
+      "hidden": true
+     },
+     "real_hw": {
+      "friendly_name": "Real Hardware",
+      "description": "Select Yes if running on real hardware (Default).  Select No if running in a test environment.",
+      "options": {
+       "True": "Yes",
+       "False": "No (Test Only)"
+      },
+      "settings": [
+       "platform",
+       "real_hw"
+      ]
+     }
+    }
+   },
+   "pcb_4.x.x": {
+    "friendly_name": "PiFire PCB 4.x.x Modular PCB",
+    "filename": "rpi",
+    "description": "Default settings/configuration for the PiFire PCB v4.x.x modular PCB.  This PCB aims to provide modular options to the user for probe inputs and relay outputs.",
+    "default": true,
+    "image": "pcb_4.x.x.png",
+    "reboot_required": true,
+    "settings_dependencies": {
+     "current": {
+      "friendly_name": "Platform Selected",
+      "description": "Selects the current platform.",
+      "options": {
+       "pcb_4.x.x": "PiFire PCB v4.x.x"
+      },
+      "settings": [
+       "platform",
+       "current"
+      ],
+      "hidden": true
+     },
+     "system_type": {
+      "friendly_name": "System Type",
+      "description": "Select the system that you will be using.  By default on most platforms will be the Raspberry Pi.  Select Prototype only if you are doing development testing.",
+      "options": {
+       "rpi": "Raspberry Pi (ALL)",
+       "sim": "Simulator / Test Only"
+      },
+      "settings": [
+       "platform",
+       "system_type"
+      ]
+     },
+     "standalone": {
+      "friendly_name": "Standalone",
+      "description": "Select if your are using PiFire alongside the OEM Controller. ",
+      "options": {
+       "True": "PiFire Only"
+      },
+      "settings": [
+       "platform",
+       "standalone"
+      ],
+      "hidden": true
+     },
+     "triggerlevel": {
+      "friendly_name": "Relay Type",
+      "description": "Select the trigger level for the relays attached to the platform.",
+      "options": {
+       "LOW": "Active Low",
+       "HIGH": "Active High"
+      },
+      "settings": [
+       "platform",
+       "triggerlevel"
+      ]
+     },
+     "dc_fan": {
+      "friendly_name": "Fan Type",
+      "description": "Select if your platform supports a DC(PWM) fan or uses a regular AC Fan.",
+      "options": {
+       "True": "DC Fan (PWM)",
+       "False": "AC Fan"
+      },
+      "settings": [
+       "platform",
+       "dc_fan"
+      ]
+     },
+     "output_auger": {
+      "friendly_name": "Auger Relay GPIO Pin",
+      "description": "Select the GPIO used for the Auger relay.",
+      "options": {
+       "23": "GPIO23"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "auger"
+      ],
+      "hidden": true
+     },
+     "output_dc_fan": {
+      "friendly_name": "DC Fan GPIO Pin",
+      "description": "Select the GPIO used for the DC Fan.",
+      "options": {
+       "26": "GPIO26"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "dc_fan"
+      ],
+      "hidden": true
+     },
+     "output_fan": {
+      "friendly_name": "AC Fan Relay GPIO Pin",
+      "description": "Select the GPIO used for enabling/disabling fan.",
+      "options": {
+       "26": "GPIO26"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "fan"
+      ],
+      "hidden": true
+     },
+     "output_igniter": {
+      "friendly_name": "Igniter Relay GPIO Pin",
+      "description": "Select the GPIO used for the Igniter relay.",
+      "options": {
+       "18": "GPIO18"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "igniter"
+      ],
+      "hidden": true
+     },
+     "output_power": {
+      "friendly_name": "Power Gate Relay GPIO Pin",
+      "description": "Select the GPIO used for the AC Power Gate.",
+      "options": {
+       "22": "GPIO22"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "power"
+      ],
+      "hidden": true
+     },
+     "output_pwm": {
+      "friendly_name": "DC Fan PWM GPIO Pin",
+      "description": "Select the GPIO used for the DC Fan PWM.  Note that this should be a PWM capable GPIO.",
+      "options": {
+       "13": "GPIO13"
+      },
+      "settings": [
+       "platform",
+       "outputs",
+       "pwm"
+      ],
+      "hidden": true
+     },
+     "input_selector": {
+      "friendly_name": "Controller Select GPIO Pin",
+      "description": "If the OEM controller is present alongside the PiFire controller, this GPIO will be used to select the active controller. Note that this will not be utilized unless 'Standalone' is set to False.  This should be set to 'None' if not utilized.",
+      "options": {
+       "None": "None"
+      },
+      "settings": [
+       "platform",
+       "inputs",
+       "selector"
+      ],
+      "hidden": true
+     },
+     "input_shutdown": {
+      "friendly_name": "System Shutdown GPIO Pin",
+      "description": "GPIO Pin configured to shutdown the system.  Used for the wake/shutdown button on some designs.  Set this to 'None' if not utilized.",
+      "options": {
+       "17": "GPIO17"
+      },
+      "settings": [
+       "platform",
+       "inputs",
+       "shutdown"
+      ],
+      "hidden": true
+     },
+     "device_display_dc": {
+      "friendly_name": "SPI Display DC Pin",
+      "description": "GPIO Pin for the SPI Display DC Pin.",
+      "options": {
+       "24": "GPIO24"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "display",
+       "dc"
+      ],
+      "hidden": true
+     },
+     "device_display_led": {
+      "friendly_name": "SPI Display LED Backlight Pin",
+      "description": "GPIO Pin for the SPI Display LED Backlight.",
+      "options": {
+       "5": "GPIO5"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "display",
+       "led"
+      ],
+      "hidden": true
+     },
+     "device_display_rst": {
+      "friendly_name": "SPI Display Reset Pin",
+      "description": "GPIO Pin for the SPI Display Reset.",
+      "options": {
+       "25": "GPIO25"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "display",
+       "rst"
+      ],
+      "hidden": true
+     },
+     "device_distance_echo": {
+      "friendly_name": "Distance Sensor ECHO GPIO",
+      "description": "GPIO Pin for the HCSR04 Ultrasonic distance sensor ECHO",
+      "options": {
+       "27": "GPIO27"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "distance",
+       "echo"
+      ],
+      "hidden": true
+     },
+     "device_distance_trig": {
+      "friendly_name": "Distance Sensor Trigger GPIO",
+      "description": "GPIO Pin for the HCSR04 Ultrasonic distance sensor Trigger",
+      "options": {
+       "23": "GPIO23"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "distance",
+       "trig"
+      ],
+      "hidden": true
+     },
+     "device_input_down_dt": {
+      "friendly_name": "Down Button / Encoder DT",
+      "description": "GPIO Pin for Down Button / Encoder DT",
+      "options": {
+       "16": "GPIO16"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "input",
+       "down_dt"
+      ],
+      "hidden": true
+     },
+     "device_input_enter_sw": {
+      "friendly_name": "Enter Button / Encoder SW",
+      "description": "GPIO Pin for Enter Button / Encoder SW",
+      "options": {
+       "15": "GPIO15"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "input",
+       "enter_sw"
+      ],
+      "hidden": true
+     },
+     "device_input_up_clk": {
+      "friendly_name": "Up Button / Encoder CLK",
+      "description": "GPIO Pin for Up Button / Encoder CLK",
+      "options": {
+       "14": "GPIO14"
+      },
+      "settings": [
+       "platform",
+       "devices",
+       "input",
+       "up_clk"
+      ],
+      "hidden": true
+     },
+     "system_1wire": {
+      "friendly_name": "1Wire GPIO Pin",
+      "description": "GPIO Pin for 1Wire bus/interface.  Used for DS18B20 sensors.",
+      "options": {
+       "4": "GPIO4"
+      },
+      "settings": [
+       "platform",
+       "system",
+       "1WIRE"
+      ],
+      "hidden": true
+     },
+     "system_spi0_ce0": {
+      "friendly_name": "SPI0 CE0 GPIO Pin",
+      "description": "GPIO Pin for SPI0 bus/interface CE/CS0. (SPI Display Port)",
+      "options": {
+       "8": "GPIO8"
+      },
+      "settings": [
+       "platform",
+       "system",
+       "SPI0",
+       "CE0"
+      ],
+      "hidden": true
+     },
+     "system_spi0_ce1": {
+      "friendly_name": "SPI0 CE1 GPIO Pin",
+      "description": "GPIO Pin for SPI0 bus/interface CE/CS1. (SPI Aux Port)",
+      "options": {
+       "7": "GPIO7"
+      },
+      "settings": [
+       "platform",
+       "system",
+       "SPI0",
+       "CE1"
+      ],
+      "hidden": true
+     },
+     "real_hw": {
+      "friendly_name": "Real Hardware",
+      "description": "Select Yes if running on real hardware (Default).  Select No if running in a test environment.",
+      "options": {
+       "True": "Yes",
+       "False": "No (Test Only)"
+      },
+      "settings": [
+       "platform",
+       "real_hw"
+      ]
+     }
+    }
+   }
+  },
+  "probes": {
+   "ads1115": {
+    "friendly_name": "ADS1115",
+    "filename": "ads1x15",
+    "description": "This is the default module supporting ALL of the ADS1115 16-Bit ADC's and is based on Adafruit's Circuit Python implementation/module.  This version is still actively updated and may support a wider range of hardware.  There has been rumors of sellers shipping ADS1015 12-Bit ADC's instead of the ADS1115 16-Bit ADC's.  If you got one of these, you can try the ADS1015 Adafruit library instead.",
+    "default": true,
+    "image": "ads1115.png",
+    "reboot_required": false,
+    "settings_dependencies": {
+     "units": {
+      "friendly_name": "Temp Units",
+      "description": "Select the temperature units to use for PiFire globally.  (this can be modified in settings later)",
+      "options": {
+       "F": "Fahrenheit",
+       "C": "Celsius"
+      },
+      "settings": [
+       "globals",
+       "units"
+      ]
+     }
+    },
+    "device_specific": {
+     "ports": [
+      "ADC0",
+      "ADC1",
+      "ADC2",
+      "ADC3"
+     ],
+     "type": "adc",
+     "config": [
+      {
+       "label": "variant",
+       "friendly_name": "ADC Variant",
+       "description": "ADS1115 (16-bit) or ADS1015 (12-bit).",
+       "type": "list",
+       "list_values": [
+        "ads1115",
+        "ads1015"
+       ],
+       "list_labels": [
+        "ADS1115",
+        "ADS1015"
+       ],
+       "default": "ads1115",
+       "hidden": false
+      },
+      {
+       "label": "i2c_bus_addr",
+       "friendly_name": "I2C Bus Address",
+       "description": "Select the I2C bus address to use for this device.  Default is 0x48.  If you have more than one ADS1115, you can assign unique device bus address for up to four devices.",
+       "type": "list",
+       "list_values": [
+        "0x48",
+        "0x49",
+        "0x4A",
+        "0x4B"
+       ],
+       "list_labels": [
+        "0x48",
+        "0x49",
+        "0x4A",
+        "0x4B"
+       ],
+       "default": "0x48",
+       "hidden": false
+      },
+      {
+       "label": "ADC0_rd",
+       "friendly_name": "ADC0 Resistor Divider Value",
+       "description": "Select the resistor divider value for this probe port.  Default is 10000 Ohm for temperature probes.",
+       "type": "int",
+       "default": 10000,
+       "min": 1,
+       "max": "",
+       "step": 1,
+       "hidden": false
+      },
+      {
+       "label": "ADC1_rd",
+       "friendly_name": "ADC1 Resistor Divider Value",
+       "description": "Select the resistor divider value for this probe port.  Default is 10000 Ohm for temperature probes.",
+       "type": "int",
+       "default": 10000,
+       "min": 1,
+       "max": "",
+       "step": 1,
+       "hidden": false
+      },
+      {
+       "label": "ADC2_rd",
+       "friendly_name": "ADC2 Resistor Divider Value",
+       "description": "Select the resistor divider value for this probe port.  Default is 10000 Ohm for temperature probes.",
+       "type": "int",
+       "default": 10000,
+       "min": 1,
+       "max": "",
+       "step": 1,
+       "hidden": false
+      },
+      {
+       "label": "ADC3_rd",
+       "friendly_name": "ADC3 Resistor Divider Value",
+       "description": "Select the resistor divider value for this probe port.  Default is 10000 Ohm for temperature probes.",
+       "type": "int",
+       "default": 10000,
+       "min": 1,
+       "max": "",
+       "step": 1,
+       "hidden": false
+      },
+      {
+       "label": "voltage_ref",
+       "friendly_name": "Voltage Source Reference",
+       "description": "Select the voltage reference measured at the top of the resistor dividers (from the power supply source).  Default is 3.28V",
+       "type": "float",
+       "default": 3.2,
+       "min": 1,
+       "max": 10,
+       "step": 0.001,
+       "hidden": false
+      },
+      {
+       "label": "transient",
+       "friendly_name": "Transient",
+       "description": "Select whether this device is fixed/always attached (default) or if it is transient/sometimes detached.",
+       "type": "list",
+       "list_values": [
+        "False",
+        "True"
+       ],
+       "list_labels": [
+        "Fixed (always attached)",
+        "Transient (sometimes detached)"
+       ],
+       "default": "False",
+       "hidden": true
+      }
+     ]
+    }
+   },
+   "ads1015": {
+    "friendly_name": "ADS1015",
+    "filename": "ads1x15",
+    "description": "This module supports the ADS1015 12-Bit ADC based on Adafruit's Circuit Python implementation/module.  This version can also be used with the ADS1115, as it is backward compatible.  Some fidelity may be lost due to the fact that the ADC has less bits to measure with, however in testing it seems to be reasonably good.  Use this if you are having issues with the default ADS1115 module.",
+    "default": false,
+    "image": "ads1115.png",
+    "reboot_required": false,
+    "settings_dependencies": {
+     "units": {
+      "friendly_name": "Temp Units",
+      "description": "Select the temperature units to use for PiFire globally.  (this can be modified in settings later)",
+      "options": {
+       "F": "Fahrenheit",
+       "C": "Celsius"
+      },
+      "settings": [
+       "globals",
+       "units"
+      ]
+     }
+    },
+    "device_specific": {
+     "ports": [
+      "ADC0",
+      "ADC1",
+      "ADC2",
+      "ADC3"
+     ],
+     "type": "adc",
+     "config": [
+      {
+       "label": "variant",
+       "friendly_name": "ADC Variant",
+       "description": "ADS1115 (16-bit) or ADS1015 (12-bit).",
+       "type": "list",
+       "list_values": [
+        "ads1015",
+        "ads1115"
+       ],
+       "list_labels": [
+        "ADS1015",
+        "ADS1115"
+       ],
+       "default": "ads1015",
+       "hidden": false
+      },
+      {
+       "label": "i2c_bus_addr",
+       "friendly_name": "I2C Bus Address",
+       "description": "Select the I2C bus address to use for this device.  Default is 0x48.  If you have more than one ADS1115, you can assign unique device bus address for up to four devices.",
+       "type": "list",
+       "list_values": [
+        "0x48",
+        "0x49",
+        "0x4A",
+        "0x4B"
+       ],
+       "list_labels": [
+        "0x48",
+        "0x49",
+        "0x4A",
+        "0x4B"
+       ],
+       "default": "0x48",
+       "hidden": false
+      },
+      {
+       "label": "ADC0_rd",
+       "friendly_name": "ADC0 Resistor Divider Value",
+       "description": "Select the resistor divider value for this probe port.  Default is 10000 Ohm for temperature probes.",
+       "type": "int",
+       "default": 10000,
+       "min": 1,
+       "max": "",
+       "step": 1,
+       "hidden": false
+      },
+      {
+       "label": "ADC1_rd",
+       "friendly_name": "ADC1 Resistor Divider Value",
+       "description": "Select the resistor divider value for this probe port.  Default is 10000 Ohm for temperature probes.",
+       "type": "int",
+       "default": 10000,
+       "min": 1,
+       "max": "",
+       "step": 1,
+       "hidden": false
+      },
+      {
+       "label": "ADC2_rd",
+       "friendly_name": "ADC2 Resistor Divider Value",
+       "description": "Select the resistor divider value for this probe port.  Default is 10000 Ohm for temperature probes.",
+       "type": "int",
+       "default": 10000,
+       "min": 1,
+       "max": "",
+       "step": 1,
+       "hidden": false
+      },
+      {
+       "label": "ADC3_rd",
+       "friendly_name": "ADC3 Resistor Divider Value",
+       "description": "Select the resistor divider value for this probe port.  Default is 10000 Ohm for temperature probes.",
+       "type": "int",
+       "default": 10000,
+       "min": 1,
+       "max": "",
+       "step": 1,
+       "hidden": false
+      },
+      {
+       "label": "voltage_ref",
+       "friendly_name": "Voltage Source Reference",
+       "description": "Select the voltage reference measured at the top of the resistor dividers (from the power supply source).  Default is 3.28V",
+       "type": "float",
+       "default": 3.2,
+       "min": 1,
+       "max": 10,
+       "step": 0.001,
+       "hidden": false
+      },
+      {
+       "label": "transient",
+       "friendly_name": "Transient",
+       "description": "Select whether this device is fixed/always attached (default) or if it is transient/sometimes detached.",
+       "type": "list",
+       "list_values": [
+        "False",
+        "True"
+       ],
+       "list_labels": [
+        "Fixed (always attached)",
+        "Transient (sometimes detached)"
+       ],
+       "default": "False",
+       "hidden": true
+      }
+     ]
+    }
+   },
+   "max31865": {
+    "friendly_name": "MAX31865 RTD",
+    "filename": "max31865",
+    "description": "This SPI device reads RTD style probes, such as the Traeger PT100(PT1000) RTD probe.  Note that special care may need to be taken if this is used with another SPI device (i.e. SPI Display) on the system.",
+    "default": false,
+    "image": "max31865.png",
+    "reboot_required": false,
+    "settings_dependencies": {
+     "units": {
+      "friendly_name": "Temp Units",
+      "description": "Select the temperature units to use for PiFire globally.  (this can be modified in settings later)",
+      "options": {
+       "F": "Fahrenheit",
+       "C": "Celsius"
+      },
+      "settings": [
+       "globals",
+       "units"
+      ]
+     }
+    },
+    "device_specific": {
+     "ports": [
+      "RTD0"
+     ],
+     "type": "rtd",
+     "config": [
+      {
+       "label": "cs",
+       "friendly_name": "SPI Chip Select (CS)",
+       "description": "SPI Chip Select (CS/CEx) channel used for device.  This module supports CE0 and CE1 only.",
+       "type": "list",
+       "list_values": [
+        "1",
+        "0"
+       ],
+       "list_labels": [
+        "CE1",
+        "CE0"
+       ],
+       "default": "1",
+       "hidden": false
+      },
+      {
+       "label": "rtd_nominal",
+       "friendly_name": "RTD Nominal",
+       "description": "RTD Nominal Resistance Value in Ohms. Default 1000 Ohms.",
+       "type": "int",
+       "default": 1000,
+       "min": 1,
+       "max": 10000,
+       "step": 1,
+       "hidden": false
+      },
+      {
+       "label": "ref_resistor",
+       "friendly_name": "Reference Resistor",
+       "description": "Reference Resistor Value in Ohms. Default 4300 Ohms. (Typical options: 4300, 430)",
+       "type": "int",
+       "default": 4300,
+       "min": 1,
+       "max": 10000,
+       "step": 1,
+       "hidden": false
+      },
+      {
+       "label": "wires",
+       "friendly_name": "RTD Wires",
+       "description": "Number of RTD wires used for input.  Default 2",
+       "type": "list",
+       "list_values": [
+        "2",
+        "3",
+        "4"
+       ],
+       "list_labels": [
+        "2 Wires",
+        "3 Wires",
+        "4 Wires"
+       ],
+       "default": "2",
+       "hidden": false
+      },
+      {
+       "label": "transient",
+       "friendly_name": "Transient",
+       "description": "Select whether this device is fixed/always attached (default) or if it is transient/sometimes detached.",
+       "type": "list",
+       "list_values": [
+        "False",
+        "True"
+       ],
+       "list_labels": [
+        "Fixed (always attached)",
+        "Transient (sometimes detached)"
+       ],
+       "default": "False",
+       "hidden": true
+      }
+     ]
+    }
+   },
+   "mcp9600": {
+    "friendly_name": "MCP9600 Thermocouple Amplifier",
+    "filename": "mcp9600",
+    "description": "This I2C device reads K-Type thermocouples / probes. Moreover the MCP9600 can interface with just about any thermocouple type: K, J, T, N, S, E, B and R type are all supported.  This version uses the Adafruit CircuitPython modules.  Note that this device can be intolerant of higher i2c bus speeds, so you may need to reduce the i2c bus speed manually.",
+    "default": false,
+    "image": "mcp9600.png",
+    "reboot_required": false,
+    "settings_dependencies": {
+     "units": {
+      "friendly_name": "Temp Units",
+      "description": "Select the temperature units to use for PiFire globally.  (this can be modified in settings later)",
+      "options": {
+       "F": "Fahrenheit",
+       "C": "Celsius"
+      },
+      "settings": [
+       "globals",
+       "units"
+      ]
+     }
+    },
+    "device_specific": {
+     "ports": [
+      "KTT0"
+     ],
+     "type": "thermocouple",
+     "config": [
+      {
+       "label": "i2c_bus_addr",
+       "friendly_name": "I2C Bus Address",
+       "description": "Select the I2C bus address to use for this device.  Default is 0x67.  If you have more than one MCP9600, you can assign unique device bus address for up to five devices.",
+       "type": "list",
+       "list_values": [
+        "0x67",
+        "0x66",
+        "0x65",
+        "0x64",
+        "0x60"
+       ],
+       "list_labels": [
+        "0x67",
+        "0x66",
+        "0x65",
+        "0x64",
+        "0x60"
+       ],
+       "default": "0x67",
+       "hidden": false
+      },
+      {
+       "label": "transient",
+       "friendly_name": "Transient",
+       "description": "Select whether this device is fixed/always attached (default) or if it is transient/sometimes detached.",
+       "type": "list",
+       "list_values": [
+        "False",
+        "True"
+       ],
+       "list_labels": [
+        "Fixed (always attached)",
+        "Transient (sometimes detached)"
+       ],
+       "default": "False",
+       "hidden": true
+      }
+     ]
+    }
+   },
+   "ibbq4": {
+    "friendly_name": "BT iBBQ / Inkbird BT (4 Probes)",
+    "filename": "ibbq",
+    "description": "This device module supports Bluetooth LE iBBQ devices such as the Inkbird IBT-4XS four probe thermometer.  Note that the device can take up to a minute to be discovered and to start streaming data once turned on.  This has only been tested with the Inkbird IBT-4XS, but it may also work with other iBBQ models.  This module is still experimental, so feedback is welcome.",
+    "default": false,
+    "image": "bt_ibbq.png",
+    "reboot_required": false,
+    "settings_dependencies": {
+     "units": {
+      "friendly_name": "Temp Units",
+      "description": "Select the temperature units to use for PiFire globally.  (This can be modified in settings later)",
+      "options": {
+       "F": "Fahrenheit",
+       "C": "Celsius"
+      },
+      "settings": [
+       "globals",
+       "units"
+      ]
+     }
+    },
+    "device_specific": {
+     "ports": [
+      "BT0",
+      "BT1",
+      "BT2",
+      "BT3"
+     ],
+     "type": "bluetooth",
+     "config": [
+      {
+       "label": "hardware_id",
+       "friendly_name": "Hardware ID",
+       "description": "This is the unique Hardware ID or Address of the peripheral (format: xx:xx:xx:xx:xx:xx).  This should be discovered during scanning.",
+       "type": "bt_address",
+       "default": "",
+       "hidden": false
+      },
+      {
+       "label": "transient",
+       "friendly_name": "Transient",
+       "description": "Select whether this device is fixed/always attached (default) or if it is transient/sometimes detached.",
+       "type": "list",
+       "list_values": [
+        "True",
+        "False"
+       ],
+       "list_labels": [
+        "Transient (sometimes detached)",
+        "Fixed (always attached)"
+       ],
+       "default": "True",
+       "hidden": true
+      },
+      {
+       "label": "num_probes",
+       "friendly_name": "Number of Probes",
+       "description": "Select the number of probes for this device.",
+       "type": "int",
+       "min": 2,
+       "max": 4,
+       "step": 1,
+       "default": 4,
+       "hidden": true
+      }
+     ]
+    }
+   },
+   "ibbq6": {
+    "friendly_name": "BT iBBQ / Inkbird BT (6 Probes)",
+    "filename": "ibbq",
+    "description": "This device module supports Bluetooth LE iBBQ devices such as the Inkbird IBT-6XS six probe thermometer.  Note that the device can take up to a minute to be discovered and to start streaming data once turned on.  This has only been tested with the Inkbird IBT-6XS, but it may also work with other iBBQ models.  This module is still experimental, so feedback is welcome.",
+    "default": false,
+    "image": "bt_ibt6xs.png",
+    "reboot_required": false,
+    "settings_dependencies": {
+     "units": {
+      "friendly_name": "Temp Units",
+      "description": "Select the temperature units to use for PiFire globally.  (This can be modified in settings later)",
+      "options": {
+       "F": "Fahrenheit",
+       "C": "Celsius"
+      },
+      "settings": [
+       "globals",
+       "units"
+      ]
+     }
+    },
+    "device_specific": {
+     "ports": [
+      "BT0",
+      "BT1",
+      "BT2",
+      "BT3",
+      "BT4",
+      "BT5"
+     ],
+     "type": "bluetooth",
+     "config": [
+      {
+       "label": "hardware_id",
+       "friendly_name": "Hardware ID",
+       "description": "This is the unique Hardware ID or Address of the peripheral (format: xx:xx:xx:xx:xx:xx).  This should be discovered during scanning.",
+       "type": "bt_address",
+       "default": "",
+       "hidden": false
+      },
+      {
+       "label": "transient",
+       "friendly_name": "Transient",
+       "description": "Select whether this device is fixed/always attached (default) or if it is transient/sometimes detached.",
+       "type": "list",
+       "list_values": [
+        "True",
+        "False"
+       ],
+       "list_labels": [
+        "Transient (sometimes detached)",
+        "Fixed (always attached)"
+       ],
+       "default": "True",
+       "hidden": true
+      },
+      {
+       "label": "num_probes",
+       "friendly_name": "Number of Probes",
+       "description": "Select the number of probes for this device.",
+       "type": "int",
+       "min": 2,
+       "max": 6,
+       "step": 1,
+       "default": 6,
+       "hidden": true
+      }
+     ]
+    }
+   },
+   "meater": {
+    "friendly_name": "BT Meater",
+    "filename": "meater",
+    "description": "This device module supports Bluetooth LE Meater probe thermometer devices (Original Meater and Meater Plus supported).  At this time the Meater Pro (Meater 2 Plus) devices are not supported. ",
+    "default": false,
+    "image": "bt_meater.png",
+    "reboot_required": false,
+    "settings_dependencies": {
+     "units": {
+      "friendly_name": "Temp Units",
+      "description": "Select the temperature units to use for PiFire globally.  (This can be modified in settings later)",
+      "options": {
+       "F": "Fahrenheit",
+       "C": "Celsius"
+      },
+      "settings": [
+       "globals",
+       "units"
+      ]
+     }
+    },
+    "device_specific": {
+     "ports": [
+      "BT_Tip",
+      "BT_Ambient"
+     ],
+     "type": "bluetooth",
+     "config": [
+      {
+       "label": "hardware_id",
+       "friendly_name": "Hardware ID",
+       "description": "This is the unique Hardware ID or Address of the peripheral (format: xx:xx:xx:xx:xx:xx).  This should be discovered during scanning.",
+       "type": "bt_address",
+       "default": "",
+       "hidden": false
+      },
+      {
+       "label": "transient",
+       "friendly_name": "Transient",
+       "description": "Select whether this device is fixed/always attached (default) or if it is transient/sometimes detached.",
+       "type": "list",
+       "list_values": [
+        "True",
+        "False"
+       ],
+       "list_labels": [
+        "Transient (sometimes detached)",
+        "Fixed (always attached)"
+       ],
+       "default": "True",
+       "hidden": true
+      }
+     ]
+    }
+   },
+   "sim": {
+    "friendly_name": "Simulator",
+    "filename": "sim",
+    "description": "This is the test module for probe input.  It should only be used for testing & debug.",
+    "default": false,
+    "image": "prototype.png",
+    "reboot_required": false,
+    "settings_dependencies": {
+     "units": {
+      "friendly_name": "Temp Units",
+      "description": "Select the temperature units to use for PiFire globally.  (This can be modified in settings later)",
+      "options": {
+       "F": "Fahrenheit",
+       "C": "Celsius"
+      },
+      "settings": [
+       "globals",
+       "units"
+      ]
+     }
+    },
+    "device_specific": {
+     "ports": [
+      "ADC0",
+      "ADC1",
+      "ADC2",
+      "ADC3"
+     ],
+     "type": "adc",
+     "config": [
+      {
+       "label": "i2c_bus_addr",
+       "friendly_name": "I2C Bus Address",
+       "description": "Select the I2C bus address to use for this device.  Default is 0x48.  If you have more than one ADS1115, you can assign unique device bus address for up to four devices.",
+       "type": "list",
+       "list_values": [
+        "0x48",
+        "0x49",
+        "0x4A",
+        "0x4B"
+       ],
+       "list_labels": [
+        "0x48",
+        "0x49",
+        "0x4A",
+        "0x4B"
+       ],
+       "default": "0x48",
+       "hidden": false
+      },
+      {
+       "label": "ADC0_rd",
+       "friendly_name": "ADC0 Resistor Divider Value",
+       "description": "Select the resistor divider value for this probe port.  Default is 10000 Ohm for temperature probes.",
+       "type": "int",
+       "default": 10000,
+       "min": 1,
+       "max": "",
+       "step": 1,
+       "hidden": false
+      },
+      {
+       "label": "ADC1_rd",
+       "friendly_name": "ADC1 Resistor Divider Value",
+       "description": "Select the resistor divider value for this probe port.  Default is 10000 Ohm for temperature probes.",
+       "type": "int",
+       "default": 10000,
+       "min": 1,
+       "max": "",
+       "step": 1,
+       "hidden": false
+      },
+      {
+       "label": "ADC2_rd",
+       "friendly_name": "ADC2 Resistor Divider Value",
+       "description": "Select the resistor divider value for this probe port.  Default is 10000 Ohm for temperature probes.",
+       "type": "int",
+       "default": 10000,
+       "min": 1,
+       "max": "",
+       "step": 1,
+       "hidden": false
+      },
+      {
+       "label": "ADC3_rd",
+       "friendly_name": "ADC3 Resistor Divider Value",
+       "description": "Select the resistor divider value for this probe port.  Default is 10000 Ohm for temperature probes.",
+       "type": "int",
+       "default": 10000,
+       "min": 1,
+       "max": "",
+       "step": 1,
+       "hidden": false
+      },
+      {
+       "label": "voltage_ref",
+       "friendly_name": "Voltage Source Reference",
+       "description": "Select the voltage reference measured at the top of the resistor dividers (from the power supply source).  Default is 3.28V",
+       "type": "float",
+       "default": 3.2,
+       "min": 1,
+       "max": 10,
+       "step": 0.001,
+       "hidden": false
+      },
+      {
+       "label": "transient",
+       "friendly_name": "Transient",
+       "description": "Select whether this device is fixed/always attached (default) or if it is transient/sometimes detached.",
+       "type": "list",
+       "list_values": [
+        "False",
+        "True"
+       ],
+       "list_labels": [
+        "Fixed (always attached)",
+        "Transient (sometimes detached)"
+       ],
+       "default": "False",
+       "hidden": false
+      }
+     ]
+    }
+   },
+   "ds18b20": {
+    "friendly_name": "DS18B20 1-Wire Digital Thermometer",
+    "filename": "ds18b20",
+    "description": "The DS18B20 digital thermometer provides Celsius temperature measurements over a 1-wire communication bus.  This module is currently experimental, but may be useful for calibrating probe profiles for other probes as itself has been factory calibrated.",
+    "default": false,
+    "image": "ds18b20.png",
+    "reboot_required": true,
+    "settings_dependencies": {
+     "units": {
+      "friendly_name": "Temp Units",
+      "description": "Select the temperature units to use for PiFire globally.  (this can be modified in settings later)",
+      "options": {
+       "F": "Fahrenheit",
+       "C": "Celsius"
+      },
+      "settings": [
+       "globals",
+       "units"
+      ]
+     }
+    },
+    "device_specific": {
+     "ports": [
+      "DS0"
+     ],
+     "type": "1wire",
+     "config": [
+      {
+       "label": "transient",
+       "friendly_name": "Transient",
+       "description": "Select whether this device is fixed/always attached (default) or if it is transient/sometimes detached.",
+       "type": "list",
+       "list_values": [
+        "False",
+        "True"
+       ],
+       "list_labels": [
+        "Fixed (always attached)",
+        "Transient (sometimes detached)"
+       ],
+       "default": "True",
+       "hidden": false
+      }
+     ]
+    }
+   },
+   "virtual_average": {
+    "friendly_name": "Virtual Probes - Average",
+    "filename": "virtual",
+    "description": "This is a virtual probe module that will average specific ports on real devices.",
+    "default": false,
+    "image": "virtual_probe.png",
+    "reboot_required": false,
+    "settings_dependencies": {
+     "units": {
+      "friendly_name": "Temp Units",
+      "description": "Select the temperature units to use for PiFire globally.  (This can be modified in settings later)",
+      "options": {
+       "F": "Fahrenheit",
+       "C": "Celsius"
+      },
+      "settings": [
+       "globals",
+       "units"
+      ]
+     }
+    },
+    "device_specific": {
+     "ports": [
+      "VIRT0"
+     ],
+     "type": "virtual",
+     "config": [
+      {
+       "label": "mode",
+       "friendly_name": "Virtual Mode",
+       "description": "How the listed probes are combined.",
+       "type": "list",
+       "list_values": [
+        "average",
+        "highest",
+        "lowest",
+        "median"
+       ],
+       "list_labels": [
+        "Average",
+        "Highest",
+        "Lowest",
+        "Median"
+       ],
+       "default": "average",
+       "hidden": true
+      },
+      {
+       "label": "probes_list",
+       "friendly_name": "Average Probes",
+       "description": "A list of probes from other devices, to average. Select which probes should be averaged together with ctrl+click.",
+       "type": "probes_list",
+       "hidden": false
+      },
+      {
+       "label": "transient",
+       "friendly_name": "Transient",
+       "description": "Select whether this device is fixed/always attached (default) or if it is transient/sometimes detached.",
+       "type": "list",
+       "list_values": [
+        "False",
+        "True"
+       ],
+       "list_labels": [
+        "Fixed (always attached)",
+        "Transient (sometimes detached)"
+       ],
+       "default": "False",
+       "hidden": true
+      }
+     ]
+    }
+   },
+   "virtual_highest": {
+    "friendly_name": "Virtual Probes - Highest",
+    "filename": "virtual",
+    "description": "This is a virtual probe module that will return the highest value from specific ports on real devices.",
+    "default": false,
+    "image": "virtual_probe.png",
+    "reboot_required": false,
+    "settings_dependencies": {
+     "units": {
+      "friendly_name": "Temp Units",
+      "description": "Select the temperature units to use for PiFire globally.  (This can be modified in settings later)",
+      "options": {
+       "F": "Fahrenheit",
+       "C": "Celsius"
+      },
+      "settings": [
+       "globals",
+       "units"
+      ]
+     }
+    },
+    "device_specific": {
+     "ports": [
+      "VIRT0"
+     ],
+     "type": "virtual",
+     "config": [
+      {
+       "label": "mode",
+       "friendly_name": "Virtual Mode",
+       "description": "How the listed probes are combined.",
+       "type": "list",
+       "list_values": [
+        "average",
+        "highest",
+        "lowest",
+        "median"
+       ],
+       "list_labels": [
+        "Average",
+        "Highest",
+        "Lowest",
+        "Median"
+       ],
+       "default": "highest",
+       "hidden": true
+      },
+      {
+       "label": "probes_list",
+       "friendly_name": "Use Probes",
+       "description": "A list of probes from other devices, to determine the highest value. Select which probes should used with ctrl+click.",
+       "type": "probes_list",
+       "hidden": false
+      },
+      {
+       "label": "transient",
+       "friendly_name": "Transient",
+       "description": "Select whether this device is fixed/always attached (default) or if it is transient/sometimes detached.",
+       "type": "list",
+       "list_values": [
+        "False",
+        "True"
+       ],
+       "list_labels": [
+        "Fixed (always attached)",
+        "Transient (sometimes detached)"
+       ],
+       "default": "False",
+       "hidden": true
+      }
+     ]
+    }
+   },
+   "virtual_lowest": {
+    "friendly_name": "Virtual Probes - Lowest",
+    "filename": "virtual",
+    "description": "This is a virtual probe module that will return the lowest value from specific ports on real devices.",
+    "default": false,
+    "image": "virtual_probe.png",
+    "reboot_required": false,
+    "settings_dependencies": {
+     "units": {
+      "friendly_name": "Temp Units",
+      "description": "Select the temperature units to use for PiFire globally.  (This can be modified in settings later)",
+      "options": {
+       "F": "Fahrenheit",
+       "C": "Celsius"
+      },
+      "settings": [
+       "globals",
+       "units"
+      ]
+     }
+    },
+    "device_specific": {
+     "ports": [
+      "VIRT0"
+     ],
+     "type": "virtual",
+     "config": [
+      {
+       "label": "mode",
+       "friendly_name": "Virtual Mode",
+       "description": "How the listed probes are combined.",
+       "type": "list",
+       "list_values": [
+        "average",
+        "highest",
+        "lowest",
+        "median"
+       ],
+       "list_labels": [
+        "Average",
+        "Highest",
+        "Lowest",
+        "Median"
+       ],
+       "default": "lowest",
+       "hidden": true
+      },
+      {
+       "label": "probes_list",
+       "friendly_name": "Use Probes",
+       "description": "A list of probes from other devices, to determine the lowest value. Select which probes should used with ctrl+click.",
+       "type": "probes_list",
+       "hidden": false
+      },
+      {
+       "label": "transient",
+       "friendly_name": "Transient",
+       "description": "Select whether this device is fixed/always attached (default) or if it is transient/sometimes detached.",
+       "type": "list",
+       "list_values": [
+        "False",
+        "True"
+       ],
+       "list_labels": [
+        "Fixed (always attached)",
+        "Transient (sometimes detached)"
+       ],
+       "default": "False",
+       "hidden": true
+      }
+     ]
+    }
+   },
+   "virtual_median": {
+    "friendly_name": "Virtual Probes - Median",
+    "filename": "virtual",
+    "description": "This is a virtual probe module that will return the median value from specific ports on real devices.",
+    "default": false,
+    "image": "virtual_probe.png",
+    "reboot_required": false,
+    "settings_dependencies": {
+     "units": {
+      "friendly_name": "Temp Units",
+      "description": "Select the temperature units to use for PiFire globally.  (This can be modified in settings later)",
+      "options": {
+       "F": "Fahrenheit",
+       "C": "Celsius"
+      },
+      "settings": [
+       "globals",
+       "units"
+      ]
+     }
+    },
+    "device_specific": {
+     "ports": [
+      "VIRT0"
+     ],
+     "type": "virtual",
+     "config": [
+      {
+       "label": "mode",
+       "friendly_name": "Virtual Mode",
+       "description": "How the listed probes are combined.",
+       "type": "list",
+       "list_values": [
+        "average",
+        "highest",
+        "lowest",
+        "median"
+       ],
+       "list_labels": [
+        "Average",
+        "Highest",
+        "Lowest",
+        "Median"
+       ],
+       "default": "median",
+       "hidden": true
+      },
+      {
+       "label": "probes_list",
+       "friendly_name": "Use Probes",
+       "description": "A list of probes from other devices, to determine the median value. Select which probes should used with ctrl+click.",
+       "type": "probes_list",
+       "hidden": false
+      },
+      {
+       "label": "transient",
+       "friendly_name": "Transient",
+       "description": "Select whether this device is fixed/always attached (default) or if it is transient/sometimes detached.",
+       "type": "list",
+       "list_values": [
+        "False",
+        "True"
+       ],
+       "list_labels": [
+        "Fixed (always attached)",
+        "Transient (sometimes detached)"
+       ],
+       "default": "False",
+       "hidden": true
+      }
+     ]
+    }
+   }
+  },
+  "display": {
+   "none": {
+    "friendly_name": "None",
+    "filename": "none",
+    "description": "This is for systems without a display.  This module should be selected if no display is present.",
+    "default": true,
+    "image": "none.png",
+    "reboot_required": false,
+    "settings_dependencies": {},
+    "config": []
+   }
+  },
+  "distance": {
+   "none": {
+    "friendly_name": "None",
+    "filename": "none",
+    "description": "This module should be chosen if there is no distance sensor hardware installed.",
+    "default": true,
+    "image": "none.png",
+    "reboot_required": false,
+    "settings_dependencies": {}
+   },
+   "hcsr04": {
+    "friendly_name": "HCSR04 Ultrasonic Distance Sensor",
+    "filename": "hcsr04",
+    "description": "This economical sensor provides 2cm to 400cm of non-contact measurement functionality with a ranging accuracy that can reach up to 3mm.",
+    "default": false,
+    "image": "hcsr04.png",
+    "reboot_required": false,
+    "settings_dependencies": {}
+   },
+   "vl53l0x": {
+    "friendly_name": "VL53L0X Time of Flight Distance Sensor",
+    "filename": "vl53l0x",
+    "description": "The VL53L0X is a new generation Time-of-Flight (ToF) laser-ranging module and is the hopper sensor of choice for the PiFire project.",
+    "default": false,
+    "image": "vl53l0x.png",
+    "reboot_required": false,
+    "settings_dependencies": {}
+   }
+  }
+ }
+}

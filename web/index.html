@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#111214">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>PiFire</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="stylesheet" href="/uPlot.min.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="dot" id="conn-dot" title="connection"></span><span id="grill-name">PiFire</span></div>
+  <div class="topbar-right"><span class="pill pill-mode" id="mode-pill">—</span></div>
+</header>
+
+<div id="banner" class="banner" hidden></div>
+
+<main id="view" class="view"></main>
+
+<nav class="tabbar" aria-label="Main">
+  <a href="#/home" data-tab="home"><svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Home</span></a>
+  <a href="#/history" data-tab="history"><svg viewBox="0 0 24 24"><path d="M3 17l5-6 4 4 5-8 4 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>History</span></a>
+  <a href="#/cook" data-tab="cook"><svg viewBox="0 0 24 24"><path d="M12 2a5 5 0 0 1 5 5v7a5 5 0 1 1-10 0V7a5 5 0 0 1 5-5zm0 3a2 2 0 0 0-2 2v6.2a3 3 0 1 0 4 0V7a2 2 0 0 0-2-2z"/></svg><span>Cook</span></a>
+  <a href="#/settings" data-tab="settings"><svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm8.9 5.3.1-1.3-.1-1.3 2-1.6-2-3.4-2.4.9a8 8 0 0 0-2.2-1.3L15.9 2h-3.8l-.4 2.3a8 8 0 0 0-2.2 1.3L7 4.7 5 8.1l2 1.6L6.9 11l.1 1.3-2 1.6 2 3.4 2.4-.9a8 8 0 0 0 2.2 1.3l.4 2.3h3.8l.4-2.3a8 8 0 0 0 2.2-1.3l2.4.9 2-3.4z"/></svg><span>Settings</span></a>
+  <a href="#/more" data-tab="more"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg><span>More</span></a>
+</nav>
+
+<dialog id="dlg" class="dialog"></dialog>
+<div id="toast" class="toast" hidden></div>
+
+<script src="/uPlot.iife.min.js" defer></script>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

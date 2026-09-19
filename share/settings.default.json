@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "globals": {
+    "grill_name": "",
+    "units": "F",
+    "debug_mode": false,
+    "theme": "dark",
+    "augerrate": 0.3,
+    "first_time_setup": true,
+    "prime_ignition": false,
+    "boot_to_monitor": false
+  },
+  "platform": {
+    "current": "custom",
+    "system_type": "sim",
+    "real_hw": false,
+    "standalone": true,
+    "triggerlevel": "LOW",
+    "buttonslevel": "HIGH",
+    "dc_fan": false,
+    "gpiochip": "/dev/gpiochip0",
+    "outputs": { "auger": 14, "dc_fan": 26, "fan": 15, "igniter": 18, "power": 4, "pwm": 13 },
+    "inputs": { "selector": null, "shutdown": null },
+    "devices": {
+      "display": { "dc": 24, "led": 5, "rst": 25 },
+      "distance": { "echo": 27, "trig": 23 },
+      "input": { "down_dt": 20, "enter_sw": 21, "up_clk": 16 }
+    },
+    "system": { "SPI0": { "CE0": 8, "CE1": 7 }, "1WIRE": null }
+  },
+  "modules": { "grillplat": "sim", "display": "none", "dist": "none" },
+  "cycle_data": {
+    "HoldCycleTime": 25,
+    "SmokeOnCycleTime": 15,
+    "SmokeOffCycleTime": 45,
+    "PMode": 2,
+    "u_min": 0.1,
+    "u_max": 0.9,
+    "LidOpenDetectEnabled": false,
+    "LidOpenThreshold": 15,
+    "LidOpenPauseTime": 60,
+    "FanPidEnabled": false
+  },
+  "controller": { "selected": "pid", "config": {} },
+  "safety": {
+    "minstartuptemp": 75,
+    "maxstartuptemp": 100,
+    "maxtemp": 550,
+    "reigniteretries": 1,
+    "startup_check": true,
+    "allow_manual_changes": false,
+    "manual_override_time": 30,
+    "igniter_max_on_s": 1200,
+    "auger_max_on_s": 60,
+    "probe_fault_s": 10,
+    "error_cooldown_fan_s": 300,
+    "restart_hot_temp": 150,
+    "coldstart": { "enabled": false, "delta_rise": 12, "timeout_s": 0, "baseline_window_s": 60 }
+  },
+  "startup": {
+    "duration": 240,
+    "prime_on_startup": 0,
+    "startup_exit_temp": 0,
+    "start_to_mode": { "after_startup_mode": "Smoke", "primary_setpoint": 165, "start_to_hold_prompt": false },
+    "smartstart": {
+      "enabled": false,
+      "exit_temp": 120,
+      "temp_range_list": [60, 80, 90],
+      "profiles": [
+        { "startuptime": 360, "augerontime": 15, "p_mode": 0 },
+        { "startuptime": 360, "augerontime": 15, "p_mode": 1 },
+        { "startuptime": 240, "augerontime": 15, "p_mode": 3 },
+        { "startuptime": 240, "augerontime": 15, "p_mode": 5 }
+      ]
+    },
+    "pwm_duty_cycle": 100
+  },
+  "shutdown": { "shutdown_duration": 240, "auto_power_off": false },
+  "keep_warm": { "temp": 165, "s_plus": false },
+  "smoke_plus": {
+    "enabled": false,
+    "min_temp": 160,
+    "max_temp": 220,
+    "on_time": 5,
+    "off_time": 5,
+    "duty_cycle": 75,
+    "fan_ramp": false
+  },
+  "pwm": {
+    "pwm_control": false,
+    "update_time": 10,
+    "frequency": 25000,
+    "min_duty_cycle": 20,
+    "max_duty_cycle": 100,
+    "temp_range_list": [3, 7, 10, 15],
+    "profiles": [ { "duty_cycle": 20 }, { "duty_cycle": 35 }, { "duty_cycle": 50 }, { "duty_cycle": 75 }, { "duty_cycle": 100 } ]
+  },
+  "pelletlevel": { "warning_enabled": true, "warning_level": 25, "warning_time": 20, "empty": 22, "full": 4 },
+  "probe_settings": {
+    "probe_profiles": {
+      "ET73-HM":        { "id": "ET73-HM",        "name": "ET-73-Heatermeter",               "A": 0.00024723753,       "B": 0.00023402251,        "C": 1.3879768e-07 },
+      "ET73-SP":        { "id": "ET73-SP",        "name": "ET-73-skyeperry1",                "A": 0.00023067434,       "B": 0.00023696596,        "C": 1.2636414e-07 },
+      "PT-1000-OEM":    { "id": "PT-1000-OEM",    "name": "PT-1000-Grill-Probe-OEM",         "A": 0.04136906456,       "B": -0.00677987613,       "C": 2.760294589e-05 },
+      "PT-1000-PiFire": { "id": "PT-1000-PiFire", "name": "PT-1000-Grill-Probe-PiFire",      "A": 0.05469905897345206, "B": -0.009473055040089443, "C": 4.3768560703857386e-05 },
+      "TWPS00":         { "id": "TWPS00",         "name": "Thermoworks-Pro-Series-HeaterMeter", "A": 0.00073431401,    "B": 0.0002157437,         "C": 9.515686e-08 },
+      "iGrill-HM":      { "id": "iGrill-HM",      "name": "iGrill-Heatermeter",              "A": 0.0007739251279,     "B": 0.0002088025997,      "C": 1.154400438e-07 },
+      "PT-1000-OEM-2023": { "id": "PT-1000-OEM-2023", "name": "PT-1000-OEM-2023",           "A": 0.08349559509913372, "B": -0.015417214989461945, "C": 8.10020549005308e-05 },
+      "PT-1000-Ideal":  { "id": "PT-1000-Ideal",  "name": "PT-1000-Ideal",                   "A": 0.05966017913127897, "B": -0.01048654943772497,  "C": 4.987389532180097e-05 }
+    },
+    "probe_map": {
+      "probe_devices": [
+        {
+          "device": "sim_adc",
+          "module": "sim",
+          "ports": ["ADC0", "ADC1", "ADC2", "ADC3"],
+          "config": { "ADC0_rd": 10000, "ADC1_rd": 10000, "ADC2_rd": 10000, "ADC3_rd": 10000, "i2c_bus_addr": "0x48", "voltage_ref": 3.28, "transient": false }
+        }
+      ],
+      "probe_info": [
+        { "type": "Primary", "label": "Grill",  "name": "Grill",   "profile": "PT-1000-Ideal", "device": "sim_adc", "port": "ADC0", "enabled": true },
+        { "type": "Food",    "label": "Probe1", "name": "Probe-1", "profile": "TWPS00",        "device": "sim_adc", "port": "ADC1", "enabled": true },
+        { "type": "Food",    "label": "Probe2", "name": "Probe-2", "profile": "TWPS00",        "device": "sim_adc", "port": "ADC2", "enabled": true },
+        { "type": "Food",    "label": "Probe3", "name": "Probe-3", "profile": "TWPS00",        "device": "sim_adc", "port": "ADC3", "enabled": true }
+      ]
+    }
+  },
+  "notify": {
+    "mqtt": {
+      "enabled": false,
+      "broker": "homeassistant.local",
+      "port": 1883,
+      "username": "",
+      "password": "",
+      "id": "PiFire",
+      "homeassistant_autodiscovery_topic": "homeassistant",
+      "update_sec": 30
+    },
+    "webhook": { "enabled": false, "url": "", "events": ["*"] }
+  },
+  "network": {
+    "hotspot_ssid": "",
+    "hotspot_password": "pifire1234",
+    "force_setup": false,
+    "setup_timeout_s": 45
+  },
+  "history": { "minutes": 15, "clear_on_startup": true, "retention_hours": 48, "sample_s": 3 },
+  "web": { "port": 80, "bind": "0.0.0.0" }
+}

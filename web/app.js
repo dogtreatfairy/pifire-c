@@ -1,0 +1,184 @@
+// PiFire UI core: API client, live status over WebSocket, router, shared widgets.
+import { renderHome } from './pages/home.js';
+import { renderHistory } from './pages/history.js';
+import { renderCook } from './pages/cook.js';
+import { renderSettings } from './pages/settings.js';
+import { renderMore } from './pages/more.js';
+
+export const PF = {
+  status: null,
+  settings: null,
+  units: 'F',
+  listeners: new Set(),
+  connected: false,
+};
+
+// ---------- API ----------
+export async function api(path, opts = {}) {
+  const r = await fetch('/api/v1' + path, {
+    method: opts.method || (opts.body ? 'POST' : 'GET'),
+    headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.message || `HTTP ${r.status}`);
+  return j;
+}
+export const cmd = (c) => api('/cmd', { body: c }).catch((e) => toast(e.message, true));
+export const patchSettings = async (group, obj) => {
+  await api('/settings' + (group ? '/' + group.replace(/\./g, '/') : ''), { method: 'PATCH', body: obj });
+  PF.settings = await api('/settings');
+  applyTheme();
+};
+
+// ---------- units / formatting ----------
+export const fmtTemp = (v, d = 0) => (v == null || Number.isNaN(v) ? '—' : Number(v).toFixed(d));
+export const degUnit = () => (PF.units === 'C' ? '°C' : '°F');
+export const fmtDur = (s) => {
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`;
+};
+export const fmtTime = (ts) => new Date(ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+// ---------- live status ----------
+let ws, wsTimer;
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen = () => { setConnected(true); };
+  ws.onclose = () => { setConnected(false); clearTimeout(wsTimer); wsTimer = setTimeout(connect, 2000); };
+  ws.onerror = () => ws.close();
+  ws.onmessage = (ev) => {
+    const m = JSON.parse(ev.data);
+    if (m.type === 'status') { PF.status = m; PF.units = m.units; emit(); }
+    else if (m.type === 'error') toast(m.msg, true);
+  };
+}
+function setConnected(on) {
+  PF.connected = on;
+  document.getElementById('conn-dot').classList.toggle('on', on);
+  emit();
+}
+function emit() { for (const fn of PF.listeners) fn(PF.status); }
+export function onStatus(fn) { PF.listeners.add(fn); return () => PF.listeners.delete(fn); }
+
+// ---------- widgets ----------
+const SVG_TAGS = new Set(['svg', 'path', 'circle', 'line', 'text', 'g']);
+export function el(tag, attrs = {}, ...children) {
+  const e = SVG_TAGS.has(tag) ? document.createElementNS('http://www.w3.org/2000/svg', tag) : document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') e.setAttribute('class', v);
+    else if (k === 'html') e.innerHTML = v;
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) e.setAttribute(k, v === true ? '' : v);
+  }
+  for (const c of children.flat()) if (c != null) e.append(c.nodeType ? c : document.createTextNode(String(c)));
+  return e;
+}
+export function toast(msg, err = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.hidden = false; t.classList.toggle('err', err);
+  clearTimeout(t._h); t._h = setTimeout(() => (t.hidden = true), err ? 4000 : 2000);
+}
+export function dialog(build) {
+  const d = document.getElementById('dlg');
+  d.innerHTML = '';
+  const close = (v) => { d.close(); d._resolve?.(v); };
+  return new Promise((resolve) => {
+    d._resolve = resolve;
+    d.append(build(close));
+    // the close event is queued asynchronously; ignore one that belongs to a previous dialog
+    // when a new one has already been opened in its place
+    d.onclose = () => { if (!d.open) d._resolve?.(undefined); };
+    d.onclick = (e) => { if (e.target === d) close(undefined); };
+    d.showModal();
+  });
+}
+export function confirmDialog(title, text, okLabel = 'Confirm', danger = false) {
+  return dialog((close) => el('div', {},
+    el('h3', {}, title), el('p', { class: 'muted' }, text),
+    el('div', { class: 'btnrow' },
+      el('button', { class: 'btn ghost', type: 'button', onclick: () => close(false) }, 'Cancel'),
+      el('button', { class: 'btn ' + (danger ? 'danger' : 'primary'), type: 'button', onclick: () => close(true) }, okLabel))));
+}
+export function numberDialog(title, value, { min = 0, max = 600, step = 5, presets = [], unit = degUnit() } = {}) {
+  return dialog((close) => {
+    const inp = el('input', { type: 'text', inputmode: 'decimal', value, 'aria-label': title, enterkeyhint: 'done' });
+    const form = el('form', { method: 'dialog', onsubmit: (e) => { e.preventDefault(); const v = parseFloat(inp.value); if (!Number.isNaN(v)) close(Math.min(max, Math.max(min, v))); } },
+      el('h3', {}, title),
+      el('div', { class: 'num-input' },
+        el('button', { class: 'btn', type: 'button', onclick: () => (inp.value = (parseFloat(inp.value) || 0) - step) }, '−'),
+        inp, el('span', { class: 'muted' }, unit),
+        el('button', { class: 'btn', type: 'button', onclick: () => (inp.value = (parseFloat(inp.value) || 0) + step) }, '+')),
+      presets.length ? el('div', { class: 'presets' }, presets.map((p) => el('button', { class: 'btn sm', type: 'button', onclick: () => (inp.value = p) }, `${p}${unit}`))) : null,
+      el('div', { class: 'btnrow' },
+        el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'),
+        el('button', { class: 'btn primary', type: 'submit' }, 'Set')));
+    setTimeout(() => { inp.focus(); inp.select(); }, 50);
+    return form;
+  });
+}
+export function toggleRow(label, checked, onchange, help) {
+  const input = el('input', { type: 'checkbox', checked, onchange: (e) => onchange(e.target.checked) });
+  return el('label', { class: 'toggle' },
+    el('div', {}, el('div', {}, label), help ? el('div', { class: 'help muted', style: 'font-size:.76rem' }, help) : null),
+    el('span', { class: 'switch' }, input, el('span')));
+}
+export function segmented(options, value, onchange) {
+  const wrap = el('div', { class: 'segmented' });
+  for (const [v, label] of options) {
+    wrap.append(el('button', { type: 'button', class: v === value ? 'active' : '', onclick: (e) => { wrap.querySelectorAll('button').forEach((b) => b.classList.remove('active')); e.currentTarget.classList.add('active'); onchange(v); } }, label));
+  }
+  return wrap;
+}
+
+// ---------- theme ----------
+export function applyTheme() {
+  const t = PF.settings?.globals?.theme || 'dark';
+  document.documentElement.dataset.theme = t === 'auto' ? '' : t;
+  document.querySelector('meta[name=theme-color]').content = t === 'light' ? '#f3f3f5' : '#111214';
+  document.getElementById('grill-name').textContent = PF.settings?.globals?.grill_name || 'PiFire';
+}
+
+// ---------- router ----------
+const pages = { home: renderHome, history: renderHistory, cook: renderCook, settings: renderSettings, more: renderMore };
+let teardown = null;
+function route() {
+  const hash = location.hash.replace(/^#\/?/, '') || 'home';
+  const [page, ...rest] = hash.split('/');
+  const fn = pages[page] || renderHome;
+  document.querySelectorAll('.tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === (pages[page] ? page : 'home')));
+  if (teardown) { teardown(); teardown = null; }
+  const view = document.getElementById('view');
+  view.innerHTML = '';
+  view.scrollTop = 0;
+  const r = fn(view, rest);
+  if (typeof r === 'function') teardown = r;
+}
+window.addEventListener('hashchange', route);
+
+// ---------- banner ----------
+onStatus((s) => {
+  const b = document.getElementById('banner');
+  const pill = document.getElementById('mode-pill');
+  if (!s) { b.hidden = !PF.connected ? false : true; if (!PF.connected) { b.className = 'banner warn'; b.textContent = 'Connecting to grill…'; } return; }
+  pill.textContent = s.mode; pill.dataset.mode = s.mode;
+  if (!PF.connected) { b.hidden = false; b.className = 'banner warn'; b.textContent = 'Connection lost — reconnecting…'; return; }
+  if (s.safety.error_code) {
+    b.hidden = false; b.className = 'banner';
+    b.innerHTML = '';
+    b.append(el('div', {}, el('strong', {}, s.safety.error_code.replace(/_/g, ' ')), el('div', { class: 'muted', style: 'font-size:.85rem' }, s.safety.error_msg)),
+      el('button', { class: 'btn sm', onclick: () => cmd({ cmd: 'stop' }) }, 'Clear & Stop'));
+  } else b.hidden = true;
+});
+
+// ---------- boot ----------
+(async () => {
+  try { PF.settings = await api('/settings'); PF.units = PF.settings.globals.units; applyTheme(); } catch (e) { toast('Could not load settings', true); }
+  try { PF.status = await api('/status'); } catch (e) { /* ws will fill in */ }
+  route();
+  emit();
+  connect();
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('/sw.js').catch(() => {});
+})();
