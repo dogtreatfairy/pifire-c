@@ -32,6 +32,8 @@ void pf_probe_drivers_init(const char *plugin_dir)
 	add(pf_probe_mcp9600(), "builtin");
 	add(pf_probe_ds18b20(), "builtin");
 	add(pf_probe_virtual(), "builtin");
+	add(pf_probe_ibbq(), "builtin");
+	add(pf_probe_meater(), "builtin");
 	if (!plugin_dir) return;
 	DIR *d = opendir(plugin_dir);
 	if (!d) return;

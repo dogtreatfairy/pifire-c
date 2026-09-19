@@ -129,6 +129,9 @@ add_library(pfcore STATIC
   src/probes/mcp9600.c
   src/probes/ds18b20.c
   src/probes/virtual.c
+  src/probes/ble/bluez.c
+  src/probes/ble/ibbq.c
+  src/probes/ble/meater.c
   src/probes/probes.c
   src/controllers/registry.c
   src/controllers/pid.c

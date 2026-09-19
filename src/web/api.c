@@ -15,6 +15,7 @@
 #include "net/netmgr.h"
 #include "net/sysinfo.h"
 #include "net/wifi.h"
+#include "probes/ble/bluez.h"
 #include "probes/probes.h"
 #include <cJSON.h>
 #include <stdatomic.h>
@@ -270,6 +271,12 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		return;
 	}
 	if (get && !strcmp(p, "/probes/devices")) { reply(resp, 200, pf_probes_device_status()); return; }
+	if (post && !strcmp(p, "/probes/ble/scan")) {
+		if (!pf_ble_available()) { pf_ble_start(); pf_sleep_ms(1500); }
+		if (!pf_ble_available()) { reply_err(resp, 503, "Bluetooth adapter not available"); return; }
+		reply(resp, 200, pf_ble_scan_json((int)query_num(req->query, "seconds", 8)));
+		return;
+	}
 	if (get && !strcmp(p, "/system")) { reply(resp, 200, pf_sysinfo_json()); return; }
 	if (get && !strcmp(p, "/pellets")) { reply(resp, 200, pf_pellets_json()); return; }
 	if (post && !strcmp(p, "/pellets/profile")) {

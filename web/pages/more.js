@@ -1,4 +1,4 @@
-import { PF, el, api, cmd, patchSettings, toast, onStatus, confirmDialog, fmtTime, degUnit } from '../app.js';
+import { PF, el, api, cmd, patchSettings, toast, onStatus, confirmDialog, dialog, fmtTime, degUnit } from '../app.js';
 import { fieldInput, readField } from './settings.js';
 import { renderNetwork } from './network.js';
 import { renderPellets } from './pellets.js';
@@ -164,7 +164,21 @@ async function hardware(view) {
         const v = d.config?.[c.label] ?? c.default;
         let input;
         if (c.type === 'list') input = el('select', { onchange: (e) => ((d.config ??= {})[c.label] = e.target.value) }, c.list_values.map((lv, k) => el('option', { value: lv, selected: String(v) === String(lv) }, c.list_labels?.[k] ?? lv)));
-        else input = el('input', { type: 'text', inputmode: c.type === 'bt_address' ? 'text' : 'decimal', value: v ?? '', onchange: (e) => ((d.config ??= {})[c.label] = c.type === 'int' || c.type === 'float' ? Number(e.target.value) : e.target.value) });
+        else if (c.type === 'bt_address') {
+          const addr = el('input', { type: 'text', value: v ?? '', placeholder: 'any / scan', style: 'width:150px', onchange: (e) => ((d.config ??= {})[c.label] = e.target.value.trim()) });
+          input = el('div', { class: 'row' }, addr, el('button', { class: 'btn sm', type: 'button', onclick: async (e) => {
+            e.target.disabled = true; e.target.textContent = 'Scanning…';
+            try {
+              const found = await api('/probes/ble/scan?seconds=8', { body: {} });
+              const pick = await dialog((close) => el('div', {}, el('h3', {}, 'Bluetooth devices'),
+                el('div', { class: 'opts' }, found.length ? found.map((f) => el('button', { class: 'btn', type: 'button', onclick: () => close(f.address) }, `${f.name || 'Unknown'} · ${f.address}${f.rssi ? ` · ${f.rssi} dBm` : ''}`)) : el('div', { class: 'muted' }, 'Nothing found — make sure the probe is on and nearby.')),
+                el('button', { class: 'btn ghost block', type: 'button', onclick: () => close(undefined) }, 'Cancel')));
+              if (pick) { addr.value = pick; (d.config ??= {})[c.label] = pick; }
+            } catch (err) { toast(err.message, true); }
+            e.target.disabled = false; e.target.textContent = 'Scan';
+          } }, 'Scan'));
+        }
+        else input = el('input', { type: 'text', inputmode: 'decimal', value: v ?? '', onchange: (e) => ((d.config ??= {})[c.label] = c.type === 'int' || c.type === 'float' ? Number(e.target.value) : e.target.value) });
         fs.append(el('div', { class: 'field inline' }, el('div', {}, el('label', {}, c.friendly_name), el('div', { class: 'help' }, c.description)), input));
       }
       fs.append(el('button', { class: 'btn sm ghost', type: 'button', onclick: () => { map.probe_devices.splice(i, 1); renderDevices(); } }, 'Remove device'));
