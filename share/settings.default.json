@@ -146,6 +146,7 @@
     "setup_timeout_s": 45
   },
   "learning": { "enabled": true, "half_life_obs": 60 },
+  "update": { "repo": "dogtreatfairy/pifire-c", "auto_check": true, "check_interval_h": 24 },
   "history": { "minutes": 15, "clear_on_startup": true, "retention_hours": 48, "sample_s": 3 },
   "web": { "port": 80, "bind": "0.0.0.0" }
 }

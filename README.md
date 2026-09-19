@@ -24,7 +24,7 @@ ctest --test-dir build
 
 ## Install on a Raspberry Pi
 
-See `docs/hardware.md`. Short version: build with CMake, then `sudo install/install.sh`.
+Download the latest release archive for your OS (`arm64` for 64-bit, `armhf` for 32-bit), unpack it and run `sudo ./install/install.sh`; or build from source with CMake and run the same script. Updates arrive over the air from GitHub Releases (*More → System → Software*). Full steps, paths and troubleshooting: `docs/install.md`; hardware and wiring: `docs/hardware.md`; publishing releases: `docs/releasing.md`.
 
 ## Layout
 

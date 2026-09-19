@@ -11,6 +11,7 @@
 #include "display/registry.h"
 #include "features/mqtt.h"
 #include "features/pellets.h"
+#include "features/update.h"
 #include "platform/sim.h"
 #include "probes/probes.h"
 #include <pthread.h>
@@ -77,6 +78,7 @@ static void *services_thread(void *arg)
 		bool cooking = st.mode == PF_MODE_STARTUP || st.mode == PF_MODE_REIGNITE || st.mode == PF_MODE_SMOKE || st.mode == PF_MODE_HOLD;
 		pf_pellets_tick(now, g_ctrl->auger_total_on_s, cooking);
 		pf_mqtt_tick(now);
+		pf_update_tick(now);
 		{
 			cJSON *j = pf_status_to_json(&st, pf_settings_units());
 			char *txt = cJSON_PrintUnformatted(j);

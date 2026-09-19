@@ -90,6 +90,11 @@ const GROUPS = [
     I('setup_timeout_s', 'Boot wait before hotspot (s)', 'Start the setup hotspot if no network connects within this time', { min: 10, max: 600 }),
     B('force_setup', 'Start hotspot on next boot', 'One-shot: cleared automatically'),
   ] },
+  { id: 'update', title: 'Software updates', fields: [
+    X('repo', 'GitHub repository', 'owner/name whose Releases the updater checks (assets pifire-<ver>-<arch>.tar.gz + SHA256SUMS)'),
+    B('auto_check', 'Check automatically', 'Two minutes after boot and then periodically; a notice is logged when a newer release exists'),
+    I('check_interval_h', 'Check every (hours)', '', { min: 1, max: 720 }),
+  ] },
   { id: 'history', title: 'History', fields: [
     I('sample_s', 'Sample interval (s)', '', { min: 1, max: 60 }), I('retention_hours', 'Keep history (hours)', '', { min: 1 }), B('clear_on_startup', 'Clear history on startup', ''),
   ] },

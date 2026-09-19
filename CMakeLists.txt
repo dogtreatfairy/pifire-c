@@ -101,6 +101,7 @@ add_custom_command(OUTPUT ${PF_WEB_OUT}
 add_library(pfcore STATIC
   src/core/log.c
   src/core/util.c
+  src/core/sha256.c
   src/core/sdnotify.c
   src/core/settings.c
   src/core/db.c
@@ -142,6 +143,7 @@ add_library(pfcore STATIC
   src/features/learning.c
   src/features/mqtt.c
   src/features/webhook.c
+  src/features/update.c
   src/display/registry.c
   src/display/gfx.c
   src/display/screens.c
@@ -171,8 +173,12 @@ endif()
 if(PF_WITH_BLE)
   target_compile_definitions(pfcore PUBLIC PF_WITH_BLE=1)
 endif()
+set(PF_VERSION "" CACHE STRING "Version string baked into the binary (release builds pass the git tag); empty = project version")
+if(NOT PF_VERSION)
+  set(PF_VERSION "${PROJECT_VERSION}")
+endif()
 target_compile_definitions(pfcore PUBLIC
-  PF_VERSION="${PROJECT_VERSION}"
+  PF_VERSION="${PF_VERSION}"
   PF_DEFAULT_CONFIG="/etc/pifire/settings.json"
   PF_DEFAULT_DATA_DIR="/var/lib/pifire")
 

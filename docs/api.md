@@ -69,6 +69,9 @@ Recipe step: `{"mode":"Startup|Smoke|Hold|Shutdown","setpoint":225,"s_plus":fals
 
 ## Admin
 
+`GET /update` — OTA state: `{current, arch, repo, latest, available, installable, asset, notes, html_url, state, message, progress, checked_at, busy}`. `POST /update/check` queries GitHub Releases of `settings.update.repo` in the background; `POST /update/install` (grill stopped, not in the simulator) downloads the matching `pifire-<ver>-<arch>.tar.gz`, verifies it against `SHA256SUMS`, and reinstalls via `pifire-update-apply`.
+
+
 `POST /admin/reboot`, `POST /admin/poweroff` (refused unless the grill is stopped).
 
 `POST /admin/boardcfg` — applies the boot configuration for `settings.platform` by running `pifire-boardcfg` (relay pulls, PWM overlay for a DC fan, 1-Wire, I2C, SPI, hardware watchdog). Returns `{"reboot": true|false, "output": "..."}`; not available in the simulator.

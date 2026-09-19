@@ -50,11 +50,36 @@ function system(view) {
     for (const [k, v] of rows) kv.append(el('div', {}, k), el('div', {}, v ?? '—'));
   };
   load();
+
+  // ---- software updates from GitHub Releases ----
+  const upd = el('div', { class: 'card' });
+  const renderUpd = (u) => {
+    upd.innerHTML = '';
+    const busy = u.busy;
+    const rows = el('div', { class: 'kv' }, el('div', {}, 'Installed'), el('div', {}, `${u.current} (${u.arch})`), el('div', {}, 'Latest release'), el('div', {}, u.latest || '—'),
+      el('div', {}, 'Source'), el('div', {}, u.repo ? el('a', { href: `https://github.com/${u.repo}/releases`, target: '_blank' }, u.repo) : '— (set in Settings → Admin)'));
+    upd.append(el('h3', {}, 'Software'), rows, el('p', { class: 'muted', style: 'font-size:.85rem;margin:8px 0' }, u.state === 'error' ? `⚠ ${u.message}` : u.message + (u.state === 'downloading' ? ` ${(u.progress * 100).toFixed(0)}%` : '')));
+    if (u.state === 'downloading') upd.append(el('div', { class: 'progress' }, el('div', { style: `width:${(u.progress * 100).toFixed(0)}%` })));
+    if (u.available && u.notes) upd.append(el('details', {}, el('summary', { class: 'muted' }, `What's new in ${u.latest}`), el('div', { class: 'mono', style: 'margin-top:6px' }, u.notes)));
+    upd.append(el('div', { class: 'btnrow', style: 'margin-top:10px' },
+      el('button', { class: 'btn', disabled: busy, onclick: async () => { try { await api('/update/check', { body: {} }); poll(); } catch (e) { toast(e.message, true); } } }, 'Check for updates'),
+      el('button', { class: 'btn primary', disabled: busy || !u.installable, onclick: async () => {
+        if (!await confirmDialog(`Install ${u.latest}?`, 'The grill must be stopped. The release is downloaded, its checksum verified, then the service reinstalls and restarts (about a minute). This page reloads when it is back.', 'Install')) return;
+        try { await api('/update/install', { body: {} }); poll(); } catch (e) { toast(e.message, true); }
+      } }, u.available ? `Install ${u.latest}` : 'Up to date')));
+  };
+  let pollT = null;
+  const poll = async () => {
+    try { const u = await api('/update'); renderUpd(u); if (u.busy) { clearTimeout(pollT); pollT = setTimeout(poll, 1000); } } catch { /* daemon restarting during install */ }
+  };
+  poll();
+  view.append(upd);
+
   view.append(el('div', { class: 'btnrow' },
     el('button', { class: 'btn', onclick: async () => { if (await confirmDialog('Reboot?', 'The grill must be stopped first.', 'Reboot')) api('/admin/reboot', { body: {} }).then(() => toast('Rebooting…')).catch((e) => toast(e.message, true)); } }, 'Reboot'),
     el('button', { class: 'btn danger', onclick: async () => { if (await confirmDialog('Power off?', 'The grill must be stopped first.', 'Power off', true)) api('/admin/poweroff', { body: {} }).then(() => toast('Powering off…')).catch((e) => toast(e.message, true)); } }, 'Power off')));
   const t = setInterval(load, 10000);
-  return () => clearInterval(t);
+  return () => { clearInterval(t); clearTimeout(pollT); };
 }
 
 function manual(view) {

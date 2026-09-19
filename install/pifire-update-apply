@@ -1,0 +1,17 @@
+#!/bin/bash
+# pifire-update-apply <staged-release-dir>
+# Called by pifired (via sudo) after it has downloaded and checksum-verified a release archive and
+# unpacked it under /var/lib/pifire/update/stage. Runs that release's installer as a transient
+# systemd unit so the reinstall + service restart survives the daemon being stopped underneath it.
+set -euo pipefail
+STAGE="${1:-}"
+case "$STAGE" in
+	/var/lib/pifire/update/*) ;;
+	*) echo "refusing to apply from $STAGE (must be under /var/lib/pifire/update)" >&2; exit 2 ;;
+esac
+[ -x "$STAGE/pifired" ] && [ -f "$STAGE/install/install.sh" ] && [ -f "$STAGE/VERSION" ] || { echo "$STAGE is not a PiFire release" >&2; exit 2; }
+VER=$(cat "$STAGE/VERSION")
+echo "applying PiFire $VER from $STAGE"
+systemd-run --unit "pifire-update-$(date +%s)" --collect --quiet --property=After=pifired.service \
+	/bin/bash -c "sleep 1 && cd '$STAGE' && ./install/install.sh --upgrade > /var/lib/pifire/update/apply.log 2>&1"
+echo "scheduled"

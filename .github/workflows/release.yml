@@ -1,0 +1,55 @@
+# Tag a commit `vX.Y.Z` and push the tag: this builds native Raspberry Pi binaries (arm64 for the
+# 64-bit OS, armhf for the 32-bit OS) inside Debian Bookworm containers under QEMU, packages them
+# as pifire-X.Y.Z-<arch>.tar.gz with a SHA256SUMS file, and publishes a GitHub Release. The OTA
+# updater in pifired looks for exactly these asset names.
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            platform: linux/arm64
+            image: arm64v8/debian:bookworm-slim
+          - arch: armhf
+            platform: linux/arm/v7
+            image: arm32v7/debian:bookworm-slim
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - name: Build ${{ matrix.arch }}
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          docker run --rm --platform ${{ matrix.platform }} -v "$PWD":/src -w /src -e VER="$VER" -e ARCH=${{ matrix.arch }} ${{ matrix.image }} bash -euc '
+            apt-get update -qq
+            apt-get install -y -qq --no-install-recommends cmake gcc make pkg-config libsqlite3-dev libmosquitto-dev libcurl4-openssl-dev libsystemd-dev gzip tar binutils >/dev/null
+            cmake -B build -DCMAKE_BUILD_TYPE=Release -DPF_BUILD_TESTS=OFF -DPF_VERSION="$VER"
+            cmake --build build -j"$(nproc)"
+            tools/package.sh "$ARCH" "$VER"
+          '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pifire-${{ matrix.arch }}
+          path: dist/*.tar.gz
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum *.tar.gz > SHA256SUMS && cat SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          generate_release_notes: true

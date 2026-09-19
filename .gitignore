@@ -6,3 +6,4 @@ run/
 *.gz
 compile_commands.json
 .cache/
+dist/

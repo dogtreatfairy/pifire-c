@@ -13,6 +13,7 @@
 #include "features/learning.h"
 #include "features/pellets.h"
 #include "features/recipe.h"
+#include "features/update.h"
 #include "net/netmgr.h"
 #include "net/sysinfo.h"
 #include "net/wifi.h"
@@ -405,6 +406,15 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		pf_db_event(PF_LVL_WARN, "ADMIN", p + 7);
 		pf_sleep_ms(500);
 		if (fork() == 0) { execlp("systemctl", "systemctl", strstr(p, "reboot") ? "reboot" : "poweroff", (char *)NULL); _exit(1); }
+		reply_ok(resp);
+		return;
+	}
+	if (get && !strcmp(p, "/update")) { reply(resp, 200, pf_update_status_json()); return; }
+	if (post && !strcmp(p, "/update/check")) { if (pf_update_check()) { reply_err(resp, 409, "an update operation is already running"); return; } reply_ok(resp); return; }
+	if (post && !strcmp(p, "/update/install")) {
+		char err[160];
+		if (pf_update_install(err, sizeof err)) { reply_err(resp, 409, err); return; }
+		LOGW(TAG, "update install requested via API");
 		reply_ok(resp);
 		return;
 	}

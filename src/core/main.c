@@ -7,6 +7,7 @@
 #include "core/history.h"
 #include "display/registry.h"
 #include "features/cookfile.h"
+#include "features/update.h"
 #include "features/learning.h"
 #include "features/mqtt.h"
 #include "features/pellets.h"
@@ -139,6 +140,7 @@ int main(int argc, char **argv)
 	pf_events_init();
 	pf_history_init();
 	pf_cookfile_init(data_dir);
+	pf_update_init(data_dir, sim);
 	pf_pellets_init(sim);
 	pf_recipes_init();
 	pf_learning_init();
