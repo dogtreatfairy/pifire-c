@@ -8,7 +8,9 @@
 #include "core/status.h"
 #include "core/util.h"
 #include "controllers/registry.h"
+#include "net/netmgr.h"
 #include "net/sysinfo.h"
+#include "net/wifi.h"
 #include "probes/probes.h"
 #include <cJSON.h>
 #include <stdatomic.h>
@@ -238,6 +240,33 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 	}
 	if (get && !strcmp(p, "/probes/devices")) { reply(resp, 200, pf_probes_device_status()); return; }
 	if (get && !strcmp(p, "/system")) { reply(resp, 200, pf_sysinfo_json()); return; }
+	if (get && !strcmp(p, "/network/status")) { reply(resp, 200, pf_netmgr_status()); return; }
+	if (get && !strcmp(p, "/network/scan")) { reply(resp, 200, pf_wifi_scan(query_num(req->query, "rescan", 1) != 0)); return; }
+	if (get && !strcmp(p, "/network/saved")) { reply(resp, 200, pf_wifi_saved()); return; }
+	if (post && !strcmp(p, "/network/connect")) {
+		cJSON *j = cJSON_Parse(req->body);
+		const char *ssid = pf_json_str(j, "ssid", "");
+		if (!*ssid) { cJSON_Delete(j); reply_err(resp, 400, "ssid required"); return; }
+		int rc = pf_netmgr_connect(ssid, pf_json_str(j, "psk", ""));
+		cJSON_Delete(j);
+		if (rc) reply_err(resp, 409, "a connection attempt is already in progress"); else reply_ok(resp);
+		return;
+	}
+	if (post && !strcmp(p, "/network/forget")) {
+		cJSON *j = cJSON_Parse(req->body);
+		const char *ssid = pf_json_str(j, "ssid", "");
+		int rc = *ssid ? pf_wifi_forget(ssid) : -1;
+		cJSON_Delete(j);
+		if (rc) reply_err(resp, 400, "could not remove network"); else reply_ok(resp);
+		return;
+	}
+	if (post && !strcmp(p, "/network/hotspot")) {
+		cJSON *j = cJSON_Parse(req->body);
+		pf_netmgr_hotspot(pf_json_bool(j, "on", true));
+		cJSON_Delete(j);
+		reply_ok(resp);
+		return;
+	}
 	if (post && !strcmp(p, "/history/clear")) { pf_db_history_clear(); reply_ok(resp); return; }
 	if (post && (!strcmp(p, "/admin/reboot") || !strcmp(p, "/admin/poweroff"))) {
 		pf_status st;

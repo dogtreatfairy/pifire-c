@@ -4,6 +4,7 @@ import { renderHistory } from './pages/history.js';
 import { renderCook } from './pages/cook.js';
 import { renderSettings } from './pages/settings.js';
 import { renderMore } from './pages/more.js';
+import { renderNetwork } from './pages/network.js';
 
 export const PF = {
   status: null,
@@ -142,10 +143,11 @@ export function applyTheme() {
 }
 
 // ---------- router ----------
-const pages = { home: renderHome, history: renderHistory, cook: renderCook, settings: renderSettings, more: renderMore };
+const pages = { home: renderHome, history: renderHistory, cook: renderCook, settings: renderSettings, more: renderMore, setup: (v) => renderNetwork(v, { captive: true }) };
 let teardown = null;
 function route() {
-  const hash = location.hash.replace(/^#\/?/, '') || 'home';
+  // captive-portal browsers land on /setup by path rather than by hash
+  const hash = location.hash.replace(/^#\/?/, '') || (location.pathname === '/setup' ? 'setup' : 'home');
   const [page, ...rest] = hash.split('/');
   const fn = pages[page] || renderHome;
   document.querySelectorAll('.tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === (pages[page] ? page : 'home')));

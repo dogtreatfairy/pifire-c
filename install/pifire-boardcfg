@@ -1,0 +1,65 @@
+#!/bin/bash
+# pifire-boardcfg: idempotently edit the Raspberry Pi boot config for the selected hardware.
+#   --i2c                enable dtparam=i2c_arm
+#   --spi                enable dtparam=spi
+#   --pwm PIN            hardware PWM on GPIO PIN (12, 13, 18 or 19)
+#   --onewire PIN        1-Wire bus on GPIO PIN (DS18B20)
+#   --pulls PINS LEVEL   comma-separated relay GPIOs and the relay trigger level (LOW|HIGH):
+#                        pins are parked as inputs with a pull that keeps the relays OFF if the
+#                        daemon dies (active-low relays -> pull-up, active-high -> pull-down)
+#   --watchdog           enable the BCM hardware watchdog (dtparam=watchdog=on)
+#   --bluetooth on|off
+# Prints "REBOOT" on stdout when anything changed. Must run as root.
+set -euo pipefail
+
+CFG=/boot/firmware/config.txt
+[ -f "$CFG" ] || CFG=/boot/config.txt
+[ -w "$CFG" ] || { echo "cannot write $CFG (run as root)" >&2; exit 1; }
+
+changed=0
+set_line() {  # set_line <regex-to-remove> <line-to-add>
+	local re="$1" line="$2"
+	if grep -qxF "$line" "$CFG"; then return; fi
+	sed -i -E "/^[[:space:]]*$re/d" "$CFG"
+	echo "$line" >> "$CFG"
+	changed=1
+}
+drop_line() { local re="$1"; if grep -qE "^[[:space:]]*$re" "$CFG"; then sed -i -E "/^[[:space:]]*$re/d" "$CFG"; changed=1; fi; }
+
+grep -q '^# --- PiFire ---' "$CFG" || { printf '\n# --- PiFire --- (managed by pifire-boardcfg)\n' >> "$CFG"; changed=1; }
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+	--i2c) set_line 'dtparam=i2c_arm=' 'dtparam=i2c_arm=on'; shift ;;
+	--spi) set_line 'dtparam=spi=' 'dtparam=spi=on'; shift ;;
+	--pwm)
+		pin="$2"
+		case "$pin" in 12|13) func=4 ;; 18|19) func=2 ;; *) echo "unsupported PWM pin $pin" >&2; exit 1 ;; esac
+		set_line 'dtoverlay=pwm(,|$)' "dtoverlay=pwm,pin=$pin,func=$func"
+		shift 2 ;;
+	--onewire) set_line 'dtoverlay=w1-gpio' "dtoverlay=w1-gpio,gpiopin=$2"; shift 2 ;;
+	--no-onewire) drop_line 'dtoverlay=w1-gpio'; shift ;;
+	--pulls)
+		pins="$2"; level="$3"
+		pull=pd; [ "$level" = "LOW" ] && pull=pu
+		set_line "gpio=[0-9,]+=ip,p[ud]$" "gpio=$pins=ip,$pull"
+		shift 3 ;;
+	--watchdog) set_line 'dtparam=watchdog=' 'dtparam=watchdog=on'; shift ;;
+	--bluetooth)
+		if [ "$2" = "off" ]; then set_line 'dtoverlay=disable-bt' 'dtoverlay=disable-bt'; else drop_line 'dtoverlay=disable-bt'; fi
+		shift 2 ;;
+	*) echo "unknown option $1" >&2; exit 2 ;;
+	esac
+done
+
+# hardware watchdog needs systemd to pet it
+if grep -q 'dtparam=watchdog=on' "$CFG"; then
+	if ! grep -qE '^RuntimeWatchdogSec=' /etc/systemd/system.conf; then
+		sed -i -E 's/^#?RuntimeWatchdogSec=.*/RuntimeWatchdogSec=10/' /etc/systemd/system.conf
+		grep -qE '^RuntimeWatchdogSec=' /etc/systemd/system.conf || echo 'RuntimeWatchdogSec=10' >> /etc/systemd/system.conf
+		changed=1
+	fi
+fi
+
+[ $changed -eq 1 ] && echo REBOOT
+exit 0

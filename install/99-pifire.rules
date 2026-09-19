@@ -1,0 +1,4 @@
+# Let the pifire service user (group gpio) drive hardware PWM channels via sysfs.
+SUBSYSTEM=="pwm*", PROGRAM="/bin/sh -c 'chown -R root:gpio /sys/class/pwm/pwmchip*/ 2>/dev/null; chmod -R g=u /sys/class/pwm/pwmchip*/ 2>/dev/null; chown -R root:gpio /sys/devices/platform/soc/*.pwm/pwm/pwmchip*/ 2>/dev/null; chmod -R g=u /sys/devices/platform/soc/*.pwm/pwm/pwmchip*/ 2>/dev/null; chown -R root:gpio /sys/devices/platform/axi/*.pcie/*/*.pwm/pwm/pwmchip*/ 2>/dev/null; chmod -R g=u /sys/devices/platform/axi/*.pcie/*/*.pwm/pwm/pwmchip*/ 2>/dev/null'"
+# GPIO character devices, I2C, SPI and 1-Wire are covered by Raspberry Pi OS (99-com.rules) via the
+# gpio / i2c / spi groups; the hardware watchdog is opened by systemd, not by pifired.

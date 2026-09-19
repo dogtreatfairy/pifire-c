@@ -146,6 +146,30 @@ void pf_probes_shutdown(void)
 	pthread_mutex_unlock(&g_mu);
 }
 
+/* average / highest / lowest / median of the listed probes' current filtered values (lock held) */
+static double virtual_value(device_t *dev, int self_index)
+{
+	const char *labels[8];
+	int n = pf_virtual_inputs(dev->inst, labels, 8);
+	double vals[8];
+	int k = 0;
+	for (int i = 0; i < n; i++) {
+		for (int j = 0; j < g_snap.n; j++)
+			if (j != self_index && !strcmp(g_snap.p[j].label, labels[i]) && g_snap.p[j].valid) { vals[k++] = g_snap.p[j].temp_c; break; }
+	}
+	if (!k) return NAN;
+	const char *mode = pf_virtual_mode(dev->inst);
+	if (!strcmp(mode, "highest")) { double m = vals[0]; for (int i = 1; i < k; i++) if (vals[i] > m) m = vals[i]; return m; }
+	if (!strcmp(mode, "lowest")) { double m = vals[0]; for (int i = 1; i < k; i++) if (vals[i] < m) m = vals[i]; return m; }
+	if (!strcmp(mode, "median")) {
+		for (int i = 1; i < k; i++) for (int j = i; j > 0 && vals[j - 1] > vals[j]; j--) { double t = vals[j]; vals[j] = vals[j - 1]; vals[j - 1] = t; }
+		return k & 1 ? vals[k / 2] : 0.5 * (vals[k / 2 - 1] + vals[k / 2]);
+	}
+	double s = 0;
+	for (int i = 0; i < k; i++) s += vals[i];
+	return s / k;
+}
+
 void pf_probes_poll(double now)
 {
 	pf_probe_sample samples[PF_MAX_DEVICES][PF_MAX_PORTS];
@@ -185,6 +209,7 @@ void pf_probes_poll(double now)
 			break;
 		default: break;
 		}
+		if (!strcmp(dev->ops->id, "virtual")) c = virtual_value(dev, n);
 		r->raw_c = c;
 		r->ohms = ohms > 0 ? ohms : 0;
 		if (!isnan(c)) {

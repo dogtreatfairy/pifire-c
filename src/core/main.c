@@ -16,6 +16,7 @@
 #include "platform/sim.h"
 #include "probes/probes.h"
 #include "probes/registry.h"
+#include "net/netmgr.h"
 #include "web/server.h"
 #include <getopt.h>
 #include <signal.h>
@@ -136,6 +137,7 @@ int main(int argc, char **argv)
 	char bind[64];
 	pf_set_str("web.bind", bind, sizeof bind, "0.0.0.0");
 	if (pf_web_start(bind, pf_set_int("web.port", 80))) return 1;
+	pf_netmgr_start(sim);
 
 	pf_sd_notify("READY=1\nSTATUS=running");
 	LOGI(TAG, "ready (units=%s, controller=%s)", pf_settings_units() == PF_UNITS_C ? "C" : "F", ctrl.cfg.controller_id);
@@ -147,6 +149,7 @@ int main(int argc, char **argv)
 
 	pf_sd_notify("STOPPING=1");
 	LOGI(TAG, "shutting down");
+	pf_netmgr_stop();
 	pf_web_stop();
 	pf_threads_stop();
 	pf_control_shutdown(&ctrl);

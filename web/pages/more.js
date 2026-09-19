@@ -1,5 +1,6 @@
 import { PF, el, api, cmd, patchSettings, toast, onStatus, confirmDialog, fmtTime, degUnit } from '../app.js';
 import { fieldInput, readField } from './settings.js';
+import { renderNetwork } from './network.js';
 
 const subpages = { events, logs, system, hardware, probes, manual, network, about };
 
@@ -78,7 +79,7 @@ function manual(view) {
 }
 
 function network(view) {
-  view.append(el('h2', {}, 'Network'), el('div', { class: 'card muted' }, 'Wi-Fi setup and hotspot mode arrive in the next build. Connection details are on the System page.'));
+  return renderNetwork(view);
 }
 
 function about(view) {

@@ -70,7 +70,7 @@ add_custom_command(
 
 # ---- web assets: gzip at build time, embed ---------------------------------
 set(PF_WEB_FILES index.html style.css app.js sw.js manifest.webmanifest icon.svg
-    pages/home.js pages/history.js pages/cook.js pages/settings.js pages/more.js)
+    pages/home.js pages/history.js pages/cook.js pages/settings.js pages/more.js pages/network.js)
 set(PF_WEB_GZ "")
 foreach(f ${PF_WEB_FILES})
   get_filename_component(base ${f} NAME)
@@ -114,16 +114,25 @@ add_library(pfcore STATIC
   src/core/threads.c
   src/hal/gpio.c
   src/hal/pwm.c
+  src/hal/i2c.c
+  src/hal/spi.c
   src/platform/sim.c
   src/platform/rpi.c
   src/probes/shh.c
   src/probes/tempq.c
   src/probes/registry.c
   src/probes/sim_probe.c
+  src/probes/ads1x15.c
+  src/probes/max31865.c
+  src/probes/mcp9600.c
+  src/probes/ds18b20.c
+  src/probes/virtual.c
   src/probes/probes.c
   src/controllers/registry.c
   src/controllers/pid.c
   src/net/sysinfo.c
+  src/net/wifi.c
+  src/net/netmgr.c
   src/web/api.c
   src/web/server.c
   ${PF_EMBED_OUT}

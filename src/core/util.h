@@ -18,3 +18,7 @@ int pf_mkdir_p(const char *path);
 bool pf_file_exists(const char *path);
 
 static inline double pf_clamp(double v, double lo, double hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+/* Run a program (no shell) and capture stdout+stderr. Returns the exit status, -1 on exec
+ * failure, -2 on timeout (child killed). `out` may be NULL. */
+int pf_run_capture(const char *const argv[], char *out, size_t n, int timeout_s);

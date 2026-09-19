@@ -27,6 +27,11 @@ void pf_probe_drivers_init(const char *plugin_dir)
 {
 	g_count = 0;
 	add(pf_probe_sim(), "builtin");
+	add(pf_probe_ads1x15(), "builtin");
+	add(pf_probe_max31865(), "builtin");
+	add(pf_probe_mcp9600(), "builtin");
+	add(pf_probe_ds18b20(), "builtin");
+	add(pf_probe_virtual(), "builtin");
 	if (!plugin_dir) return;
 	DIR *d = opendir(plugin_dir);
 	if (!d) return;

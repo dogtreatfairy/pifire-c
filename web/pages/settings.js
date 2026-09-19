@@ -83,6 +83,12 @@ const GROUPS = [
     X('mqtt.username', 'Username', ''), { path: 'mqtt.password', label: 'Password', type: 'password' }, X('mqtt.id', 'Device ID', 'Topic prefix'), I('mqtt.update_sec', 'Publish interval (s)', '', { min: 5 }),
     B('webhook.enabled', 'Webhook', 'POST events as JSON to a URL'), X('webhook.url', 'Webhook URL', ''),
   ] },
+  { id: 'network', title: 'Network', fields: [
+    X('hotspot_ssid', 'Hotspot name', 'Blank = PiFire-XXXX from the Wi-Fi address'),
+    { path: 'hotspot_password', label: 'Hotspot password', help: 'At least 8 characters', type: 'text' },
+    I('setup_timeout_s', 'Boot wait before hotspot (s)', 'Start the setup hotspot if no network connects within this time', { min: 10, max: 600 }),
+    B('force_setup', 'Start hotspot on next boot', 'One-shot: cleared automatically'),
+  ] },
   { id: 'history', title: 'History', fields: [
     I('sample_s', 'Sample interval (s)', '', { min: 1, max: 60 }), I('retention_hours', 'Keep history (hours)', '', { min: 1 }), B('clear_on_startup', 'Clear history on startup', ''),
   ] },

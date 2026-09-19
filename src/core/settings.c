@@ -119,6 +119,7 @@ static int validate(cJSON *root, char *err, size_t errn)
 	int port = pf_json_int(root, "web.port", 80);
 	CHECK(port > 0 && port < 65536, "web.port out of range");
 	CHECK(pf_json_num(root, "history.sample_s", 3) >= 1, "history.sample_s must be >= 1");
+	CHECK(strlen(pf_json_str(root, "network.hotspot_password", "pifire1234")) >= 8, "network.hotspot_password must be at least 8 characters");
 	return 0;
 #undef CHECK
 }

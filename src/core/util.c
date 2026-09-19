@@ -3,11 +3,14 @@
 #include "pifire/common.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -122,6 +125,52 @@ bool pf_file_exists(const char *path)
 {
 	struct stat st;
 	return stat(path, &st) == 0;
+}
+
+int pf_run_capture(const char *const argv[], char *out, size_t n, int timeout_s)
+{
+	int fds[2];
+	if (pipe2(fds, O_CLOEXEC) < 0) return -1;
+	pid_t pid = fork();
+	if (pid < 0) { close(fds[0]); close(fds[1]); return -1; }
+	if (pid == 0) {
+		dup2(fds[1], STDOUT_FILENO);
+		dup2(fds[1], STDERR_FILENO);
+		int devnull = open("/dev/null", O_RDONLY);
+		if (devnull >= 0) dup2(devnull, STDIN_FILENO);
+		execvp(argv[0], (char *const *)argv);
+		_exit(127);
+	}
+	close(fds[1]);
+	size_t w = 0;
+	if (out && n) out[0] = 0;
+	double deadline = pf_now() + timeout_s;
+	int status = 0;
+	for (;;) {
+		struct pollfd p = { .fd = fds[0], .events = POLLIN };
+		int left_ms = (int)((deadline - pf_now()) * 1000);
+		if (left_ms < 0) left_ms = 0;
+		int r = poll(&p, 1, left_ms);
+		if (r > 0) {
+			char buf[512];
+			ssize_t rd = read(fds[0], buf, sizeof buf);
+			if (rd <= 0) break;
+			if (out && n) {
+				size_t c = (size_t)rd < n - 1 - w ? (size_t)rd : n - 1 - w;
+				memcpy(out + w, buf, c);
+				w += c;
+				out[w] = 0;
+			}
+		} else if (r == 0) {
+			kill(pid, SIGKILL);
+			waitpid(pid, &status, 0);
+			close(fds[0]);
+			return -2;
+		} else if (errno != EINTR) break;
+	}
+	close(fds[0]);
+	waitpid(pid, &status, 0);
+	return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
 /* ---- enum names (declared in pifire/common.h) ---- */
