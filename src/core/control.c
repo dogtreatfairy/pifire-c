@@ -67,6 +67,7 @@ static void load_cfg(pf_cfg *g)
 	g->coldstart_delta_c = D("safety.coldstart.delta_rise", 12);
 	g->coldstart_timeout_s = N("safety.coldstart.timeout_s", 0);
 	g->coldstart_window_s = N("safety.coldstart.baseline_window_s", 60);
+	g->coldstart_exit_on_rise = B("safety.coldstart.exit_on_rise", false);
 
 	g->startup_duration_s = N("startup.duration", 240);
 	g->prime_on_startup_g = N("startup.prime_on_startup", 0);
@@ -899,7 +900,9 @@ static void run_mode(pf_control *c, double now)
 	case PF_MODE_REIGNITE: {
 		bool timer = now - c->mode_start > c->startup_duration_s;
 		bool exit_temp = c->startup_exit_c > 0 && c->pit_c >= c->startup_exit_c;
-		if ((timer && pf_safety_startup_can_finish(c, now)) || exit_temp) {
+		/* optional: leave startup as soon as cold-start has confirmed a rise and the pit is past the classic minimum */
+		bool exit_rise = g->coldstart_exit_on_rise && c->safety.coldstart_active && c->safety.coldstart_reached && c->pit_c >= g->min_startup_c;
+		if ((timer && pf_safety_startup_can_finish(c, now)) || exit_temp || exit_rise) {
 			pf_safety_on_startup_exit(c, now);
 			pf_mode nm = c->mode == PF_MODE_REIGNITE ? c->safety.reignite_last : c->next_mode;
 			if (nm != PF_MODE_SMOKE && nm != PF_MODE_HOLD) nm = PF_MODE_SMOKE;
@@ -1035,6 +1038,8 @@ static void publish(pf_control *c, double now)
 	s.prime_duration = c->mode == PF_MODE_PRIME ? c->prime_duration_s : 0;
 	s.prime_amount = c->mode == PF_MODE_PRIME ? c->prime_amount_g : 0;
 	s.coldstart_active = c->safety.coldstart_active;
+	s.coldstart_reached = c->safety.coldstart_reached;
+	s.startup_exit_c = c->startup_exit_c;
 	s.coldstart_baseline_c = c->safety.baseline_c;
 	s.coldstart_deadline = c->safety.coldstart_deadline;
 	pf_strlcpy(s.error_code, c->safety.error_code, sizeof s.error_code);

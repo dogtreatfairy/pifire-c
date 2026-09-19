@@ -134,7 +134,7 @@ async function hardware(view) {
   const renderBoard = () => {
     boardCard.innerHTML = '';
     const cur = boards[plat.current] ? plat.current : 'custom';
-    boardCard.append(el('div', { class: 'field' }, el('label', {}, 'Board'), el('select', { onchange: (e) => { plat.current = e.target.value; applyDefaults(); renderBoard(); } }, Object.entries(boards).map(([id, b]) => el('option', { value: id, selected: id === cur }, b.friendly_name)))),
+    boardCard.append(el('div', { class: 'field' }, el('label', {}, 'Board'), el('select', { onchange: (e) => { plat.current = e.target.value; applyDefaults(); applyBoardProbes(); renderBoard(); renderDevices(); } }, Object.entries(boards).map(([id, b]) => el('option', { value: id, selected: id === cur }, b.friendly_name)))),
       el('p', { class: 'muted', style: 'font-size:.85rem' }, boards[cur].description));
     for (const [key, dep] of Object.entries(boards[cur].settings_dependencies)) {
       if (dep.hidden || key === 'current') continue;
@@ -153,6 +153,15 @@ async function hardware(view) {
       const cur = get(plat, path);
       if (dep.hidden || !opts.includes(String(cur ?? 'None'))) setp(plat, path, coerce(opts[0]));
     }
+  };
+
+  // each PCB ships with a known ADC + probe wiring; adopt it when the board changes
+  const applyBoardProbes = () => {
+    const b = man.boards?.[plat.current];
+    if (!b?.probe_map) return;
+    map.probe_devices = structuredClone(b.probe_map.probe_devices);
+    map.probe_info = structuredClone(b.probe_map.probe_info);
+    toast(`Default probe map for ${b.name} applied`);
   };
 
   const renderDevices = () => {
@@ -226,11 +235,17 @@ async function hardware(view) {
       try {
         plat.system_type = plat.system_type || 'rpi';
         await patchSettings('platform', plat);
-        await patchSettings('probe_settings', { probe_map: { probe_devices: map.probe_devices } });
+        await patchSettings('probe_settings', { probe_map: { probe_devices: map.probe_devices, probe_info: map.probe_info } });
         await patchSettings('modules', { display: mods.display || 'none', dist: mods.dist || 'none' });
         await patchSettings('display', dispCfg);
         await patchSettings('distance', distCfg);
-        toast(boards[plat.current]?.reboot_required ? 'Saved — reboot to apply pin changes' : 'Saved');
+        if (PF.status?.sim) { toast('Saved'); return; }
+        // write the boot configuration (relay pulls, PWM overlay, I2C/SPI/1-Wire) for this board
+        let boot;
+        try { boot = await api('/admin/boardcfg', { body: {} }); } catch (e) { toast(`Saved, but boot config failed: ${e.message}`, true); return; }
+        if (boot.reboot && await confirmDialog('Reboot now?', 'The boot configuration changed (I2C/SPI/PWM/relay pulls). A reboot is needed before the new hardware works.', 'Reboot')) {
+          await api('/admin/reboot', { body: {} }); toast('Rebooting…');
+        } else toast(boot.reboot ? 'Saved — reboot to apply the boot configuration' : 'Saved');
       } catch (e) { toast(e.message, true); }
     } }, 'Save hardware')));
 }

@@ -384,5 +384,40 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		reply_ok(resp);
 		return;
 	}
+	if (post && !strcmp(p, "/admin/boardcfg")) {
+		/* Apply the selected board's boot configuration: relay pulls that keep outputs OFF without the daemon,
+		 * the hardware-PWM overlay for a DC fan, 1-Wire, I2C and SPI. Needs the sudoers rule from install.sh. */
+		pf_status st;
+		pf_status_get(&st);
+		if (st.sim) { reply_err(resp, 400, "not available in simulator"); return; }
+		char pins[64] = "", pwm[16] = "", w1[16] = "", level[8];
+		int n = 0;
+		const char *keys[] = { "platform.outputs.auger", "platform.outputs.igniter", "platform.outputs.power", "platform.outputs.fan", "platform.outputs.dc_fan" };
+		for (size_t i = 0; i < sizeof keys / sizeof keys[0]; i++) {
+			int pin = pf_set_int(keys[i], -1);
+			if (pin >= 0) n += snprintf(pins + n, sizeof pins - (size_t)n, "%s%d", n ? "," : "", pin);
+		}
+		pf_set_str("platform.triggerlevel", level, sizeof level, "LOW");
+		int pwm_pin = pf_set_bool("platform.dc_fan", false) ? pf_set_int("platform.outputs.pwm", -1) : -1;
+		if (pwm_pin >= 0) snprintf(pwm, sizeof pwm, "%d", pwm_pin % 1000);
+		int w1_pin = pf_set_int("platform.system.1WIRE", -1);
+		if (w1_pin >= 0) snprintf(w1, sizeof w1, "%d", w1_pin % 1000);
+		const char *argv[16];
+		int a = 0;
+		argv[a++] = "sudo"; argv[a++] = "-n"; argv[a++] = "/usr/local/bin/pifire-boardcfg"; argv[a++] = "--i2c"; argv[a++] = "--spi"; argv[a++] = "--watchdog";
+		if (n) { argv[a++] = "--pulls"; argv[a++] = pins; argv[a++] = level; }
+		if (pwm[0]) { argv[a++] = "--pwm"; argv[a++] = pwm; }
+		if (w1[0]) { argv[a++] = "--onewire"; argv[a++] = w1; } else argv[a++] = "--no-onewire";
+		argv[a] = NULL;
+		char out[512];
+		int rc = pf_run_capture(argv, out, sizeof out, 20);
+		LOGI(TAG, "boardcfg rc=%d: %.200s", rc, out);
+		if (rc != 0) { reply_err(resp, 500, out[0] ? out : "pifire-boardcfg failed"); return; }
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddBoolToObject(o, "reboot", strstr(out, "REBOOT") != NULL);
+		cJSON_AddStringToObject(o, "output", out);
+		reply(resp, 200, o);
+		return;
+	}
 	reply_err(resp, 404, "unknown endpoint");
 }

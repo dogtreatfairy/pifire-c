@@ -2,7 +2,9 @@
 
 ## Boards
 
-The hardware wizard (More → Hardware setup) offers the profiles from `share/manifest.json`: `custom`, PiFire PCB v2.00a, v3.01a, PWM board, and the v4.x.x modular PCB. A profile fixes the relay/fan/PWM/input pins; *Custom* exposes every pin. Selecting a board writes `settings.platform`; press *Save hardware* and reboot if the wizard says so (I2C/SPI/PWM/1-Wire overlays are applied by `pifire-boardcfg`).
+The hardware wizard (More → Hardware setup) offers the profiles from `share/manifest.json`: `custom`, PiFire PCB v2.00a, v3.01a, the **Compact PWM PCB** (`pcb_pwm`, James Weber's all-in-one board with PSU, relays and a 12 V DC fan on hardware PWM — oshwlab `pifire-controller-pwm-1.2`), and the v4.x.x modular PCB. A profile fixes the relay/fan/PWM/input pins; *Custom* exposes every pin. Selecting a board writes `settings.platform` and adopts the board's default probe map (ADS1115 at 0x48, PT-1000 pit probe + Thermoworks-profile food probes). *Save hardware* then calls `POST /admin/boardcfg`, which runs `pifire-boardcfg` (via the sudoers rule from `install.sh`) to write the relay pull-downs/ups, the `dtoverlay=pwm,pin=13,func=4` overlay for a DC fan, 1-Wire, I2C and SPI into `config.txt`; the wizard offers a reboot when anything changed.
+
+The Compact PWM PCB's fan amplifier inverts the PWM signal, so the daemon drives `duty = 100 − fan%` at 25 kHz (`pwm.frequency`), exactly like the Python `raspberry_pi_all` platform. Relays are active-high on that board (`triggerlevel: HIGH`), so its GPIOs are parked with pull-downs.
 
 | output | v4.x.x | v3.01a / v2.00a | PWM board |
 |---|---|---|---|
@@ -30,6 +32,10 @@ Relay trigger level (`platform.triggerlevel`) is active-low on most relay boards
 | `sim` | – | ADC0–ADC3 | simulator |
 
 Thermistor profiles (Steinhart–Hart A/B/C) live under Settings → Probes; the built-in set matches the original PiFire list. `PT-1000-*` profiles are for the Traeger-style RTD grill probe.
+
+## Display
+
+`ili9341e` (TFT + KY-040 rotary encoder) and `ili9341` (view only) drive a 320×240 SPI panel on SPI0 CE0/CE1 with the DC/RST/LED pins from the board profile. The panel uses the same design language as the web app: ring gauge with the pit temperature, set-point tick, probe cards that turn green when a target is hit, output chips and a countdown in the top bar for Startup/Reignite/Shutdown/Prime. Nothing is drawn smaller than 16 px. `display.theme` selects *follow* (the web theme), *dark* or *light*; light (black on white) is the most readable in direct sunlight. The encoder: short press opens the menu (Start, Hold at…, Smoke, Smoke+, Shutdown, Stop), long press (≥1.5 s) is an emergency stop from any screen.
 
 ## Distance sensors (hopper level)
 

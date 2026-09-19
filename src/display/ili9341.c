@@ -36,6 +36,7 @@ typedef struct {
 	atomic_bool run;
 	atomic_int pending_key;
 	double last_activity, backlight_timeout;
+	char theme[8];          /* follow | dark | light */
 	bool backlight_on;
 	unsigned last_hash;
 } tft_t;
@@ -124,6 +125,8 @@ static void *encoder_thread(void *arg)
 
 /* ---------------- ops ---------------- */
 
+static void apply_theme(tft_t *t);
+
 static void *create(const char *cfg_json, const pf_env *env)
 {
 	cJSON *c = cJSON_Parse(cfg_json);
@@ -134,6 +137,7 @@ static void *create(const char *cfg_json, const pf_env *env)
 	t->backlight_timeout = pf_json_num(c, "backlight_timeout_s", 0);
 	int spi_dev = pf_json_int(c, "spi_device", 0), hz = pf_json_int(c, "spi_hz", 24000000);
 	t->encoder = pf_json_bool(c, "encoder", true);
+	pf_strlcpy(t->theme, pf_json_str(c, "theme", "follow"), sizeof t->theme);
 	int dc = pf_json_int(c, "devices.display.dc", 24), rst = pf_json_int(c, "devices.display.rst", 25), led = pf_json_int(c, "devices.display.led", 5);
 	int clk = pf_json_int(c, "devices.input.up_clk", 16), dt = pf_json_int(c, "devices.input.down_dt", 20), sw = pf_json_int(c, "devices.input.enter_sw", 21);
 	cJSON_Delete(c);
@@ -154,6 +158,7 @@ static void *create(const char *cfg_json, const pf_env *env)
 	init_panel(t);
 	backlight(t, true);
 	t->ui.screen = PF_SCR_MAIN;
+	apply_theme(t);
 	pf_screens_render(&t->fb, NULL, &t->ui);
 	push_frame(t);
 	t->last_activity = pf_now();
@@ -193,8 +198,17 @@ static unsigned hash_fb(const pf_gfx *g)
 	return h;
 }
 
+static void apply_theme(tft_t *t)
+{
+	char th[8];
+	if (!strcmp(t->theme, "follow")) pf_set_str("globals.theme", th, sizeof th, "dark");
+	else pf_strlcpy(th, t->theme, sizeof th);
+	pf_gfx_set_theme(&t->fb, !strcmp(th, "light") ? "light" : "dark");
+}
+
 static void redraw(tft_t *t)
 {
+	apply_theme(t);
 	if (t->ui.screen == PF_SCR_MESSAGE && pf_now() > t->ui.message_until) t->ui.screen = PF_SCR_MAIN;
 	pf_screens_render(&t->fb, t->status, &t->ui);
 	unsigned h = hash_fb(&t->fb);

@@ -4,26 +4,33 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Colour tokens, mirrored from web/style.css so the panel and the web app share one look.
+ * Both palettes are tuned for a transmissive TFT read outdoors: full-contrast text, no dim greys. */
+typedef struct {
+	uint16_t bg, card, card2, line, text, muted, accent, accent_text, ok, warn, danger, info;
+	bool light;
+} pf_gfx_theme;
+
 typedef struct {
 	int w, h;
 	uint16_t *px;    /* w*h, big-endian RGB565 as the ILI9341 expects (byte-swapped on little-endian hosts) */
+	pf_gfx_theme th;
 } pf_gfx;
 
 #define PF_RGB(r, g, b) ((uint16_t)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3)))
-#define PF_C_BG      PF_RGB(0x11, 0x12, 0x14)
-#define PF_C_CARD    PF_RGB(0x26, 0x27, 0x2D)
-#define PF_C_TEXT    PF_RGB(0xF4, 0xF4, 0xF5)
-#define PF_C_MUTED   PF_RGB(0x9B, 0x9C, 0xA3)
-#define PF_C_ACCENT  PF_RGB(0xFF, 0x8A, 0x1F)
-#define PF_C_OK      PF_RGB(0x4C, 0xD9, 0x64)
-#define PF_C_WARN    PF_RGB(0xFF, 0xCC, 0x00)
-#define PF_C_DANGER  PF_RGB(0xFF, 0x45, 0x3A)
 
 int  pf_gfx_init(pf_gfx *g, int w, int h);
 void pf_gfx_free(pf_gfx *g);
+/* "dark" (default) or "light" (high-contrast, best in direct sun). */
+void pf_gfx_set_theme(pf_gfx *g, const char *name);
 void pf_gfx_clear(pf_gfx *g, uint16_t c);
 void pf_gfx_rect(pf_gfx *g, int x, int y, int w, int h, uint16_t c);
+/* filled rectangle with rounded corners of radius r */
+void pf_gfx_rrect(pf_gfx *g, int x, int y, int w, int h, int r, uint16_t c);
 void pf_gfx_frame(pf_gfx *g, int x, int y, int w, int h, uint16_t c);
+void pf_gfx_disc(pf_gfx *g, int cx, int cy, int r, uint16_t c);
+/* anti-aliased ring segment: radii [r_in, r_out], angles in degrees clockwise from 3 o'clock */
+void pf_gfx_arc(pf_gfx *g, int cx, int cy, int r_in, int r_out, double a0, double a1, uint16_t c);
 /* scale 1 = 8x8, 2 = 16x16, ... Returns the width drawn. */
 int  pf_gfx_text(pf_gfx *g, int x, int y, const char *s, int scale, uint16_t fg);
 int  pf_gfx_text_width(const char *s, int scale);

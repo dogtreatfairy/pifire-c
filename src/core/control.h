@@ -22,7 +22,7 @@ typedef struct {
 	int reignite_retries;
 	bool startup_check, allow_manual;
 	double manual_override_s, igniter_max_on_s, auger_max_on_s, probe_fault_s, error_cooldown_fan_s;
-	bool coldstart; double coldstart_delta_c, coldstart_timeout_s, coldstart_window_s;
+	bool coldstart; double coldstart_delta_c, coldstart_timeout_s, coldstart_window_s; bool coldstart_exit_on_rise;
 	/* startup / shutdown */
 	double startup_duration_s, prime_on_startup_g, startup_exit_c;
 	pf_mode after_startup_mode; double after_startup_setpoint_c;

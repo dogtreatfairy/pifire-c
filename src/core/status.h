@@ -23,8 +23,9 @@ typedef struct {
 	double lid_open_until;
 	bool target_reached;
 	double startup_duration, shutdown_duration, prime_duration, prime_amount;
-	bool coldstart_active;
+	bool coldstart_active, coldstart_reached;
 	double coldstart_baseline_c, coldstart_deadline;
+	double startup_exit_c;      /* 0 = startup runs the full timer */
 	char error_code[32];
 	char error_msg[128];
 	char controller_id[32];

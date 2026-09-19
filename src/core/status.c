@@ -72,9 +72,17 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 	cJSON_AddNumberToObject(tm, "shutdown_duration", s->shutdown_duration);
 	cJSON_AddNumberToObject(tm, "prime_duration", s->prime_duration);
 	cJSON_AddNumberToObject(tm, "prime_amount", s->prime_amount);
+	cJSON_AddNumberToObject(tm, "startup_exit_temp", s->startup_exit_c > 0 ? r1(conv(s->startup_exit_c, units)) : 0);
+	/* seconds left in the current timed mode (Startup/Reignite/Shutdown/Prime), 0 otherwise; cold-start may hold Startup past this */
+	double left = 0;
+	if (s->mode == PF_MODE_STARTUP || s->mode == PF_MODE_REIGNITE) left = s->startup_duration - (s->t - s->mode_start);
+	else if (s->mode == PF_MODE_SHUTDOWN) left = s->shutdown_duration - (s->t - s->mode_start);
+	else if (s->mode == PF_MODE_PRIME) left = s->prime_duration - (s->t - s->mode_start);
+	cJSON_AddNumberToObject(tm, "mode_remaining", round(fmax(0, left)));
 
 	cJSON *cs = cJSON_AddObjectToObject(o, "coldstart");
 	cJSON_AddBoolToObject(cs, "active", s->coldstart_active);
+	cJSON_AddBoolToObject(cs, "reached", s->coldstart_reached);
 	add_num_or_null(cs, "baseline", s->coldstart_active ? r1(conv(s->coldstart_baseline_c, units)) : NAN);
 	cJSON_AddNumberToObject(cs, "remaining", s->coldstart_active ? fmax(0, s->coldstart_deadline - s->t) : 0);
 

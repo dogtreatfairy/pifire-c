@@ -29,7 +29,7 @@
     "system": { "SPI0": { "CE0": 8, "CE1": 7 }, "1WIRE": null }
   },
   "modules": { "grillplat": "sim", "display": "none", "dist": "none" },
-  "display": { "rotation": 90, "spi_device": 0, "spi_hz": 24000000, "backlight_timeout_s": 0 },
+  "display": { "rotation": 90, "spi_device": 0, "spi_hz": 24000000, "backlight_timeout_s": 0, "theme": "follow" },
   "distance": { "i2c_bus_addr": "0x29" },
   "cycle_data": {
     "HoldCycleTime": 25,
@@ -57,7 +57,7 @@
     "probe_fault_s": 10,
     "error_cooldown_fan_s": 300,
     "restart_hot_temp": 150,
-    "coldstart": { "enabled": false, "delta_rise": 12, "timeout_s": 0, "baseline_window_s": 60 }
+    "coldstart": { "enabled": false, "delta_rise": 12, "timeout_s": 0, "baseline_window_s": 60, "exit_on_rise": false }
   },
   "startup": {
     "duration": 240,

@@ -41,9 +41,17 @@ function updateGauge(svg, s) {
   } else sp.setAttribute('visibility', 'hidden');
   const sub = svg.querySelector('#g-sub'), subl = svg.querySelector('#g-sublabel');
   const elapsed = s.mode_elapsed;
-  if (s.mode === 'Startup' || s.mode === 'Reignite') { subl.textContent = s.coldstart.active ? 'COLD START · WAITING FOR RISE' : 'STARTING'; sub.textContent = fmtDur(s.timers.startup_duration - elapsed); }
-  else if (s.mode === 'Shutdown') { subl.textContent = 'COOLING DOWN'; sub.textContent = fmtDur(s.timers.shutdown_duration - elapsed); }
-  else if (s.mode === 'Prime') { subl.textContent = `PRIMING ${s.timers.prime_amount} g`; sub.textContent = fmtDur(s.timers.prime_duration - elapsed); }
+  if (s.mode === 'Startup' || s.mode === 'Reignite') {
+    const left = s.timers.mode_remaining ?? Math.max(0, s.timers.startup_duration - elapsed);
+    const waiting = s.coldstart.active && !s.coldstart.reached;
+    if (waiting && left <= 0) { subl.textContent = 'COLD START · WAITING FOR RISE'; sub.textContent = fmtDur(s.coldstart.remaining); }
+    else {
+      subl.textContent = waiting ? 'COLD START · TIME LEFT' : s.timers.startup_exit_temp > 0 ? `STARTING · OR AT ${fmtTemp(s.timers.startup_exit_temp)}${degUnit()}` : 'STARTING · TIME LEFT';
+      sub.textContent = fmtDur(left);
+    }
+  }
+  else if (s.mode === 'Shutdown') { subl.textContent = 'COOLING DOWN · TIME LEFT'; sub.textContent = fmtDur(s.timers.mode_remaining ?? s.timers.shutdown_duration - elapsed); }
+  else if (s.mode === 'Prime') { subl.textContent = `PRIMING ${s.timers.prime_amount} g`; sub.textContent = fmtDur(s.timers.mode_remaining ?? s.timers.prime_duration - elapsed); }
   else if (s.mode === 'Hold') { subl.textContent = s.lid_open ? `LID OPEN · ${fmtDur(s.lid_open_remaining)}` : 'SET POINT'; sub.textContent = `${fmtTemp(s.setpoint)}${degUnit()}`; }
   else if (s.mode === 'Smoke') { subl.textContent = 'SMOKING'; sub.textContent = s.s_plus ? 'Smoke+ on' : ''; }
   else { subl.textContent = ''; sub.textContent = ''; }

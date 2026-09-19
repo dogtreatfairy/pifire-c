@@ -38,6 +38,7 @@ const GROUPS = [
     B('coldstart.enabled', 'Cold-start mode', 'For freezing weather: keep starting until the pit has risen from its baseline instead of a fixed floor'),
     { path: 'coldstart.delta_rise', label: 'Cold-start rise', help: 'Temperature rise above the startup baseline that confirms ignition', type: 'tempdelta' },
     I('coldstart.timeout_s', 'Cold-start timeout (s)', '0 = same as startup duration', { min: 0 }),
+    B('coldstart.exit_on_rise', 'End startup once the rise is confirmed', 'Leave startup early when cold-start sees the pit rising (and above the minimum startup temperature) instead of running the full timer'),
     I('igniter_max_on_s', 'Igniter max on (s)', 'Igniter is forced off after this long', { min: 60 }),
     I('auger_max_on_s', 'Auger max continuous on (s)', 'Absolute cap regardless of controller or manual control', { min: 5 }),
     I('probe_fault_s', 'Probe fault timeout (s)', 'Seconds without a valid pit reading before Error', { min: 3 }),

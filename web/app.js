@@ -200,4 +200,11 @@ onStatus((s) => {
   connect();
   document.addEventListener('click', requestAlertPermission, { once: true });
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('/sw.js').catch(() => {});
+  // after a daemon upgrade the cached shell may be older than the server: reload once so modules match
+  try {
+    const sys = await api('/system');
+    let seen = null;
+    try { seen = localStorage.getItem('pf_version'); localStorage.setItem('pf_version', sys.version); } catch { /* storage unavailable */ }
+    if (seen && sys.version && seen !== sys.version) { const regs = await navigator.serviceWorker?.getRegistrations?.() || []; for (const r of regs) await r.update(); location.reload(); }
+  } catch { /* offline: keep the cached shell */ }
 })();
