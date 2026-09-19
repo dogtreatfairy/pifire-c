@@ -95,6 +95,18 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 	cJSON_AddNumberToObject(tmr, "duration", s->timer.duration);
 	cJSON_AddNumberToObject(tmr, "after", s->timer.after);
 
+	cJSON *rc = cJSON_AddObjectToObject(o, "recipe");
+	cJSON_AddBoolToObject(rc, "active", s->recipe.active);
+	if (s->recipe.active) {
+		cJSON_AddStringToObject(rc, "name", s->recipe.name);
+		cJSON_AddNumberToObject(rc, "step", s->recipe.step);
+		cJSON_AddNumberToObject(rc, "nsteps", s->recipe.nsteps);
+		cJSON_AddBoolToObject(rc, "waiting", s->recipe.waiting);
+		cJSON_AddStringToObject(rc, "step_mode", pf_mode_name(s->recipe.step_mode));
+		cJSON_AddNumberToObject(rc, "remaining_s", s->recipe.remaining_s);
+		cJSON_AddStringToObject(rc, "message", s->recipe.message);
+	}
+
 	cJSON *probes = cJSON_AddArrayToObject(o, "probes");
 	for (int i = 0; i < s->sensors.n; i++) {
 		const pf_probe_reading *p = &s->sensors.p[i];

@@ -24,6 +24,9 @@ typedef enum {
 	PF_CMD_TIMER_RESUME,
 	PF_CMD_TIMER_CANCEL,
 	PF_CMD_NOTIFY_TEST,
+	PF_CMD_RECIPE_START,   /* num = recipe id */
+	PF_CMD_RECIPE_NEXT,    /* continue past a paused step */
+	PF_CMD_RECIPE_STOP,    /* abandon the program (grill keeps its current mode) */
 } pf_cmd_type;
 
 typedef struct {

@@ -3,6 +3,7 @@
  * thread (real time) or from tests (fake time). All temperatures Celsius. */
 #include "core/cycle.h"
 #include "core/notify.h"
+#include "features/recipe.h"
 #include "pifire/common.h"
 #include "pifire/controller.h"
 #include "probes/probes.h"
@@ -85,10 +86,16 @@ typedef struct {
 	double startup_duration_s, raw_startup_c, startup_exit_c; int ss_profile;
 	pf_safety safety;
 	pf_notify notify;
+	struct {
+		bool active, triggered, waiting;   /* waiting = paused for the user after a trigger */
+		int step;
+		double step_start;
+		pf_recipe r;
+	} recipe;
 	/* sensors */
 	pf_sensors sensors; double pit_c; bool pit_valid; double ambient_c; bool ambient_from_probe;
 	/* bookkeeping */
-	double auger_on_since, auger_total_on_s, cook_start_wall;
+	double auger_on_since, auger_total_on_s, cook_start_wall, cook_max_pit_c;
 	int hopper_pct;
 	double last_step;
 	bool power_off_requested;

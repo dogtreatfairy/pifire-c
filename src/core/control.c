@@ -10,6 +10,8 @@
 #include "core/status.h"
 #include "core/util.h"
 #include "controllers/registry.h"
+#include "features/cookfile.h"
+#include "features/pellets.h"
 #include "platform/sim.h"
 #include <math.h>
 #include <stdio.h>
@@ -17,6 +19,10 @@
 #include <string.h>
 
 #define TAG "control"
+
+static void enter_mode(pf_control *c, pf_mode m, double now);
+static void recipe_begin_step(pf_control *c, double now);
+static void recipe_advance(pf_control *c, double now);
 
 /* ------------------------------------------------------------------ settings -> cfg */
 
@@ -252,6 +258,10 @@ static void enter_mode(pf_control *c, pf_mode m, double now)
 		pf_outputs_all_off();
 		c->s_plus = false;
 		c->next_mode = PF_MODE_STOP;
+		if (c->cook_start_wall > 0) {
+			pf_cookfile_finish(c->cook_start_wall, pf_wall(), c->auger_total_on_s, c->cook_max_pit_c);
+			c->cook_start_wall = 0;
+		}
 		break;
 	case PF_MODE_MONITOR:
 	case PF_MODE_MANUAL:
@@ -271,6 +281,7 @@ static void enter_mode(pf_control *c, pf_mode m, double now)
 		if (m == PF_MODE_STARTUP) {
 			c->cook_start_wall = pf_wall();
 			c->auger_total_on_s = 0;
+			c->cook_max_pit_c = 0;
 			pf_safety_reset(c);
 			if (c->cfg.clear_history_on_startup && prev == PF_MODE_STOP) pf_history_clear();
 			if (!c->ambient_from_probe) c->ambient_c = c->pit_c; /* provisional; refined by cold-start baseline */
@@ -380,6 +391,7 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 	switch (cmd->type) {
 	case PF_CMD_STOP:
 		enter_mode(c, PF_MODE_STOP, now);
+		c->recipe.active = false;
 		c->req_pending = false;
 		c->safety.error_code[0] = 0; c->safety.error_msg[0] = 0;
 		break;
@@ -450,8 +462,92 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 	case PF_CMD_TIMER_RESUME: pf_notify_timer_resume(&c->notify, now); break;
 	case PF_CMD_TIMER_CANCEL: pf_notify_timer_cancel(&c->notify); break;
 	case PF_CMD_NOTIFY_TEST: pf_events_emit("Test_Notify", "Test notification", "This is a test from PiFire."); break;
+	case PF_CMD_RECIPE_START:
+		if (c->mode == PF_MODE_ERROR) break;
+		if (pf_recipe_load((int)cmd->num, &c->recipe.r)) { LOGW(TAG, "recipe %d not found", (int)cmd->num); break; }
+		c->recipe.active = true;
+		c->recipe.step = 0;
+		recipe_begin_step(c, now);
+		break;
+	case PF_CMD_RECIPE_NEXT:
+		if (c->recipe.active && c->recipe.waiting) recipe_advance(c, now);
+		break;
+	case PF_CMD_RECIPE_STOP:
+		if (c->recipe.active) { c->recipe.active = false; LOGI(TAG, "recipe stopped by user"); }
+		break;
 	default: break;
 	}
+}
+
+/* ------------------------------------------------------------------ recipe runner */
+
+static void recipe_begin_step(pf_control *c, double now)
+{
+	pf_recipe_step *s = &c->recipe.r.steps[c->recipe.step];
+	c->recipe.step_start = now;
+	c->recipe.triggered = false;
+	c->recipe.waiting = false;
+	if (s->setpoint_c > 0) c->setpoint_c = s->setpoint_c;
+	c->s_plus = s->s_plus;
+	LOGI(TAG, "recipe '%s' step %d/%d: %s", c->recipe.r.name, c->recipe.step + 1, c->recipe.r.nsteps, pf_mode_name(s->mode));
+	if (s->message[0]) pf_events_emit("Recipe_Step_Message", c->recipe.r.name, "%s", s->message);
+	switch (s->mode) {
+	case PF_MODE_STARTUP:
+		c->next_mode = c->recipe.step + 1 < c->recipe.r.nsteps ? c->recipe.r.steps[c->recipe.step + 1].mode : c->cfg.after_startup_mode;
+		if (c->next_mode != PF_MODE_SMOKE && c->next_mode != PF_MODE_HOLD) c->next_mode = PF_MODE_SMOKE;
+		if (c->mode != PF_MODE_STARTUP) enter_mode(c, PF_MODE_STARTUP, now);
+		break;
+	case PF_MODE_SMOKE: case PF_MODE_HOLD:
+		if (c->mode == PF_MODE_STOP || c->mode == PF_MODE_MONITOR) { c->next_mode = s->mode; enter_mode(c, PF_MODE_STARTUP, now); }
+		else if (c->mode == PF_MODE_STARTUP || c->mode == PF_MODE_REIGNITE) c->next_mode = s->mode; /* startup finishes into it */
+		else if (c->mode != s->mode) enter_mode(c, s->mode, now);
+		else if (s->mode == PF_MODE_HOLD) { c->target_reached = false; c->ctrl_reset_needed = true; }
+		break;
+	case PF_MODE_SHUTDOWN: enter_mode(c, PF_MODE_SHUTDOWN, now); break;
+	case PF_MODE_STOP: enter_mode(c, PF_MODE_STOP, now); break;
+	default: break;
+	}
+}
+
+static void recipe_advance(pf_control *c, double now)
+{
+	if (++c->recipe.step >= c->recipe.r.nsteps) {
+		pf_events_emit("Recipe_Complete", c->recipe.r.name, "Recipe finished.");
+		c->recipe.active = false;
+		return;
+	}
+	recipe_begin_step(c, now);
+}
+
+static void run_recipe(pf_control *c, double now)
+{
+	if (!c->recipe.active) return;
+	if (c->mode == PF_MODE_ERROR) { c->recipe.active = false; return; }
+	pf_recipe_step *s = &c->recipe.r.steps[c->recipe.step];
+	if (c->recipe.waiting) return;
+	if (!c->recipe.triggered) {
+		bool trig = false;
+		if (s->mode == PF_MODE_STARTUP) trig = c->mode != PF_MODE_STARTUP && c->mode != PF_MODE_REIGNITE && c->mode != PF_MODE_PRIME;
+		else if (s->mode == PF_MODE_SHUTDOWN) trig = c->mode == PF_MODE_STOP;
+		else if (s->mode == PF_MODE_STOP) trig = true;
+		else {
+			bool in_mode = c->mode == s->mode;
+			if (in_mode && s->timer_s > 0 && now - c->recipe.step_start >= s->timer_s) trig = true;
+			if (in_mode && s->probe_temp_c > 0) {
+				int i = pf_probes_find(&c->sensors, s->probe);
+				if (i >= 0 && c->sensors.p[i].valid && c->sensors.p[i].temp_c >= s->probe_temp_c) trig = true;
+			}
+			if (in_mode && s->timer_s <= 0 && s->probe_temp_c <= 0) trig = true; /* nothing to wait for */
+		}
+		if (!trig) return;
+		c->recipe.triggered = true;
+		if (s->pause) {
+			c->recipe.waiting = true;
+			pf_events_emit("Recipe_Step_Done", c->recipe.r.name, "Step %d is done - tap Next to continue.", c->recipe.step + 1);
+			return;
+		}
+	}
+	recipe_advance(c, now);
 }
 
 static void run_notify(pf_control *c, double now)
@@ -736,8 +832,9 @@ static void read_sensors(pf_control *c)
 {
 	pf_probes_snapshot(&c->sensors);
 	int p = c->sensors.primary;
-	if (p >= 0 && c->sensors.p[p].valid) { c->pit_c = c->sensors.p[p].temp_c; c->pit_valid = true; }
+	if (p >= 0 && c->sensors.p[p].valid) { c->pit_c = c->sensors.p[p].temp_c; c->pit_valid = true; if (c->pit_c > c->cook_max_pit_c) c->cook_max_pit_c = c->pit_c; }
 	else c->pit_valid = false;
+	c->hopper_pct = pf_pellets_hopper_pct();
 	c->ambient_from_probe = false;
 	for (int i = 0; i < c->sensors.n; i++)
 		if (c->sensors.p[i].ambient && c->sensors.p[i].valid) { c->ambient_c = c->sensors.p[i].temp_c; c->ambient_from_probe = true; break; }
@@ -794,6 +891,17 @@ static void publish(pf_control *c, double now)
 	s.timer.remaining = c->notify.timer.running ? (c->notify.timer.paused ? c->notify.timer.remaining : c->notify.timer.end_t - now) : 0;
 	s.timer.duration = c->notify.timer.duration;
 	s.timer.after = c->notify.timer.after;
+	s.recipe.active = c->recipe.active;
+	if (c->recipe.active) {
+		const pf_recipe_step *rs = &c->recipe.r.steps[c->recipe.step];
+		pf_strlcpy(s.recipe.name, c->recipe.r.name, sizeof s.recipe.name);
+		s.recipe.step = c->recipe.step;
+		s.recipe.nsteps = c->recipe.r.nsteps;
+		s.recipe.waiting = c->recipe.waiting;
+		s.recipe.step_mode = rs->mode;
+		s.recipe.remaining_s = rs->timer_s > 0 ? fmax(0, rs->timer_s - (now - c->recipe.step_start)) : -1;
+		pf_strlcpy(s.recipe.message, rs->message, sizeof s.recipe.message);
+	}
 	pf_status_publish(&s);
 	pf_history_record(&s, now, c->cfg.history_sample_s);
 }
@@ -807,6 +915,7 @@ void pf_control_step(pf_control *c, double now)
 	read_sensors(c);
 	apply_request(c, now);
 	run_notify(c, now);
+	run_recipe(c, now);
 
 	int action = pf_safety_tick(c, now);
 	if (action == PF_MODE_ERROR) enter_mode(c, PF_MODE_ERROR, now);

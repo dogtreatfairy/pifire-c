@@ -3,19 +3,43 @@ import { PF, el, api, onStatus, degUnit, segmented, toast, confirmDialog } from 
 const COLORS = ['#ff8a1f', '#5ac8fa', '#4cd964', '#ff2d55', '#af52de', '#ffcc00', '#34aadc'];
 
 export function renderHistory(view) {
-  let minutes = Number(localStorage.getItem('pf.hist.minutes') || 15);
+  let minutes = 15; try { minutes = Number(localStorage.getItem('pf.hist.minutes') || 15); } catch {}
   let live = true, plot = null, timer = null;
   const chartEl = el('div', { class: 'chart' });
   const header = el('div', { class: 'row between' },
-    segmented([[15, '15m'], [60, '1h'], [180, '3h'], [720, '12h'], [1440, '24h']], minutes, (v) => { minutes = v; localStorage.setItem('pf.hist.minutes', v); load(); }),
+    segmented([[15, '15m'], [60, '1h'], [180, '3h'], [720, '12h'], [1440, '24h']], minutes, (v) => { minutes = v; viewing = null; title.textContent = ''; try { localStorage.setItem('pf.hist.minutes', v); } catch {} load(); }),
     el('label', { class: 'row' }, el('input', { type: 'checkbox', checked: live, onchange: (e) => (live = e.target.checked) }), 'Live'));
   const stats = el('div', { class: 'grid2' });
-  view.append(el('div', { class: 'card' }, header, chartEl), stats,
-    el('div', { class: 'btnrow' }, el('button', { class: 'btn ghost', onclick: async () => { if (await confirmDialog('Clear history?', 'Removes all stored samples.', 'Clear', true)) { await api('/history/clear', { body: {} }); load(); } } }, 'Clear history')));
+  const cooks = el('div', { class: 'list' });
+  let viewing = null; // cook file being viewed, or null for live
+  const title = el('div', { class: 'muted', style: 'font-size:.85rem;margin:6px 0' });
+  view.append(el('div', { class: 'card' }, header, title, chartEl), stats,
+    el('div', { class: 'btnrow' }, el('button', { class: 'btn ghost', onclick: async () => { if (await confirmDialog('Clear history?', 'Removes all stored samples.', 'Clear', true)) { await api('/history/clear', { body: {} }); load(); } } }, 'Clear history')),
+    el('h2', {}, 'Cook files'), el('div', { class: 'card' }, cooks));
+
+  async function loadCooks() {
+    const list = await api('/cookfiles').catch(() => []);
+    cooks.innerHTML = '';
+    for (const c of list) {
+      const m = c.metrics || {};
+      cooks.append(el('div', { class: 'item' },
+        el('div', { style: 'cursor:pointer', onclick: async () => { viewing = await api(`/cookfiles/${c.id}`); title.textContent = `Viewing ${viewing.name}`; render(viewing.history); } },
+          el('div', {}, c.name), el('div', { class: 'meta' }, `${(m.duration_s / 3600).toFixed(1)} h · max ${Math.round(m.max_pit || 0)}${degUnit()} · ≈${((m.pellets_g || 0) / 453.6).toFixed(1)} lb`)),
+        el('div', { class: 'btnrow' },
+          el('a', { class: 'btn sm ghost', href: `/api/v1/cookfiles/${c.id}`, download: `${c.name.replace(/[^\w.-]+/g, '_')}.json` }, 'Download'),
+          el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog('Delete cook file?', c.name, 'Delete', true)) { await api(`/cookfiles/${c.id}/delete`, { body: {} }); loadCooks(); } } }, 'Delete'))));
+    }
+    if (!list.length) cooks.append(el('div', { class: 'muted' }, 'Cook files are saved automatically when a cook ends.'));
+  }
+  loadCooks();
 
   async function load() {
+    if (viewing) return;
     let h;
     try { h = await api(`/history?minutes=${minutes}`); } catch (e) { toast('History unavailable', true); return; }
+    render(h);
+  }
+  function render(h) {
     const t = h.t;
     const series = [{ label: 'Time' }];
     const data = [t];

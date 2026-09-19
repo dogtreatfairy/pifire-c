@@ -6,7 +6,9 @@
 #include "core/outputs.h"
 #include "core/sdnotify.h"
 #include "core/settings.h"
+#include "core/status.h"
 #include "core/util.h"
+#include "features/pellets.h"
 #include "platform/sim.h"
 #include "probes/probes.h"
 #include <pthread.h>
@@ -68,6 +70,10 @@ static void *services_thread(void *arg)
 	double last_flush = pf_now(), last_prune = pf_now();
 	while (atomic_load(&g_run)) {
 		double now = pf_now();
+		pf_status st;
+		pf_status_get(&st);
+		bool cooking = st.mode == PF_MODE_STARTUP || st.mode == PF_MODE_REIGNITE || st.mode == PF_MODE_SMOKE || st.mode == PF_MODE_HOLD;
+		pf_pellets_tick(now, g_ctrl->auger_total_on_s, cooking);
 		if (now - last_flush > 15) { last_flush = now; pf_history_flush(); }
 		if (now - last_prune > 600) {
 			last_prune = now;

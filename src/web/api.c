@@ -9,6 +9,9 @@
 #include "core/status.h"
 #include "core/util.h"
 #include "controllers/registry.h"
+#include "features/cookfile.h"
+#include "features/pellets.h"
+#include "features/recipe.h"
 #include "net/netmgr.h"
 #include "net/sysinfo.h"
 #include "net/wifi.h"
@@ -132,6 +135,12 @@ int pf_api_command_json(const char *json, char *err, size_t errn)
 		else { snprintf(err, errn, "unknown timer op"); rc = -1; }
 	} else if (!strcmp(cmd, "test_notify")) {
 		c.type = PF_CMD_NOTIFY_TEST;
+	} else if (!strcmp(cmd, "recipe")) {
+		const char *op = pf_json_str(j, "op", "start");
+		if (!strcmp(op, "start")) { c.type = PF_CMD_RECIPE_START; c.num = pf_json_num(j, "id", 0); if (c.num <= 0) { snprintf(err, errn, "id required"); rc = -1; } }
+		else if (!strcmp(op, "next")) c.type = PF_CMD_RECIPE_NEXT;
+		else if (!strcmp(op, "stop")) c.type = PF_CMD_RECIPE_STOP;
+		else { snprintf(err, errn, "unknown recipe op"); rc = -1; }
 	} else {
 		snprintf(err, errn, "unknown command '%s'", cmd);
 		rc = -1;
@@ -262,6 +271,64 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 	}
 	if (get && !strcmp(p, "/probes/devices")) { reply(resp, 200, pf_probes_device_status()); return; }
 	if (get && !strcmp(p, "/system")) { reply(resp, 200, pf_sysinfo_json()); return; }
+	if (get && !strcmp(p, "/pellets")) { reply(resp, 200, pf_pellets_json()); return; }
+	if (post && !strcmp(p, "/pellets/profile")) {
+		char err[128] = "";
+		if (pf_pellets_profile_save(req->body, err, sizeof err)) reply_err(resp, 400, err[0] ? err : "save failed"); else reply_ok(resp);
+		return;
+	}
+	if (post && !strcmp(p, "/pellets/delete")) {
+		cJSON *j = cJSON_Parse(req->body);
+		int rc = pf_pellets_profile_delete(pf_json_int(j, "id", 0));
+		cJSON_Delete(j);
+		if (rc) reply_err(resp, 400, "cannot delete (in use?)"); else reply_ok(resp);
+		return;
+	}
+	if (post && !strcmp(p, "/pellets/load")) {
+		cJSON *j = cJSON_Parse(req->body);
+		int id = pf_json_int(j, "id", 0);
+		cJSON_Delete(j);
+		if (id <= 0) { reply_err(resp, 400, "id required"); return; }
+		pf_pellets_load(id);
+		reply_ok(resp);
+		return;
+	}
+	if (post && !strcmp(p, "/pellets/check")) { pf_pellets_request_check(); reply_ok(resp); return; }
+	if (get && !strcmp(p, "/recipes")) { reply(resp, 200, pf_recipes_list()); return; }
+	if (post && !strcmp(p, "/recipes")) {
+		char err[128] = "";
+		int id = pf_recipe_save(req->body, err, sizeof err);
+		if (id < 0) { reply_err(resp, 400, err); return; }
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddStringToObject(o, "result", "OK");
+		cJSON_AddNumberToObject(o, "id", id);
+		reply(resp, 200, o);
+		return;
+	}
+	if (post && !strncmp(p, "/recipes/", 9) && strstr(p, "/delete")) {
+		if (pf_recipe_delete(atoi(p + 9))) reply_err(resp, 400, "delete failed"); else reply_ok(resp);
+		return;
+	}
+	if (get && !strcmp(p, "/cookfiles")) { reply(resp, 200, pf_cookfile_list()); return; }
+	if (!strncmp(p, "/cookfiles/", 11)) {
+		int id = atoi(p + 11);
+		const char *sub = strchr(p + 11, '/');
+		if (get) {
+			char *txt = pf_cookfile_read(id);
+			if (!txt) { reply_err(resp, 404, "no such cook file"); return; }
+			resp->status = 200;
+			resp->json = txt;
+			return;
+		}
+		if (post && sub && !strcmp(sub, "/delete")) { if (pf_cookfile_delete(id)) reply_err(resp, 400, "delete failed"); else reply_ok(resp); return; }
+		if (post && sub && !strcmp(sub, "/rename")) {
+			cJSON *j = cJSON_Parse(req->body);
+			int rc = pf_cookfile_rename(id, pf_json_str(j, "name", "Cook"));
+			cJSON_Delete(j);
+			if (rc) reply_err(resp, 400, "rename failed"); else reply_ok(resp);
+			return;
+		}
+	}
 	if (get && !strcmp(p, "/network/status")) { reply(resp, 200, pf_netmgr_status()); return; }
 	if (get && !strcmp(p, "/network/scan")) { reply(resp, 200, pf_wifi_scan(query_num(req->query, "rescan", 1) != 0)); return; }
 	if (get && !strcmp(p, "/network/saved")) { reply(resp, 200, pf_wifi_saved()); return; }

@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/gpio.h>
+#include <poll.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -66,6 +67,27 @@ pf_gpio_line *pf_gpio_request_input(int chipfd, unsigned offset, bool active_low
 	if (bias == PF_GPIO_BIAS_PULL_UP) flags |= GPIO_V2_LINE_FLAG_BIAS_PULL_UP;
 	else if (bias == PF_GPIO_BIAS_PULL_DOWN) flags |= GPIO_V2_LINE_FLAG_BIAS_PULL_DOWN;
 	return request(chipfd, offset, flags, -1, consumer);
+}
+
+pf_gpio_line *pf_gpio_request_events(int chipfd, unsigned offset, bool active_low, pf_gpio_bias bias, const char *consumer)
+{
+	uint64_t flags = GPIO_V2_LINE_FLAG_INPUT | GPIO_V2_LINE_FLAG_EDGE_RISING | GPIO_V2_LINE_FLAG_EDGE_FALLING |
+	                 (active_low ? GPIO_V2_LINE_FLAG_ACTIVE_LOW : 0);
+	if (bias == PF_GPIO_BIAS_PULL_UP) flags |= GPIO_V2_LINE_FLAG_BIAS_PULL_UP;
+	else if (bias == PF_GPIO_BIAS_PULL_DOWN) flags |= GPIO_V2_LINE_FLAG_BIAS_PULL_DOWN;
+	return request(chipfd, offset, flags, -1, consumer);
+}
+
+int pf_gpio_wait_edge(pf_gpio_line *l, int timeout_ms, uint64_t *timestamp_ns)
+{
+	if (!l) return -1;
+	struct pollfd p = { .fd = l->fd, .events = POLLIN };
+	int r = poll(&p, 1, timeout_ms);
+	if (r <= 0) return -1;
+	struct gpio_v2_line_event ev;
+	if (read(l->fd, &ev, sizeof ev) != (ssize_t)sizeof ev) return -1;
+	if (timestamp_ns) *timestamp_ns = ev.timestamp_ns;
+	return ev.id == GPIO_V2_LINE_EVENT_RISING_EDGE ? 1 : 0;
 }
 
 int pf_gpio_set(pf_gpio_line *l, bool active)

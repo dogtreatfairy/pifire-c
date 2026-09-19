@@ -3,7 +3,10 @@
 #include "core/control.h"
 #include "core/db.h"
 #include "core/env.h"
+#include "core/events.h"
 #include "core/history.h"
+#include "features/cookfile.h"
+#include "features/pellets.h"
 #include "core/log.h"
 #include "core/outputs.h"
 #include "core/sdnotify.h"
@@ -121,7 +124,11 @@ int main(int argc, char **argv)
 	pf_outputs_init(pops, pinst);
 
 	pf_cmdq_init();
+	pf_events_init();
 	pf_history_init();
+	pf_cookfile_init(data_dir);
+	pf_pellets_init(sim);
+	pf_recipes_init();
 	pf_probes_init();
 	static pf_control ctrl;
 	pf_control_init(&ctrl, sim);
@@ -154,6 +161,7 @@ int main(int argc, char **argv)
 	pf_threads_stop();
 	pf_control_shutdown(&ctrl);
 	pf_probes_shutdown();
+	pf_pellets_shutdown();
 	pf_outputs_shutdown();
 	pf_db_event(PF_LVL_INFO, "SYS_STOP", "pifired stopped");
 	pf_db_close();

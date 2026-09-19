@@ -1,7 +1,7 @@
 // Cache the app shell so the PWA opens instantly; API and WebSocket traffic always goes to the network.
 const VERSION = 'pifire-v1';
 const SHELL = ['/', '/index.html', '/app.js', '/style.css', '/uPlot.iife.min.js', '/uPlot.min.css', '/manifest.webmanifest', '/icon.svg',
-  '/pages/home.js', '/pages/history.js', '/pages/cook.js', '/pages/settings.js', '/pages/more.js', '/pages/network.js'];
+  '/pages/home.js', '/pages/history.js', '/pages/cook.js', '/pages/settings.js', '/pages/more.js', '/pages/network.js', '/pages/pellets.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
