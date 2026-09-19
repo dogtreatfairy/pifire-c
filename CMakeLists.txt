@@ -110,6 +110,8 @@ add_library(pfcore STATIC
   src/core/status.c
   src/core/history.c
   src/core/safety.c
+  src/core/events.c
+  src/core/notify.c
   src/core/control.c
   src/core/threads.c
   src/hal/gpio.c

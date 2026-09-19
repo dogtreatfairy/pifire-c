@@ -3,6 +3,7 @@
 #include "core/cmdq.h"
 #include "core/db.h"
 #include "core/embedded.h"
+#include "core/events.h"
 #include "core/log.h"
 #include "core/settings.h"
 #include "core/status.h"
@@ -156,7 +157,7 @@ static void *push_thread(void *arg)
 {
 	(void)arg;
 	pthread_setname_np(pthread_self(), "pf-wspush");
-	unsigned last_gen = 0;
+	unsigned last_gen = 0, last_ev = pf_events_generation();
 	double last_push = 0;
 	while (atomic_load(&g_run)) {
 		double now = pf_now();
@@ -165,6 +166,24 @@ static void *push_thread(void *arg)
 			last_gen = gen;
 			last_push = now;
 			pf_web_push_status();
+		}
+		unsigned ev = pf_events_generation();
+		if (ev != last_ev) {
+			last_ev = ev;
+			cJSON *arr = pf_events_recent_json(1);
+			cJSON *e = cJSON_DetachItemFromArray(arr, 0);
+			cJSON_Delete(arr);
+			if (e) {
+				cJSON_AddStringToObject(e, "type", "event");
+				char *txt = cJSON_PrintUnformatted(e);
+				cJSON_Delete(e);
+				if (txt) {
+					pthread_mutex_lock(&g_ws_mu);
+					for (int i = 0; i < MAX_WS; i++) if (g_ws[i]) mg_websocket_write(g_ws[i], MG_WEBSOCKET_OPCODE_TEXT, txt, strlen(txt));
+					pthread_mutex_unlock(&g_ws_mu);
+					free(txt);
+				}
+			}
 		}
 		pf_sleep_ms(100);
 	}

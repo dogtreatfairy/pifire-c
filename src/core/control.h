@@ -2,6 +2,7 @@
 /* Mode state machine + cycle engine + safety. Driven by pf_control_step(now) from the control
  * thread (real time) or from tests (fake time). All temperatures Celsius. */
 #include "core/cycle.h"
+#include "core/notify.h"
 #include "pifire/common.h"
 #include "pifire/controller.h"
 #include "probes/probes.h"
@@ -83,6 +84,7 @@ typedef struct {
 	double prime_duration_s, prime_amount_g;
 	double startup_duration_s, raw_startup_c, startup_exit_c; int ss_profile;
 	pf_safety safety;
+	pf_notify notify;
 	/* sensors */
 	pf_sensors sensors; double pit_c; bool pit_valid; double ambient_c; bool ambient_from_probe;
 	/* bookkeeping */

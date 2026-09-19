@@ -2,6 +2,7 @@
 #include "core/cmdq.h"
 #include "core/db.h"
 #include "core/env.h"
+#include "core/events.h"
 #include "core/history.h"
 #include "core/log.h"
 #include "core/outputs.h"
@@ -435,7 +436,43 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 	case PF_CMD_CLEAR_ERROR:
 		if (c->mode == PF_MODE_ERROR) enter_mode(c, PF_MODE_STOP, now);
 		break;
+	case PF_CMD_NOTIFY_TARGET:
+		pf_notify_sync(&c->notify, &c->sensors);
+		if (pf_notify_set_target(&c->notify, cmd->str, cmd->num > 0 ? pf_to_c(cmd->num, u) : 0, cmd->aux))
+			LOGW(TAG, "notify target: unknown probe '%s'", cmd->str);
+		break;
+	case PF_CMD_NOTIFY_LIMITS:
+		pf_notify_sync(&c->notify, &c->sensors);
+		pf_notify_set_limits(&c->notify, cmd->str, cmd->num > 0 ? pf_to_c(cmd->num, u) : 0, cmd->num2 > 0 ? pf_to_c(cmd->num2, u) : 0);
+		break;
+	case PF_CMD_TIMER_START: pf_notify_timer_start(&c->notify, cmd->num, cmd->aux, now); break;
+	case PF_CMD_TIMER_PAUSE: pf_notify_timer_pause(&c->notify, now); break;
+	case PF_CMD_TIMER_RESUME: pf_notify_timer_resume(&c->notify, now); break;
+	case PF_CMD_TIMER_CANCEL: pf_notify_timer_cancel(&c->notify); break;
+	case PF_CMD_NOTIFY_TEST: pf_events_emit("Test_Notify", "Test notification", "This is a test from PiFire."); break;
 	default: break;
+	}
+}
+
+static void run_notify(pf_control *c, double now)
+{
+	pf_notify_sync(&c->notify, &c->sensors);
+	pf_notify_tick(&c->notify, &c->sensors, c->mode, now, c->cfg.units);
+	int act = c->notify.pending_action;
+	c->notify.pending_action = PF_AFTER_NONE;
+	if (act == PF_AFTER_SHUTDOWN && (c->mode == PF_MODE_STARTUP || c->mode == PF_MODE_REIGNITE || c->mode == PF_MODE_SMOKE || c->mode == PF_MODE_HOLD))
+		enter_mode(c, PF_MODE_SHUTDOWN, now);
+	else if (act == PF_AFTER_KEEPWARM && (c->mode == PF_MODE_SMOKE || c->mode == PF_MODE_HOLD)) {
+		c->setpoint_c = c->cfg.keepwarm_c;
+		c->s_plus = c->cfg.keepwarm_splus;
+		c->target_reached = false;
+		if (c->mode == PF_MODE_HOLD) c->ctrl_reset_needed = true;
+		else enter_mode(c, PF_MODE_HOLD, now);
+	}
+	/* mirror targets into the sensor snapshot for status/history */
+	for (int i = 0; i < c->sensors.n; i++) {
+		const pf_notify_probe *p = pf_notify_find(&c->notify, c->sensors.p[i].label);
+		c->sensors.p[i].target_c = p ? p->target_c : 0;
 	}
 }
 
@@ -670,6 +707,7 @@ void pf_control_init(pf_control *c, bool sim)
 	c->duty_cycle = c->cfg.pwm_max_duty;
 	c->setpoint_c = c->cfg.after_startup_setpoint_c;
 	pf_safety_reset(c);
+	pf_notify_init(&c->notify);
 	controller_load(c, c->cfg.controller_id);
 	c->mode = PF_MODE_STOP;
 	pf_outputs_all_off();
@@ -744,6 +782,18 @@ static void publish(pf_control *c, double now)
 	s.sensors = c->sensors;
 	s.hopper_pct = c->hopper_pct;
 	s.sim = c->sim;
+	for (int i = 0; i < c->sensors.n && i < PF_MAX_PROBES; i++) {
+		const pf_notify_probe *p = pf_notify_find(&c->notify, c->sensors.p[i].label);
+		s.notify[i].after = p ? p->after : 0;
+		s.notify[i].eta_s = p ? p->eta_s : -1;
+		s.notify[i].limit_high_c = p ? p->limit_high_c : 0;
+		s.notify[i].limit_low_c = p ? p->limit_low_c : 0;
+	}
+	s.timer.running = c->notify.timer.running;
+	s.timer.paused = c->notify.timer.paused;
+	s.timer.remaining = c->notify.timer.running ? (c->notify.timer.paused ? c->notify.timer.remaining : c->notify.timer.end_t - now) : 0;
+	s.timer.duration = c->notify.timer.duration;
+	s.timer.after = c->notify.timer.after;
 	pf_status_publish(&s);
 	pf_history_record(&s, now, c->cfg.history_sample_s);
 }
@@ -756,6 +806,7 @@ void pf_control_step(pf_control *c, double now)
 
 	read_sensors(c);
 	apply_request(c, now);
+	run_notify(c, now);
 
 	int action = pf_safety_tick(c, now);
 	if (action == PF_MODE_ERROR) enter_mode(c, PF_MODE_ERROR, now);

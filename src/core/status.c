@@ -88,6 +88,13 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 	cJSON_AddNumberToObject(ct, "error", r1(pf_delta_from_c(s->ctrl_dbg.error, units)));
 	cJSON_AddStringToObject(ct, "note", s->ctrl_dbg.note);
 
+	cJSON *tmr = cJSON_AddObjectToObject(o, "timer");
+	cJSON_AddBoolToObject(tmr, "running", s->timer.running);
+	cJSON_AddBoolToObject(tmr, "paused", s->timer.paused);
+	cJSON_AddNumberToObject(tmr, "remaining", round(s->timer.remaining));
+	cJSON_AddNumberToObject(tmr, "duration", s->timer.duration);
+	cJSON_AddNumberToObject(tmr, "after", s->timer.after);
+
 	cJSON *probes = cJSON_AddArrayToObject(o, "probes");
 	for (int i = 0; i < s->sensors.n; i++) {
 		const pf_probe_reading *p = &s->sensors.p[i];
@@ -99,6 +106,10 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 		cJSON_AddBoolToObject(po, "valid", p->valid);
 		add_num_or_null(po, "temp", p->valid ? r1(conv(p->temp_c, units)) : NAN);
 		cJSON_AddNumberToObject(po, "target", p->target_c > 0 ? r1(conv(p->target_c, units)) : 0);
+		cJSON_AddNumberToObject(po, "after", s->notify[i].after);
+		cJSON_AddNumberToObject(po, "eta_s", s->notify[i].eta_s);
+		cJSON_AddNumberToObject(po, "limit_high", s->notify[i].limit_high_c > 0 ? r1(conv(s->notify[i].limit_high_c, units)) : 0);
+		cJSON_AddNumberToObject(po, "limit_low", s->notify[i].limit_low_c > 0 ? r1(conv(s->notify[i].limit_low_c, units)) : 0);
 		cJSON_AddNumberToObject(po, "ohms", round(p->ohms));
 		cJSON_AddStringToObject(po, "device", p->device);
 		cJSON_AddStringToObject(po, "port", p->port);

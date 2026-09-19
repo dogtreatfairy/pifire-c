@@ -1,5 +1,6 @@
 #include "core/control.h"
 #include "core/db.h"
+#include "core/events.h"
 #include "core/log.h"
 #include "core/outputs.h"
 #include "core/util.h"
@@ -18,8 +19,7 @@ void pf_safety_set_error(pf_control *c, const char *code, const char *fmt, ...)
 	va_start(ap, fmt);
 	vsnprintf(s->error_msg, sizeof s->error_msg, fmt, ap);
 	va_end(ap);
-	LOGE(TAG, "%s: %s", code, s->error_msg);
-	if (pf_db_handle()) pf_db_event(PF_LVL_ERROR, code, s->error_msg);
+	pf_events_emit(code, "Grill error", "%s", s->error_msg);
 }
 
 void pf_safety_reset(pf_control *c)

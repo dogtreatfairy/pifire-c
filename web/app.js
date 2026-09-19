@@ -54,6 +54,7 @@ function connect() {
     const m = JSON.parse(ev.data);
     if (m.type === 'status') { PF.status = m; PF.units = m.units; emit(); }
     else if (m.type === 'error') toast(m.msg, true);
+    else if (m.type === 'event') { PF.alertGen = (PF.alertGen || 0) + 1; alert(m); emit(); }
   };
 }
 function setConnected(on) {
@@ -76,6 +77,21 @@ export function el(tag, attrs = {}, ...children) {
   }
   for (const c of children.flat()) if (c != null) e.append(c.nodeType ? c : document.createTextNode(String(c)));
   return e;
+}
+// Alert: in-page banner-toast plus a system notification when the page is in the background.
+function alert(m) {
+  const t = document.getElementById('toast');
+  t.innerHTML = '';
+  t.append(el('strong', {}, m.title), ' ', el('span', { class: 'muted' }, m.body));
+  t.hidden = false; t.classList.toggle('err', /^E\d/.test(m.code));
+  clearTimeout(t._h); t._h = setTimeout(() => (t.hidden = true), 8000);
+  try {
+    if (document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') new Notification(m.title, { body: m.body, tag: m.code });
+    if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
+  } catch {}
+}
+export function requestAlertPermission() {
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
 }
 export function toast(msg, err = false) {
   const t = document.getElementById('toast');
@@ -182,5 +198,6 @@ onStatus((s) => {
   route();
   emit();
   connect();
+  document.addEventListener('click', requestAlertPermission, { once: true });
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('/sw.js').catch(() => {});
 })();

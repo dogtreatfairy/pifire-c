@@ -32,6 +32,8 @@ typedef struct {
 	double ambient_c;
 	int reignite_retries_left;
 	pf_sensors sensors;
+	struct { int after; double eta_s, limit_high_c, limit_low_c; } notify[PF_MAX_PROBES]; /* parallel to sensors.p */
+	struct { bool running, paused; double remaining, duration; int after; } timer;
 	int hopper_pct;           /* -1 unknown */
 	bool sim;
 } pf_status;

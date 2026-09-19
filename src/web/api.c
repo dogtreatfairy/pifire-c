@@ -3,6 +3,7 @@
 #include "core/cmdq.h"
 #include "core/db.h"
 #include "core/embedded.h"
+#include "core/events.h"
 #include "core/log.h"
 #include "core/settings.h"
 #include "core/status.h"
@@ -111,6 +112,26 @@ int pf_api_command_json(const char *json, char *err, size_t errn)
 		pf_strlcpy(c.str, pf_json_str(j, "next", ""), sizeof c.str);
 	} else if (!strcmp(cmd, "clear_error")) {
 		c.type = PF_CMD_CLEAR_ERROR;
+	} else if (!strcmp(cmd, "target")) {
+		c.type = PF_CMD_NOTIFY_TARGET;
+		pf_strlcpy(c.str, pf_json_str(j, "label", ""), sizeof c.str);
+		c.num = pf_json_num(j, "target", 0);
+		c.aux = pf_json_int(j, "after", 0);
+		if (!c.str[0]) { snprintf(err, errn, "label required"); rc = -1; }
+	} else if (!strcmp(cmd, "limits")) {
+		c.type = PF_CMD_NOTIFY_LIMITS;
+		pf_strlcpy(c.str, pf_json_str(j, "label", ""), sizeof c.str);
+		c.num = pf_json_num(j, "high", 0);
+		c.num2 = pf_json_num(j, "low", 0);
+	} else if (!strcmp(cmd, "timer")) {
+		const char *op = pf_json_str(j, "op", "start");
+		if (!strcmp(op, "start")) { c.type = PF_CMD_TIMER_START; c.num = pf_json_num(j, "seconds", 0); c.aux = pf_json_int(j, "after", 0); if (c.num <= 0) { snprintf(err, errn, "seconds required"); rc = -1; } }
+		else if (!strcmp(op, "pause")) c.type = PF_CMD_TIMER_PAUSE;
+		else if (!strcmp(op, "resume")) c.type = PF_CMD_TIMER_RESUME;
+		else if (!strcmp(op, "cancel")) c.type = PF_CMD_TIMER_CANCEL;
+		else { snprintf(err, errn, "unknown timer op"); rc = -1; }
+	} else if (!strcmp(cmd, "test_notify")) {
+		c.type = PF_CMD_NOTIFY_TEST;
 	} else {
 		snprintf(err, errn, "unknown command '%s'", cmd);
 		rc = -1;
@@ -205,6 +226,7 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		return;
 	}
 	if (get && !strcmp(p, "/events")) { reply(resp, 200, pf_db_events_recent((int)query_num(req->query, "limit", 100))); return; }
+	if (get && !strcmp(p, "/alerts")) { reply(resp, 200, pf_events_recent_json((int)query_num(req->query, "limit", 20))); return; }
 	if (get && !strcmp(p, "/logs")) {
 		char *buf = malloc(200000);
 		pf_log_recent_json(buf, 200000, (int)query_num(req->query, "limit", 300));

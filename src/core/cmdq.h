@@ -17,12 +17,20 @@ typedef enum {
 	PF_CMD_PROBES_CHANGED,
 	PF_CMD_STOP,           /* e-stop: always honoured */
 	PF_CMD_CLEAR_ERROR,
+	PF_CMD_NOTIFY_TARGET,  /* str = probe label, num = target (user units, 0 clears), aux = after-action */
+	PF_CMD_NOTIFY_LIMITS,  /* str = label, num = high, num2 = low (user units, 0 = off) */
+	PF_CMD_TIMER_START,    /* num = seconds, aux = after-action */
+	PF_CMD_TIMER_PAUSE,
+	PF_CMD_TIMER_RESUME,
+	PF_CMD_TIMER_CANCEL,
+	PF_CMD_NOTIFY_TEST,
 } pf_cmd_type;
 
 typedef struct {
 	pf_cmd_type type;
 	pf_mode mode;
-	double num;
+	double num, num2;
+	int aux;
 	bool flag;
 	char str[64];
 } pf_cmd;
