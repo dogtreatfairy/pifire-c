@@ -5,6 +5,7 @@ const pf_distance_ops *pf_distance_find(const char *id)
 {
 	if (!id) return pf_distance_none();
 	if (!strcmp(id, "hcsr04")) return pf_distance_hcsr04();
+	if (!strcmp(id, "vl53l0x")) return pf_distance_vl53l0x();
 	if (!strcmp(id, "sim") || !strcmp(id, "prototype")) return pf_distance_sim();
 	return pf_distance_none();
 }

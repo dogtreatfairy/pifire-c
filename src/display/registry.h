@@ -8,3 +8,4 @@ void pf_display_shutdown(void);
 void pf_display_tick(const char *status_json);
 void pf_display_text(const char *msg);
 const pf_display_ops *pf_display_none(void);
+const pf_display_ops *pf_display_ili9341(void);

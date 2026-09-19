@@ -194,13 +194,42 @@ async function hardware(view) {
     } }, 'Add device')));
   };
 
+  // display and hopper sensor modules, each with the config fields its manifest entry declares
+  const mods = structuredClone(PF.settings.modules || {});
+  const dispCfg = structuredClone(PF.settings.display || {});
+  const distCfg = structuredClone(PF.settings.distance || {});
+  const moduleCard = (title, modules, key, cfg) => {
+    const card = el('div', { class: 'card' });
+    const render = () => {
+      card.innerHTML = '';
+      const cur = modules[mods[key]] ? mods[key] : 'none';
+      card.append(el('div', { class: 'field' }, el('label', {}, title), el('select', { onchange: (e) => { mods[key] = e.target.value; render(); } }, Object.entries(modules).map(([id, m]) => el('option', { value: id, selected: id === cur }, m.friendly_name)))),
+        el('p', { class: 'muted', style: 'font-size:.85rem' }, modules[cur].description || ''));
+      for (const c of modules[cur].config || []) {
+        if (c.hidden) continue;
+        const v = cfg[c.label] ?? c.default;
+        const input = c.type === 'list'
+          ? el('select', { onchange: (e) => (cfg[c.label] = coerce(e.target.value)) }, c.list_values.map((lv, k) => el('option', { value: lv, selected: String(v) === String(lv) }, c.list_labels?.[k] ?? lv)))
+          : el('input', { type: 'text', inputmode: 'decimal', value: v ?? '', onchange: (e) => (cfg[c.label] = c.type === 'int' || c.type === 'float' ? Number(e.target.value) : e.target.value) });
+        card.append(el('div', { class: 'field inline' }, el('div', {}, el('label', {}, c.friendly_name), el('div', { class: 'help' }, c.description)), input));
+      }
+    };
+    render();
+    return card;
+  };
+  const displayCard = moduleCard('Display', man.modules.display, 'display', dispCfg);
+  const distCard = moduleCard('Hopper level sensor', man.modules.distance, 'dist', distCfg);
+
   renderBoard(); renderDevices();
-  view.append(el('h2', {}, 'Board'), boardCard, el('h2', {}, 'Probe devices'), devCard,
+  view.append(el('h2', {}, 'Board'), boardCard, el('h2', {}, 'Probe devices'), devCard, el('h2', {}, 'Display'), displayCard, el('h2', {}, 'Hopper sensor'), distCard,
     el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'button', onclick: async () => {
       try {
         plat.system_type = plat.system_type || 'rpi';
         await patchSettings('platform', plat);
         await patchSettings('probe_settings', { probe_map: { probe_devices: map.probe_devices } });
+        await patchSettings('modules', { display: mods.display || 'none', dist: mods.dist || 'none' });
+        await patchSettings('display', dispCfg);
+        await patchSettings('distance', distCfg);
         toast(boards[plat.current]?.reboot_required ? 'Saved — reboot to apply pin changes' : 'Saved');
       } catch (e) { toast(e.message, true); }
     } }, 'Save hardware')));

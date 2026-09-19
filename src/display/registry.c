@@ -28,6 +28,7 @@ const pf_display_ops *pf_display_none(void) { return &none_ops; }
 static const pf_display_ops *find(const char *id)
 {
 	if (!id || !*id || !strcmp(id, "none")) return &none_ops;
+	if (!strcmp(id, "ili9341e") || !strcmp(id, "ili9341")) return pf_display_ili9341();
 	/* out-of-tree drivers: /usr/lib/pifire/display/<id>.so exporting pf_display_export */
 	char path[256];
 	snprintf(path, sizeof path, "/usr/lib/pifire/display/%s.so", id);
@@ -49,6 +50,7 @@ int pf_display_init(void)
 	cJSON *pins = pf_set_dup("platform.devices");
 	if (!cfg) cfg = cJSON_CreateObject();
 	if (pins) cJSON_AddItemToObject(cfg, "devices", pins);
+	cJSON_AddBoolToObject(cfg, "encoder", strcmp(id, "ili9341") != 0);
 	char *js = cJSON_PrintUnformatted(cfg);
 	cJSON_Delete(cfg);
 	g_inst = g_ops->create(js, &g_env);

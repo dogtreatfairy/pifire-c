@@ -66,6 +66,8 @@ int pf_pellets_init(bool sim)
 	pf_env_init(&g_env, "distance");
 	cJSON *cfg = pf_set_dup("platform.devices.distance");
 	if (!cfg) cfg = cJSON_CreateObject();
+	cJSON *extra = pf_set_dup("distance");
+	if (extra) { pf_json_merge(cfg, extra); cJSON_Delete(extra); }
 	char chip[64];
 	pf_set_str("platform.gpiochip", chip, sizeof chip, "/dev/gpiochip0");
 	cJSON_AddStringToObject(cfg, "gpiochip", chip);
@@ -106,7 +108,14 @@ void pf_pellets_shutdown(void)
 static void read_hopper(void)
 {
 	if (!g_ops || !strcmp(g_ops->id, "none")) { atomic_store(&g_pct, -1); return; }
-	double cm = g_ops->read_cm(g_inst);
+	/* median of three readings */
+	double r[3];
+	int k = 0;
+	for (int i = 0; i < 3; i++) { double x = g_ops->read_cm(g_inst); if (x > 0) r[k++] = x; if (i < 2) pf_sleep_ms(50); }
+	double cm = -1;
+	if (k == 3) cm = (r[0] > r[1]) == (r[0] < r[2]) ? r[0] : (r[1] > r[0]) == (r[1] < r[2]) ? r[1] : r[2];
+	else if (k == 2) cm = (r[0] + r[1]) / 2;
+	else if (k == 1) cm = r[0];
 	double empty = pf_set_num("pelletlevel.empty", 22), full = pf_set_num("pelletlevel.full", 4);
 	pthread_mutex_lock(&g_mu);
 	g_updated = pf_wall();

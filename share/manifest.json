@@ -3244,6 +3244,120 @@
     "reboot_required": false,
     "settings_dependencies": {},
     "config": []
+   },
+   "ili9341e": {
+    "friendly_name": "ILI9341 TFT with rotary encoder",
+    "filename": "ili9341e",
+    "description": "320x240 SPI TFT (ILI9341) with a KY-040 style rotary encoder for an on-device menu. Uses the display DC/RST/LED pins and the encoder CLK/DT/SW pins from the board profile.",
+    "default": false,
+    "image": "ili9341.png",
+    "reboot_required": false,
+    "config": [
+     {
+      "label": "rotation",
+      "friendly_name": "Rotation",
+      "description": "Screen rotation in degrees.",
+      "type": "list",
+      "list_values": [
+       0,
+       90,
+       180,
+       270
+      ],
+      "list_labels": [
+       "0",
+       "90",
+       "180",
+       "270"
+      ],
+      "default": 90,
+      "hidden": false
+     },
+     {
+      "label": "spi_device",
+      "friendly_name": "SPI Chip Select",
+      "description": "SPI0 chip select the display is wired to.",
+      "type": "list",
+      "list_values": [
+       0,
+       1
+      ],
+      "list_labels": [
+       "CE0",
+       "CE1"
+      ],
+      "default": 0,
+      "hidden": false
+     },
+     {
+      "label": "backlight_timeout_s",
+      "friendly_name": "Backlight timeout (s)",
+      "description": "Turn the backlight off after this many idle seconds while stopped (0 = always on).",
+      "type": "int",
+      "default": 0,
+      "min": 0,
+      "max": 3600,
+      "step": 1,
+      "hidden": false
+     }
+    ]
+   },
+   "ili9341": {
+    "friendly_name": "ILI9341 TFT (display only)",
+    "filename": "ili9341",
+    "description": "320x240 SPI TFT without local input.",
+    "default": false,
+    "image": "ili9341.png",
+    "reboot_required": false,
+    "config": [
+     {
+      "label": "rotation",
+      "friendly_name": "Rotation",
+      "description": "Screen rotation in degrees.",
+      "type": "list",
+      "list_values": [
+       0,
+       90,
+       180,
+       270
+      ],
+      "list_labels": [
+       "0",
+       "90",
+       "180",
+       "270"
+      ],
+      "default": 90,
+      "hidden": false
+     },
+     {
+      "label": "spi_device",
+      "friendly_name": "SPI Chip Select",
+      "description": "SPI0 chip select the display is wired to.",
+      "type": "list",
+      "list_values": [
+       0,
+       1
+      ],
+      "list_labels": [
+       "CE0",
+       "CE1"
+      ],
+      "default": 0,
+      "hidden": false
+     },
+     {
+      "label": "backlight_timeout_s",
+      "friendly_name": "Backlight timeout (s)",
+      "description": "Turn the backlight off after this many idle seconds while stopped (0 = always on).",
+      "type": "int",
+      "default": 0,
+      "min": 0,
+      "max": 3600,
+      "step": 1,
+      "hidden": false
+     }
+    ]
    }
   },
   "distance": {
@@ -3272,7 +3386,23 @@
     "default": false,
     "image": "vl53l0x.png",
     "reboot_required": false,
-    "settings_dependencies": {}
+    "settings_dependencies": {},
+    "config": [
+     {
+      "label": "i2c_bus_addr",
+      "friendly_name": "I2C address",
+      "description": "Default 0x29.",
+      "type": "list",
+      "list_values": [
+       "0x29"
+      ],
+      "list_labels": [
+       "0x29"
+      ],
+      "default": "0x29",
+      "hidden": false
+     }
+    ]
    }
   }
  }

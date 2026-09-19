@@ -141,6 +141,10 @@ add_library(pfcore STATIC
   src/features/mqtt.c
   src/features/webhook.c
   src/display/registry.c
+  src/display/gfx.c
+  src/display/screens.c
+  src/display/ili9341.c
+  src/distance/vl53l0x.c
   src/distance/registry.c
   src/distance/hcsr04.c
   src/features/pellets.c
@@ -197,4 +201,5 @@ if(PF_BUILD_TESTS)
   pf_test(test_sim_cook)
   pf_test(test_controllers)
   pf_test(test_learning)
+  pf_test(test_gfx)
 endif()

@@ -29,6 +29,8 @@
     "system": { "SPI0": { "CE0": 8, "CE1": 7 }, "1WIRE": null }
   },
   "modules": { "grillplat": "sim", "display": "none", "dist": "none" },
+  "display": { "rotation": 90, "spi_device": 0, "spi_hz": 24000000, "backlight_timeout_s": 0 },
+  "distance": { "i2c_bus_addr": "0x29" },
   "cycle_data": {
     "HoldCycleTime": 25,
     "SmokeOnCycleTime": 15,
