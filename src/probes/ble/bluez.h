@@ -14,6 +14,11 @@ typedef struct {
 	const char *notify_uuids[8];/* characteristics to StartNotify after connecting (NULL-terminated) */
 	const char *poll_uuids[4];  /* characteristics to ReadValue every poll_ms (NULL-terminated) */
 	int poll_ms;
+	/* Passive device: never connected; its manufacturer-specific advertisement data (company id
+	 * manufacturer_id) is read every poll_ms while discovery runs and delivered to on_value with
+	 * uuid "mfr". Matched by address, else by name_match, else by the manufacturer id alone. */
+	bool passive;
+	uint16_t manufacturer_id;
 	void (*on_connected)(pf_ble_dev *d, void *ctx);
 	void (*on_disconnected)(pf_ble_dev *d, void *ctx);
 	/* notification or poll result */

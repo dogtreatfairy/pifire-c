@@ -40,6 +40,7 @@ struct pf_ble_dev {
 	atomic_bool connected;
 	atomic_int battery;
 	bool notified[8];
+	uint8_t mfr_last[32]; size_t mfr_last_len; double last_seen;   /* passive devices */
 };
 
 typedef struct { pf_ble_dev *d; char uuid[40]; uint8_t data[32]; size_t len; bool resp; } wreq_t;
@@ -122,6 +123,31 @@ static int get_int16_prop(const char *path, const char *iface, const char *prop)
 
 /* Iterate GetManagedObjects: cb(path, iface) for every (object, interface) pair. */
 typedef void (*obj_cb)(const char *path, const char *iface, sd_bus_message *props, void *ctx);
+/* ManufacturerData is a{qv} (company id -> ay). Returns the payload length for `id`, 0 if absent, <0 on error. */
+static int get_mfr_data(const char *path, uint16_t id, uint8_t *buf, size_t cap)
+{
+	sd_bus_error err = SD_BUS_ERROR_NULL;
+	sd_bus_message *rep = NULL;
+	int r = sd_bus_get_property(g_bus, BLUEZ, path, "org.bluez.Device1", "ManufacturerData", &err, &rep, "a{qv}");
+	if (r < 0) { sd_bus_error_free(&err); return -1; }
+	int found = 0;
+	if (sd_bus_message_enter_container(rep, 'a', "{qv}") >= 0) {
+		while (sd_bus_message_enter_container(rep, 'e', "qv") > 0) {
+			uint16_t key = 0;
+			sd_bus_message_read(rep, "q", &key);
+			if (key == id && sd_bus_message_enter_container(rep, 'v', "ay") >= 0) {
+				const void *data; size_t len;
+				if (sd_bus_message_read_array(rep, 'y', &data, &len) >= 0) { if (len > cap) len = cap; memcpy(buf, data, len); found = (int)len; }
+				sd_bus_message_exit_container(rep);
+			} else sd_bus_message_skip(rep, "v");
+			sd_bus_message_exit_container(rep);
+		}
+		sd_bus_message_exit_container(rep);
+	}
+	sd_bus_message_unref(rep);
+	return found;
+}
+
 static int for_each_object(obj_cb cb, void *ctx)
 {
 	sd_bus_error err = SD_BUS_ERROR_NULL;
@@ -168,7 +194,12 @@ static void match_cb(const char *path, const char *iface, sd_bus_message *props,
 	get_str_prop(path, "org.bluez.Device1", "Address", addr, sizeof addr);
 	get_str_prop(path, "org.bluez.Device1", "Name", name, sizeof name);
 	if (!name[0]) get_str_prop(path, "org.bluez.Device1", "Alias", name, sizeof name);
-	if (spec_matches(&m->d->spec, addr, name)) {
+	bool ok = spec_matches(&m->d->spec, addr, name);
+	if (!ok && m->d->spec.passive && m->d->spec.manufacturer_id && !(m->d->spec.address && *m->d->spec.address)) {
+		uint8_t tmp[32];
+		ok = get_mfr_data(path, m->d->spec.manufacturer_id, tmp, sizeof tmp) > 0;
+	}
+	if (ok) {
 		pf_strlcpy(m->d->path, path, sizeof m->d->path);
 		pf_strlcpy(m->d->address, addr, sizeof m->d->address);
 		pf_strlcpy(m->d->name, name, sizeof m->d->name);
@@ -229,8 +260,35 @@ static void dev_disconnected(pf_ble_dev *d, double now)
 	if (was) LOGW(TAG, "%s (%s) disconnected; retry in %d s", d->name, d->address, d->backoff_s);
 }
 
+/* passive device: no connection; read the advertisement payload while discovery keeps it fresh */
+static void passive_step(pf_ble_dev *d, double now)
+{
+	if (!d->path[0]) {
+		match_ctx m = { d, false };
+		for_each_object(match_cb, &m);
+		if (m.found) { d->st = ST_READY; LOGI(TAG, "found %s (%s), listening to advertisements", d->name, d->address); }
+		return;
+	}
+	double poll = d->spec.poll_ms > 0 ? d->spec.poll_ms / 1000.0 : 1.0;
+	if (now - d->last_poll < poll) return;
+	d->last_poll = now;
+	uint8_t buf[32];
+	int n = get_mfr_data(d->path, d->spec.manufacturer_id, buf, sizeof buf);
+	if (n < 0) { d->path[0] = 0; d->st = ST_IDLE; atomic_store(&d->connected, false); return; }   /* object went away */
+	if (n > 0 && (n != (int)d->mfr_last_len || memcmp(buf, d->mfr_last, (size_t)n))) {
+		memcpy(d->mfr_last, buf, (size_t)n); d->mfr_last_len = (size_t)n;
+		d->last_seen = now;
+		if (!atomic_exchange(&d->connected, true)) { if (d->spec.on_connected) d->spec.on_connected(d, d->spec.ctx); }
+		if (d->spec.on_value) d->spec.on_value(d, "mfr", buf, (size_t)n, d->spec.ctx);
+	} else if (atomic_load(&d->connected) && now - d->last_seen > 60) {
+		atomic_store(&d->connected, false);
+		if (d->spec.on_disconnected) d->spec.on_disconnected(d, d->spec.ctx);
+	}
+}
+
 static void dev_step(pf_ble_dev *d, double now)
 {
+	if (d->spec.passive) { passive_step(d, now); return; }
 	switch (d->st) {
 	case ST_IDLE: {
 		match_ctx m = { d, false };
@@ -437,14 +495,14 @@ static void *manager(void *arg)
 		for (int i = 0; i < MAX_DEVS; i++) {
 			pf_ble_dev *d = &g_devs[i];
 			if (d->want_release) {
-				if (d->path[0] && (d->st == ST_READY || d->st == ST_CONNECTING)) call_void(d->path, "org.bluez.Device1", "Disconnect");
+				if (!d->spec.passive && d->path[0] && (d->st == ST_READY || d->st == ST_CONNECTING)) call_void(d->path, "org.bluez.Device1", "Disconnect");
 				d->used = false;
 				d->want_release = false;
 				continue;
 			}
 			if (!d->used) continue;
 			dev_step(d, now);
-			if (d->st == ST_IDLE) need_disc = true;
+			if (d->st == ST_IDLE || d->spec.passive) need_disc = true;
 		}
 		/* UI scan request: keep discovery on for the window, then snapshot the object tree */
 		int scan_s = atomic_load(&g_scan_seconds);

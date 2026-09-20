@@ -172,6 +172,18 @@ int pf_settings_init(const char *path)
 		added = fill_defaults(loaded, defaults);
 		cJSON_Delete(defaults);
 		g_root = loaded;
+		/* schema migrations for settings written by older builds */
+		int ver = (int)pf_json_num(g_root, "schema_version", 1);
+		if (ver < 2) {
+			/* v1 shipped "never turn the panel off" (0) as the default; the panel now sleeps 5 s after the
+			 * last input while stopped, and nobody chose 0 on purpose */
+			cJSON *bt = pf_json_path(g_root, "display.backlight_timeout_s");
+			if (cJSON_IsNumber(bt) && bt->valuedouble <= 0) cJSON_SetNumberValue(bt, 5);
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 2); else cJSON_AddNumberToObject(g_root, "schema_version", 2);
+			LOGI(TAG, "settings migrated to schema 2");
+			added = 1;
+		}
 	} else {
 		g_root = defaults;
 		added = 1;

@@ -3232,6 +3232,61 @@
             }
           ]
         }
+      },
+      "chefiq": {
+        "friendly_name": "BT Chef iQ (CQ50 / CQ60)",
+        "filename": "chefiq",
+        "description": "Chef iQ wireless probes (CQ50, CQ60). The probe broadcasts its readings over Bluetooth LE; PiFire listens passively - no pairing, no base station. Ports: food (the probe reading), ambient (the handle sensor).",
+        "default": false,
+        "image": "bt_chefiq.png",
+        "reboot_required": false,
+        "settings_dependencies": {
+          "units": {
+            "friendly_name": "Temp Units",
+            "description": "Select the temperature units to use for PiFire globally.  (This can be modified in settings later)",
+            "options": {
+              "F": "Fahrenheit",
+              "C": "Celsius"
+            },
+            "settings": [
+              "globals",
+              "units"
+            ]
+          }
+        },
+        "device_specific": {
+          "ports": [
+            "BT_Food",
+            "BT_Ambient"
+          ],
+          "type": "bluetooth",
+          "config": [
+            {
+              "label": "hardware_id",
+              "friendly_name": "Hardware ID",
+              "description": "This is the unique Hardware ID or Address of the peripheral (format: xx:xx:xx:xx:xx:xx).  This should be discovered during scanning.",
+              "type": "bt_address",
+              "default": "",
+              "hidden": false
+            },
+            {
+              "label": "transient",
+              "friendly_name": "Transient",
+              "description": "Select whether this device is fixed/always attached (default) or if it is transient/sometimes detached.",
+              "type": "list",
+              "list_values": [
+                "True",
+                "False"
+              ],
+              "list_labels": [
+                "Transient (sometimes detached)",
+                "Fixed (always attached)"
+              ],
+              "default": "True",
+              "hidden": true
+            }
+          ]
+        }
       }
     },
     "display": {

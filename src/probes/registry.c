@@ -34,6 +34,7 @@ void pf_probe_drivers_init(const char *plugin_dir)
 	add(pf_probe_virtual(), "builtin");
 	add(pf_probe_ibbq(), "builtin");
 	add(pf_probe_meater(), "builtin");
+	add(pf_probe_chefiq(), "builtin");
 	if (!plugin_dir) return;
 	DIR *d = opendir(plugin_dir);
 	if (!d) return;

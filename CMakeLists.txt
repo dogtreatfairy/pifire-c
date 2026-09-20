@@ -135,6 +135,7 @@ add_library(pfcore STATIC
   src/probes/ble/bluez.c
   src/probes/ble/ibbq.c
   src/probes/ble/meater.c
+  src/probes/ble/chefiq.c
   src/probes/probes.c
   src/controllers/registry.c
   src/controllers/pid.c
@@ -212,4 +213,5 @@ if(PF_BUILD_TESTS)
   pf_test(test_learning)
   pf_test(test_gfx)
   pf_test(test_adaptive)
+  pf_test(test_chefiq)
 endif()

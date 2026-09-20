@@ -5,7 +5,7 @@ import { icon as lucide } from '../icons.js';
 // ADC ports or pairing Bluetooth probes, the ADC/RTD hardware, and the Steinhart-Hart profiles + tuner.
 
 export const btIcon = () => lucide('bluetooth', 'ic bt');
-const WIRELESS_MODULES = ['ibbq', 'meater'];
+const WIRELESS_MODULES = ['ibbq', 'meater', 'chefiq'];
 /** true when the named probe device is a Bluetooth probe (by module) */
 export function isWireless(deviceName) {
   const d = (PF.settings?.probe_settings?.probe_map?.probe_devices || []).find((x) => x.device === deviceName);

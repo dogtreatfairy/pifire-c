@@ -15,5 +15,6 @@ const pf_probe_ops *pf_probe_ds18b20(void);
 const pf_probe_ops *pf_probe_virtual(void);
 const pf_probe_ops *pf_probe_ibbq(void);
 const pf_probe_ops *pf_probe_meater(void);
+const pf_probe_ops *pf_probe_chefiq(void);
 const char *pf_virtual_mode(void *inst);
 int pf_virtual_inputs(void *inst, const char **labels, int max);
