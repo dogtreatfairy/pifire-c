@@ -3256,7 +3256,7 @@
           {
             "label": "rotation",
             "friendly_name": "Rotation",
-            "description": "Screen rotation in degrees.",
+            "description": "Screen rotation in degrees. 90 = landscape, 270 = landscape upside-down (PiFire rotation 2).",
             "type": "list",
             "list_values": [
               0,
@@ -3270,7 +3270,7 @@
               "180",
               "270"
             ],
-            "default": 90,
+            "default": 270,
             "hidden": false
           },
           {
@@ -3314,6 +3314,22 @@
             "min": 0,
             "max": 3600,
             "step": 1,
+            "hidden": false
+          },
+          {
+            "label": "bgr",
+            "friendly_name": "Swap red/blue",
+            "description": "Panels differ in colour order. Turn on if orange shows as blue.",
+            "type": "list",
+            "list_values": [
+              false,
+              true
+            ],
+            "list_labels": [
+              "RGB (as PiFire)",
+              "BGR"
+            ],
+            "default": false,
             "hidden": false
           }
         ]
@@ -3329,7 +3345,7 @@
           {
             "label": "rotation",
             "friendly_name": "Rotation",
-            "description": "Screen rotation in degrees.",
+            "description": "Screen rotation in degrees. 90 = landscape, 270 = landscape upside-down (PiFire rotation 2).",
             "type": "list",
             "list_values": [
               0,
@@ -3343,7 +3359,7 @@
               "180",
               "270"
             ],
-            "default": 90,
+            "default": 270,
             "hidden": false
           },
           {
@@ -3387,6 +3403,22 @@
             "min": 0,
             "max": 3600,
             "step": 1,
+            "hidden": false
+          },
+          {
+            "label": "bgr",
+            "friendly_name": "Swap red/blue",
+            "description": "Panels differ in colour order. Turn on if orange shows as blue.",
+            "type": "list",
+            "list_values": [
+              false,
+              true
+            ],
+            "list_labels": [
+              "RGB (as PiFire)",
+              "BGR"
+            ],
+            "default": false,
             "hidden": false
           }
         ]
@@ -3575,7 +3607,7 @@
             ],
             "config": {
               "variant": "ads1115",
-              "ADC0_rd": 10000,
+              "ADC0_rd": 1000,
               "ADC1_rd": 10000,
               "ADC2_rd": 10000,
               "ADC3_rd": 10000,
@@ -3590,37 +3622,41 @@
             "type": "Primary",
             "label": "Grill",
             "name": "Grill",
-            "profile": "PT-1000-Ideal",
+            "profile": "PT-1000-OEM",
             "device": "ADS1115",
             "port": "ADC0",
-            "enabled": true
+            "enabled": true,
+            "show_on_home": true
           },
           {
             "type": "Food",
             "label": "Probe1",
-            "name": "Probe 1",
+            "name": "Probe-1",
             "profile": "TWPS00",
             "device": "ADS1115",
             "port": "ADC1",
-            "enabled": true
+            "enabled": true,
+            "show_on_home": true
           },
           {
             "type": "Food",
             "label": "Probe2",
-            "name": "Probe 2",
+            "name": "Probe-2",
             "profile": "TWPS00",
             "device": "ADS1115",
             "port": "ADC2",
-            "enabled": true
+            "enabled": true,
+            "show_on_home": true
           },
           {
             "type": "Food",
             "label": "Probe3",
-            "name": "Probe 3",
+            "name": "Probe-3",
             "profile": "TWPS00",
             "device": "ADS1115",
             "port": "ADC3",
-            "enabled": true
+            "enabled": true,
+            "show_on_home": true
           }
         ]
       }

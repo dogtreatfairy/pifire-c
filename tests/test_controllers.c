@@ -34,6 +34,8 @@ void setUp(void)
 	snprintf(db_path, sizeof db_path, "/tmp/pf_ctl_%d.db", (int)getpid());
 	unlink(cfg_path); unlink(db_path);
 	pf_settings_init(cfg_path);
+	pf_settings_force_sim();
+	pf_settings_patch("startup", "{\"smartstart\":{\"enabled\":false},\"startup_exit_temp\":0,\"start_to_mode\":{\"after_startup_mode\":\"Smoke\",\"primary_setpoint\":165}}", NULL, 0);
 	pf_db_open(db_path);
 	pf_controllers_init(NULL);
 	pf_probe_drivers_init(NULL);

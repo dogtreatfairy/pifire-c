@@ -28,6 +28,7 @@ typedef struct {
 	pf_gpio_line *dc, *rst, *led;
 	pf_gpio_line *clk, *dt, *sw;
 	int rotation;
+	bool bgr;
 	bool encoder;
 	pf_gfx fb;
 	pf_ui_state ui;
@@ -68,8 +69,8 @@ static void init_panel(tft_t *t)
 	cmd1(t, 0xC1, 0x10);                                              /* power control 2 */
 	cmdn(t, 0xC5, (const uint8_t[]){ 0x3E, 0x28 }, 2);               /* VCOM 1 */
 	cmd1(t, 0xC7, 0x86);                                              /* VCOM 2 */
-	static const uint8_t madctl[4] = { 0x48, 0x28, 0x88, 0xE8 };      /* 0, 90, 180, 270 degrees, BGR */
-	cmd1(t, 0x36, madctl[(t->rotation / 90) & 3]);
+	static const uint8_t madctl[4] = { 0x40, 0x20, 0x80, 0xE0 };      /* 0, 90, 180, 270 degrees (MX/MV/MY) */
+	cmd1(t, 0x36, (uint8_t)(madctl[(t->rotation / 90) & 3] | (t->bgr ? 0x08 : 0x00)));
 	cmd1(t, 0x3A, 0x55);                                              /* 16 bpp */
 	cmdn(t, 0xB1, (const uint8_t[]){ 0x00, 0x18 }, 2);               /* frame rate */
 	cmdn(t, 0xB6, (const uint8_t[]){ 0x08, 0x82, 0x27 }, 3);         /* display function */
@@ -135,6 +136,7 @@ static void *create(const char *cfg_json, const pf_env *env)
 	t->env = env;
 	pthread_mutex_init(&t->mu, NULL);
 	t->rotation = pf_json_int(c, "rotation", 0);
+	t->bgr = pf_json_bool(c, "bgr", false);
 	t->backlight_timeout = pf_json_num(c, "backlight_timeout_s", 0);
 	int spi_dev = pf_json_int(c, "spi_device", 0), hz = pf_json_int(c, "spi_hz", 24000000);
 	t->encoder = pf_json_bool(c, "encoder", true);

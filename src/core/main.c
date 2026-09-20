@@ -105,7 +105,7 @@ int main(int argc, char **argv)
 	if (pf_mkdir_p(data_dir)) { LOGE(TAG, "cannot create data dir %s", data_dir); return 1; }
 	if (pf_settings_init(config)) return 1;
 	if (pf_set_bool("globals.debug_mode", false) && level > PF_LOG_DEBUG) pf_log_set_level(PF_LOG_DEBUG);
-	if (sim) { pf_set_put_str("platform.system_type", "sim"); pf_set_put_str("modules.grillplat", "sim"); }
+	if (sim) pf_settings_force_sim();
 	if (port_override) pf_set_put_num("web.port", port_override);
 
 	char dbpath[600], marker[600];

@@ -28,6 +28,9 @@ cJSON *pf_set_dup(const char *path);
 int pf_set_put_num(const char *path, double v);
 int pf_set_put_bool(const char *path, bool v);
 int pf_set_put_str(const char *path, const char *v);
+/* Simulator: hardware-free platform/display/hopper modules and simulated probe devices, classic startup
+ * (no Smart Start, no early exit, into Smoke) so behaviour is deterministic on a workstation. */
+void pf_settings_force_sim(void);
 int pf_set_put(const char *path, cJSON *v_owned);
 
 /* Apply a JSON patch (deep merge of objects; arrays and scalars replaced), validate, save.

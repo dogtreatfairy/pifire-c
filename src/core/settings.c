@@ -384,3 +384,18 @@ int pf_settings_set_units(pf_units u)
 	pthread_mutex_unlock(&g_mu);
 	return rc;
 }
+
+void pf_settings_force_sim(void)
+{
+	pf_set_put_str("platform.system_type", "sim");
+	pf_set_put_str("modules.grillplat", "sim");
+	pf_set_put_str("modules.display", "none");
+	pf_set_put_str("modules.dist", "none");
+	cJSON *root = pf_settings_lock();
+	cJSON *devs = pf_json_path(root, "probe_settings.probe_map.probe_devices"), *d;
+	cJSON_ArrayForEach(d, devs) {
+		const char *m = pf_json_str(d, "module", "");
+		if (strcmp(m, "sim") && strcmp(m, "virtual")) cJSON_ReplaceItemInObject(d, "module", cJSON_CreateString("sim"));
+	}
+	pf_settings_unlock();
+}
