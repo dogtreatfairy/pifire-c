@@ -238,6 +238,36 @@ static void event(int level, const char *code, const char *msg)
 	if (pf_db_handle()) pf_db_event(level, code, msg);
 }
 
+/* ------------------------------------------------------------------ ambient estimate
+ * The feed-forward is u = a + b * (setpoint - ambient), so a wrong ambient starves or floods the fire:
+ * a grill restarted while still hot must not take its own pit temperature (130 C) as "outdoor air".
+ * Only readings that can plausibly be outdoor air count; otherwise the last plausible value seen
+ * (persisted across restarts) is used, and 20 C before any has been seen. */
+#define AMBIENT_MAX_C 50.0
+
+static void ambient_provisional(pf_control *c)
+{
+	if (c->pit_valid && c->pit_c <= AMBIENT_MAX_C) { c->ambient_c = c->pit_c; return; }
+	if (!isnan(c->ambient_c) && c->ambient_c <= AMBIENT_MAX_C) return;
+	char buf[32];
+	if (pf_db_handle() && pf_db_kv_get("control", "ambient_last", buf, sizeof buf) == 0) {
+		double v = atof(buf);
+		if (v > -40 && v <= AMBIENT_MAX_C) { c->ambient_c = v; return; }
+	}
+	c->ambient_c = 20;
+}
+
+static void ambient_remember(pf_control *c)
+{
+	static double last_saved = NAN;
+	if (isnan(c->ambient_c) || c->ambient_c > AMBIENT_MAX_C || !pf_db_handle()) return;
+	if (!isnan(last_saved) && fabs(last_saved - c->ambient_c) < 1.0) return;
+	last_saved = c->ambient_c;
+	char buf[32];
+	snprintf(buf, sizeof buf, "%.1f", c->ambient_c);
+	pf_db_kv_put("control", "ambient_last", buf);
+}
+
 /* ------------------------------------------------------------------ mode transitions */
 
 static void enter_mode(pf_control *c, pf_mode m, double now)
@@ -294,7 +324,7 @@ static void enter_mode(pf_control *c, pf_mode m, double now)
 			c->cook_max_pit_c = 0;
 			pf_safety_reset(c);
 			if (c->cfg.clear_history_on_startup && prev == PF_MODE_STOP) pf_history_clear();
-			if (!c->ambient_from_probe) c->ambient_c = c->pit_c; /* provisional; refined by cold-start baseline */
+			if (!c->ambient_from_probe) ambient_provisional(c);   /* refined by the cold-start baseline */
 			learn_rise_begin(c, now);
 		}
 		pf_outputs_set(PF_OUT_POWER, true);
@@ -1112,7 +1142,7 @@ bool pf_control_resume(pf_control *c, const char *json, double now)
 	c->s_plus = pf_json_bool(o, "s_plus", c->s_plus);
 	c->pwm_control = pf_json_bool(o, "pwm_control", c->pwm_control);
 	double amb = pf_json_num(o, "ambient_c", -1000);
-	if (amb > -999 && !c->ambient_from_probe) c->ambient_c = amb;
+	if (amb > -999 && amb <= AMBIENT_MAX_C && !c->ambient_from_probe) c->ambient_c = amb;
 
 	enter_mode(c, (pf_mode)m, now);
 
@@ -1183,7 +1213,10 @@ static void read_sensors(pf_control *c)
 	c->ambient_from_probe = false;
 	for (int i = 0; i < c->sensors.n; i++)
 		if (c->sensors.p[i].ambient && c->sensors.p[i].valid) { c->ambient_c = c->sensors.p[i].temp_c; c->ambient_from_probe = true; break; }
-	if (!c->ambient_from_probe && c->safety.coldstart_active && !isnan(c->safety.baseline_c)) c->ambient_c = c->safety.baseline_c;
+	if (c->ambient_from_probe && c->ambient_c > AMBIENT_MAX_C) c->ambient_from_probe = false;   /* an "ambient" probe inside the grill is not outdoor air */
+	if (!c->ambient_from_probe && c->safety.coldstart_active && !isnan(c->safety.baseline_c) && c->safety.baseline_c <= AMBIENT_MAX_C) c->ambient_c = c->safety.baseline_c;
+	if (isnan(c->ambient_c) || c->ambient_c > AMBIENT_MAX_C) ambient_provisional(c);
+	ambient_remember(c);
 }
 
 static void publish(pf_control *c, double now)

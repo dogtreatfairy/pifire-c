@@ -113,6 +113,36 @@ static void test_overshoot_lowers_scale(void)
 	ops->destroy(c);
 }
 
+/* Hold entered 30 C below the target with the u_min placeholder as "last duty": the integrator must not be
+ * seeded negative from it (that held the feed back for the whole cook in a real log); near the target the
+ * seed is bumpless within +/-0.15 duty. */
+static void test_integrator_seed_and_no_opposition(void)
+{
+	const pf_controller_ops *ops = pf_controller_find("adaptive");
+	void *c = ops->create("{\"auto_tune\":false,\"PB\":90,\"Ti\":286,\"Td\":75}", &env);
+	pf_ctrl_dbg dbg;
+	double t = 0;
+	pf_ctrl_in in = { .now_s = t, .pit_c = 146, .setpoint_c = 176, .ambient_c = 20, .u_prev_applied = 0.10, .u_ff = 0.6, .cycle_time_s = 25, .u_min = 0.1, .u_max = 0.9 };
+	ops->reset(c, &in);
+	double u = ops->update(c, &in, &dbg);
+	TEST_ASSERT_DOUBLE_WITHIN(0.02, 0.0, dbg.i);            /* no negative seed */
+	TEST_ASSERT_TRUE(u > 0.6 + 0.2);                        /* ff + P pushing hard */
+	/* a negative integral cannot survive while the pit is far below target */
+	for (int k = 0; k < 20; k++) { t += 25; in.now_s = t; in.pit_c = 150; ops->update(c, &in, &dbg); }
+	TEST_ASSERT_TRUE(dbg.i >= -0.001);
+	/* near the target the seed is bumpless: last duty 0.55 vs ff 0.6 + P ~0 -> i ~ -0.05 */
+	in.pit_c = 175; in.u_prev_applied = 0.55; in.now_s = t + 25;
+	ops->reset(c, &in);
+	ops->update(c, &in, &dbg);
+	TEST_ASSERT_DOUBLE_WITHIN(0.03, -0.05, dbg.i);
+	/* and the seed is capped at +/-0.15 duty */
+	in.u_prev_applied = 0.10; in.now_s = t + 50;
+	ops->reset(c, &in);
+	ops->update(c, &in, &dbg);
+	TEST_ASSERT_TRUE(dbg.i >= -0.16);
+	ops->destroy(c);
+}
+
 int main(void)
 {
 	pf_controllers_init(NULL);
@@ -120,5 +150,6 @@ int main(void)
 	RUN_TEST(test_model_tuning_and_persistence);
 	RUN_TEST(test_monitor_adjusts_scale);
 	RUN_TEST(test_overshoot_lowers_scale);
+	RUN_TEST(test_integrator_seed_and_no_opposition);
 	return UNITY_END();
 }

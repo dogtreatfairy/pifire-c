@@ -142,10 +142,19 @@ static void reset(void *self, const pf_ctrl_in *in)
 	s->last_err = in->pit_c - in->setpoint_c;
 	s->have_last = true;
 	window_reset(s, in->now_s);
-	/* bumpless: integrator absorbs the gap between last applied duty and ff + P */
+	/* Integrator seed. Near the target (controller swap, software restart, small set-point nudge) it is
+	 * bumpless: the integrator absorbs the gap between the last applied duty and ff + P, within the
+	 * same +/-0.15 duty the band trim allows. Far from the target the last duty is meaningless (it was
+	 * the smoke cycle or the u_min placeholder at Hold entry) and seeding from it would park a large
+	 * negative integral that then holds the feed back for many minutes, so it starts at zero. */
 	double ff = s->ff_gain * in->u_ff;
 	double p = s->kp * s->last_err;
-	s->inter = s->ki != 0 ? (in->u_prev_applied - ff - p) / s->ki : 0;
+	s->inter = 0;
+	if (s->ki != 0 && fabs(s->last_err) <= IBAND_C) {
+		double seed = clampd(in->u_prev_applied - ff - p, -0.15, 0.15);
+		s->inter = seed / s->ki;
+	}
+	s->in_band = fabs(s->last_err) <= IBAND_C;
 }
 
 static void set_scale(ad_t *s, double v, const char *why)
@@ -229,6 +238,10 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 	}
 	s->in_band = in_band;
 	if (!sat_push) s->inter += e * dt;
+	/* the integral never opposes a large error: a negative integral while the pit is far below the target
+	 * (or positive while far above) is left-over wind-down, not a steady-state correction */
+	if (e < -IBAND_C && s->inter < 0) s->inter = 0;
+	if (e > IBAND_C && s->inter > 0) s->inter = 0;
 	s->i = s->ki * s->inter;
 	double lim = 0.5;
 	if (s->i > lim) { s->i = lim; s->inter = s->ki != 0 ? lim / s->ki : 0; }
