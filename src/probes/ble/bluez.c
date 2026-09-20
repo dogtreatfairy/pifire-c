@@ -343,23 +343,18 @@ static void dev_disconnected(pf_ble_dev *d, double now)
 }
 
 /* passive device: no connection; read the advertisement payload while discovery keeps it fresh */
-static double g_passive_restart_t;
+static double g_passive_last_signal, g_passive_restart_t;
 
+/* passive device: no connection; BlueZ delivers every advertisement as a PropertiesChanged on the
+ * device object (DuplicateData filter), see on_props_changed. This step only finds the object, keeps
+ * discovery running and does a slow polled read as a fallback for the first payload. */
 static void passive_step(pf_ble_dev *d, double now)
 {
 	if (!g_discovering) { set_discovery(true); g_discover_until = now + 3600; }
-	/* advertisements stopped arriving for everyone although discovery is "on": BlueZ occasionally goes
-	 * quiet after an adapter hiccup; a stop/start once a minute brings it back */
-	if (d->st == ST_READY && d->path[0] && d->last_seen > 0 && now - d->last_seen > 20 && now - g_passive_restart_t > 60) {
-		g_passive_restart_t = now;
-		LOGI(TAG, "no advertisements from %s for 20 s: restarting discovery", d->address);
-		set_discovery(false);
-		set_discovery(true);
-	}
 	if (!d->path[0]) {
 		match_ctx m = { d, false };
 		for_each_object(match_cb, &m);
-		if (m.found) { d->st = ST_READY; LOGI(TAG, "found %s (%s), listening to advertisements", d->name, d->address); }
+		if (m.found) { d->st = ST_READY; d->mfr_last_len = 0; LOGI(TAG, "found %s (%s), listening to advertisements", d->name, d->address); }
 		return;
 	}
 	double poll = d->spec.poll_ms > 0 ? d->spec.poll_ms / 1000.0 : 1.0;
@@ -368,15 +363,23 @@ static void passive_step(pf_ble_dev *d, double now)
 	refresh_rssi(d, now, false);
 	uint8_t buf[32];
 	int n = get_mfr_data(d->path, d->spec.manufacturer_id, buf, sizeof buf);
-	if (n < 0) { d->path[0] = 0; d->st = ST_IDLE; atomic_store(&d->connected, false); return; }   /* object went away */
+	if (n < 0) { d->path[0] = 0; d->st = ST_IDLE; LOGI(TAG, "%s went away", d->address); return; }   /* object removed */
 	if (n > 0 && (n != (int)d->mfr_last_len || memcmp(buf, d->mfr_last, (size_t)n))) {
 		memcpy(d->mfr_last, buf, (size_t)n); d->mfr_last_len = (size_t)n;
 		d->last_seen = now;
+		g_passive_last_signal = now;
 		if (!atomic_exchange(&d->connected, true)) { if (d->spec.on_connected) d->spec.on_connected(d, d->spec.ctx); }
 		if (d->spec.on_value) d->spec.on_value(d, "mfr", buf, (size_t)n, d->spec.ctx);
 	} else if (atomic_load(&d->connected) && now - d->last_seen > 60) {
 		atomic_store(&d->connected, false);
 		if (d->spec.on_disconnected) d->spec.on_disconnected(d, d->spec.ctx);
+	}
+	/* nothing from any passive device for 3 minutes although discovery is on: bounce it (rarely needed,
+	 * never more than once per 5 minutes so a probe in its charger does not cause churn) */
+	if (g_passive_last_signal > 0 && now - g_passive_last_signal > 180 && now - g_passive_restart_t > 300) {
+		g_passive_restart_t = now;
+		LOGI(TAG, "no advertisements for 3 min: restarting discovery");
+		set_discovery(false);
 	}
 }
 
@@ -475,12 +478,67 @@ static void dev_step(pf_ble_dev *d, double now)
 
 /* ---------------- signals ---------------- */
 
+/* Device1 PropertiesChanged: with the DuplicateData discovery filter BlueZ emits one for every
+ * advertisement it hears, which is what a passive probe lives on: ManufacturerData carries the
+ * reading (delivered even when unchanged, so the driver's freshness clock keeps running) and any
+ * update at all proves the probe is still in range. RSSI rides along. */
+static int on_device_props_changed(sd_bus_message *m, const char *path)
+{
+	pthread_mutex_lock(&g_mu);
+	pf_ble_dev *d = NULL;
+	for (int i = 0; i < MAX_DEVS; i++)
+		if (g_devs[i].used && g_devs[i].spec.passive && g_devs[i].path[0] && !strcmp(g_devs[i].path, path)) { d = &g_devs[i]; break; }
+	if (!d) { pthread_mutex_unlock(&g_mu); return 0; }
+	double now = pf_now();
+	if (sd_bus_message_enter_container(m, 'a', "{sv}") >= 0) {
+		while (sd_bus_message_enter_container(m, 'e', "sv") > 0) {
+			const char *key = NULL;
+			sd_bus_message_read(m, "s", &key);
+			if (key && !strcmp(key, "ManufacturerData") && sd_bus_message_enter_container(m, 'v', "a{qv}") >= 0) {
+				if (sd_bus_message_enter_container(m, 'a', "{qv}") >= 0) {
+					while (sd_bus_message_enter_container(m, 'e', "qv") > 0) {
+						uint16_t id = 0;
+						sd_bus_message_read(m, "q", &id);
+						if (id == d->spec.manufacturer_id && sd_bus_message_enter_container(m, 'v', "ay") >= 0) {
+							const void *data; size_t len;
+							if (sd_bus_message_read_array(m, 'y', &data, &len) >= 0 && len > 0) {
+								if (len > sizeof d->mfr_last) len = sizeof d->mfr_last;
+								memcpy(d->mfr_last, data, len); d->mfr_last_len = len;
+								d->last_seen = now;
+								g_passive_last_signal = now;
+								if (!atomic_exchange(&d->connected, true)) { if (d->spec.on_connected) d->spec.on_connected(d, d->spec.ctx); }
+								if (d->spec.on_value) d->spec.on_value(d, "mfr", d->mfr_last, len, d->spec.ctx);
+							}
+							sd_bus_message_exit_container(m);
+						} else sd_bus_message_skip(m, "v");
+						sd_bus_message_exit_container(m);
+					}
+					sd_bus_message_exit_container(m);
+				}
+				sd_bus_message_exit_container(m);
+			} else if (key && !strcmp(key, "RSSI") && sd_bus_message_enter_container(m, 'v', "n") >= 0) {
+				int16_t r = 0;
+				if (sd_bus_message_read(m, "n", &r) >= 0 && r != 0) atomic_store(&d->rssi, r);
+				d->last_seen = now;
+				g_passive_last_signal = now;
+				sd_bus_message_exit_container(m);
+			} else sd_bus_message_skip(m, "v");
+			sd_bus_message_exit_container(m);
+		}
+		sd_bus_message_exit_container(m);
+	}
+	pthread_mutex_unlock(&g_mu);
+	return 0;
+}
+
 static int on_props_changed(sd_bus_message *m, void *ud, sd_bus_error *ret)
 {
 	(void)ud; (void)ret;
 	const char *iface = NULL;
-	if (sd_bus_message_read(m, "s", &iface) < 0 || strcmp(iface, "org.bluez.GattCharacteristic1")) return 0;
+	if (sd_bus_message_read(m, "s", &iface) < 0) return 0;
 	const char *path = sd_bus_message_get_path(m);
+	if (!strcmp(iface, "org.bluez.Device1")) return on_device_props_changed(m, path);
+	if (strcmp(iface, "org.bluez.GattCharacteristic1")) return 0;
 	if (sd_bus_message_enter_container(m, 'a', "{sv}") < 0) return 0;
 	while (sd_bus_message_enter_container(m, 'e', "sv") > 0) {
 		const char *key;
