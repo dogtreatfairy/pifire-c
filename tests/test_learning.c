@@ -75,6 +75,7 @@ static double cook(const char *controller, double ambient_c, double minutes, dou
 		tick(5);
 		if (t < score_min * 60) iae += fabs(ctrl.pit_c - sp) * 5;
 	}
+	printf("  cook end: pit %.1f C u=%.2f tuning [%s]\n", ctrl.pit_c, ctrl.u_applied, ctrl.dbg.note);
 	pf_cmd_simple(PF_CMD_STOP);
 	tick(2);
 	return iae;

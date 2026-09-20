@@ -52,6 +52,11 @@ const PAGES = [
     I('max_duty_cycle', 'Maximum fan speed (%)', '', { min: 10, max: 100 }),
     I('update_time', 'Speed update interval (s)', '', { min: 1 }),
   ] }] },
+  { key: 'learning', title: 'Learning', sub: 'What the grill learns from every cook', section: 'Grill', sections: [{ id: 'learning', fields: [
+    B('enabled', 'Learn from cooks', 'Record the steady feed for each set point and ambient temperature, and the plant model from every startup'),
+    B('auto_tune', 'Apply learned tuning automatically', 'Hand the measured plant model (and autotune results) to the controller as soon as they are known'),
+    I('half_life_obs', 'Memory half-life (observations)', 'How quickly old cooks fade; ~12 observations per hour of Hold', { min: 5, max: 500 }),
+  ] }] },
   { key: 'lid', title: 'Lid-open detection', sub: 'Pause the feed when the lid is opened', section: 'Grill', sections: [{ id: 'cycle_data', fields: [
     B('LidOpenDetectEnabled', 'Detect an open lid', 'A sudden temperature drop pauses the auger so the pot does not overfill'),
     I('LidOpenThreshold', 'Drop that counts as open (%)', 'Percentage below the set point', { min: 1, max: 50 }),

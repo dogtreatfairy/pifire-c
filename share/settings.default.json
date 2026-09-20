@@ -44,7 +44,7 @@
     "LidOpenPauseTime": 60,
     "FanPidEnabled": false
   },
-  "controller": { "selected": "pid", "config": {} },
+  "controller": { "selected": "adaptive", "config": {} },
   "safety": {
     "minstartuptemp": 75,
     "maxstartuptemp": 100,
@@ -146,7 +146,7 @@
     "force_setup": false,
     "setup_timeout_s": 45
   },
-  "learning": { "enabled": true, "half_life_obs": 60 },
+  "learning": { "enabled": true, "half_life_obs": 60, "auto_tune": true },
   "update": { "repo": "dogtreatfairy/pifire-c", "auto_check": true, "check_interval_h": 24, "include_prerelease": true },
   "history": { "minutes": 15, "clear_on_startup": true, "retention_hours": 48, "sample_s": 3 },
   "web": { "port": 80, "bind": "0.0.0.0" }

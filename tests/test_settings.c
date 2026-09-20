@@ -27,7 +27,7 @@ static void test_defaults_loaded(void)
 	TEST_ASSERT_EQUAL(PF_UNITS_F, pf_settings_units());
 	char s[16];
 	TEST_ASSERT_TRUE(pf_set_str("controller.selected", s, sizeof s, ""));
-	TEST_ASSERT_EQUAL_STRING("pid", s);
+	TEST_ASSERT_EQUAL_STRING("adaptive", s);
 }
 
 static void test_patch_and_reload(void)

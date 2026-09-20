@@ -8,7 +8,7 @@ A ground-up rewrite of the [PiFire](https://github.com/nebhead/PiFire) pellet gr
 * **Cook**: probe targets with keep-warm/shutdown follow-ups, doneness presets, high/low alarms, timers, ETA, recipes (multi-step programs), pellet manager with hopper level, automatic cook files.
 * **Integrations**: MQTT with Home Assistant discovery, JSON webhooks, REST + WebSocket API (`docs/api.md`).
 * **Network**: NetworkManager-based Wi-Fi setup with a captive-portal hotspot on first boot, `pifire.local` via Avahi.
-* **Learning**: steady-state feed model across set points and ambient temperatures, passive plant identification, relay autotune.
+* **Learning** (default controller): learns the feed each set point needs at each ambient temperature, identifies the grill's response from every startup and derives its own PID tuning from it, then keeps correcting the loop gain from how each cook behaves — all automatic, persisted across cooks. Relay autotune on demand. See `docs/learning.md`.
 
 ## Build and run on a workstation (simulator)
 

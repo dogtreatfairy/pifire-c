@@ -663,7 +663,15 @@ static void learn_rise_track(pf_control *c, double now)
 		if (theta < 5) theta = 5;
 		double u_mean = c->learn.rise_n ? c->learn.rise_u_sum / c->learn.rise_n : c->cfg.u_max;
 		double K = u_mean > 0.05 ? span / u_mean : 0;
-		if (tau > 30 && tau < 3600 && K > 0) pf_learning_store_fopdt(K, tau, theta);
+		if (tau > 30 && tau < 3600 && K > 0) {
+			pf_learning_store_fopdt(K, tau, theta);
+			/* Nest-style: hand the fresh plant model straight to the controller so its gains track the grill */
+			if (pf_set_bool("learning.auto_tune", true) && c->cinst && c->cops->apply_tuning) {
+				pf_fopdt p = pf_learning_fopdt();
+				c->cops->apply_tuning(c->cinst, 0, 0, p.K, p.tau, p.theta);
+				event(PF_LVL_INFO, "TUNING_LEARNED", "Controller tuning updated from this startup's plant model");
+			}
+		}
 		c->learn.rise_active = false;
 	}
 }
@@ -687,8 +695,11 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 	r.Ti = 2.2 * Pu;
 	r.Td = Pu / 6.3;
 	pf_learning_store_autotune(&r);
-	pf_events_emit("Autotune_Done", "Autotune complete", "Ku %.3f, period %.0f s, amplitude ±%.1f. Suggested PB %.0f (%s), Ti %.0f s, Td %.0f s - review under Settings > Learning.",
-	               Ku, Pu, pf_delta_from_c(A, c->cfg.units), pf_delta_from_c(r.PB_c, c->cfg.units), c->cfg.units == PF_UNITS_C ? "C" : "F", r.Ti, r.Td);
+	bool applied = false;
+	if (pf_set_bool("learning.auto_tune", true) && c->cinst && c->cops->apply_tuning) { c->cops->apply_tuning(c->cinst, Ku, Pu, 0, 0, 0); applied = true; }
+	pf_events_emit("Autotune_Done", "Autotune complete", "Ku %.3f, period %.0f s, amplitude ±%.1f. PB %.0f (%s), Ti %.0f s, Td %.0f s%s.",
+	               Ku, Pu, pf_delta_from_c(A, c->cfg.units), pf_delta_from_c(r.PB_c, c->cfg.units), c->cfg.units == PF_UNITS_C ? "C" : "F", r.Ti, r.Td,
+	               applied ? " - applied to the controller" : " - review under More > Learning");
 }
 
 static void autotune_start(pf_control *c, double now)

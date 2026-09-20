@@ -115,6 +115,7 @@ static void test_lid_open_pauses_feed(void)
 	pf_control_reload_settings(&ctrl);
 	pf_cmd_mode(PF_MODE_HOLD, 225);
 	tick(250 + 40 * 60);
+	printf("lid test: mode %d pit %.1f C target_reached %d lid_open %d tuning [%s]\n", ctrl.mode, ctrl.pit_c, ctrl.target_reached, ctrl.lid_open, ctrl.dbg.note);
 	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
 	TEST_ASSERT_TRUE(ctrl.target_reached);
 	pf_sim_model()->lid_open = true;

@@ -5,7 +5,7 @@ export function renderLearning(view) {
   const plantCard = el('div', { class: 'card' });
   const atCard = el('div', { class: 'card' });
   const recent = el('div', { class: 'list' });
-  view.append(el('h2', {}, 'Feed-forward model'), ffCard, el('h2', {}, 'Plant estimate'), plantCard, el('h2', {}, 'Autotune'), atCard, el('h2', {}, 'Recent observations'), el('div', { class: 'card' }, recent));
+  view.append(el('h2', {}, 'Controller'), el('div', { class: 'card', id: 'learned-note' }, el('div', { class: 'muted' }, 'Tuning in use appears here for the adaptive controller.')), el('h2', {}, 'Feed-forward model'), ffCard, el('h2', {}, 'Plant estimate'), plantCard, el('h2', {}, 'Autotune'), atCard, el('h2', {}, 'Recent observations'), el('div', { class: 'card' }, recent));
 
   let data = null;
   async function load() {
@@ -31,6 +31,7 @@ export function renderLearning(view) {
       ? el('div', { class: 'kv' }, el('div', {}, 'Gain (K)'), el('div', {}, `${p.K.toFixed(0)}° per unit feed`), el('div', {}, 'Time constant (τ)'), el('div', {}, `${p.tau.toFixed(0)} s`), el('div', {}, 'Dead time (θ)'), el('div', {}, `${p.theta.toFixed(0)} s`), el('div', {}, 'Measured'), el('div', {}, new Date(p.ts * 1000).toLocaleString()))
       : el('p', { class: 'muted' }, 'Measured automatically from the temperature rise of each startup. Not available yet.'));
 
+    if (s?.controller?.note && s.controller.id === 'adaptive') view.querySelector('#learned-note')?.replaceChildren(el('div', { class: 'kv' }, el('div', {}, 'Controller tuning in use'), el('div', {}, s.controller.note)));
     const a = data.autotune;
     atCard.innerHTML = '';
     atCard.append(el('p', { class: 'muted', style: 'font-size:.85rem' }, 'Autotune oscillates the feed gently around the set point for 15–40 minutes while holding, measures the response, and suggests PB/Ti/Td. Run it with the grill at temperature and no food inside.'));
