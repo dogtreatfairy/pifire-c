@@ -243,7 +243,8 @@ static void set_discovery(bool on)
 		sd_bus_message *rep = NULL;
 		/* DuplicateData: BlueZ must keep emitting ManufacturerData updates for devices it already knows,
 		 * otherwise a passive probe's payload freezes after its first advertisement */
-		sd_bus_call_method(g_bus, BLUEZ, g_adapter, "org.bluez.Adapter1", "SetDiscoveryFilter", &err, &rep, "a{sv}", 2, "Transport", "s", "le", "DuplicateData", "b", 1);
+		int fr = sd_bus_call_method(g_bus, BLUEZ, g_adapter, "org.bluez.Adapter1", "SetDiscoveryFilter", &err, &rep, "a{sv}", 2, "Transport", "s", "le", "DuplicateData", "b", 1);
+		if (fr < 0) LOGW(TAG, "SetDiscoveryFilter: %s", err.message ? err.message : strerror(-fr));
 		sd_bus_error_free(&err);
 		sd_bus_message_unref(rep);
 		if (call_void(g_adapter, "org.bluez.Adapter1", "StartDiscovery") >= 0) { g_discovering = true; LOGI(TAG, "discovery started"); }
@@ -365,8 +366,12 @@ static void passive_step(pf_ble_dev *d, double now)
 	refresh_rssi(d, now, false);
 	uint8_t buf[32];
 	int n = get_mfr_data(d->path, d->spec.manufacturer_id, buf, sizeof buf);
-	if (n < 0) { d->path[0] = 0; d->st = ST_IDLE; LOGI(TAG, "%s went away", d->address); return; }   /* object removed */
-	if (n > 0 && (n != (int)d->mfr_last_len || memcmp(buf, d->mfr_last, (size_t)n))) {
+	if (n < 0) { d->path[0] = 0; d->st = ST_IDLE; atomic_store(&d->connected, false); if (d->spec.on_disconnected) d->spec.on_disconnected(d, d->spec.ctx); LOGI(TAG, "%s went away", d->address); return; }   /* object removed */
+	if (n > 0) {
+		/* Deliver the payload on every poll while BlueZ still holds the device, changed or not. A probe at a
+		 * steady temperature repeats an identical packet, BlueZ then raises no property change, and a
+		 * driver that only heard about changes would let the reading go stale. BlueZ drops a device it has
+		 * not heard for ~30 s (TemporaryTimeout), which is what ends the readings when the probe is gone. */
 		memcpy(d->mfr_last, buf, (size_t)n); d->mfr_last_len = (size_t)n;
 		d->last_seen = now;
 		g_passive_last_signal = now;

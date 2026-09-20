@@ -93,9 +93,11 @@ export async function renderProbes(view) {
         const paired = new Set(map.probe_devices.flatMap((d) => Object.values(d.config || {})).filter((v) => typeof v === 'string' && /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(v)).map((v) => v.toUpperCase()));
         const seen = found.filter((f) => !paired.has((f.address || '').toUpperCase()));
         const mine = seen.filter((f) => f.kind === kind), others = seen.filter((f) => f.kind !== kind && f.kind !== 'chefiq-hub');
-        if (!mine.length) list.append(el('div', { class: 'muted', style: 'margin-bottom:8px' }, `No unpaired ${m.friendly_name} seen. Turn the probe on (and wake it if it sleeps), then scan again.`));
+        if (!mine.length) list.append(el('div', { class: 'muted', style: 'margin-bottom:8px' }, `No unpaired ${m.friendly_name} seen. A probe only broadcasts while it is out of its charger and awake (Chef iQ: take it out of the dock, wait a few seconds), then scan again.`));
         for (const f of mine) list.append(row(f));
-        if (others.length) {
+        // only devices recognised as this kind of probe are offered: the neighbours' phones and watches
+        // look nothing like a probe, and pairing one of them gives readings that can never appear
+        if (others.length && kind !== 'chefiq') {
           const more = el('div', { class: 'opts', hidden: true }, ...others.map(row));
           list.append(el('button', { class: 'btn ghost sm', type: 'button', onclick: (e) => { more.hidden = !more.hidden; e.target.textContent = more.hidden ? `Show all ${others.length} other devices` : 'Hide other devices'; } }, `Show all ${others.length} other devices`), more);
         }

@@ -140,7 +140,7 @@ static int read_(void *self, pf_probe_sample *out, int nports)
 {
 	cq_t *s = self;
 	pthread_mutex_lock(&s->mu);
-	bool fresh = s->valid && pf_now() - s->last_update < 30;
+	bool fresh = s->valid && pf_now() - s->last_update < 45;   /* BlueZ keeps an unheard probe ~30 s, then it is gone */
 	if (nports > 0) { out[0].kind = fresh ? PF_SAMPLE_CELSIUS : PF_SAMPLE_INVALID; out[0].value = s->food_c; }
 	if (nports > 1) { out[1].kind = fresh && !isnan(s->ambient_c) ? PF_SAMPLE_CELSIUS : PF_SAMPLE_INVALID; out[1].value = s->ambient_c; }
 	pthread_mutex_unlock(&s->mu);

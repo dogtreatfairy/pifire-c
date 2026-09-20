@@ -52,10 +52,26 @@ static void test_v2_legacy_and_rejects(void)
 	TEST_ASSERT_EQUAL_INT(-1, pf_chefiq_parse(odd, sizeof odd, &r));
 }
 
+/* payload captured from a CQ60 on the grill's own adapter (BlueZ ManufacturerData, company 0x05CD) */
+static void test_live_cq60_payload(void)
+{
+	const uint8_t msg[18] = { 0x01, 0x80, 0xE7, 0x00, 0xEA, 0x00, 0xEA, 0x00, 0xEC, 0x00, 0xEC, 0x00, 0xFB, 0x7F, 0xE7, 0x00, 0x45, 0xF2 };
+	pf_chefiq_reading r;
+	TEST_ASSERT_EQUAL_INT(0, pf_chefiq_parse(msg, sizeof msg, &r));
+	TEST_ASSERT_EQUAL_INT(1, r.packet_type);
+	TEST_ASSERT_TRUE(r.has_temps);
+	TEST_ASSERT_DOUBLE_WITHIN(0.01, 23.4, r.food_c);
+	TEST_ASSERT_DOUBLE_WITHIN(0.01, 23.1, r.ambient_c);
+	TEST_ASSERT_DOUBLE_WITHIN(0.01, 23.4, r.tip_c[0]);
+	TEST_ASSERT_DOUBLE_WITHIN(0.01, 23.6, r.tip_c[2]);
+	TEST_ASSERT_TRUE(isnan(r.tip_c[3]));   /* 0x7FFB = no sensor */
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
 	RUN_TEST(test_v3_temperature_and_status);
 	RUN_TEST(test_v2_legacy_and_rejects);
+	RUN_TEST(test_live_cq60_payload);
 	return UNITY_END();
 }
