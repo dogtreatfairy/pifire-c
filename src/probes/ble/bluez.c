@@ -413,19 +413,72 @@ static int on_props_changed(sd_bus_message *m, void *ud, sd_bus_error *ret)
 
 /* ---------------- scan for the UI ---------------- */
 
+/* manufacturer ids present in a device's advertisement */
+static int get_mfr_ids(const char *path, uint16_t *ids, int max)
+{
+	sd_bus_error err = SD_BUS_ERROR_NULL;
+	sd_bus_message *rep = NULL;
+	if (sd_bus_get_property(g_bus, BLUEZ, path, "org.bluez.Device1", "ManufacturerData", &err, &rep, "a{qv}") < 0) { sd_bus_error_free(&err); return 0; }
+	int n = 0;
+	if (sd_bus_message_enter_container(rep, 'a', "{qv}") >= 0) {
+		while (sd_bus_message_enter_container(rep, 'e', "qv") > 0) {
+			uint16_t key = 0;
+			sd_bus_message_read(rep, "q", &key);
+			if (n < max) ids[n++] = key;
+			sd_bus_message_skip(rep, "v");
+			sd_bus_message_exit_container(rep);
+		}
+		sd_bus_message_exit_container(rep);
+	}
+	sd_bus_message_unref(rep);
+	return n;
+}
+
+/* advertised service UUIDs, joined for matching */
+static void get_uuids(const char *path, char *out, size_t n)
+{
+	out[0] = 0;
+	sd_bus_error err = SD_BUS_ERROR_NULL;
+	sd_bus_message *rep = NULL;
+	if (sd_bus_get_property(g_bus, BLUEZ, path, "org.bluez.Device1", "UUIDs", &err, &rep, "as") < 0) { sd_bus_error_free(&err); return; }
+	size_t used = 0;
+	if (sd_bus_message_enter_container(rep, 'a', "s") >= 0) {
+		const char *u;
+		while (sd_bus_message_read(rep, "s", &u) > 0) { int w = snprintf(out + used, n - used, "%s%s", used ? "," : "", u); if (w > 0 && used + (size_t)w < n) used += (size_t)w; }
+		sd_bus_message_exit_container(rep);
+	}
+	sd_bus_message_unref(rep);
+}
+
+/* what kind of probe this looks like: chefiq | ibbq | meater | "" */
+static const char *classify(const char *name, const char *uuids, const uint16_t *ids, int nids)
+{
+	for (int i = 0; i < nids; i++) if (ids[i] == 0x05CD) return "chefiq";
+	if (strcasestr(name, "meater") || strcasestr(uuids, "a75cc7fc") || strcasestr(uuids, "c9e2746c")) return "meater";
+	if (strcasestr(name, "ibbq") || strcasestr(name, "xbbq") || strcasestr(name, "tbbq") || strcasestr(name, "inkbird") || strcasestr(uuids, "0000fff0-")) return "ibbq";
+	if (strncasecmp(name, "CQ", 2) == 0 && strlen(name) <= 6) return "chefiq";
+	return "";
+}
+
 static void scan_cb(const char *path, const char *iface, sd_bus_message *props, void *ctx)
 {
 	(void)props;
 	if (strcmp(iface, "org.bluez.Device1")) return;
-	char addr[20] = "", name[64] = "";
+	char addr[20] = "", name[64] = "", uuids[512];
 	get_str_prop(path, iface, "Address", addr, sizeof addr);
 	get_str_prop(path, iface, "Name", name, sizeof name);
 	if (!name[0]) get_str_prop(path, iface, "Alias", name, sizeof name);
 	int rssi = get_int16_prop(path, iface, "RSSI");
+	uint16_t ids[8];
+	int nids = get_mfr_ids(path, ids, 8);
+	get_uuids(path, uuids, sizeof uuids);
 	cJSON *o = cJSON_CreateObject();
 	cJSON_AddStringToObject(o, "name", name);
 	cJSON_AddStringToObject(o, "address", addr);
 	cJSON_AddNumberToObject(o, "rssi", rssi);
+	cJSON_AddStringToObject(o, "kind", classify(name, uuids, ids, nids));
+	cJSON *m = cJSON_AddArrayToObject(o, "manufacturer_ids");
+	for (int i = 0; i < nids; i++) cJSON_AddItemToArray(m, cJSON_CreateNumber(ids[i]));
 	cJSON_AddItemToArray((cJSON *)ctx, o);
 }
 

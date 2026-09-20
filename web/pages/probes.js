@@ -45,7 +45,8 @@ export async function renderProbes(view) {
       f('Profile', el('select', { onchange: (e) => (draft.profile = e.target.value) }, Object.values(profiles).map((pr) => el('option', { value: pr.id, selected: (draft.profile?.id || draft.profile) === pr.id }, pr.name)))),
       tog('Enabled', 'enabled'), tog('Show on Home screen', 'show_on_home', 'Also on the grill display'), tog('Ambient reference', 'ambient', 'Aux only: used by learning and cold start'),
       el('div', { class: 'btnrow', style: 'margin-top:12px' },
-        isNew ? null : el('button', { class: 'btn ghost', type: 'button', onclick: async () => { if (await confirmDialog('Remove probe?', p.name, 'Remove', true)) { map.probe_info.splice(map.probe_info.indexOf(p), 1); close('removed'); } } }, 'Remove'),
+        // the confirm dialog replaces this one, so the removal saves itself instead of returning through close()
+        isNew ? null : el('button', { class: 'btn ghost', type: 'button', onclick: async () => { close(undefined); if (await confirmDialog('Remove probe?', p.name, 'Remove', true)) { const i = map.probe_info.indexOf(p); if (i >= 0) map.probe_info.splice(i, 1); await save(); } } }, 'Remove'),
         el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'),
         el('button', { class: 'btn primary', type: 'button', onclick: () => { if (!draft.name) { toast('Name required', true); return; } Object.assign(p, draft); close('saved'); } }, 'Save')));
   }).then(async (r) => { if (r) await save(); });
@@ -62,12 +63,22 @@ export async function renderProbes(view) {
       el('button', { class: 'btn ghost block', type: 'button', style: 'margin-top:10px', onclick: () => close() }, 'Cancel'));
   });
   const pairBluetooth = async (id, m) => {
+    const kind = m.filename;   // ibbq | meater | chefiq: the scan classifies devices the same way
     const addr = await dialog((close) => {
-      const list = el('div', { class: 'opts' }, el('div', { class: 'muted' }, 'Scanning… make sure the probe is on and nearby.'));
+      const list = el('div', { class: 'opts' }, el('div', { class: 'muted' }, 'Scanning for 8 s… make sure the probe is on and nearby.'));
+      const row = (f) => el('button', { class: 'btn', type: 'button', onclick: () => close(f.address) },
+        el('div', { class: 'row between', style: 'width:100%' }, el('span', {}, f.kind ? btIcon() : null, ' ', f.name || 'Unknown device'), el('span', { class: 'muted', style: 'font-size:.8rem' }, `${f.address}${f.rssi ? ` · ${f.rssi} dBm` : ''}`)));
       api('/probes/ble/scan?seconds=8', { body: {} }).then((found) => {
         list.innerHTML = '';
-        if (!found.length) list.append(el('div', { class: 'muted' }, 'Nothing found. Turn the probe on and try again.'));
-        for (const f of found) list.append(el('button', { class: 'btn', type: 'button', onclick: () => close(f.address) }, `${f.name || 'Unknown'} · ${f.address}${f.rssi ? ` · ${f.rssi} dBm` : ''}`));
+        found.sort((a, b) => (b.rssi || -999) - (a.rssi || -999));
+        const mine = found.filter((f) => f.kind === kind), others = found.filter((f) => f.kind !== kind);
+        if (!mine.length) list.append(el('div', { class: 'muted', style: 'margin-bottom:8px' }, `No ${m.friendly_name} seen. Turn the probe on (and wake it if it sleeps), then scan again.`));
+        for (const f of mine) list.append(row(f));
+        if (others.length) {
+          const more = el('div', { class: 'opts', hidden: true }, ...others.map(row));
+          list.append(el('button', { class: 'btn ghost sm', type: 'button', onclick: (e) => { more.hidden = !more.hidden; e.target.textContent = more.hidden ? `Show all ${others.length} other devices` : 'Hide other devices'; } }, `Show all ${others.length} other devices`), more);
+        }
+        list.append(el('button', { class: 'btn sm', type: 'button', onclick: () => { close(undefined); setTimeout(() => pairBluetooth(id, m), 50); } }, 'Scan again'));
       }).catch((e) => { list.innerHTML = ''; list.append(el('div', { class: 'muted' }, e.message)); });
       return el('div', {}, el('h3', {}, `Pair ${m.friendly_name}`), list, el('button', { class: 'btn ghost block', type: 'button', style: 'margin-top:10px', onclick: () => close(undefined) }, 'Cancel'));
     });
@@ -109,7 +120,7 @@ export async function renderProbes(view) {
           : el('input', { type: 'text', inputmode: c.type === 'bt_address' ? 'text' : 'decimal', value: v ?? '', onchange: (e) => ((d.config ??= {})[c.label] = c.type === 'int' || c.type === 'float' ? Number(e.target.value) : e.target.value.trim()) });
         fs.append(el('div', { class: 'field inline' }, el('div', {}, el('label', {}, c.friendly_name), el('div', { class: 'help' }, c.description)), input));
       }
-      fs.append(el('button', { class: 'btn sm ghost', type: 'button', onclick: async () => { if (await confirmDialog('Remove device?', `${d.device} and its probes`, 'Remove', true)) { map.probe_devices.splice(i, 1); map.probe_info = map.probe_info.filter((p) => p.device !== d.device); renderAll(); } } }, 'Remove device'));
+      fs.append(el('button', { class: 'btn sm ghost', type: 'button', onclick: async () => { if (await confirmDialog('Remove device?', `${d.device} and its probes`, 'Remove', true)) { map.probe_devices.splice(i, 1); map.probe_info = map.probe_info.filter((p) => p.device !== d.device); await save(); } } }, 'Remove device'));
       hwCard.append(fs);
     });
     const wired = Object.entries(mods).filter(([, m]) => !wirelessMod(m));
