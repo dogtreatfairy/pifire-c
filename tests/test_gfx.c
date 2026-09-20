@@ -87,7 +87,7 @@ static void test_menu_by_mode(void)
 	st = cJSON_Parse("{\"mode\":\"Hold\"}");
 	n = pf_menu_build(st, items, PF_MENU_MAX);
 	for (int i = 0; i < n; i++) TEST_ASSERT_NOT_EQUAL(PF_MI_SMOKE_PLUS, items[i].id);  /* Smoke+ only in Smoke */
-	TEST_ASSERT_EQUAL_INT(PF_MI_SETPOINT, items[0].id);
+	TEST_ASSERT_EQUAL_INT(PF_MI_HOLD, items[0].id);
 	cJSON_Delete(st);
 }
 

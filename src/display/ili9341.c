@@ -1,6 +1,13 @@
-/* ILI9341 320x240 SPI TFT (optionally with a KY-040 rotary encoder for an on-device menu).
+/* ILI9341 320x240 SPI TFT with a KY-040 rotary encoder for an on-device menu.
  * Pins: platform.devices.display {dc, led, rst}, SPI0 CE per settings.display.spi_device,
- * encoder: platform.devices.input {up_clk, down_dt, enter_sw}. */
+ * encoder: platform.devices.input {up_clk, down_dt, enter_sw}.
+ *
+ * Input follows the original PiFire display (pyky040): CLK/DT pulled down, the switch pulled UP and
+ * active-low (the KY-040 shorts it to ground), quadrature decoded from edge events on both lines,
+ * 250 ms switch debounce, and every input handled immediately - not on the display tick.
+ * Behaviour: click = menu; turning while holding = target picker (click to confirm); the menu closes
+ * after 5 s without input; while stopped the screen goes dark after settings.display.backlight_timeout_s
+ * and a click brings it back straight into the menu; a long press (>= 1.5 s) is an emergency stop. */
 #define _GNU_SOURCE
 #include "core/cmdq.h"
 #include "core/log.h"
@@ -12,6 +19,7 @@
 #include "hal/gpio.h"
 #include "hal/spi.h"
 #include <math.h>
+#include <poll.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -21,6 +29,9 @@
 
 #define TAG "ili9341"
 #define SPI_CHUNK 4096
+#define MENU_TIMEOUT_S 5.0
+#define LONG_PRESS_S 1.5
+#define SW_DEBOUNCE_S 0.25
 
 typedef struct {
 	const pf_env *env;
@@ -28,19 +39,20 @@ typedef struct {
 	pf_gpio_line *dc, *rst, *led;
 	pf_gpio_line *clk, *dt, *sw;
 	int rotation;
-	bool bgr;
-	bool encoder;
+	bool bgr, encoder;
 	pf_gfx fb;
 	pf_ui_state ui;
 	cJSON *status;
 	pthread_mutex_t mu;
 	pthread_t tid;
 	atomic_bool run;
-	atomic_int pending_key;
+	atomic_bool estop;              /* long press seen: reported to the daemon through poll_input */
 	double last_activity, backlight_timeout;
-	char theme[8];          /* follow | dark | light */
 	bool backlight_on;
 	unsigned last_hash;
+	char theme[8];
+	/* set-point picker acceleration (as the original: 3 quick turns -> x4, 7 -> x6) */
+	int spin_count; double spin_last_t;
 } tft_t;
 
 /* ---------------- low level ---------------- */
@@ -101,35 +113,183 @@ static void backlight(tft_t *t, bool on)
 	if (on) t->last_hash = 0;   /* force a full redraw on wake */
 }
 
-/* ---------------- encoder ---------------- */
+static void apply_theme(tft_t *t) { pf_gfx_set_theme(&t->fb, !strcmp(t->theme, "light") ? "light" : "dark"); }
+
+static unsigned hash_fb(const pf_gfx *g)
+{
+	unsigned h = 2166136261u;
+	const unsigned char *p = (const unsigned char *)g->px;
+	for (size_t i = 0, n = (size_t)g->w * g->h * 2; i < n; i += 7) { h ^= p[i]; h *= 16777619u; }
+	return h;
+}
+
+/* caller holds t->mu */
+static void redraw(tft_t *t)
+{
+	apply_theme(t);
+	if (t->ui.screen == PF_SCR_MESSAGE && pf_now() > t->ui.message_until) t->ui.screen = PF_SCR_MAIN;
+	if (!t->backlight_on) return;   /* asleep: nothing to draw */
+	pf_screens_render(&t->fb, t->status, &t->ui);
+	unsigned h = hash_fb(&t->fb);
+	if (h != t->last_hash) { t->last_hash = h; push_frame(t); }
+}
+
+/* ---------------- keys (caller holds t->mu) ---------------- */
+
+static void open_menu(tft_t *t) { t->ui.screen = PF_SCR_MENU; t->ui.menu_index = 0; }
+
+static void open_setpoint(tft_t *t, bool change)
+{
+	const char *units = pf_json_str(t->status, "units", "F");
+	double sp = pf_json_num(t->status, "setpoint", 0);
+	if (sp <= 0) sp = pf_set_num("startup.start_to_mode.primary_setpoint", units[0] == 'C' ? 107 : 225);
+	t->ui.edit_setpoint = sp;
+	t->ui.edit_is_change = change;
+	t->ui.screen = PF_SCR_SETPOINT;
+	t->spin_count = 0;
+}
+
+static void spin_setpoint(tft_t *t, int dir, double now)
+{
+	const char *units = pf_json_str(t->status, "units", "F");
+	bool c = units[0] == 'C';
+	double step = c ? 2 : 5, lo = c ? 50 : 120, hi = c ? 260 : 500;
+	if (now - t->spin_last_t < 0.5) t->spin_count++; else t->spin_count = 0;
+	t->spin_last_t = now;
+	if (t->spin_count >= 7) step *= 6; else if (t->spin_count >= 3) step *= 4;
+	t->ui.edit_setpoint += dir * step;
+	if (t->ui.edit_setpoint > hi) t->ui.edit_setpoint = lo;
+	if (t->ui.edit_setpoint < lo) t->ui.edit_setpoint = hi;
+	t->ui.edit_setpoint = round(t->ui.edit_setpoint);
+}
+
+static void menu_select(tft_t *t)
+{
+	pf_menu_item items[PF_MENU_MAX];
+	int n = pf_menu_build(t->status, items, PF_MENU_MAX);
+	if (n <= 0) { t->ui.screen = PF_SCR_MAIN; return; }
+	if (t->ui.menu_index >= n) t->ui.menu_index = n - 1;
+	pf_cmd c = { 0 };
+	switch (items[t->ui.menu_index].id) {
+	case PF_MI_STARTUP:
+		c.type = PF_CMD_MODE; c.mode = PF_MODE_STARTUP; pf_cmdq_push(&c); break;
+	case PF_MI_HOLD:
+		open_setpoint(t, !strcmp(pf_json_str(t->status, "mode", ""), "Hold")); return;
+	case PF_MI_PRIME:
+		c.type = PF_CMD_PRIME; c.num = 10; pf_cmdq_push(&c); break;
+	case PF_MI_MONITOR:
+		c.type = PF_CMD_MODE; c.mode = PF_MODE_MONITOR; pf_cmdq_push(&c); break;
+	case PF_MI_SMOKE:
+		c.type = PF_CMD_MODE; c.mode = PF_MODE_SMOKE; pf_cmdq_push(&c); break;
+	case PF_MI_SMOKE_PLUS:
+		c.type = PF_CMD_SMOKE_PLUS; c.flag = !pf_json_bool(t->status, "s_plus", false); pf_cmdq_push(&c); break;
+	case PF_MI_SHUTDOWN:
+		c.type = PF_CMD_MODE; c.mode = PF_MODE_SHUTDOWN; pf_cmdq_push(&c); break;
+	case PF_MI_STOP: case PF_MI_CLEAR:
+		c.type = PF_CMD_STOP; pf_cmdq_push(&c); break;
+	default: break;
+	}
+	t->ui.screen = PF_SCR_MAIN;
+}
+
+static void handle_key(tft_t *t, pf_key k, double now)
+{
+	t->last_activity = now;
+	if (!t->backlight_on) {
+		backlight(t, true);
+		if (k == PF_KEY_ENTER) open_menu(t);   /* one click from dark: straight into the menu */
+		return;
+	}
+	if (!t->status) return;
+	const char *mode = pf_json_str(t->status, "mode", "Stop");
+	switch (t->ui.screen) {
+	case PF_SCR_MAIN:
+		if (k == PF_KEY_ENTER) open_menu(t);
+		else if ((k == PF_KEY_UP || k == PF_KEY_DOWN) && !strcmp(mode, "Hold")) { open_setpoint(t, true); spin_setpoint(t, k == PF_KEY_UP ? 1 : -1, now); }
+		break;
+	case PF_SCR_MENU: {
+		pf_menu_item items[PF_MENU_MAX];
+		int n = pf_menu_build(t->status, items, PF_MENU_MAX);
+		if (n <= 0) { t->ui.screen = PF_SCR_MAIN; break; }
+		if (k == PF_KEY_UP) t->ui.menu_index = (t->ui.menu_index + 1) % n;
+		else if (k == PF_KEY_DOWN) t->ui.menu_index = (t->ui.menu_index + n - 1) % n;
+		else if (k == PF_KEY_ENTER) menu_select(t);
+		break;
+	}
+	case PF_SCR_SETPOINT:
+		if (k == PF_KEY_UP || k == PF_KEY_DOWN) spin_setpoint(t, k == PF_KEY_UP ? 1 : -1, now);
+		else if (k == PF_KEY_ENTER) {
+			pf_cmd c = t->ui.edit_is_change ? (pf_cmd){ .type = PF_CMD_SETPOINT, .num = t->ui.edit_setpoint }
+			                                : (pf_cmd){ .type = PF_CMD_MODE, .mode = PF_MODE_HOLD, .num = t->ui.edit_setpoint };
+			pf_cmdq_push(&c);
+			t->ui.screen = PF_SCR_MAIN;
+		}
+		break;
+	default: t->ui.screen = PF_SCR_MAIN; break;
+	}
+}
+
+static void input(tft_t *t, pf_key k)
+{
+	pthread_mutex_lock(&t->mu);
+	handle_key(t, k, pf_now());
+	redraw(t);
+	pthread_mutex_unlock(&t->mu);
+}
+
+/* ---------------- encoder thread ---------------- */
+
+/* quadrature transition table: index = (prev_state << 2) | state, states are (CLK << 1) | DT */
+static const int8_t QUAD[16] = { 0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0 };
 
 static void *encoder_thread(void *arg)
 {
 	tft_t *t = arg;
 	pthread_setname_np(pthread_self(), "pf-encoder");
-	double press_t = 0;
-	bool pressed = false;
-	int last_clk = pf_gpio_get(t->clk);
+	int state = ((pf_gpio_get(t->clk) > 0) << 1) | (pf_gpio_get(t->dt) > 0), accum = 0;
+	bool pressed = pf_gpio_get(t->sw) > 0, long_sent = false;
+	double press_t = 0, last_enter = 0;
+	struct pollfd fds[3] = { { .fd = pf_gpio_fd(t->clk), .events = POLLIN }, { .fd = pf_gpio_fd(t->dt), .events = POLLIN }, { .fd = pf_gpio_fd(t->sw), .events = POLLIN } };
 	while (atomic_load(&t->run)) {
-		uint64_t ts;
-		int e = pf_gpio_wait_edge(t->clk, 20, &ts);
-		if (e >= 0) {
-			int clk = pf_gpio_get(t->clk), dt = pf_gpio_get(t->dt);
-			if (clk != last_clk && clk == 0) atomic_store(&t->pending_key, dt ? PF_KEY_UP : PF_KEY_DOWN);  /* falling CLK: DT tells direction */
-			last_clk = clk;
-		}
-		int sw = pf_gpio_get(t->sw);
+		int r = poll(fds, 3, 50);
 		double now = pf_now();
-		if (sw == 1 && !pressed) { pressed = true; press_t = now; }
-		else if (sw == 0 && pressed) { pressed = false; if (now - press_t < 1.5 && now - press_t > 0.03) atomic_store(&t->pending_key, PF_KEY_ENTER); }
-		else if (pressed && now - press_t >= 1.5) { pressed = false; atomic_store(&t->pending_key, PF_KEY_LONG_ENTER); while (pf_gpio_get(t->sw) == 1 && atomic_load(&t->run)) pf_sleep_ms(50); }
+		if (r > 0) {
+			if (fds[0].revents & POLLIN) pf_gpio_read_edge(t->clk, NULL);
+			if (fds[1].revents & POLLIN) pf_gpio_read_edge(t->dt, NULL);
+			if ((fds[0].revents | fds[1].revents) & POLLIN) {
+				int ns = ((pf_gpio_get(t->clk) > 0) << 1) | (pf_gpio_get(t->dt) > 0);
+				if (ns != state) {
+					accum += QUAD[(state << 2) | ns];
+					state = ns;
+					if (ns == 3) {                      /* back at the detent: one click of the knob */
+						if (accum >= 2) input(t, PF_KEY_UP);
+						else if (accum <= -2) input(t, PF_KEY_DOWN);
+						accum = 0;
+					}
+				}
+			}
+			if (fds[2].revents & POLLIN) {
+				pf_gpio_read_edge(t->sw, NULL);
+				bool down = pf_gpio_get(t->sw) > 0;
+				if (down && !pressed) { pressed = true; press_t = now; long_sent = false; }
+				else if (!down && pressed) {
+					pressed = false;
+					if (!long_sent && now - press_t >= 0.02 && now - last_enter >= SW_DEBOUNCE_S) { last_enter = now; input(t, PF_KEY_ENTER); }
+				}
+			}
+		}
+		if (pressed && !long_sent && now - press_t >= LONG_PRESS_S) {
+			long_sent = true;
+			pthread_mutex_lock(&t->mu);
+			if (t->ui.screen == PF_SCR_SETPOINT || t->ui.screen == PF_SCR_MENU) { t->ui.screen = PF_SCR_MAIN; redraw(t); }   /* long press backs out */
+			else atomic_store(&t->estop, true);
+			pthread_mutex_unlock(&t->mu);
+		}
 	}
 	return NULL;
 }
 
 /* ---------------- ops ---------------- */
-
-static void apply_theme(tft_t *t);
 
 static void *create(const char *cfg_json, const pf_env *env)
 {
@@ -139,8 +299,8 @@ static void *create(const char *cfg_json, const pf_env *env)
 	pthread_mutex_init(&t->mu, NULL);
 	t->rotation = pf_json_int(c, "rotation", 0);
 	t->bgr = pf_json_bool(c, "bgr", false);
-	t->backlight_timeout = pf_json_num(c, "backlight_timeout_s", 0);
-	int spi_dev = pf_json_int(c, "spi_device", 0), hz = pf_json_int(c, "spi_hz", 24000000);
+	t->backlight_timeout = pf_json_num(c, "backlight_timeout_s", 5);
+	int spi_dev = pf_json_int(c, "spi_device", 0), hz = pf_json_int(c, "spi_hz", 32000000);
 	t->encoder = pf_json_bool(c, "encoder", true);
 	pf_strlcpy(t->theme, pf_json_str(c, "theme", "dark"), sizeof t->theme);
 	int dc = pf_json_int(c, "devices.display.dc", 24), rst = pf_json_int(c, "devices.display.rst", 25), led = pf_json_int(c, "devices.display.led", 5);
@@ -148,8 +308,6 @@ static void *create(const char *cfg_json, const pf_env *env)
 	cJSON_Delete(c);
 	char chip[64];
 	pf_set_str("platform.gpiochip", chip, sizeof chip, "/dev/gpiochip0");
-	bool btn_low = false;
-	{ char lv[8]; pf_set_str("platform.buttonslevel", lv, sizeof lv, "HIGH"); btn_low = !strcasecmp(lv, "LOW"); }
 
 	t->chipfd = pf_gpio_open_chip(chip);
 	t->spi = pf_spi_open(0, spi_dev, 0, (uint32_t)hz);
@@ -169,14 +327,14 @@ static void *create(const char *cfg_json, const pf_env *env)
 	t->last_activity = pf_now();
 
 	if (t->encoder) {
-		pf_gpio_bias bias = btn_low ? PF_GPIO_BIAS_PULL_UP : PF_GPIO_BIAS_PULL_DOWN;
-		t->clk = pf_gpio_request_events(t->chipfd, (unsigned)clk, false, PF_GPIO_BIAS_PULL_UP, "pifire-enc-clk");
-		t->dt = pf_gpio_request_input(t->chipfd, (unsigned)dt, false, PF_GPIO_BIAS_PULL_UP, "pifire-enc-dt");
-		t->sw = pf_gpio_request_input(t->chipfd, (unsigned)sw, btn_low, bias, "pifire-enc-sw");
+		/* as the original (pyky040): CLK/DT pulled down, switch pulled up and active-low regardless of buttonslevel */
+		t->clk = pf_gpio_request_events(t->chipfd, (unsigned)clk, false, PF_GPIO_BIAS_PULL_DOWN, "pifire-enc-clk");
+		t->dt = pf_gpio_request_events(t->chipfd, (unsigned)dt, false, PF_GPIO_BIAS_PULL_DOWN, "pifire-enc-dt");
+		t->sw = pf_gpio_request_events(t->chipfd, (unsigned)sw, true, PF_GPIO_BIAS_PULL_UP, "pifire-enc-sw");
 		if (t->clk && t->dt && t->sw) { atomic_store(&t->run, true); pthread_create(&t->tid, NULL, encoder_thread, t); }
 		else env->log(PF_LVL_WARN, TAG, "encoder GPIOs unavailable; display is view-only");
 	}
-	env->log(PF_LVL_INFO, TAG, "ILI9341 %dx%d on spidev0.%d, rotation %d%s", t->fb.w, t->fb.h, spi_dev, t->rotation, t->clk ? ", encoder" : "");
+	env->log(PF_LVL_INFO, TAG, "ILI9341 %dx%d on spidev0.%d at %d MHz, rotation %d%s", t->fb.w, t->fb.h, spi_dev, hz / 1000000, t->rotation, t->clk ? ", encoder" : "");
 	return t;
 }
 
@@ -185,7 +343,6 @@ static void destroy(void *self)
 	tft_t *t = self;
 	if (atomic_load(&t->run)) { atomic_store(&t->run, false); pthread_join(t->tid, NULL); }
 	backlight(t, false);
-	cmd(t, 0x28); /* display off */
 	pf_gpio_release(t->dc); pf_gpio_release(t->rst); pf_gpio_release(t->led);
 	pf_gpio_release(t->clk); pf_gpio_release(t->dt); pf_gpio_release(t->sw);
 	pf_spi_close(t->spi);
@@ -195,97 +352,18 @@ static void destroy(void *self)
 	free(t);
 }
 
-static unsigned hash_fb(const pf_gfx *g)
-{
-	unsigned h = 2166136261u;
-	const unsigned char *p = (const unsigned char *)g->px;
-	for (size_t i = 0, n = (size_t)g->w * g->h * 2; i < n; i += 7) { h ^= p[i]; h *= 16777619u; }
-	return h;
-}
-
-static void apply_theme(tft_t *t)
-{
-	pf_gfx_set_theme(&t->fb, !strcmp(t->theme, "light") ? "light" : "dark");
-}
-
-static void redraw(tft_t *t)
-{
-	apply_theme(t);
-	if (t->ui.screen == PF_SCR_MESSAGE && pf_now() > t->ui.message_until) t->ui.screen = PF_SCR_MAIN;
-	if (!t->backlight_on) return;   /* asleep: nothing to draw */
-	pf_screens_render(&t->fb, t->status, &t->ui);
-	unsigned h = hash_fb(&t->fb);
-	if (h != t->last_hash) { t->last_hash = h; push_frame(t); }
-}
-
-static void handle_key(tft_t *t, pf_key k)
-{
-	t->last_activity = pf_now();
-	if (!t->backlight_on) { backlight(t, true); return; }
-	const char *units = pf_json_str(t->status, "units", "F");
-	double step = 5;
-	pf_menu_item items[PF_MENU_MAX];
-	int n;
-	switch (t->ui.screen) {
-	case PF_SCR_MAIN:
-		if (k == PF_KEY_ENTER) { t->ui.screen = PF_SCR_MENU; t->ui.menu_index = 0; }
-		break;
-	case PF_SCR_MENU:
-		n = pf_menu_build(t->status, items, PF_MENU_MAX);
-		if (n <= 0) { t->ui.screen = PF_SCR_MAIN; break; }
-		if (t->ui.menu_index >= n) t->ui.menu_index = n - 1;
-		if (k == PF_KEY_UP) t->ui.menu_index = (t->ui.menu_index + 1) % n;
-		else if (k == PF_KEY_DOWN) t->ui.menu_index = (t->ui.menu_index + n - 1) % n;
-		else if (k == PF_KEY_ENTER) {
-			pf_cmd c = { 0 };
-			double sp = pf_json_num(t->status, "setpoint", 0);
-			if (sp <= 0) sp = units[0] == 'C' ? 107 : 225;
-			switch (items[t->ui.menu_index].id) {
-			case PF_MI_START_SMOKE: c.type = PF_CMD_MODE; c.mode = PF_MODE_SMOKE; pf_cmdq_push(&c); break;
-			case PF_MI_START_HOLD:
-			case PF_MI_HOLD: t->ui.edit_setpoint = sp; t->ui.edit_is_change = false; t->ui.screen = PF_SCR_SETPOINT; return;
-			case PF_MI_SETPOINT: t->ui.edit_setpoint = sp; t->ui.edit_is_change = true; t->ui.screen = PF_SCR_SETPOINT; return;
-			case PF_MI_MONITOR: c.type = PF_CMD_MODE; c.mode = PF_MODE_MONITOR; pf_cmdq_push(&c); break;
-			case PF_MI_SMOKE: c.type = PF_CMD_MODE; c.mode = PF_MODE_SMOKE; pf_cmdq_push(&c); break;
-			case PF_MI_SMOKE_PLUS: c.type = PF_CMD_SMOKE_PLUS; c.flag = !pf_json_bool(t->status, "s_plus", false); pf_cmdq_push(&c); break;
-			case PF_MI_SHUTDOWN: c.type = PF_CMD_MODE; c.mode = PF_MODE_SHUTDOWN; pf_cmdq_push(&c); break;
-			case PF_MI_STOP:
-			case PF_MI_CLEAR: c.type = PF_CMD_STOP; pf_cmdq_push(&c); break;
-			default: break;
-			}
-			t->ui.screen = PF_SCR_MAIN;
-		}
-		break;
-	case PF_SCR_SETPOINT: {
-		double max = units[0] == 'C' ? 320 : 600, min = units[0] == 'C' ? 40 : 100;
-		if (k == PF_KEY_UP) t->ui.edit_setpoint = fmin(max, t->ui.edit_setpoint + step);
-		else if (k == PF_KEY_DOWN) t->ui.edit_setpoint = fmax(min, t->ui.edit_setpoint - step);
-		else if (k == PF_KEY_ENTER) {
-			pf_cmd c = t->ui.edit_is_change ? (pf_cmd){ .type = PF_CMD_SETPOINT, .num = t->ui.edit_setpoint }
-			                                : (pf_cmd){ .type = PF_CMD_MODE, .mode = PF_MODE_HOLD, .num = t->ui.edit_setpoint };
-			pf_cmdq_push(&c);
-			t->ui.screen = PF_SCR_MAIN;
-		}
-		else if (k == PF_KEY_LONG_ENTER) t->ui.screen = PF_SCR_MAIN;
-		break;
-	}
-	default: t->ui.screen = PF_SCR_MAIN; break;
-	}
-}
-
+/* display tick (2 Hz): new status, timeouts, sleep while stopped */
 static void status(void *self, const char *json)
 {
 	tft_t *t = self;
 	pthread_mutex_lock(&t->mu);
 	cJSON_Delete(t->status);
 	t->status = cJSON_Parse(json);
-	int k;
-	while ((k = atomic_exchange(&t->pending_key, PF_KEY_NONE)) != PF_KEY_NONE && k != PF_KEY_LONG_ENTER) handle_key(t, (pf_key)k);
-	{
-		bool stopped = !strcmp(pf_json_str(t->status, "mode", ""), "Stop");
-		if (!stopped && !t->backlight_on) backlight(t, true);                          /* any active mode: screen on */
-		if (stopped && t->backlight_on && t->backlight_timeout > 0 && t->ui.screen == PF_SCR_MAIN && pf_now() - t->last_activity > t->backlight_timeout) backlight(t, false);
-	}
+	double now = pf_now();
+	bool stopped = !strcmp(pf_json_str(t->status, "mode", ""), "Stop");
+	if ((t->ui.screen == PF_SCR_MENU || t->ui.screen == PF_SCR_SETPOINT) && now - t->last_activity > MENU_TIMEOUT_S) t->ui.screen = PF_SCR_MAIN;
+	if (!stopped && !t->backlight_on) backlight(t, true);                       /* any active mode: screen on */
+	if (stopped && t->backlight_on && t->backlight_timeout > 0 && t->ui.screen == PF_SCR_MAIN && now - t->last_activity > t->backlight_timeout) backlight(t, false);
 	redraw(t);
 	pthread_mutex_unlock(&t->mu);
 }
@@ -297,6 +375,8 @@ static void text(void *self, const char *msg)
 	pf_strlcpy(t->ui.message, msg, sizeof t->ui.message);
 	t->ui.screen = PF_SCR_MESSAGE;
 	t->ui.message_until = pf_now() + 4;
+	if (!t->backlight_on) backlight(t, true);
+	t->last_activity = pf_now();
 	redraw(t);
 	pthread_mutex_unlock(&t->mu);
 }
@@ -304,10 +384,7 @@ static void text(void *self, const char *msg)
 static pf_key poll_input(void *self)
 {
 	tft_t *t = self;
-	/* long press is reported to the daemon (e-stop); short keys are consumed by the on-device menu */
-	int k = atomic_load(&t->pending_key);
-	if (k == PF_KEY_LONG_ENTER && t->ui.screen != PF_SCR_SETPOINT) { atomic_store(&t->pending_key, PF_KEY_NONE); return PF_KEY_LONG_ENTER; }
-	return PF_KEY_NONE;
+	return atomic_exchange(&t->estop, false) ? PF_KEY_LONG_ENTER : PF_KEY_NONE;
 }
 
 static const pf_display_ops ops = { .abi = PF_DISPLAY_ABI, .id = "ili9341e", .name = "ILI9341 TFT + rotary encoder", .create = create, .destroy = destroy, .status = status, .text = text, .poll_input = poll_input };

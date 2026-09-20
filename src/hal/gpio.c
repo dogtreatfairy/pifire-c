@@ -90,6 +90,18 @@ int pf_gpio_wait_edge(pf_gpio_line *l, int timeout_ms, uint64_t *timestamp_ns)
 	return ev.id == GPIO_V2_LINE_EVENT_RISING_EDGE ? 1 : 0;
 }
 
+int pf_gpio_fd(const pf_gpio_line *l) { return l ? l->fd : -1; }
+
+int pf_gpio_read_edge(pf_gpio_line *l, uint64_t *timestamp_ns)
+{
+	if (!l) return -1;
+	struct gpio_v2_line_event ev;
+	ssize_t n = read(l->fd, &ev, sizeof ev);
+	if (n != (ssize_t)sizeof ev) return -1;
+	if (timestamp_ns) *timestamp_ns = ev.timestamp_ns;
+	return ev.id == GPIO_V2_LINE_EVENT_RISING_EDGE ? 1 : 0;
+}
+
 int pf_gpio_set(pf_gpio_line *l, bool active)
 {
 	if (!l) return -EINVAL;

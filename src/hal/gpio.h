@@ -19,4 +19,7 @@ pf_gpio_line *pf_gpio_request_events(int chipfd, unsigned offset, bool active_lo
 int  pf_gpio_wait_edge(pf_gpio_line *l, int timeout_ms, uint64_t *timestamp_ns);
 int  pf_gpio_set(pf_gpio_line *l, bool active);
 int  pf_gpio_get(pf_gpio_line *l);         /* 1 active, 0 inactive, <0 error */
+int  pf_gpio_fd(const pf_gpio_line *l);    /* pollable fd of an event line (POLLIN = edge pending) */
+/* Read one pending edge without waiting. Returns 1 rising, 0 falling, -1 none. */
+int  pf_gpio_read_edge(pf_gpio_line *l, uint64_t *timestamp_ns);
 void pf_gpio_release(pf_gpio_line *l);

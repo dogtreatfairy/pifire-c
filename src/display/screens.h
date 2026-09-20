@@ -5,10 +5,10 @@
 
 typedef enum { PF_SCR_MAIN = 0, PF_SCR_MENU, PF_SCR_SETPOINT, PF_SCR_MESSAGE } pf_screen;
 
-/* menu entries depend on the running mode */
+/* menu entries depend on the running mode (same sets as the original PiFire display) */
 typedef enum {
-	PF_MI_START_SMOKE, PF_MI_START_HOLD, PF_MI_MONITOR, PF_MI_HOLD, PF_MI_SETPOINT, PF_MI_SMOKE,
-	PF_MI_SMOKE_PLUS, PF_MI_SHUTDOWN, PF_MI_STOP, PF_MI_CLEAR, PF_MI_BACK
+	PF_MI_STARTUP, PF_MI_HOLD, PF_MI_PRIME, PF_MI_MONITOR, PF_MI_SMOKE, PF_MI_SMOKE_PLUS,
+	PF_MI_SHUTDOWN, PF_MI_STOP, PF_MI_CLEAR, PF_MI_BACK
 } pf_menu_id;
 
 typedef struct { pf_menu_id id; char label[28]; } pf_menu_item;
