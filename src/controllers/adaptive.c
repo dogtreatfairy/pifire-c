@@ -13,6 +13,7 @@
  * Integration is conditional (paused while saturated) and the integrator is seeded for bumpless
  * transfer. */
 #include "controllers/pid_common.h"
+#include "pifire/common.h"
 #include "pifire/controller.h"
 #include <math.h>
 #include <stdio.h>
@@ -24,6 +25,10 @@
 #define DEADBAND_C    1.5     /* error must cross +/- this to count as an oscillation half-cycle */
 #define SCALE_MIN     0.4
 #define SCALE_MAX     2.0
+#define IBAND_C       8.5     /* +/- 15 F: entering this band trims the integrator (approach wind-up) */
+#define THETA_MIN     40.0
+#define THETA_MAX     240.0
+#define THETA_DEFAULT 90.0
 
 typedef struct {
 	const pf_env *env;
@@ -43,6 +48,8 @@ typedef struct {
 	double win_start, win_abs_sum, win_peak; int win_n, win_changes, win_sat, last_sign;
 	double step_t, step_size, step_peak; bool step_open;
 	int settled_n;
+	double theta;           /* plant dead time estimate (s) for the coast look-ahead */
+	bool in_band, coasting;
 } ad_t;
 
 static const char schema[] =
@@ -70,8 +77,8 @@ static void save_learned(ad_t *s)
 {
 	if (!s->env || !s->env->kv_put) return;
 	char buf[200];
-	snprintf(buf, sizeof buf, "{\"PB_c\":%.2f,\"Ti\":%.1f,\"Td\":%.1f,\"scale\":%.3f,\"valid\":%s,\"ts\":%.0f,\"src\":\"%s\"}",
-	         s->l_PB_c, s->l_Ti, s->l_Td, s->scale, s->l_valid ? "true" : "false", s->l_ts, s->l_src);
+	snprintf(buf, sizeof buf, "{\"PB_c\":%.2f,\"Ti\":%.1f,\"Td\":%.1f,\"scale\":%.3f,\"valid\":%s,\"ts\":%.0f,\"src\":\"%s\",\"theta\":%.0f}",
+	         s->l_PB_c, s->l_Ti, s->l_Td, s->scale, s->l_valid ? "true" : "false", s->l_ts, s->l_src, s->theta);
 	s->env->kv_put(s->env, "learned", buf);
 }
 
@@ -86,6 +93,7 @@ static void load_learned(ad_t *s)
 	s->l_PB_c = pf_pid_cfg_num(j, "PB_c", 0); s->l_Ti = pf_pid_cfg_num(j, "Ti", 0); s->l_Td = pf_pid_cfg_num(j, "Td", 0);
 	s->scale = clampd(pf_pid_cfg_num(j, "scale", 1.0), SCALE_MIN, SCALE_MAX);
 	s->l_ts = pf_pid_cfg_num(j, "ts", 0);
+	s->theta = clampd(pf_pid_cfg_num(j, "theta", THETA_DEFAULT), THETA_MIN, THETA_MAX);
 	cJSON *v = cJSON_GetObjectItem(j, "valid"), *src = cJSON_GetObjectItem(j, "src");
 	s->l_valid = cJSON_IsTrue(v) && s->l_PB_c > 0 && s->l_Ti > 0;
 	snprintf(s->l_src, sizeof s->l_src, "%.7s", cJSON_IsString(src) ? src->valuestring : "");
@@ -110,6 +118,7 @@ static void *create(const char *json, const pf_env *env)
 {
 	ad_t *s = calloc(1, sizeof *s);
 	s->env = env;
+	s->theta = THETA_DEFAULT;
 	load_learned(s);
 	apply_config(s, json);
 	if (env && env->log && s->l_valid) env->log(PF_LVL_INFO, "adaptive", "learned tuning restored: PB %.1f C, Ti %.0f s, Td %.0f s, gain x%.2f (%s)", s->l_PB_c, s->l_Ti, s->l_Td, s->scale, s->l_src);
@@ -180,6 +189,24 @@ static void monitor(ad_t *s, const pf_ctrl_in *in, double e)
 	window_reset(s, in->now_s);
 }
 
+/* pit slope in C/s from the daemon's 1 Hz history (last ~60 s), 0 when unavailable */
+static double pit_slope(const pf_ctrl_in *in)
+{
+	const pf_history *h = in->hist;
+	if (!h || h->len < 20) return 0;
+	int n = h->len < 60 ? h->len : 60;
+	double sx = 0, sy = 0, sxx = 0, sxy = 0; int k = 0;
+	for (int i = h->len - n; i < h->len; i++) {
+		const pf_hist_pt *pt = pf_history_at(h, i);
+		if (!pt || isnan(pt->pit_c)) continue;
+		double x = pt->t - in->now_s, y = pt->pit_c;
+		sx += x; sy += y; sxx += x * x; sxy += x * y; k++;
+	}
+	if (k < 10) return 0;
+	double det = k * sxx - sx * sx;
+	return det != 0 ? (k * sxy - sx * sy) / det : 0;
+}
+
 static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 {
 	ad_t *s = self;
@@ -189,8 +216,18 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 	double e = in->pit_c - in->setpoint_c;
 	s->ff = s->ff_gain * in->u_ff;
 	s->p = s->kp * e;
-	/* conditional integration: don't wind up while saturated in the same direction */
+	/* integrate only near the target (and never while pushing into a clamp): the approach is handled by
+	 * P + feed-forward + the coast look-ahead, so the integrator cannot wind up on the way there */
 	bool sat_push = (in->saturated > 0 && e < 0) || (in->saturated < 0 && e > 0);
+	bool in_band = fabs(e) <= IBAND_C;
+	if (in_band && !s->in_band && s->ki != 0) {
+		/* arriving at the target: whatever the integrator accumulated on the way is approach wind-up, not a
+		 * steady-state correction. Keep at most +/-0.15 duty of it so the pit does not sag, drop the rest. */
+		double lim = 0.15 / fabs(s->ki);
+		if (s->inter > lim) s->inter = lim;
+		if (s->inter < -lim) s->inter = -lim;
+	}
+	s->in_band = in_band;
 	if (!sat_push) s->inter += e * dt;
 	s->i = s->ki * s->inter;
 	double lim = 0.5;
@@ -199,13 +236,21 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 	double derv = (in->pit_c - s->last_pit) / dt;
 	s->d = s->kd * derv;
 	s->u = s->ff + s->p + s->i + s->d;
+	/* coast look-ahead: the pot keeps heating for about one dead time after the feed is cut. Once the pit,
+	 * rising at its current rate, would reach the target on its own, fall back to the steady-state feed. */
+	s->coasting = false;
+	if (e < 0) {
+		double rate = pit_slope(in);                      /* C/s, only a genuine climb counts */
+		double coast = rate >= 0.05 ? rate * clampd(s->theta, THETA_MIN, THETA_MAX) : 0;   /* only on a fast climb (>= 3 C/min) */
+		if (coast > 0 && in->pit_c + coast >= in->setpoint_c && s->u > s->ff) { s->u = s->ff; s->coasting = true; }
+	}
 	s->last_t = in->now_s;
 	s->last_pit = in->pit_c;
 	s->last_err = e;
 	monitor(s, in, e);
 	if (dbg) {
 		dbg->p = s->p; dbg->i = s->i; dbg->d = s->d; dbg->ff = s->ff; dbg->error = e; dbg->derivative = derv; dbg->integral = s->inter;
-		snprintf(dbg->note, sizeof dbg->note, "ff %.2f · PB %.0f Ti %.0f Td %.0f ×%.2f%s", s->ff, pf_delta_from_c(s->PB_c, s->units), s->Ti, s->Td, s->auto_tune ? s->scale : 1.0, s->auto_tune && s->l_valid ? " learned" : "");
+		snprintf(dbg->note, sizeof dbg->note, "ff %.2f · PB %.0f Ti %.0f Td %.0f ×%.2f%s%s", s->ff, pf_delta_from_c(s->PB_c, s->units), s->Ti, s->Td, s->auto_tune ? s->scale : 1.0, s->auto_tune && s->l_valid ? " learned" : "", s->coasting ? " · coasting" : "");
 	}
 	return s->u;
 }
@@ -233,6 +278,7 @@ static void apply_tuning(void *self, double Ku, double Pu, double K, double tau,
 		double kc = Ku / 3.2;
 		PB = 1.5 / kc; Ti = 2.2 * Pu; Td = Pu / 6.3; src = "relay";
 	} else if (K > 0 && tau > 0 && theta > 0) {
+		s->theta = clampd(theta, THETA_MIN, THETA_MAX);
 		double tc = theta;                                 /* SIMC with tau_c = theta */
 		double kc = tau / (K * (tc + theta));
 		PB = 1.0 / kc; Ti = fmin(tau, 4.0 * (tc + theta)); Td = theta / 3.0; src = "model";

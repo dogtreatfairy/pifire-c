@@ -367,20 +367,21 @@ static void apply_request(pf_control *c, double now)
 	if (m == PF_MODE_STARTUP) {
 		c->next_mode = c->cfg.after_startup_mode;
 		if (c->cfg.after_startup_mode == PF_MODE_HOLD && c->req_setpoint_c <= 0) c->setpoint_c = c->cfg.after_startup_setpoint_c;
-		if (c->cfg.prime_on_startup_g > 0 && c->mode == PF_MODE_STOP) {
+		if (c->cfg.prime_on_startup_g > 0 && (c->mode == PF_MODE_STOP || c->mode == PF_MODE_MONITOR)) {
 			c->prime_amount_g = c->cfg.prime_on_startup_g;
 			c->next_mode = PF_MODE_STARTUP;
 			enter_mode(c, PF_MODE_PRIME, now);
 			return;
 		}
 	}
-	if (m == PF_MODE_HOLD && c->mode == PF_MODE_STOP) {
-		/* Hold from cold: run startup first, then hold */
+	bool idle = c->mode == PF_MODE_STOP || c->mode == PF_MODE_MONITOR;
+	if (m == PF_MODE_HOLD && idle) {
+		/* Hold from cold (Stop or Monitor): run startup first, then hold */
 		c->next_mode = PF_MODE_HOLD;
 		enter_mode(c, PF_MODE_STARTUP, now);
 		return;
 	}
-	if (m == PF_MODE_SMOKE && c->mode == PF_MODE_STOP) {
+	if (m == PF_MODE_SMOKE && idle) {
 		c->next_mode = PF_MODE_SMOKE;
 		enter_mode(c, PF_MODE_STARTUP, now);
 		return;
@@ -661,14 +662,18 @@ static void learn_track_steady(pf_control *c, double now)
 static void learn_rise_begin(pf_control *c, double now)
 {
 	c->learn.rise_active = pf_learning_enabled() && c->pit_valid;
-	c->learn.rise_t0 = now; c->learn.rise_T0_c = c->pit_c; c->learn.rise_u_sum = 0; c->learn.rise_n = 0;
+	c->learn.rise_t0 = 0; c->learn.rise_T0_c = c->pit_c; c->learn.rise_u_sum = 0; c->learn.rise_n = 0;   /* clock starts at ignition, see learn_rise_track */
 	c->learn.rise_t28 = c->learn.rise_t63 = 0;
 }
 
 static void learn_rise_track(pf_control *c, double now)
 {
 	if (!c->learn.rise_active) return;
-	if (now - c->learn.rise_t0 > 3600 || c->mode == PF_MODE_STOP || c->mode == PF_MODE_ERROR || c->mode == PF_MODE_SHUTDOWN) { c->learn.rise_active = false; return; }
+	if (c->mode == PF_MODE_STOP || c->mode == PF_MODE_ERROR || c->mode == PF_MODE_SHUTDOWN) { c->learn.rise_active = false; return; }
+	/* the step test starts when the fire is evidently lit (+3 C over the startup baseline), so the ignition
+	 * delay does not masquerade as plant dead time */
+	if (c->learn.rise_t0 == 0) { if (c->pit_valid && c->pit_c >= c->learn.rise_T0_c + 3.0) { c->learn.rise_t0 = now; c->learn.rise_T0_c = c->pit_c; } return; }
+	if (now - c->learn.rise_t0 > 3600) { c->learn.rise_active = false; return; }
 	if (c->mode != PF_MODE_HOLD) return;
 	double span = c->setpoint_c - c->learn.rise_T0_c;
 	if (span < 20) { c->learn.rise_active = false; return; }
@@ -930,7 +935,9 @@ static void run_mode(pf_control *c, double now)
 		bool timer = now - c->mode_start > c->startup_duration_s;
 		bool exit_temp = c->startup_exit_c > 0 && c->pit_c >= c->startup_exit_c;
 		/* the fire is evidently lit once the pit has climbed exit_rise above where this startup began */
-		bool exit_rise_up = g->startup_exit_rise_c > 0 && !isnan(c->startup_base_c) && c->pit_valid && now - c->mode_start > 30 && c->pit_c - c->startup_base_c >= g->startup_exit_rise_c
+		/* rise-based exit needs the fire to be evidently established: the rise, a sustained climb rate, and at least 90 s */
+		bool exit_rise_up = g->startup_exit_rise_c > 0 && !isnan(c->startup_base_c) && c->pit_valid && now - c->mode_start > 90
+		                    && c->pit_c - c->startup_base_c >= g->startup_exit_rise_c && c->pit_rate_c_min >= 2.0
 		                    && (c->safety.coldstart_active || !c->safety.floor_set || c->pit_c >= c->safety.floor_c);   /* never hand over below the flame-out floor */
 		/* optional: leave startup as soon as cold-start has confirmed a rise and the pit is past the classic minimum */
 		bool exit_rise = g->coldstart_exit_on_rise && c->safety.coldstart_active && c->safety.coldstart_reached && c->pit_c >= g->min_startup_c;
@@ -1036,6 +1043,16 @@ static void read_sensors(pf_control *c)
 	int p = c->sensors.primary;
 	if (p >= 0 && c->sensors.p[p].valid) { c->pit_c = c->sensors.p[p].temp_c; c->pit_valid = true; if (c->pit_c > c->cook_max_pit_c) c->cook_max_pit_c = c->pit_c; }
 	else c->pit_valid = false;
+	/* filtered pit slope in C/min (30 s time constant) for the startup exit rule */
+	if (c->pit_valid) {
+		double now_t = c->last_step > 0 ? c->last_step : 0;
+		if (c->pit_rate_last_t > 0 && now_t > c->pit_rate_last_t) {
+			double dt = now_t - c->pit_rate_last_t, inst = (c->pit_c - c->pit_rate_last_c) / dt * 60.0, a = dt / 30.0;
+			if (a > 1) a = 1;
+			c->pit_rate_c_min += (inst - c->pit_rate_c_min) * a;
+		}
+		c->pit_rate_last_c = c->pit_c; c->pit_rate_last_t = now_t;
+	}
 	c->hopper_pct = pf_pellets_hopper_pct();
 	c->ambient_from_probe = false;
 	for (int i = 0; i < c->sensors.n; i++)
@@ -1059,7 +1076,7 @@ static void publish(pf_control *c, double now)
 	s.outputs = pf_outputs_mask();
 	s.fan_pct = pf_outputs_get_fan_pct();
 	s.u_raw = c->u_raw;
-	s.u_applied = c->u_applied;
+	s.u_applied = (c->mode == PF_MODE_SMOKE || c->mode == PF_MODE_HOLD || c->mode == PF_MODE_STARTUP || c->mode == PF_MODE_REIGNITE) ? c->u_applied : 0;
 	s.saturated = c->saturated;
 	s.cycle_s = c->ccfg.cycle_s;
 	s.lid_open = c->lid_open;

@@ -85,6 +85,7 @@ typedef struct {
 	double prime_duration_s, prime_amount_g;
 	double startup_duration_s, raw_startup_c, startup_exit_c; int ss_profile;
 	double startup_base_c;      /* pit when the current Startup/Reignite began (exit_rise reference), NAN if unknown */
+	double pit_rate_c_min, pit_rate_last_c, pit_rate_last_t;   /* filtered pit slope, C per minute */
 	pf_safety safety;
 	pf_notify notify;
 	struct {
