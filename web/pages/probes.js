@@ -1,17 +1,10 @@
 import { PF, el, api, patchSettings, toast, confirmDialog, dialog, degUnit } from '../app.js';
+import { icon as lucide } from '../icons.js';
 
 // One place for everything probe-related: the probe table (tap a row to edit), adding probes to free
 // ADC ports or pairing Bluetooth probes, the ADC/RTD hardware, and the Steinhart-Hart profiles + tuner.
 
-export const BT_PATH = 'M6.5 6.5l11 11L12 23V1l5.5 5.5-11 11';
-export function btIcon() {
-  const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('class', 'ic bt'); s.setAttribute('aria-label', 'Bluetooth');
-  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  p.setAttribute('d', BT_PATH); p.setAttribute('fill', 'none'); p.setAttribute('stroke', 'currentColor'); p.setAttribute('stroke-width', '2'); p.setAttribute('stroke-linejoin', 'round'); p.setAttribute('stroke-linecap', 'round');
-  s.append(p);
-  return s;
-}
+export const btIcon = () => lucide('bluetooth', 'ic bt');
 const WIRELESS_MODULES = ['ibbq', 'meater'];
 /** true when the named probe device is a Bluetooth probe (by module) */
 export function isWireless(deviceName) {

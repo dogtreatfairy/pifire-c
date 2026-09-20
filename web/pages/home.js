@@ -1,6 +1,7 @@
 import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, numberDialog, dialog, confirmDialog, patchSettings, toast } from '../app.js';
 import { targetDialog, limitsDialog } from './cook.js';
 import { btIcon, isWireless } from './probes.js';
+import { icon as lucide } from '../icons.js';
 
 // Home: status row (AUG/FAN/IGN, P-mode), the gauge with the grill temperature (reads 0 while stopped),
 // target line, run timer + hopper, the PiFire-style control bar, probe cells, and manual output switches
@@ -11,40 +12,18 @@ const presetsC = [70, 80, 95, 107, 120, 135, 150, 175, 205];
 const presets = () => (PF.units === 'C' ? presetsC : presetsF);
 const gaugeMax = () => (PF.units === 'C' ? 320 : 600);
 
-// ---- icons (inline SVG, 24px viewBox)
-const I = {
-  play: 'M8 5v14l11-7z',
-  stop: 'M6 6h12v12H6z',
-  glasses: 'M6 10a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zm12 0a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zM9.5 13.5h5M2 12l2-4h3M22 12l-2-4h-3',
-  target: 'M12 2v4M12 18v4M2 12h4M18 12h4M12 5.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM12 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z',
-  prime: 'M5 6l6 6-6 6M12 6l6 6-6 6',
-  smoke: 'M6 15a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 17 8.5 3.5 3.5 0 0 1 17 15H6z',
-  power: 'M12 3v9M6.3 7.3a8 8 0 1 0 11.4 0',
-  chevron: 'M7 14l5-5 5 5',
-  wrench: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.4 2.4-2.1-2.1z',
-};
-const STROKED = ['glasses', 'prime', 'power', 'chevron', 'target'];
-const icon = (name) => {
-  const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  s.setAttribute('viewBox', '0 0 24 24');
-  s.setAttribute('class', 'ic');
-  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  p.setAttribute('d', I[name]);
-  if (STROKED.includes(name)) { p.setAttribute('fill', 'none'); p.setAttribute('stroke', 'currentColor'); p.setAttribute('stroke-width', '2'); p.setAttribute('stroke-linecap', 'round'); p.setAttribute('stroke-linejoin', 'round'); }
-  else p.setAttribute('fill', 'currentColor');
-  s.append(p);
-  return s;
-};
+const LUCIDE = { play: 'play', stop: 'square', glasses: 'glasses', target: 'target', prime: 'chevrons-right', smoke: 'cloud', power: 'power', chevron: 'chevron-up', wrench: 'wrench' };
+const icon = (name) => lucide(LUCIDE[name] || name);
 
 // ---- gauge (270° ring, temperature inside)
-const R = 100, CX = 120, CY = 120, START = 135, SWEEP = 270;
+const R = 100, CX = 120, CY = 120, START = 135, SWEEP = 270, CAP = (6 / R) * (180 / Math.PI); /* round cap = 6 px along the ring */
 const polar = (deg, r = R) => [CX + r * Math.cos((deg * Math.PI) / 180), CY + r * Math.sin((deg * Math.PI) / 180)];
 const arcPath = (from, to, r = R) => { const [x1, y1] = polar(from, r), [x2, y2] = polar(to, r); return `M ${x1} ${y1} A ${r} ${r} 0 ${to - from > 180 ? 1 : 0} 1 ${x2} ${y2}`; };
 function buildGauge() {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 240 240'); svg.setAttribute('class', 'gauge'); svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', 'Grill temperature');
-  svg.innerHTML = `<path class="track" d="${arcPath(START, START + SWEEP)}" fill="none" stroke-width="12"/>
-    <path class="arc" id="g-arc" d="${arcPath(START, START + 0.01)}" fill="none" stroke-width="12"/>
+  svg.innerHTML = `<path class="track" d="${arcPath(START + CAP, START + SWEEP - CAP)}" fill="none" stroke-width="12"/>
+    <path class="arc" id="g-arc" d="${arcPath(START + CAP, START + CAP + 0.01)}" fill="none" stroke-width="12"/>
     <g id="g-sp" visibility="hidden"><line class="sp" x1="0" y1="0" x2="0" y2="0" stroke-width="4"/><polygon class="spm" id="g-spm" points="0,0 0,0 0,0"/></g>
     <text class="label" x="120" y="82" text-anchor="middle" id="g-label">Grill</text>
     <text class="big" x="120" y="146" text-anchor="middle" id="g-temp">0</text>
@@ -55,7 +34,16 @@ function updateGauge(svg, s, primary, stopped) {
   const max = gaugeMax();
   const t = stopped ? 0 : primary?.valid ? primary.temp : null;
   const frac = t == null ? 0 : Math.min(1, Math.max(0, t / max));
-  svg.querySelector('#g-arc').setAttribute('d', arcPath(START, START + Math.max(0.01, SWEEP * frac)));
+  const end = Math.max(START + CAP + 0.01, START + SWEEP * frac - CAP);
+  const arc = svg.querySelector('#g-arc');
+  arc.setAttribute('d', arcPath(START + CAP, end));
+  // Hold: green within +/-7 F of the target, orange within +/-15 F, blue colder / red hotter than that
+  let band = '';
+  if (s.mode === 'Hold' && t != null && s.setpoint > 0) {
+    const e = t - s.setpoint, tight = PF.units === 'C' ? 4 : 7, wide = PF.units === 'C' ? 8 : 15;
+    band = Math.abs(e) <= tight ? 'ok' : Math.abs(e) <= wide ? 'warn' : e < 0 ? 'cold' : 'hot';
+  }
+  arc.setAttribute('class', `arc ${band}`);
   svg.querySelector('#g-temp').textContent = t == null ? '—' : fmtTemp(t);
   svg.querySelector('#g-temp').classList.toggle('muted', stopped || t == null);
   svg.querySelector('#g-unit').textContent = degUnit();
