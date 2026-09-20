@@ -124,9 +124,12 @@ export function renderCook(view) {
   const alerts = el('div', { class: 'list' });
   const recipeCard = el('div', { class: 'card' });
   const recipeList = el('div', { class: 'list' });
-  view.append(el('h2', {}, 'Timer'), timerCard, el('h2', {}, 'Probes'), probes,
+  const showRecipes = PF.settings?.globals?.show_recipes !== false;
+  const recipeSection = el('div', { hidden: !showRecipes },
     el('div', { class: 'row between' }, el('h2', {}, 'Recipes'), el('button', { class: 'btn sm', onclick: async () => { const r = await recipeDialog(); if (r) { await api('/recipes', { body: r }).catch((e) => toast(e.message, true)); loadRecipes(); } } }, 'New')),
-    recipeCard, el('div', { class: 'card' }, recipeList),
+    el('div', { class: 'card' }, recipeList));
+  view.append(el('h2', {}, 'Timer'), timerCard, el('h2', {}, 'Probes'), probes,
+    recipeCard, recipeSection,
     el('h2', {}, 'Recent alerts'), el('div', { class: 'card' }, alerts));
 
   const loadRecipes = () => api('/recipes').then((list) => {
@@ -141,7 +144,7 @@ export function renderCook(view) {
     }
     if (!list.length) recipeList.append(el('div', { class: 'muted' }, 'No recipes yet. A recipe is a list of steps: Startup → Hold 225 until the probe hits 165 → Shutdown.'));
   }).catch(() => {});
-  loadRecipes();
+  if (showRecipes) loadRecipes();
 
   const loadAlerts = () => api('/alerts?limit=10').then((evs) => {
     alerts.innerHTML = '';

@@ -14,6 +14,7 @@ typedef struct {
 	pf_probe_role role;
 	bool enabled;
 	bool ambient;      /* Aux probe designated as the ambient reference */
+	bool home;         /* show on the Home screen / panel (probe_info.show_on_home) */
 	bool valid;        /* last reading usable */
 	double temp_c;     /* filtered, NAN if invalid */
 	double raw_c;      /* unfiltered */

@@ -5,6 +5,7 @@
     "units": "F",
     "debug_mode": false,
     "theme": "dark",
+    "show_recipes": true,
     "augerrate": 0.3,
     "first_time_setup": true,
     "prime_ignition": false,
@@ -146,7 +147,7 @@
     "setup_timeout_s": 45
   },
   "learning": { "enabled": true, "half_life_obs": 60 },
-  "update": { "repo": "dogtreatfairy/pifire-c", "auto_check": true, "check_interval_h": 24 },
+  "update": { "repo": "dogtreatfairy/pifire-c", "auto_check": true, "check_interval_h": 24, "include_prerelease": true },
   "history": { "minutes": 15, "clear_on_startup": true, "retention_hours": 48, "sample_s": 3 },
   "web": { "port": 80, "bind": "0.0.0.0" }
 }

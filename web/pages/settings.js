@@ -5,17 +5,20 @@ const T = (path, label, help, extra = {}) => ({ path, label, help, type: 'temp',
 const N = (path, label, help, extra = {}) => ({ path, label, help, type: 'num', ...extra });
 const I = (path, label, help, extra = {}) => ({ path, label, help, type: 'int', ...extra });
 const B = (path, label, help) => ({ path, label, help, type: 'bool' });
-const S = (path, label, help, options) => ({ path, label, help, type: 'select', options });
+const S = (path, label, help, options, bool = false) => ({ path, label, help, type: 'select', options, bool });
 const X = (path, label, help) => ({ path, label, help, type: 'text' });
 
 const GROUPS = [
   { id: 'globals', title: 'General', fields: [
     X('grill_name', 'Grill name', 'Shown in the header and in notifications'),
     S('units', 'Temperature units', 'All temperature settings convert automatically', [['F', 'Fahrenheit'], ['C', 'Celsius']]),
-    S('theme', 'Theme', '', [['dark', 'Dark'], ['light', 'Light'], ['auto', 'Follow system']]),
     N('augerrate', 'Auger rate (g/s)', 'Pellets delivered per second of auger run; used for priming and usage estimates', { step: 0.01, min: 0.01 }),
     B('prime_ignition', 'Igniter during prime', 'Turn the igniter on while priming before a startup'),
     B('debug_mode', 'Debug logging', ''),
+  ] },
+  { id: 'globals', key: 'appearance', title: 'Appearance', fields: [
+    S('theme', 'Theme', '', [['dark', 'Dark'], ['light', 'Light'], ['auto', 'Follow system']]),
+    B('show_recipes', 'Show recipes', 'Recipe programs on the Cook page'),
   ] },
   { id: 'cycle_data', title: 'Cycle', fields: [
     I('HoldCycleTime', 'Hold cycle time (s)', 'Length of one auger cycle in Hold. The controller runs once per cycle.', { min: 5, max: 120 }),
@@ -61,7 +64,7 @@ const GROUPS = [
     B('auto_power_off', 'Power off the Pi after shutdown', ''),
   ] },
   { id: 'smoke_plus', title: 'Smoke+', fields: [
-    B('enabled', 'Enable by default', ''),
+    S('enabled', 'Default smoke mode', 'Which mode Smoke starts in; switch any time from the Home screen', [['false', 'Smoke'], ['true', 'Smoke+']], true),
     T('min_temp', 'Minimum temperature', 'Below this the fan stays on'),
     T('max_temp', 'Maximum temperature', 'Above this the fan stays on'),
     I('on_time', 'Fan on (s)', '', { min: 1 }), I('off_time', 'Fan off (s)', '', { min: 1 }),
@@ -94,6 +97,7 @@ const GROUPS = [
     X('repo', 'GitHub repository', 'owner/name whose Releases the updater checks (assets pifire-<ver>-<arch>.tar.gz + SHA256SUMS)'),
     B('auto_check', 'Check automatically', 'Two minutes after boot and then periodically; a notice is logged when a newer release exists'),
     I('check_interval_h', 'Check every (hours)', '', { min: 1, max: 720 }),
+    B('include_prerelease', 'Include pre-releases', 'Offer alpha/beta/rc builds as well as final releases'),
   ] },
   { id: 'history', title: 'History', fields: [
     I('sample_s', 'Sample interval (s)', '', { min: 1, max: 60 }), I('retention_hours', 'Keep history (hours)', '', { min: 1 }), B('clear_on_startup', 'Clear history on startup', ''),
@@ -125,7 +129,8 @@ export function readField(f, form) {
   const input = form.querySelector(`[name="${CSS.escape(f.path)}"]`);
   if (!input) return undefined;
   if (f.type === 'bool') return input.checked;
-  if (f.type === 'select' || f.type === 'text' || f.type === 'password') return input.value;
+  if (f.type === 'select') return f.bool ? input.value === 'true' : input.value;
+  if (f.type === 'text' || f.type === 'password') return input.value;
   const v = parseFloat(String(input.value).replace(',', '.'));
   if (Number.isNaN(v)) throw new Error(`${f.label}: enter a number`);
   if (f.min != null && v < f.min) throw new Error(`${f.label}: minimum is ${f.min}`);
@@ -190,6 +195,28 @@ async function controllerCard() {
 export function renderSettings(view, rest) {
   if (!PF.settings) { view.append(el('div', { class: 'card muted' }, 'Loading settings…')); return; }
   const dc = !!PF.settings.platform?.dc_fan;
-  controllerCard().then((c) => view.prepend(c)).catch(() => {});
-  for (const g of GROUPS) if (!g.dc || dc) view.append(groupCard(g));
+  const groups = GROUPS.filter((g) => !g.dc || dc);
+  const key = (g) => g.key || g.id;
+  const page = rest?.[0];
+  if (page) {
+    view.append(el('button', { class: 'btn ghost sm', onclick: () => (location.hash = '#/settings') }, '‹ Settings'));
+    if (page === 'controller') { controllerCard().then((c) => view.append(c)).catch((e) => toast(e.message, true)); return; }
+    const g = groups.find((x) => key(x) === page);
+    if (g) view.append(groupCard(g));
+    else view.append(el('div', { class: 'card muted' }, 'No such settings page'));
+    return;
+  }
+  // iOS-style index: one row per group, each opening its own page
+  const row = (href, title, sub) => el('button', { class: 'btn', onclick: () => (location.hash = href) }, el('div', {}, el('div', {}, title), sub ? el('div', { class: 'muted', style: 'font-size:.76rem;font-weight:400' }, sub) : null));
+  const sections = [
+    ['Grill', [['controller', 'Controller', 'Algorithm and tuning'], ['cycle_data', 'Cycle', 'Auger timing, feed limits, lid detection'], ['startup', 'Startup', ''], ['shutdown', 'Shutdown', ''], ['smoke_plus', 'Smoke+', 'Default smoke mode and fan cycling'], ['pwm', 'DC fan (PWM)', ''], ['keep_warm', 'Keep warm', ''], ['safety', 'Safety', 'Limits, flame-out, cold start']]],
+    ['Grill extras', [['pelletlevel', 'Pellets', ''], ['history', 'History', '']]],
+    ['Connectivity', [['notify', 'Notifications', 'MQTT, Home Assistant, webhooks'], ['network', 'Network', 'Hotspot'], ['web', 'Web server', ''], ['update', 'Software updates', '']]],
+    ['App', [['globals', 'General', 'Name, units, auger rate'], ['appearance', 'Appearance', 'Theme, recipes']]],
+  ];
+  for (const [title, rows] of sections) {
+    const items = rows.filter(([id]) => id === 'controller' || groups.some((g) => key(g) === id));
+    if (!items.length) continue;
+    view.append(el('h2', {}, title), el('div', { class: 'menu' }, ...items.map(([id, t, sub]) => row(`#/settings/${id}`, t, sub))));
+  }
 }

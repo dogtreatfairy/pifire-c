@@ -48,6 +48,33 @@ const char *pf_update_arch(void)
 	return arch;
 }
 
+/* numeric dotted core, then an optional pre-release suffix ("-alpha.2" < "-beta.1" < "-rc.1" < release) */
+static int cmp_prerelease(const char *a, const char *b)
+{
+	if (!*a && !*b) return 0;
+	if (!*a) return 1;   /* release > pre-release */
+	if (!*b) return -1;
+	while (*a || *b) {
+		char ta[32] = "", tb[32] = "";
+		int i = 0;
+		while (*a && *a != '.' && i < 31) ta[i++] = *a++;
+		ta[i] = 0; i = 0;
+		while (*b && *b != '.' && i < 31) tb[i++] = *b++;
+		tb[i] = 0;
+		char *ea, *eb;
+		long na = strtol(ta, &ea, 10), nb = strtol(tb, &eb, 10);
+		bool numa = ta[0] && !*ea, numb = tb[0] && !*eb;
+		int c;
+		if (numa && numb) c = na < nb ? -1 : na > nb ? 1 : 0;
+		else if (numa != numb) c = numa ? -1 : 1;      /* numeric identifiers sort before alphabetic */
+		else c = strcmp(ta, tb);
+		if (c) return c < 0 ? -1 : 1;
+		if (*a == '.') a++;
+		if (*b == '.') b++;
+	}
+	return 0;
+}
+
 int pf_version_compare(const char *a, const char *b)
 {
 	if (*a == 'v' || *a == 'V') a++;
@@ -55,13 +82,12 @@ int pf_version_compare(const char *a, const char *b)
 	for (int i = 0; i < 4; i++) {
 		long x = strtol(a, (char **)&a, 10), y = strtol(b, (char **)&b, 10);
 		if (x != y) return x < y ? -1 : 1;
-		if (*a == '.') a++;
-		if (*b == '.') b++;
-		if (!*a && !*b) return 0;
+		if (*a == '.' && *b == '.') { a++; b++; continue; }
+		if (*a == '.') { a++; continue; }
+		if (*b == '.') { b++; continue; }
+		break;
 	}
-	/* a pre-release suffix ("-rc1") sorts before the plain release */
-	bool pa = *a == '-', pb = *b == '-';
-	return pa == pb ? 0 : pa ? -1 : 1;
+	return cmp_prerelease(*a == '-' ? a + 1 : a, *b == '-' ? b + 1 : b);
 }
 
 static void set_state(state_t st, const char *fmt, ...)
@@ -174,12 +200,26 @@ static void *check_thread(void *arg)
 	char repo[96], url[256], err[160];
 	pf_set_str("update.repo", repo, sizeof repo, "");
 	if (!repo[0] || strchr(repo, '/') == NULL) { set_state(ST_ERROR, "settings.update.repo is not set (owner/name)"); goto done; }
-	snprintf(url, sizeof url, "https://api.github.com/repos/%s/releases/latest", repo);
+	bool pre = pf_set_bool("update.include_prerelease", true);
+	if (pre) snprintf(url, sizeof url, "https://api.github.com/repos/%s/releases?per_page=10", repo);
+	else snprintf(url, sizeof url, "https://api.github.com/repos/%s/releases/latest", repo);
 	char *body = http_get(url, err, sizeof err);
 	if (!body) { set_state(ST_ERROR, "%s", err); goto done; }
 	cJSON *j = cJSON_Parse(body);
 	free(body);
 	if (!j) { set_state(ST_ERROR, "bad response from GitHub"); goto done; }
+	if (cJSON_IsArray(j)) {
+		/* newest first; pick the highest non-draft tag (pre-releases included) */
+		cJSON *best = NULL, *it;
+		cJSON_ArrayForEach(it, j) {
+			if (pf_json_bool(it, "draft", false)) continue;
+			if (!best || pf_version_compare(pf_json_str(it, "tag_name", ""), pf_json_str(best, "tag_name", "")) > 0) best = it;
+		}
+		if (!best) { cJSON_Delete(j); set_state(ST_ERROR, "no releases published yet"); goto done; }
+		cJSON *keep = cJSON_DetachItemViaPointer(j, best);
+		cJSON_Delete(j);
+		j = keep;
+	}
 	char tag[32];
 	pf_strlcpy(tag, pf_json_str(j, "tag_name", ""), sizeof tag);
 	char want[128];

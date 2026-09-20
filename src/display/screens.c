@@ -244,7 +244,7 @@ static void render_main(pf_gfx *g, const cJSON *s)
 	cJSON_ArrayForEach(p, probes) {
 		const char *role = pf_json_str((cJSON *)p, "role", "");
 		if (!strcmp(role, "Primary")) { if (!primary) primary = p; continue; }
-		if (!strcmp(role, "Food") && pf_json_bool((cJSON *)p, "enabled", true) && nf < 3) food[nf++] = p;
+		if (!strcmp(role, "Food") && pf_json_bool((cJSON *)p, "enabled", true) && pf_json_bool((cJSON *)p, "home", true) && nf < 3) food[nf++] = p;
 	}
 
 	int foot = H - 22;  /* outputs row */

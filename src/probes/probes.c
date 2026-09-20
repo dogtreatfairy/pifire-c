@@ -113,6 +113,7 @@ int pf_probes_init(void)
 		const char *type = pf_json_str(pi, "type", "Food");
 		r->role = !strcasecmp(type, "Primary") ? PF_PROBE_PRIMARY : !strcasecmp(type, "Aux") ? PF_PROBE_AUX : PF_PROBE_FOOD;
 		r->enabled = pf_json_bool(pi, "enabled", true);
+		r->home = pf_json_bool(pi, "show_on_home", true);
 		r->ambient = pf_json_bool(pi, "ambient", false) || (r->role == PF_PROBE_AUX && strcasestr(r->name, "ambient") != NULL);
 		r->temp_c = NAN;
 		r->raw_c = NAN;
