@@ -4,7 +4,7 @@ import { renderNetwork } from './network.js';
 import { renderPellets } from './pellets.js';
 import { renderLearning } from './learning.js';
 
-const subpages = { events, logs, system, hardware, probes, manual, network, about, pellets: renderPellets, learning: renderLearning };
+const subpages = { events, logs, system, hardware, probes: () => { location.hash = '#/settings/probes'; }, manual, network, about, pellets: renderPellets, learning: renderLearning };
 
 export function renderMore(view, rest) {
   const page = rest[0];
@@ -13,7 +13,7 @@ export function renderMore(view, rest) {
     return subpages[page](view, rest.slice(1));
   }
   view.append(el('div', { class: 'menu' },
-    ...[['learning', 'Learning & autotune', 'Feed-forward model, plant estimate, autotune'], ['pellets', 'Pellets', 'Brands, hopper level and usage'], ['hardware', 'Hardware setup', 'Board, pins and probe devices'], ['probes', 'Probes', 'Names, types and profiles'], ['network', 'Network', 'Wi-Fi and hotspot'],
+    ...[['learning', 'Learning & autotune', 'Feed-forward model, plant estimate, autotune'], ['pellets', 'Pellets', 'Brands, hopper level and usage'], ['hardware', 'Hardware setup', 'Board, pins, display, hopper sensor'], ['probes', 'Probes', 'Wired and Bluetooth probes, profiles, tuner'], ['network', 'Network', 'Wi-Fi and hotspot'],
         ['manual', 'Manual outputs', 'Drive relays directly'], ['events', 'Events', 'Alerts and mode changes'], ['logs', 'Logs', 'Daemon log'], ['system', 'System', 'Health, restart, power'], ['about', 'About', '']]
       .map(([id, title, sub]) => el('button', { class: 'btn', onclick: () => (location.hash = `#/more/${id}`) }, el('div', {}, el('div', {}, title), el('div', { class: 'muted', style: 'font-size:.76rem;font-weight:400' }, sub))))));
 }
@@ -113,90 +113,6 @@ function about(view) {
   view.append(el('div', { class: 'card' }, el('h3', {}, 'PiFire'), el('p', { class: 'muted' }, 'Pellet grill controller, rewritten in C for the Raspberry Pi Zero 2 W and up. MIT licensed. Includes civetweb, cJSON, SQLite and uPlot.')));
 }
 
-// ---- probes: names, roles, profiles ----
-function probes(view) {
-  const map = structuredClone(PF.settings.probe_settings.probe_map);
-  const profiles = PF.settings.probe_settings.probe_profiles;
-  const card = el('div', { class: 'card' });
-  const render = () => {
-    card.innerHTML = '';
-    map.probe_info.forEach((p, i) => {
-      const f = el('fieldset', { class: 'field' }, el('legend', {}, p.label),
-        el('div', { class: 'field inline' }, el('label', {}, 'Name'), el('input', { type: 'text', value: p.name, onchange: (e) => (p.name = e.target.value) })),
-        el('div', { class: 'field inline' }, el('label', {}, 'Type'), el('select', { onchange: (e) => (p.type = e.target.value) }, ['Primary', 'Food', 'Aux'].map((t) => el('option', { value: t, selected: p.type === t }, t)))),
-        el('div', { class: 'field inline' }, el('label', {}, 'Device / port'), el('select', { onchange: (e) => { [p.device, p.port] = e.target.value.split('|'); } },
-          map.probe_devices.flatMap((d) => (d.ports || []).map((port) => el('option', { value: `${d.device}|${port}`, selected: p.device === d.device && p.port === port }, `${d.device} · ${port}`))))),
-        el('div', { class: 'field inline' }, el('label', {}, 'Profile'), el('select', { onchange: (e) => (p.profile = e.target.value) }, Object.values(profiles).map((pr) => el('option', { value: pr.id, selected: (p.profile?.id || p.profile) === pr.id }, pr.name)))),
-        el('div', { class: 'toggle' }, el('div', {}, 'Enabled'), el('label', { class: 'switch' }, el('input', { type: 'checkbox', checked: p.enabled, onchange: (e) => (p.enabled = e.target.checked) }), el('span'))),
-        el('div', { class: 'toggle' }, el('div', {}, 'Show on Home screen', el('div', { class: 'help muted', style: 'font-size:.76rem' }, 'Also on the grill display')), el('label', { class: 'switch' }, el('input', { type: 'checkbox', checked: p.show_on_home !== false, onchange: (e) => (p.show_on_home = e.target.checked) }), el('span'))),
-        p.type === 'Aux' ? el('div', { class: 'toggle' }, el('div', {}, 'Ambient reference', el('div', { class: 'help muted', style: 'font-size:.76rem' }, 'Used by the adaptive controller and cold-start')), el('label', { class: 'switch' }, el('input', { type: 'checkbox', checked: !!p.ambient, onchange: (e) => (p.ambient = e.target.checked) }), el('span'))) : null,
-        el('button', { class: 'btn sm ghost', type: 'button', onclick: () => { map.probe_info.splice(i, 1); render(); } }, 'Remove probe'));
-      card.append(f);
-    });
-    card.append(el('div', { class: 'form-actions' },
-      el('button', { class: 'btn', type: 'button', onclick: () => { const n = map.probe_info.length + 1; map.probe_info.push({ type: 'Food', label: `Probe${n}`, name: `Probe ${n}`, profile: 'TWPS00', device: map.probe_devices[0]?.device || '', port: map.probe_devices[0]?.ports?.[0] || '', enabled: true }); render(); } }, 'Add probe'),
-      el('button', { class: 'btn primary', type: 'button', onclick: async () => {
-        if (map.probe_info.filter((p) => p.type === 'Primary' && p.enabled).length !== 1) { toast('Exactly one enabled Primary probe is required', true); return; }
-        const labels = new Set();
-        for (const p of map.probe_info) { p.label = p.name.replace(/[^A-Za-z0-9]/g, '') || 'Probe'; if (labels.has(p.label)) { toast(`Duplicate probe name ${p.name}`, true); return; } labels.add(p.label); }
-        try { await patchSettings('probe_settings', { probe_map: { probe_info: map.probe_info } }); toast('Probes saved'); } catch (e) { toast(e.message, true); }
-      } }, 'Save probes')));
-  };
-  render();
-
-  // ---- profiles: Steinhart-Hart coefficients, editable, plus a 3-point tuner from live readings ----
-  const profCard = el('div', { class: 'card' });
-  const profs = structuredClone(profiles);
-  const num = (v, f) => el('input', { type: 'text', inputmode: 'decimal', value: v, style: 'width:140px;font-family:ui-monospace,monospace', onchange: (e) => f(Number(e.target.value)) });
-  const renderProfiles = () => {
-    profCard.innerHTML = '';
-    profCard.append(el('p', { class: 'muted', style: 'font-size:.85rem' }, 'Each probe converts its resistance to temperature with the Steinhart–Hart equation 1/T = A + B·ln(R) + C·ln(R)³. The divider resistor per ADC port is set in Hardware setup.'));
-    for (const pr of Object.values(profs)) {
-      profCard.append(el('details', { class: 'field' }, el('summary', {}, pr.name),
-        el('div', { class: 'field inline' }, el('label', {}, 'Name'), el('input', { type: 'text', value: pr.name, onchange: (e) => (pr.name = e.target.value) })),
-        el('div', { class: 'field inline' }, el('label', {}, 'A'), num(pr.A, (v) => (pr.A = v))),
-        el('div', { class: 'field inline' }, el('label', {}, 'B'), num(pr.B, (v) => (pr.B = v))),
-        el('div', { class: 'field inline' }, el('label', {}, 'C'), num(pr.C, (v) => (pr.C = v)))));
-    }
-    profCard.append(el('div', { class: 'form-actions' },
-      el('button', { class: 'btn', type: 'button', onclick: tuner }, 'Tune from 3 readings'),
-      el('button', { class: 'btn primary', type: 'button', onclick: async () => {
-        try { await patchSettings('probe_settings', { probe_profiles: profs }); toast('Profiles saved'); } catch (e) { toast(e.message, true); }
-      } }, 'Save profiles')));
-  };
-  // Tuner: pick a probe, capture its live resistance at three known temperatures (ice water, boiling, a reference thermometer), solve A/B/C.
-  async function tuner() {
-    const pts = [{ temp: '', ohms: '' }, { temp: '', ohms: '' }, { temp: '', ohms: '' }];
-    const result = await dialog((close) => {
-      const sel = el('select', {}, (PF.status?.probes || []).filter((p) => p.ohms > 0).map((p) => el('option', { value: p.label }, `${p.name} · ${p.ohms} Ω`)));
-      const rows = pts.map((pt, i) => {
-        const ohms = el('input', { type: 'text', inputmode: 'decimal', placeholder: 'Ω', style: 'width:110px', onchange: (e) => (pt.ohms = Number(e.target.value)) });
-        return el('div', { class: 'row', style: 'margin:6px 0' },
-          el('input', { type: 'text', inputmode: 'decimal', placeholder: `Temp ${i + 1} ${degUnit()}`, style: 'width:110px', onchange: (e) => (pt.temp = Number(e.target.value)) }),
-          ohms,
-          el('button', { class: 'btn sm', type: 'button', onclick: () => { const p = (PF.status?.probes || []).find((x) => x.label === sel.value); if (p) { ohms.value = p.ohms; pt.ohms = p.ohms; } } }, 'Capture'));
-      });
-      const name = el('input', { type: 'text', placeholder: 'Profile name', value: 'My probe' });
-      return el('div', {}, el('h3', {}, 'Probe tuner'),
-        el('p', { class: 'muted', style: 'font-size:.85rem' }, 'Put the probe at three known temperatures (e.g. ice water, boiling water, a reference thermometer), enter each temperature and press Capture to take the live resistance.'),
-        el('div', { class: 'field' }, el('label', {}, 'Probe'), sel), ...rows,
-        el('div', { class: 'field' }, el('label', {}, 'New profile name'), name),
-        el('div', { class: 'btnrow' }, el('button', { class: 'btn ghost', type: 'button', onclick: () => close(null) }, 'Cancel'),
-          el('button', { class: 'btn primary', type: 'button', onclick: () => close({ name: name.value.trim() || 'My probe', points: pts }) }, 'Solve')));
-    });
-    if (!result) return;
-    try {
-      const r = await api('/probes/tune', { body: { points: result.points } });
-      const id = result.name.replace(/[^A-Za-z0-9-]/g, '') || 'custom';
-      profs[id] = { id, name: result.name, A: r.A, B: r.B, C: r.C };
-      renderProfiles();
-      toast(`Solved: check temps ${r.check.join(' / ')}${degUnit()} — press Save profiles to keep it`);
-    } catch (e) { toast(e.message, true); }
-  }
-  renderProfiles();
-  view.append(el('h2', {}, 'Probes'), card, el('h2', {}, 'Probe profiles'), profCard);
-}
-
 // ---- hardware wizard: board + pins + probe devices, from the manifest ----
 async function hardware(view) {
   const man = await api('/manifest');
@@ -204,14 +120,13 @@ async function hardware(view) {
   const map = structuredClone(PF.settings.probe_settings.probe_map);
   const boards = man.modules.grillplatform;
   const boardCard = el('div', { class: 'card' });
-  const devCard = el('div', { class: 'card' });
   const get = (o, ks) => ks.reduce((a, k) => (a == null ? undefined : a[k]), o);
   const setp = (o, ks, v) => { let a = o; for (const k of ks.slice(0, -1)) a = a[k] ??= {}; a[ks.at(-1)] = v; };
 
   const renderBoard = () => {
     boardCard.innerHTML = '';
     const cur = boards[plat.current] ? plat.current : 'custom';
-    boardCard.append(el('div', { class: 'field' }, el('label', {}, 'Board'), el('select', { onchange: (e) => { plat.current = e.target.value; applyDefaults(); applyBoardProbes(); renderBoard(); renderDevices(); } }, Object.entries(boards).map(([id, b]) => el('option', { value: id, selected: id === cur }, b.friendly_name)))),
+    boardCard.append(el('div', { class: 'field' }, el('label', {}, 'Board'), el('select', { onchange: (e) => { plat.current = e.target.value; applyDefaults(); applyBoardProbes(); renderBoard(); } }, Object.entries(boards).map(([id, b]) => el('option', { value: id, selected: id === cur }, b.friendly_name)))),
       el('p', { class: 'muted', style: 'font-size:.85rem' }, boards[cur].description));
     for (const [key, dep] of Object.entries(boards[cur].settings_dependencies)) {
       if (dep.hidden || key === 'current') continue;
@@ -238,46 +153,7 @@ async function hardware(view) {
     if (!b?.probe_map) return;
     map.probe_devices = structuredClone(b.probe_map.probe_devices);
     map.probe_info = structuredClone(b.probe_map.probe_info);
-    toast(`Default probe map for ${b.name} applied`);
-  };
-
-  const renderDevices = () => {
-    devCard.innerHTML = '';
-    map.probe_devices.forEach((d, i) => {
-      const m = man.modules.probes[d.module] || Object.values(man.modules.probes).find((x) => x.filename === d.module);
-      const fs = el('fieldset', { class: 'field' }, el('legend', {}, `${d.device} — ${m?.friendly_name || d.module}`));
-      for (const c of m?.device_specific?.config || []) {
-        if (c.hidden) continue;
-        const v = d.config?.[c.label] ?? c.default;
-        let input;
-        if (c.type === 'list') input = el('select', { onchange: (e) => ((d.config ??= {})[c.label] = e.target.value) }, c.list_values.map((lv, k) => el('option', { value: lv, selected: String(v) === String(lv) }, c.list_labels?.[k] ?? lv)));
-        else if (c.type === 'bt_address') {
-          const addr = el('input', { type: 'text', value: v ?? '', placeholder: 'any / scan', style: 'width:150px', onchange: (e) => ((d.config ??= {})[c.label] = e.target.value.trim()) });
-          input = el('div', { class: 'row' }, addr, el('button', { class: 'btn sm', type: 'button', onclick: async (e) => {
-            e.target.disabled = true; e.target.textContent = 'Scanning…';
-            try {
-              const found = await api('/probes/ble/scan?seconds=8', { body: {} });
-              const pick = await dialog((close) => el('div', {}, el('h3', {}, 'Bluetooth devices'),
-                el('div', { class: 'opts' }, found.length ? found.map((f) => el('button', { class: 'btn', type: 'button', onclick: () => close(f.address) }, `${f.name || 'Unknown'} · ${f.address}${f.rssi ? ` · ${f.rssi} dBm` : ''}`)) : el('div', { class: 'muted' }, 'Nothing found — make sure the probe is on and nearby.')),
-                el('button', { class: 'btn ghost block', type: 'button', onclick: () => close(undefined) }, 'Cancel')));
-              if (pick) { addr.value = pick; (d.config ??= {})[c.label] = pick; }
-            } catch (err) { toast(err.message, true); }
-            e.target.disabled = false; e.target.textContent = 'Scan';
-          } }, 'Scan'));
-        }
-        else input = el('input', { type: 'text', inputmode: 'decimal', value: v ?? '', onchange: (e) => ((d.config ??= {})[c.label] = c.type === 'int' || c.type === 'float' ? Number(e.target.value) : e.target.value) });
-        fs.append(el('div', { class: 'field inline' }, el('div', {}, el('label', {}, c.friendly_name), el('div', { class: 'help' }, c.description)), input));
-      }
-      fs.append(el('button', { class: 'btn sm ghost', type: 'button', onclick: () => { map.probe_devices.splice(i, 1); renderDevices(); } }, 'Remove device'));
-      devCard.append(fs);
-    });
-    const sel = el('select', {}, Object.entries(man.modules.probes).map(([id, m]) => el('option', { value: id }, m.friendly_name)));
-    devCard.append(el('div', { class: 'row' }, sel, el('button', { class: 'btn sm', type: 'button', onclick: () => {
-      const id = sel.value, m = man.modules.probes[id];
-      const cfg = {}; for (const c of m.device_specific?.config || []) cfg[c.label] = c.default;
-      map.probe_devices.push({ device: `${id}_${map.probe_devices.length + 1}`, module: m.filename, ports: m.device_specific?.ports || [], config: cfg });
-      renderDevices();
-    } }, 'Add device')));
+    toast(`Default probe map for ${b.name} applied (edit under Settings → Probes)`);
   };
 
   // display and hopper sensor modules, each with the config fields its manifest entry declares
@@ -306,8 +182,8 @@ async function hardware(view) {
   const displayCard = moduleCard('Display', man.modules.display, 'display', dispCfg);
   const distCard = moduleCard('Hopper level sensor', man.modules.distance, 'dist', distCfg);
 
-  renderBoard(); renderDevices();
-  view.append(el('h2', {}, 'Board'), boardCard, el('h2', {}, 'Probe devices'), devCard, el('h2', {}, 'Display'), displayCard, el('h2', {}, 'Hopper sensor'), distCard,
+  renderBoard();
+  view.append(el('h2', {}, 'Board'), boardCard, el('h2', {}, 'Display'), displayCard, el('h2', {}, 'Hopper sensor'), distCard,
     el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'button', onclick: async () => {
       try {
         plat.system_type = plat.system_type || 'rpi';

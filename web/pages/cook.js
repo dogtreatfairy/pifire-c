@@ -15,7 +15,7 @@ const PRESETS = {
 const AFTER = [[0, 'Notify only'], [1, 'Keep warm'], [2, 'Shutdown']];
 const toUser = (f) => (PF.units === 'C' ? Math.round((f - 32) * 5 / 9) : f);
 
-async function targetDialog(p) {
+export async function targetDialog(p) {
   return dialog((close) => {
     let after = p.after || 0;
     const custom = el('input', { type: 'text', inputmode: 'decimal', placeholder: `Custom ${degUnit()}`, 'aria-label': 'Custom target', style: 'width:130px' });
@@ -44,7 +44,7 @@ async function targetDialog(p) {
   });
 }
 
-async function limitsDialog(p) {
+export async function limitsDialog(p) {
   return dialog((close) => {
     const hi = el('input', { type: 'text', inputmode: 'decimal', value: p.limit_high || '', placeholder: 'off' });
     const lo = el('input', { type: 'text', inputmode: 'decimal', value: p.limit_low || '', placeholder: 'off' });

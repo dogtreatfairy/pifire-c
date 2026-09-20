@@ -1,4 +1,5 @@
 import { PF, el, api, patchSettings, toast, degUnit, confirmDialog } from '../app.js';
+import { renderProbes } from './probes.js';
 
 // Field descriptors: path relative to the group, type: num|int|bool|select|text|temp|tempdelta
 const T = (path, label, help, extra = {}) => ({ path, label, help, type: 'temp', ...extra });
@@ -13,6 +14,7 @@ const X = (path, label, help) => ({ path, label, help, type: 'text' });
 const PAGES = [
   // ---- Grill
   { key: 'controller', title: 'Temperature control', sub: 'Control algorithm and tuning', section: 'Grill', controller: true },
+  { key: 'probes', title: 'Probes', sub: 'Wired and Bluetooth probes, hardware, profiles, tuner', section: 'Grill', custom: renderProbes },
   { key: 'auger', title: 'Auger & feed', sub: 'Cycle length, feed limits, P-mode', section: 'Grill', sections: [{ id: 'cycle_data', fields: [
     I('HoldCycleTime', 'Control cycle (s)', 'Length of one auger cycle while holding a temperature; the controller decides the feed once per cycle', { min: 5, max: 120 }),
     N('u_min', 'Minimum auger duty', 'Smallest fraction of each cycle the auger runs (0.1 = 10%). Keeps the fire alive at low set points', { step: 0.01, min: 0, max: 1 }),
@@ -127,7 +129,7 @@ const PAGES = [
   ] }] },
 ];
 const SECTIONS = ['Grill', 'Safety', 'Cook', 'Connectivity', 'System'];
-const LINKS = { System: [['#/more/hardware', 'Hardware setup', 'Board, pins, display, hopper sensor'], ['#/more/probes', 'Probes', 'Names, profiles, tuning'], ['#/more/network', 'Wi-Fi', 'Networks and connection']] };
+const LINKS = { System: [['#/more/hardware', 'Hardware setup', 'Board, pins, display, hopper sensor'], ['#/more/network', 'Wi-Fi', 'Networks and connection']] };
 
 const get = (obj, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
 const setDeep = (obj, path, v) => { const ks = path.split('.'); let o = obj; for (const k of ks.slice(0, -1)) o = o[k] ??= {}; o[ks.at(-1)] = v; };
@@ -230,6 +232,7 @@ export function renderSettings(view, rest) {
     const pg = pages.find((x) => x.key === page);
     if (!pg) { view.append(el('div', { class: 'card muted' }, 'No such settings page')); return; }
     if (pg.controller) { controllerCard().then((c) => view.append(c)).catch((e) => toast(e.message, true)); return; }
+    if (pg.custom) { Promise.resolve(pg.custom(view)).catch((e) => toast(e.message, true)); return; }
     view.append(pageCard(pg));
     return;
   }

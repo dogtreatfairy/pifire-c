@@ -1,4 +1,6 @@
 import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, numberDialog, dialog, confirmDialog, patchSettings, toast } from '../app.js';
+import { targetDialog, limitsDialog } from './cook.js';
+import { btIcon, isWireless } from './probes.js';
 
 // Home: status row (AUG/FAN/IGN, P-mode), the gauge with the grill temperature (reads 0 while stopped),
 // target line, run timer + hopper, the PiFire-style control bar, probe cells, and manual output switches
@@ -138,8 +140,8 @@ function controlBar(s) {
         b('target', '', { onclick: () => holdAt(s, false), aria: 'Hold' }), b('power', '', { onclick: () => shutdown(s), aria: 'Shutdown' }));
       break;
     case 'Hold':
-      right.push(b('target', `${fmtTemp(s.setpoint)}°`, { active: true, cls: 'ok', onclick: () => holdAt(s, true) }),
-        b('smoke', '', { onclick: () => cmd({ cmd: 'mode', mode: 'Smoke' }), aria: 'Smoke' }), b('power', '', { onclick: () => shutdown(s), aria: 'Shutdown' }));
+      right.push(b('smoke', '', { onclick: () => cmd({ cmd: 'mode', mode: 'Smoke' }), aria: 'Smoke' }),
+        b('target', `${fmtTemp(s.setpoint)}°`, { active: true, cls: 'ok', onclick: () => holdAt(s, true) }), b('power', '', { onclick: () => shutdown(s), aria: 'Shutdown' }));
       break;
     case 'Shutdown':
       right.push(b('power', 'Shutdown', { active: true, cls: 'info', disabled: true }), stop);
@@ -152,6 +154,32 @@ function controlBar(s) {
       break;
   }
   return el('div', { class: 'cbar' }, left.length ? el('div', { class: 'cgroup' }, ...left) : null, el('div', { class: 'cgroup' }, ...right));
+}
+
+// Probe popup: live reading, target (tap to set, doneness presets), high/low alerts (alerts only)
+function probePopup(label) {
+  const p = () => PF.status?.probes?.find((x) => x.label === label);
+  return dialog((close) => {
+    const wrap = el('div');
+    const render = () => {
+      const q = p(); if (!q) { close(); return; }
+      wrap.innerHTML = '';
+      wrap.append(el('h3', {}, isWireless(q.device) ? btIcon() : null, ' ', q.name),
+        el('div', { class: 'ppop-temp' }, q.valid ? fmtTemp(q.temp) : '—', el('small', {}, degUnit())),
+        el('div', { class: 'kv' },
+          el('div', {}, 'Target'), el('div', {}, q.target > 0 ? `${fmtTemp(q.target)}${degUnit()}${q.eta_s > 0 ? ` · about ${fmtDur(q.eta_s)}` : ''}` : '—'),
+          el('div', {}, 'Alert above'), el('div', {}, q.limit_high > 0 ? `${fmtTemp(q.limit_high)}${degUnit()}` : 'off'),
+          el('div', {}, 'Alert below'), el('div', {}, q.limit_low > 0 ? `${fmtTemp(q.limit_low)}${degUnit()}` : 'off')),
+        el('div', { class: 'btnrow', style: 'margin-top:12px' },
+          el('button', { class: 'btn primary', type: 'button', onclick: async () => { const r = await targetDialog(q); if (r) { cmd({ cmd: 'target', label: q.label, ...r }); setTimeout(render, 600); } } }, q.target > 0 ? 'Change target' : 'Set target'),
+          el('button', { class: 'btn', type: 'button', onclick: async () => { const r = await limitsDialog(q); if (r) { cmd({ cmd: 'limits', label: q.label, ...r }); setTimeout(render, 600); } } }, 'Alerts')),
+        el('div', { class: 'btnrow', style: 'margin-top:8px' },
+          q.target > 0 ? el('button', { class: 'btn ghost', type: 'button', onclick: () => { cmd({ cmd: 'target', label: q.label, target: 0, after: 0 }); setTimeout(render, 600); } }, 'Clear target') : null,
+          el('button', { class: 'btn ghost', type: 'button', onclick: () => close() }, 'Close')));
+    };
+    render();
+    return wrap;
+  });
 }
 
 export function renderHome(view) {

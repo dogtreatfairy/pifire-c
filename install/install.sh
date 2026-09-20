@@ -19,8 +19,17 @@ if [ $UPGRADE -eq 0 ]; then
 		network-manager dnsmasq-base avahi-daemon bluez rfkill
 
 	echo "+ service user"
-	id pifire >/dev/null 2>&1 || useradd --system --home /var/lib/pifire --shell /usr/sbin/nologin pifire
+	getent group pifire >/dev/null || groupadd --system pifire
+	id pifire >/dev/null 2>&1 || useradd --system --gid pifire --home /var/lib/pifire --shell /usr/sbin/nologin pifire
 	for g in gpio i2c spi dialout netdev bluetooth; do getent group "$g" >/dev/null && usermod -aG "$g" pifire || true; done
+
+	# an existing Python PiFire (supervisor + nginx on port 80) must not run alongside: it would fight over
+	# the web port and the relay GPIOs. It is stopped and disabled, not removed.
+	if [ -f /etc/supervisor/conf.d/control.conf ] || [ -f /etc/nginx/sites-enabled/pifire ]; then
+		echo "+ stopping the Python PiFire services (supervisor, nginx)"
+		systemctl disable --now supervisor nginx >/dev/null 2>&1 || true
+		pkill -f 'python.*control.py' 2>/dev/null || true
+	fi
 fi
 
 echo "+ files"

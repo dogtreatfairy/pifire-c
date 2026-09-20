@@ -251,3 +251,15 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .hopper .progress > div { background: var(--ok); }
 .hopper.low .progress > div { background: var(--danger); }
 .hopper.low .pct { color: var(--danger); }
+
+/* probes page + probe popup */
+.ic.bt { width: 16px; height: 16px; color: var(--info); vertical-align: -2px; }
+.ptable .prow-btn { width: 100%; background: transparent; border: 0; border-top: 1px solid var(--line); text-align: left; font: inherit; color: inherit; cursor: pointer; padding: 11px 4px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.ptable .prow-btn:first-child { border-top: 0; }
+.ptable .prow-btn.off { opacity: .55; }
+.ptable .pval { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pill.sm { padding: 2px 8px; font-size: .7rem; }
+.pcell .n .ic.bt { margin-right: 3px; }
+.pcell .tg.muted { color: var(--muted); }
+.ppop-temp { font-size: 3rem; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; margin: 6px 0 10px; }
+.ppop-temp small { font-size: 1rem; color: var(--muted); margin-left: 4px; }
