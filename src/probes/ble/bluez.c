@@ -20,7 +20,7 @@
 #include <unistd.h>
 
 #define BLUEZ "org.bluez"
-#define MAX_DEVS 8
+#define MAX_DEVS 16
 #define MAX_CHARS 48
 #define MAX_SERVICES 16
 #define QLEN 32
@@ -645,11 +645,19 @@ static void scan_cb(const char *path, const char *iface, sd_bus_message *props, 
 	uint16_t ids[8];
 	int nids = get_mfr_ids(path, ids, 8);
 	get_uuids(path, uuids, sizeof uuids);
+	const char *kind = classify(name, uuids, ids, nids);
+	if (!strcmp(kind, "chefiq")) {
+		/* the Chef iQ hub ("Smart Thermometer") shares the company id but carries a 21-byte status
+		 * payload, not the <= 18-byte probe reading: it is not something to pair */
+		uint8_t tmp[32];
+		int n = get_mfr_data(path, 0x05CD, tmp, sizeof tmp);
+		if (n > 18 || strcasestr(name, "thermometer")) kind = "chefiq-hub";
+	}
 	cJSON *o = cJSON_CreateObject();
 	cJSON_AddStringToObject(o, "name", name);
 	cJSON_AddStringToObject(o, "address", addr);
 	cJSON_AddNumberToObject(o, "rssi", rssi);
-	cJSON_AddStringToObject(o, "kind", classify(name, uuids, ids, nids));
+	cJSON_AddStringToObject(o, "kind", kind);
 	cJSON *m = cJSON_AddArrayToObject(o, "manufacturer_ids");
 	for (int i = 0; i < nids; i++) cJSON_AddItemToArray(m, cJSON_CreateNumber(ids[i]));
 	cJSON_AddItemToArray((cJSON *)ctx, o);
@@ -779,7 +787,11 @@ pf_ble_dev *pf_ble_register(const pf_ble_spec *spec)
 	pf_ble_start();
 	pthread_mutex_lock(&g_mu);
 	pf_ble_dev *d = NULL;
+	/* a probe re-init unregisters and re-registers every device back to back; slots of passive devices
+	 * waiting for the manager to release them need no bus call, so reclaim them here and now */
+	for (int i = 0; i < MAX_DEVS; i++) if (g_devs[i].used && g_devs[i].want_release && g_devs[i].spec.passive) { g_devs[i].used = false; g_devs[i].want_release = false; }
 	for (int i = 0; i < MAX_DEVS; i++) if (!g_devs[i].used) { d = &g_devs[i]; break; }
+	if (!d) LOGE(TAG, "no free Bluetooth device slot (%d in use)", MAX_DEVS);
 	if (d) {
 		memset(d, 0, sizeof *d);
 		d->used = true;

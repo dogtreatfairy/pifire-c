@@ -203,6 +203,44 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 3");
 			added = 1;
 		}
+		if (ver < 4) {
+			/* earlier builds removed a Bluetooth probe's readings but left its device entry behind, so
+			 * settings accumulated stale devices (often several for one physical probe). A wireless
+			 * device without readings, or a second entry for an address that already has one, is
+			 * dropped: those addresses were being hidden from the pairing list forever. */
+			cJSON *devs = pf_json_path(g_root, "probe_settings.probe_map.probe_devices");
+			cJSON *infos = pf_json_path(g_root, "probe_settings.probe_map.probe_info");
+			int removed = 0;
+			for (int pass = 0; pass < 2; pass++) {
+				/* pass 0: wireless devices without readings; pass 1: a second device for an address that
+				 * already has one (keeping the earlier entry, whose readings the user has been using) */
+				for (int i = cJSON_GetArraySize(devs) - 1; i >= 0; i--) {
+					cJSON *d = cJSON_GetArrayItem(devs, i);
+					const char *mod = pf_json_str(d, "module", "");
+					if (strcmp(mod, "chefiq") && strcmp(mod, "meater") && strcmp(mod, "ibbq")) continue;
+					const char *name = pf_json_str(d, "device", ""), *addr = pf_json_str(d, "config.hardware_id", "");
+					bool drop = false;
+					if (pass == 0) {
+						drop = true;
+						cJSON *pi;
+						cJSON_ArrayForEach(pi, infos) if (!strcmp(pf_json_str(pi, "device", ""), name)) { drop = false; break; }
+					} else {
+						for (int j = 0; j < i && addr[0]; j++)
+							if (!strcasecmp(pf_json_str(cJSON_GetArrayItem(devs, j), "config.hardware_id", ""), addr)) { drop = true; break; }
+					}
+					if (!drop) continue;
+					LOGW(TAG, "dropping stale Bluetooth device '%s' (%s)", name, pass == 0 ? "no readings" : "duplicate address");
+					for (int k = cJSON_GetArraySize(infos) - 1; k >= 0; k--)
+						if (!strcmp(pf_json_str(cJSON_GetArrayItem(infos, k), "device", ""), name)) cJSON_DeleteItemFromArray(infos, k);
+					cJSON_DeleteItemFromArray(devs, i);
+					removed++;
+				}
+			}
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 4); else cJSON_AddNumberToObject(g_root, "schema_version", 4);
+			LOGI(TAG, "settings migrated to schema 4 (%d stale Bluetooth device%s removed)", removed, removed == 1 ? "" : "s");
+			added = 1;
+		}
 	} else {
 		g_root = defaults;
 		added = 1;

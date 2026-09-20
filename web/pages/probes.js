@@ -29,6 +29,8 @@ export async function renderProbes(view) {
 
   const save = async () => {
     if (map.probe_info.filter((p) => p.type === 'Primary' && p.enabled).length !== 1) { toast('Exactly one enabled Primary (pit) probe is required', true); return false; }
+    // a Bluetooth device without readings is an unpaired probe: never keep it (it would hide that address from pairing)
+    map.probe_devices = map.probe_devices.filter((d) => !WIRELESS_MODULES.includes(d.module) || map.probe_info.some((p) => p.device === d.device));
     const labels = new Set();
     for (const p of map.probe_info) { p.label = p.name.replace(/[^A-Za-z0-9]/g, '') || 'Probe'; if (labels.has(p.label)) { toast(`Duplicate probe name ${p.name}`, true); return false; } labels.add(p.label); }
     try { await patchSettings('probe_settings', { probe_map: { probe_devices: map.probe_devices, probe_info: map.probe_info } }); toast('Probes saved'); renderAll(); return true; }
@@ -90,7 +92,7 @@ export async function renderProbes(view) {
         // already-paired addresses (any Bluetooth device's bt_address config) are left out of the list
         const paired = new Set(map.probe_devices.flatMap((d) => Object.values(d.config || {})).filter((v) => typeof v === 'string' && /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(v)).map((v) => v.toUpperCase()));
         const seen = found.filter((f) => !paired.has((f.address || '').toUpperCase()));
-        const mine = seen.filter((f) => f.kind === kind), others = seen.filter((f) => f.kind !== kind);
+        const mine = seen.filter((f) => f.kind === kind), others = seen.filter((f) => f.kind !== kind && f.kind !== 'chefiq-hub');
         if (!mine.length) list.append(el('div', { class: 'muted', style: 'margin-bottom:8px' }, `No unpaired ${m.friendly_name} seen. Turn the probe on (and wake it if it sleeps), then scan again.`));
         for (const f of mine) list.append(row(f));
         if (others.length) {
