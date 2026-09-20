@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include <stddef.h>
 #include "core/sdnotify.h"
 #include <stdlib.h>
 #include <string.h>
