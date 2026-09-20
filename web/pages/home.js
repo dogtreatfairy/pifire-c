@@ -7,7 +7,6 @@ import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, numberDialog, dia
 const presetsF = [180, 200, 225, 250, 275, 300, 350, 400];
 const presetsC = [80, 95, 107, 120, 135, 150, 175, 205];
 const presets = () => (PF.units === 'C' ? presetsC : presetsF);
-const timed = (m) => m === 'Startup' || m === 'Reignite' || m === 'Shutdown' || m === 'Prime';
 const gaugeMax = () => (PF.units === 'C' ? 320 : 600);
 
 // ---- icons (inline SVG, 24px viewBox)
