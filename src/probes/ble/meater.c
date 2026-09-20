@@ -120,8 +120,16 @@ static int status_json(void *self, char *out, size_t n)
 	                pf_ble_connected(s->dev) ? "true" : "false", pf_ble_battery(s->dev), pf_ble_address(s->dev), pf_ble_name(s->dev), s->pro ? "Pro" : "Original");
 }
 
+static int link_(void *self, int *rssi, int *battery)
+{
+	meater_t *s = self;
+	*rssi = pf_ble_rssi(s->dev);
+	*battery = pf_ble_battery(s->dev);
+	return 0;
+}
+
 static const pf_probe_ops ops = {
 	.abi = PF_PROBE_ABI, .id = "meater", .name = "MEATER Bluetooth", .transient = true, .poll_ms = 1000,
-	.create = create, .destroy = destroy, .ports = ports, .read = read_, .status_json = status_json,
+	.create = create, .destroy = destroy, .ports = ports, .read = read_, .status_json = status_json, .link = link_,
 };
 const pf_probe_ops *pf_probe_meater(void) { return &ops; }

@@ -37,6 +37,7 @@ int  pf_ble_write(pf_ble_dev *d, const char *uuid, const uint8_t *data, size_t l
 bool pf_ble_connected(const pf_ble_dev *d);
 bool pf_ble_has_service(const pf_ble_dev *d, const char *uuid_prefix);   /* e.g. "a75cc7fc" */
 int  pf_ble_battery(const pf_ble_dev *d);   /* 0..100 or -1 */
+int  pf_ble_rssi(const pf_ble_dev *d);      /* dBm (negative), 0 = unknown; live for connected probes when CAP_NET_RAW is granted */
 const char *pf_ble_address(const pf_ble_dev *d);
 const char *pf_ble_name(const pf_ble_dev *d);
 

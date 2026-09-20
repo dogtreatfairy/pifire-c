@@ -6,6 +6,11 @@ import { icon as lucide } from '../icons.js';
 
 export const btIcon = () => lucide('bluetooth', 'ic bt');
 const WIRELESS_MODULES = ['ibbq', 'meater', 'chefiq'];
+/** 0..4 bars from an RSSI in dBm (same thresholds as the daemon) */
+export const barsFromRssi = (rssi) => (!rssi ? 0 : rssi >= -60 ? 4 : rssi >= -70 ? 3 : rssi >= -80 ? 2 : 1);
+/** signal-strength bars (0..4 lit) */
+export const sigBars = (bars, title) => el('span', { class: `sig s${bars}`, title: title || `${bars} / 4`, 'aria-label': `signal ${bars} of 4` }, [1, 2, 3, 4].map((i) => el('i', { class: i <= bars ? 'on' : '' })));
+export const fmtEta = (s) => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h ? `${h}h ${m}m` : m > 0 ? `${m} min` : '< 1 min'; };
 /** true when the named probe device is a Bluetooth probe (by module) */
 export function isWireless(deviceName) {
   const d = (PF.settings?.probe_settings?.probe_map?.probe_devices || []).find((x) => x.device === deviceName);
@@ -67,7 +72,7 @@ export async function renderProbes(view) {
     const addr = await dialog((close) => {
       const list = el('div', { class: 'opts' }, el('div', { class: 'muted' }, 'Scanning for 8 s… make sure the probe is on and nearby.'));
       const row = (f) => el('button', { class: 'btn', type: 'button', onclick: () => close(f.address) },
-        el('div', { class: 'row between', style: 'width:100%' }, el('span', {}, f.kind ? btIcon() : null, ' ', f.name || 'Unknown device'), el('span', { class: 'muted', style: 'font-size:.8rem' }, `${f.address}${f.rssi ? ` · ${f.rssi} dBm` : ''}`)));
+        el('div', { class: 'row between', style: 'width:100%' }, el('span', {}, f.kind ? btIcon() : null, ' ', f.name || 'Unknown device'), el('span', { class: 'muted row', style: 'font-size:.8rem;gap:6px' }, f.address, f.rssi ? sigBars(barsFromRssi(f.rssi), `${f.rssi} dBm`) : null, f.rssi ? `${f.rssi} dBm` : '')));
       api('/probes/ble/scan?seconds=8', { body: {} }).then((found) => {
         list.innerHTML = '';
         found.sort((a, b) => (b.rssi || -999) - (a.rssi || -999));
@@ -99,7 +104,7 @@ export async function renderProbes(view) {
     for (const p of map.probe_info) {
       const live = PF.status?.probes?.find((x) => x.label === p.label);
       table.append(el('button', { class: `item prow-btn ${p.enabled ? '' : 'off'}`, type: 'button', onclick: () => editProbe(p) },
-        el('div', { class: 'pcol' }, el('div', { class: 'row', style: 'gap:6px' }, isWireless(p.device) ? btIcon() : null, el('strong', {}, p.name), el('span', { class: 'pill sm' }, p.type)),
+        el('div', { class: 'pcol' }, el('div', { class: 'row', style: 'gap:6px' }, isWireless(p.device) ? btIcon() : null, isWireless(p.device) && live ? sigBars(live.signal || 0, live.rssi ? `${live.rssi} dBm` : 'no link') : null, el('strong', {}, p.name), el('span', { class: 'pill sm' }, p.type)),
           el('div', { class: 'meta' }, `${p.device} · ${p.port} · ${profName(p)}${p.show_on_home === false ? ' · hidden on Home' : ''}`)),
         el('div', { class: 'pval' }, p.enabled ? (live?.valid ? `${live.temp}${degUnit()}` : '—') : 'off')));
     }

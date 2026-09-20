@@ -1,6 +1,6 @@
 import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, numberDialog, dialog, confirmDialog, patchSettings, toast } from '../app.js';
 import { targetDialog, limitsDialog } from './cook.js';
-import { btIcon, isWireless } from './probes.js';
+import { btIcon, isWireless, sigBars, fmtEta } from './probes.js';
 import { icon as lucide } from '../icons.js';
 
 // Home: status row (AUG/FAN/IGN, P-mode), the gauge with the grill temperature (reads 0 while stopped),
@@ -155,7 +155,10 @@ function probePopup(label) {
       wrap.append(el('h3', {}, isWireless(q.device) ? btIcon() : null, ' ', q.name),
         el('div', { class: 'ppop-temp' }, q.valid ? fmtTemp(q.temp) : '—', el('small', {}, degUnit())),
         el('div', { class: 'kv' },
-          el('div', {}, 'Target'), el('div', {}, q.target > 0 ? `${fmtTemp(q.target)}${degUnit()}${q.eta_s > 0 ? ` · about ${fmtDur(q.eta_s)}` : ''}` : '—'),
+          el('div', {}, 'Target'), el('div', {}, q.target > 0 ? `${fmtTemp(q.target)}${degUnit()}` : '—'),
+          q.target > 0 ? el('div', {}, 'Time to target') : null, q.target > 0 ? el('div', {}, q.valid && q.temp >= q.target ? 'reached' : q.eta_s > 0 ? `about ${fmtEta(q.eta_s)}` : 'estimating…') : null,
+          q.wireless ? el('div', {}, 'Signal') : null, q.wireless ? el('div', { class: 'row', style: 'gap:6px' }, sigBars(q.signal || 0), q.rssi ? `${q.rssi} dBm` : 'no link') : null,
+          q.wireless && q.battery >= 0 ? el('div', {}, 'Battery') : null, q.wireless && q.battery >= 0 ? el('div', {}, `${q.battery}%`) : null,
           el('div', {}, 'Alert above'), el('div', {}, q.limit_high > 0 ? `${fmtTemp(q.limit_high)}${degUnit()}` : 'off'),
           el('div', {}, 'Alert below'), el('div', {}, q.limit_low > 0 ? `${fmtTemp(q.limit_low)}${degUnit()}` : 'off')),
         el('div', { class: 'btnrow', style: 'margin-top:12px' },
@@ -253,8 +256,8 @@ export function renderHome(view) {
     for (const p of food) {
       const hit = p.target > 0 && p.valid && p.temp >= p.target;
       probes.append(el('div', { class: `pcell ${p.valid ? '' : 'invalid'} ${hit ? 'hit' : ''}`, onclick: () => probePopup(p.label) },
-        el('div', { class: 'n' }, isWireless(p.device) ? btIcon() : null, p.name), el('div', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
-        el('div', { class: `tg ${p.target > 0 ? '' : 'muted'}` }, p.target > 0 ? `Target ${fmtTemp(p.target)}°` : 'Set target')));
+        el('div', { class: 'n' }, p.wireless ? [btIcon(), sigBars(p.signal || 0, p.rssi ? `${p.rssi} dBm` : 'no link'), ' '] : null, p.name), el('div', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
+        el('div', { class: `tg ${p.target > 0 ? '' : 'muted'}` }, p.target > 0 ? `Target ${fmtTemp(p.target)}°${!hit && p.eta_s > 0 ? ` · ${fmtEta(p.eta_s)}` : ''}` : 'Set target')));
     }
     probes.hidden = !food.length;
 

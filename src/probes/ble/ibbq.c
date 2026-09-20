@@ -142,8 +142,16 @@ static void set_units(void *self, pf_units u)
 	if (pf_ble_connected(s->dev)) pf_ble_write(s->dev, s->u_fff5, u == PF_UNITS_C ? UNITS_C : UNITS_F, 6, true);
 }
 
+static int link_(void *self, int *rssi, int *battery)
+{
+	ibbq_t *s = self;
+	*rssi = pf_ble_rssi(s->dev);
+	*battery = s->batt >= 0 ? s->batt : pf_ble_battery(s->dev);
+	return 0;
+}
+
 static const pf_probe_ops ops = {
 	.abi = PF_PROBE_ABI, .id = "ibbq", .name = "iBBQ / Inkbird Bluetooth", .transient = true, .poll_ms = 1000,
-	.create = create, .destroy = destroy, .ports = ports, .read = read_, .status_json = status_json, .set_units = set_units,
+	.create = create, .destroy = destroy, .ports = ports, .read = read_, .status_json = status_json, .link = link_, .set_units = set_units,
 };
 const pf_probe_ops *pf_probe_ibbq(void) { return &ops; }

@@ -26,6 +26,8 @@ typedef struct {
 	double vs;                 /* reference volts */
 	double next_poll;
 	bool ok;
+	bool wireless;             /* ops->link present */
+	int rssi, battery;         /* last link() result */
 } device_t;
 
 typedef struct {
@@ -184,6 +186,12 @@ void pf_probes_poll(double now)
 		dev->next_poll = now + (dev->ops->poll_ms > 0 ? dev->ops->poll_ms : 250) / 1000.0;
 		int rc = dev->ops->read(dev->inst, samples[i], dev->nports);
 		if (rc < 0) { for (int p = 0; p < dev->nports; p++) samples[i][p].kind = PF_SAMPLE_INVALID; }
+		if (dev->ops->link) {
+			int r = 0, b = -1;
+			dev->wireless = dev->ops->link(dev->inst, &r, &b) == 0;
+			dev->rssi = rc < 0 ? 0 : r;   /* unreachable device: no bars */
+			dev->battery = b;
+		}
 		polled[i] = true;
 	}
 
@@ -211,6 +219,9 @@ void pf_probes_poll(double now)
 		default: break;
 		}
 		if (!strcmp(dev->ops->id, "virtual")) c = virtual_value(dev, n);
+		r->wireless = dev->wireless;
+		r->rssi = dev->wireless ? dev->rssi : 0;
+		r->battery = dev->wireless ? dev->battery : -1;
 		r->raw_c = c;
 		r->ohms = ohms > 0 ? ohms : 0;
 		if (!isnan(c)) {

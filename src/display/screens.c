@@ -183,14 +183,24 @@ static void draw_pit(pf_gfx *g, const cJSON *primary, const char *units, const c
 	pf_gfx_text(g, B, small, x - 4 + adv + 2, uy, u, c);
 }
 
-/* food probe: name, big temperature, target */
-/* Done probes flash green; 5 °F (3 °C) over the target flash orange; 10 °F (6 °C) over flash red.
+/* food probe card: name + Bluetooth signal, big temperature, target and time-to-target.
+ * Done probes flash green; 5 °F (3 °C) over the target flash orange; 10 °F (6 °C) over flash red.
  * The flash alternates between a filled card and an outlined card on each display tick. */
+static void fmt_eta(char *out, size_t n, double secs)
+{
+	int m = (int)(secs / 60 + 0.5);
+	if (m < 1) m = 1;
+	if (m > 99 * 60 + 59) m = 99 * 60 + 59;
+	if (m >= 60) snprintf(out, n, "%dh%02d", (m / 60) % 100, m % 60); else snprintf(out, n, "%dm", m % 60);
+}
+
 static void draw_probe_col(pf_gfx *g, const cJSON *p, const char *units, bool blink, int x, int y, int w)
 {
 	const cJSON *tv = cJSON_GetObjectItem((cJSON *)p, "temp");
-	double target = pf_json_num((cJSON *)p, "target", 0);
+	double target = pf_json_num((cJSON *)p, "target", 0), eta = pf_json_num((cJSON *)p, "eta_s", -1);
 	bool valid = cJSON_IsNumber(tv), hit = target > 0 && valid && tv->valuedouble >= target;
+	bool wireless = pf_json_bool((cJSON *)p, "wireless", false);
+	int bars = (int)pf_json_num((cJSON *)p, "signal", 0);
 	double over = hit ? tv->valuedouble - target : 0, step = units[0] == 'C' ? 3 : 5;
 	uint16_t alert = over >= 2 * step ? g->th.danger : over >= step ? g->th.accent : g->th.ok;
 	bool filled = hit && !blink;
@@ -201,20 +211,31 @@ static void draw_probe_col(pf_gfx *g, const cJSON *p, const char *units, bool bl
 	}
 	uint16_t tc = filled ? g->th.accent_text : hit ? alert : valid ? g->th.text : g->th.muted;
 	uint16_t mc = filled ? g->th.accent_text : hit ? alert : g->th.muted;
-	char name[12], t[8], tg[12] = "";
+	uint16_t sig_on = filled ? g->th.accent_text : bars >= 3 ? g->th.info : bars == 2 ? g->th.warn : g->th.danger;
+	uint16_t sig_off = filled ? alert : g->th.line;
+	char name[12], t[8], tg[12] = "", et[8] = "";
 	snprintf(name, sizeof name, "%.8s", pf_json_str((cJSON *)p, "name", "?"));
 	upper(name);
 	fmt_temp(t, sizeof t, tv);
 	if (target > 0) snprintf(tg, sizeof tg, "%.0f" DEG, target);
+	if (target > 0 && !hit && eta > 0) fmt_eta(et, sizeof et, eta);
 	uint16_t tgc = filled ? g->th.accent_text : tc == alert ? alert : g->th.accent;
 	if (w >= 90) {
-		pf_gfx_text(g, B, 14, x + 6, y + 4, name, mc);
-		pf_gfx_text(g, B, 34, x + 6, y + 18, t, tc);
-		if (tg[0]) pf_gfx_text_right(g, B, 16, x + w - 6, y + 4, tg, tgc);
-	} else {   /* narrow (portrait): stack name / temperature / target */
+		/* row 1: name left, Bluetooth rune + bars right; row 2: temperature left, target / ETA stacked right */
+		int nw = w - 12;
+		if (wireless) { pf_gfx_bt_rune(g, x + w - 6 - 15 - 11, y + 4, sig_on); pf_gfx_signal(g, x + w - 6 - 15, y + 3, bars, sig_on, sig_off); nw -= 30; }
+		int px = 14;
+		while (px > 10 && pf_gfx_text_width(B, px, name) > nw) px--;
+		pf_gfx_text(g, B, px, x + 6, y + 4, name, mc);
+		pf_gfx_text(g, B, 32, x + 6, y + 18, t, tc);
+		if (tg[0]) pf_gfx_text_right(g, B, 15, x + w - 6, y + 20, tg, tgc);
+		if (et[0]) pf_gfx_text_right(g, B, 13, x + w - 6, y + 40, et, filled ? g->th.accent_text : g->th.muted);
+	} else {   /* narrow (portrait): name + bars / temperature / ETA + target */
 		name[6] = 0;
+		if (wireless) pf_gfx_signal(g, x + w - 5 - 15, y + 3, bars, sig_on, sig_off);
 		pf_gfx_text(g, B, 12, x + 5, y + 3, name, mc);
 		pf_gfx_text(g, B, 28, x + 5, y + 15, t, tc);
+		if (et[0]) pf_gfx_text(g, B, 11, x + 5, y + 47, et, filled ? g->th.accent_text : g->th.muted);
 		if (tg[0]) pf_gfx_text_right(g, B, 12, x + w - 5, y + 46, tg, tgc);
 	}
 }

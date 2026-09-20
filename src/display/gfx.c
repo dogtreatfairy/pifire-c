@@ -123,6 +123,36 @@ void pf_gfx_arc(pf_gfx *g, int cx, int cy, int r_in, int r_out, double a0, doubl
 		}
 }
 
+void pf_gfx_line(pf_gfx *g, double x0, double y0, double x1, double y1, double thick, uint16_t c)
+{
+	double dx = x1 - x0, dy = y1 - y0, len2 = dx * dx + dy * dy, half = thick / 2;
+	int xa = (int)floor(fmin(x0, x1) - half - 1), xb = (int)ceil(fmax(x0, x1) + half + 1);
+	int ya = (int)floor(fmin(y0, y1) - half - 1), yb = (int)ceil(fmax(y0, y1) + half + 1);
+	for (int y = ya; y <= yb; y++)
+		for (int x = xa; x <= xb; x++) {
+			double t = len2 > 0 ? ((x - x0) * dx + (y - y0) * dy) / len2 : 0;
+			t = clamp01(t);
+			double px = x0 + t * dx, py = y0 + t * dy, d = sqrt((x - px) * (x - px) + (y - py) * (y - py));
+			blend_px(g, x, y, c, clamp01(half + 0.5 - d));
+		}
+}
+
+void pf_gfx_bt_rune(pf_gfx *g, int x, int y, uint16_t c)
+{
+	double cx = x + 4, t = 1.6;
+	pf_gfx_line(g, cx, y + 0.5, cx, y + 11.5, t, c);
+	pf_gfx_line(g, cx, y + 0.5, x + 7.5, y + 3.5, t, c);
+	pf_gfx_line(g, x + 7.5, y + 3.5, x + 0.5, y + 8.5, t, c);
+	pf_gfx_line(g, cx, y + 11.5, x + 7.5, y + 8.5, t, c);
+	pf_gfx_line(g, x + 7.5, y + 8.5, x + 0.5, y + 3.5, t, c);
+}
+
+void pf_gfx_signal(pf_gfx *g, int x, int y, int bars, uint16_t on, uint16_t off)
+{
+	static const int hh[4] = { 4, 7, 10, 13 };
+	for (int i = 0; i < 4; i++) pf_gfx_rrect(g, x + i * 4, y + 13 - hh[i], 3, hh[i], 1, i < bars ? on : off);
+}
+
 void pf_gfx_frame(pf_gfx *g, int x, int y, int w, int h, uint16_t c)
 {
 	pf_gfx_rect(g, x, y, w, 1, c); pf_gfx_rect(g, x, y + h - 1, w, 1, c);

@@ -137,6 +137,12 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 		cJSON_AddNumberToObject(po, "limit_high", s->notify[i].limit_high_c > 0 ? r1(conv(s->notify[i].limit_high_c, units)) : 0);
 		cJSON_AddNumberToObject(po, "limit_low", s->notify[i].limit_low_c > 0 ? r1(conv(s->notify[i].limit_low_c, units)) : 0);
 		cJSON_AddNumberToObject(po, "ohms", round(p->ohms));
+		cJSON_AddBoolToObject(po, "wireless", p->wireless);
+		if (p->wireless) {
+			cJSON_AddNumberToObject(po, "rssi", p->rssi);
+			cJSON_AddNumberToObject(po, "signal", p->valid ? pf_signal_bars(p->rssi) : 0);
+			cJSON_AddNumberToObject(po, "battery", p->battery);
+		}
 		cJSON_AddStringToObject(po, "device", p->device);
 		cJSON_AddStringToObject(po, "port", p->port);
 		cJSON_AddItemToArray(probes, po);

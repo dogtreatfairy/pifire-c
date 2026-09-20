@@ -14,6 +14,10 @@
 
 #if PF_WITH_BLE
 #include <systemd/sd-bus.h>
+#include <poll.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #define BLUEZ "org.bluez"
 #define MAX_DEVS 8
@@ -39,6 +43,8 @@ struct pf_ble_dev {
 	int backoff_s;
 	atomic_bool connected;
 	atomic_int battery;
+	atomic_int rssi;         /* dBm, 0 = unknown */
+	double last_rssi_t;
 	bool notified[8];
 	uint8_t mfr_last[32]; size_t mfr_last_len; double last_seen;   /* passive devices */
 };
@@ -248,6 +254,80 @@ static void set_discovery(bool on)
 
 /* ---------------- device state machine ---------------- */
 
+/* ---------------- link quality ----------------
+ * BlueZ only refreshes Device1.RSSI from advertisements, so a connected (GATT) probe would show the
+ * value from before it connected. Read_RSSI over a raw HCI socket gives the live value for the
+ * connection; it needs CAP_NET_RAW (granted in pifired.service) and is skipped quietly without it.
+ * The few kernel structures needed are declared here so libbluetooth is not a build dependency. */
+#ifndef AF_BLUETOOTH
+#define AF_BLUETOOTH 31
+#endif
+#define HCI_BTPROTO 1
+#define HCI_SOL 0
+#define HCI_FILTER_OPT 2
+#define HCI_CMD_PKT 0x01
+#define HCI_EVT_PKT 0x04
+#define HCI_EVT_CMD_COMPLETE 0x0E
+#define HCI_LE_LINK 0x80
+#define HCI_OP_READ_RSSI 0x1405   /* OGF 0x05 (status) << 10 | OCF 0x0005 */
+#define HCI_IOC_GETCONNINFO _IOR('H', 213, int)
+struct hci_sockaddr { sa_family_t family; unsigned short dev; unsigned short channel; };
+struct hci_bdaddr { uint8_t b[6]; } __attribute__((packed));
+struct hci_conninfo { uint16_t handle; struct hci_bdaddr bdaddr; uint8_t type, out; uint16_t state; uint32_t link_mode; };
+struct hci_conninfo_req { struct hci_bdaddr bdaddr; uint8_t type; uint8_t pad; struct hci_conninfo ci[1]; };
+struct hci_filter_opt { uint32_t type_mask; uint32_t event_mask[2]; uint16_t opcode; };
+
+static bool g_hci_denied;   /* no CAP_NET_RAW: do not retry every poll */
+
+static int hci_read_rssi(const char *addr_str)
+{
+	if (g_hci_denied) return 0;
+	unsigned b[6];
+	if (sscanf(addr_str, "%x:%x:%x:%x:%x:%x", &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) != 6) return 0;
+	int dd = socket(AF_BLUETOOTH, SOCK_RAW | SOCK_CLOEXEC, HCI_BTPROTO);
+	if (dd < 0) { if (errno == EPERM || errno == EACCES) { g_hci_denied = true; LOGI(TAG, "no raw HCI access (CAP_NET_RAW): live RSSI for connected probes disabled"); } return 0; }
+	int devno = 0;
+	const char *h = strstr(g_adapter, "hci");
+	if (h) devno = atoi(h + 3);
+	struct hci_sockaddr sa = { .family = AF_BLUETOOTH, .dev = (unsigned short)devno, .channel = 0 };
+	int rssi = 0;
+	if (bind(dd, (struct sockaddr *)&sa, sizeof sa) < 0) { if (errno == EPERM || errno == EACCES) g_hci_denied = true; close(dd); return 0; }
+	struct hci_conninfo_req req;
+	memset(&req, 0, sizeof req);
+	for (int i = 0; i < 6; i++) req.bdaddr.b[i] = (uint8_t)b[5 - i];   /* bdaddr_t is little-endian */
+	req.type = HCI_LE_LINK;
+	if (ioctl(dd, HCI_IOC_GETCONNINFO, &req) < 0) { close(dd); return 0; }
+	uint16_t handle = req.ci[0].handle;
+	struct hci_filter_opt flt = { .type_mask = 1u << HCI_EVT_PKT, .event_mask = { 1u << HCI_EVT_CMD_COMPLETE, 0 }, .opcode = HCI_OP_READ_RSSI };
+	if (setsockopt(dd, HCI_SOL, HCI_FILTER_OPT, &flt, sizeof flt) < 0) { close(dd); return 0; }
+	uint8_t pkt[6] = { HCI_CMD_PKT, HCI_OP_READ_RSSI & 0xFF, HCI_OP_READ_RSSI >> 8, 2, (uint8_t)(handle & 0xFF), (uint8_t)(handle >> 8) };
+	if (write(dd, pkt, sizeof pkt) != (ssize_t)sizeof pkt) { close(dd); return 0; }
+	struct pollfd pfd = { .fd = dd, .events = POLLIN };
+	for (int tries = 0; tries < 4; tries++) {
+		if (poll(&pfd, 1, 300) <= 0) break;
+		uint8_t ev[64];
+		ssize_t n = read(dd, ev, sizeof ev);
+		/* 04 0E len ncmd opcode(2) status handle(2) rssi */
+		if (n >= 10 && ev[0] == HCI_EVT_PKT && ev[1] == HCI_EVT_CMD_COMPLETE && ev[4] == (HCI_OP_READ_RSSI & 0xFF) && ev[5] == (HCI_OP_READ_RSSI >> 8)) {
+			if (ev[6] == 0) rssi = (int8_t)ev[9];
+			break;
+		}
+	}
+	close(dd);
+	return rssi;
+}
+
+/* refresh d->rssi: advertisement RSSI from BlueZ when it has one, else the live connection value */
+static void refresh_rssi(pf_ble_dev *d, double now, bool connected_link)
+{
+	if (now - d->last_rssi_t < 5) return;
+	d->last_rssi_t = now;
+	int r = 0;
+	if (connected_link) r = hci_read_rssi(d->address);
+	if (r == 0 && d->path[0]) r = get_int16_prop(d->path, "org.bluez.Device1", "RSSI");
+	if (r != 0) atomic_store(&d->rssi, r);
+}
+
 static void dev_disconnected(pf_ble_dev *d, double now)
 {
 	bool was = atomic_exchange(&d->connected, false);
@@ -272,6 +352,7 @@ static void passive_step(pf_ble_dev *d, double now)
 	double poll = d->spec.poll_ms > 0 ? d->spec.poll_ms / 1000.0 : 1.0;
 	if (now - d->last_poll < poll) return;
 	d->last_poll = now;
+	refresh_rssi(d, now, false);
 	uint8_t buf[32];
 	int n = get_mfr_data(d->path, d->spec.manufacturer_id, buf, sizeof buf);
 	if (n < 0) { d->path[0] = 0; d->st = ST_IDLE; atomic_store(&d->connected, false); return; }   /* object went away */
@@ -293,7 +374,7 @@ static void dev_step(pf_ble_dev *d, double now)
 	case ST_IDLE: {
 		match_ctx m = { d, false };
 		for_each_object(match_cb, &m);
-		if (m.found) { d->st = ST_FOUND; LOGI(TAG, "found %s (%s)", d->name, d->address); }
+		if (m.found) { d->st = ST_FOUND; d->last_rssi_t = 0; refresh_rssi(d, now, false); LOGI(TAG, "found %s (%s)", d->name, d->address); }
 		else { set_discovery(true); g_discover_until = now + 30; }
 		break;
 	}
@@ -356,6 +437,7 @@ static void dev_step(pf_ble_dev *d, double now)
 		if (get_bool_prop(d->path, "org.bluez.Device1", "Connected", &conn) < 0 || !conn) { dev_disconnected(d, now); break; }
 		int b = get_byte_prop(d->path, "org.bluez.Battery1", "Percentage");
 		if (b >= 0) atomic_store(&d->battery, b);
+		refresh_rssi(d, now, true);
 		if (d->spec.poll_uuids[0] && d->spec.poll_ms > 0 && now - d->last_poll >= d->spec.poll_ms / 1000.0) {
 			d->last_poll = now;
 			for (int i = 0; i < 4 && d->spec.poll_uuids[i]; i++) {
@@ -610,6 +692,7 @@ pf_ble_dev *pf_ble_register(const pf_ble_spec *spec)
 		d->spec = *spec;
 		d->st = ST_IDLE;
 		atomic_store(&d->battery, -1);
+		atomic_store(&d->rssi, 0);
 	}
 	pthread_mutex_unlock(&g_mu);
 	return d;
@@ -644,6 +727,7 @@ int pf_ble_write(pf_ble_dev *d, const char *uuid, const uint8_t *data, size_t le
 
 bool pf_ble_connected(const pf_ble_dev *d) { return d && atomic_load(&d->connected); }
 int pf_ble_battery(const pf_ble_dev *d) { return d ? atomic_load(&d->battery) : -1; }
+int pf_ble_rssi(const pf_ble_dev *d) { return d ? atomic_load(&d->rssi) : 0; }
 const char *pf_ble_address(const pf_ble_dev *d) { return d ? d->address : ""; }
 const char *pf_ble_name(const pf_ble_dev *d) { return d ? d->name : ""; }
 
@@ -685,6 +769,7 @@ int pf_ble_write(pf_ble_dev *d, const char *u, const uint8_t *p, size_t n, bool 
 bool pf_ble_connected(const pf_ble_dev *d) { (void)d; return false; }
 bool pf_ble_has_service(const pf_ble_dev *d, const char *u) { (void)d; (void)u; return false; }
 int pf_ble_battery(const pf_ble_dev *d) { (void)d; return -1; }
+int pf_ble_rssi(const pf_ble_dev *d) { (void)d; return 0; }
 const char *pf_ble_address(const pf_ble_dev *d) { (void)d; return ""; }
 const char *pf_ble_name(const pf_ble_dev *d) { (void)d; return ""; }
 cJSON *pf_ble_scan_json(int s) { (void)s; return cJSON_CreateArray(); }

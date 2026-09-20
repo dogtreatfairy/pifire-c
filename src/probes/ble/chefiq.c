@@ -154,8 +154,16 @@ static int status_json(void *self, char *out, size_t n)
 	                pf_ble_connected(s->dev) ? "true" : "false", s->battery, pf_ble_address(s->dev), pf_ble_name(s->dev));
 }
 
+static int link_(void *self, int *rssi, int *battery)
+{
+	cq_t *s = self;
+	*rssi = pf_ble_rssi(s->dev);
+	*battery = s->battery;
+	return 0;
+}
+
 static const pf_probe_ops ops = {
 	.abi = PF_PROBE_ABI, .id = "chefiq", .name = "Chef iQ Bluetooth (CQ50/CQ60)", .transient = true, .poll_ms = 1000,
-	.create = create, .destroy = destroy, .ports = ports, .read = read_, .status_json = status_json,
+	.create = create, .destroy = destroy, .ports = ports, .read = read_, .status_json = status_json, .link = link_,
 };
 const pf_probe_ops *pf_probe_chefiq(void) { return &ops; }

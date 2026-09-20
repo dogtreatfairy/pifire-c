@@ -32,6 +32,12 @@ void pf_gfx_rect(pf_gfx *g, int x, int y, int w, int h, uint16_t c);
 /* filled rectangle with rounded corners of radius r */
 void pf_gfx_rrect(pf_gfx *g, int x, int y, int w, int h, int r, uint16_t c);
 void pf_gfx_frame(pf_gfx *g, int x, int y, int w, int h, uint16_t c);
+/* anti-aliased line segment with the given thickness in pixels */
+void pf_gfx_line(pf_gfx *g, double x0, double y0, double x1, double y1, double thick, uint16_t c);
+/* Bluetooth rune, 8 x 12 px with its top-left at (x, y) */
+void pf_gfx_bt_rune(pf_gfx *g, int x, int y, uint16_t c);
+/* four signal bars (0..4 lit), 15 x 13 px with the top-left at (x, y) */
+void pf_gfx_signal(pf_gfx *g, int x, int y, int bars, uint16_t on, uint16_t off);
 void pf_gfx_disc(pf_gfx *g, int cx, int cy, int r, uint16_t c);
 /* anti-aliased ring segment: radii [r_in, r_out], angles in degrees clockwise from 3 o'clock */
 void pf_gfx_arc(pf_gfx *g, int cx, int cy, int r_in, int r_out, double a0, double a1, uint16_t c);

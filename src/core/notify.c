@@ -121,7 +121,12 @@ static void recalc_eta(pf_notify_probe *p)
 	double lin[PF_ETA_SAMPLES];
 	int n = p->hist_len;
 	for (int i = 0; i < n; i++) lin[i] = p->hist[(p->hist_head - n + i + PF_ETA_SAMPLES) % PF_ETA_SAMPLES];
-	p->eta_s = pf_notify_estimate_eta(lin, n, p->target_c, ETA_INTERVAL_S);
+	double e = pf_notify_estimate_eta(lin, n, p->target_c, ETA_INTERVAL_S);
+	/* blend with the previous estimate (minus the time that passed) so the readout counts down
+	 * smoothly instead of jumping with every re-fit; a stall (no slope) clears it */
+	if (e < 0) { p->eta_s = -1; return; }
+	double prev = p->eta_s > 0 ? p->eta_s - ETA_RECALC_S : -1;
+	p->eta_s = prev > 0 ? 0.6 * e + 0.4 * prev : e;
 }
 
 /* ---- evaluation ---- */

@@ -15,7 +15,7 @@ static const char *status_json =
 "\"timer\":{\"running\":false,\"remaining\":0},\"coldstart\":{\"active\":false,\"reached\":false,\"remaining\":0},"
 "\"safety\":{\"error_code\":\"\",\"error_msg\":\"\"},"
 "\"probes\":[{\"label\":\"Grill\",\"name\":\"Grill\",\"role\":\"Primary\",\"enabled\":true,\"valid\":true,\"temp\":227,\"target\":0},"
-"{\"label\":\"Probe1\",\"name\":\"Probe 1\",\"role\":\"Food\",\"enabled\":true,\"valid\":true,\"temp\":164,\"target\":203},"
+"{\"label\":\"Probe1\",\"name\":\"Probe 1\",\"role\":\"Food\",\"enabled\":true,\"valid\":true,\"temp\":164,\"target\":203,\"eta_s\":4920,\"wireless\":true,\"rssi\":-67,\"signal\":3,\"battery\":80},"
 "{\"label\":\"Probe2\",\"name\":\"Probe 2\",\"role\":\"Food\",\"enabled\":true,\"valid\":true,\"temp\":195,\"target\":195},"
 "{\"label\":\"Probe3\",\"name\":\"Probe 3\",\"role\":\"Food\",\"enabled\":true,\"valid\":false,\"temp\":null,\"target\":0}]}";
 

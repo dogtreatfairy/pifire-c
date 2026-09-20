@@ -41,6 +41,10 @@ Thermistor profiles (Steinhart–Hart A/B/C) live under Settings → Probes; the
 
 `ibbq` (Inkbird / iBBQ 4- and 6-probe), `meater` (MEATER Original/Plus and Pro) connect over GATT. `chefiq` (Chef iQ CQ50 / CQ60) is **passive**: the probe broadcasts its readings in manufacturer-specific advertisements (company id 0x05CD) and the daemon keeps LE discovery running to read them — no pairing, no base station, and the phone app can stay connected at the same time. Pair it from Settings → Probes → Add probe → *Pair BT Chef iQ*: the scan lists it as `CQ60`; leaving the address empty adopts the first Chef iQ found. Ports: `BT_Food` (the probe reading the app calls "food"), `BT_Ambient` (the handle sensor). Battery arrives in the probe's status packet. Wire format after the `chefiq-ble` library used by Home Assistant (V3 layout verified on a CQ60; V2/legacy layouts implemented as documented but unverified).
 
+**Signal strength.** Every Bluetooth probe reports its link quality: the pairing list, the probe table, the Home probe cells and the grill display show a Bluetooth icon with 0–4 bars (4 ≥ −60 dBm, 3 ≥ −70, 2 ≥ −80, 1 below; none while the probe is out of reach), and the probe popup shows the raw dBm and battery. Passive probes (Chef iQ) are measured from their advertisements. Connected probes (iBBQ, MEATER) stop advertising, so the daemon reads the live connection RSSI over a raw HCI socket; that needs `CAP_NET_RAW`, which `pifired.service` grants. Without it the bars stay at the value seen while pairing.
+
+**Time to target.** A food probe with a target shows an estimate of when it will get there, fitted from the last 20 minutes of readings with recent samples weighted most (the Python PiFire estimator), refreshed every 20 s and blended with the previous estimate so it counts down smoothly. It disappears while the temperature is flat (a stall) and returns once it climbs again.
+
 ## Distance sensors (hopper level)
 
 `hcsr04` (trigger/echo GPIOs, timing from kernel GPIO edge timestamps) or none. Calibrate `pelletlevel.empty` / `full` in centimetres.

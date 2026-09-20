@@ -12,7 +12,7 @@ WatchdogSec=15
 User=pifire
 Group=pifire
 SupplementaryGroups=gpio i2c spi dialout netdev bluetooth
-AmbientCapabilities=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_RAW
 # sudo is used for the whitelisted helpers in /etc/sudoers.d/pifire (boot config, OTA apply, reboot),
 # so NoNewPrivileges/ProtectSystem cannot be enabled here.
 ReadWritePaths=/etc/pifire /var/lib/pifire

@@ -35,6 +35,9 @@ typedef struct pf_probe_ops {
 	int   (*status_json)(void *self, char *out, size_t n);
 	/* Optional: units hint for devices that display locally (iBBQ). */
 	void  (*set_units)(void *self, pf_units u);
+	/* Optional, wireless devices: link quality. rssi_dbm 0 = unknown, battery_pct -1 = unknown.
+	 * Returns 0, or <0 when the device is not wireless / not available. */
+	int   (*link)(void *self, int *rssi_dbm, int *battery_pct);
 } pf_probe_ops;
 
 typedef const pf_probe_ops *(*pf_probe_export_fn)(void);

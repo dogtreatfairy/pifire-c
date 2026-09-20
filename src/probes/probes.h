@@ -21,7 +21,17 @@ typedef struct {
 	double ohms;       /* 0 for non-thermistor */
 	double last_valid_t; /* monotonic; 0 = never */
 	double target_c;   /* notify target, 0 = none (filled by notify engine) */
+	bool wireless;     /* Bluetooth device */
+	int rssi;          /* dBm, 0 unknown (wireless only) */
+	int battery;       /* %, -1 unknown (wireless only) */
 } pf_probe_reading;
+
+/* 0..4 bars from an RSSI in dBm (0 = unknown / no link) */
+static inline int pf_signal_bars(int rssi_dbm)
+{
+	if (rssi_dbm == 0) return 0;
+	return rssi_dbm >= -60 ? 4 : rssi_dbm >= -70 ? 3 : rssi_dbm >= -80 ? 2 : 1;
+}
 
 typedef struct {
 	double t;                 /* monotonic time of snapshot */
