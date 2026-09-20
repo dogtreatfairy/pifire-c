@@ -264,8 +264,9 @@ export function renderHome(view) {
     probes.style.gridTemplateColumns = `repeat(${Math.max(1, food.length)}, 1fr)`;
     for (const p of food) {
       const hit = p.target > 0 && p.valid && p.temp >= p.target;
-      probes.append(el('div', { class: `pcell ${p.valid ? '' : 'invalid'} ${hit ? 'hit' : ''}`, onclick: () => (location.hash = '#/cook') },
-        el('div', { class: 'n' }, p.name), el('div', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'), el('div', { class: 'tg' }, p.target > 0 ? `→ ${fmtTemp(p.target)}°` : ' ')));
+      probes.append(el('div', { class: `pcell ${p.valid ? '' : 'invalid'} ${hit ? 'hit' : ''}`, onclick: () => probePopup(p.label) },
+        el('div', { class: 'n' }, isWireless(p.device) ? btIcon() : null, p.name), el('div', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
+        el('div', { class: `tg ${p.target > 0 ? '' : 'muted'}` }, p.target > 0 ? `Target ${fmtTemp(p.target)}°` : 'Set target')));
     }
     probes.hidden = !food.length;
 
