@@ -8,102 +8,120 @@ const B = (path, label, help) => ({ path, label, help, type: 'bool' });
 const S = (path, label, help, options, bool = false) => ({ path, label, help, type: 'select', options, bool });
 const X = (path, label, help) => ({ path, label, help, type: 'text' });
 
-const GROUPS = [
-  { id: 'globals', title: 'General', fields: [
+// Settings pages. Each page holds one or more sections; a section maps to one settings group (its `id`)
+// and saves independently, so a page can combine related groups (e.g. startup + shutdown).
+const PAGES = [
+  // ---- Grill
+  { key: 'controller', title: 'Temperature control', sub: 'Control algorithm and tuning', section: 'Grill', controller: true },
+  { key: 'auger', title: 'Auger & feed', sub: 'Cycle length, feed limits, P-mode', section: 'Grill', sections: [{ id: 'cycle_data', fields: [
+    I('HoldCycleTime', 'Control cycle (s)', 'Length of one auger cycle while holding a temperature; the controller decides the feed once per cycle', { min: 5, max: 120 }),
+    N('u_min', 'Minimum auger duty', 'Smallest fraction of each cycle the auger runs (0.1 = 10%). Keeps the fire alive at low set points', { step: 0.01, min: 0, max: 1 }),
+    N('u_max', 'Maximum auger duty', 'Largest fraction of each cycle the auger runs (0.9 = 90%). Stops the pot from over-filling', { step: 0.01, min: 0, max: 1 }),
+    I('SmokeOnCycleTime', 'Smoke: auger on (s)', 'Auger run time per cycle in Smoke and during startup', { min: 1 }),
+    I('SmokeOffCycleTime', 'Smoke: auger off (s)', 'Base pause between runs in Smoke; each P-mode level adds 10 s', { min: 1 }),
+    I('PMode', 'P-mode', 'Higher = longer pauses = less pellets and more smoke (0–9)', { min: 0, max: 9 }),
+    B('FanPidEnabled', 'Modulate AC fan at minimum feed', 'When the auger is already at its minimum duty, pulse the fan to hold temperature (AC fans only)'),
+  ] }] },
+  { key: 'startup', title: 'Startup & shutdown', sub: 'Ignition timing, what happens after startup, cool-down', section: 'Grill', sections: [
+    { id: 'startup', title: 'Startup', fields: [
+      I('duration', 'Startup time (s)', 'Igniter and startup feed run for this long', { min: 60, max: 900 }),
+      T('startup_exit_temp', 'End startup early at', 'Leave startup as soon as the pit reaches this temperature (0 = wait for the timer)', { allowZero: true }),
+      S('start_to_mode.after_startup_mode', 'After startup go to', '', [['Smoke', 'Smoke'], ['Hold', 'Hold']]),
+      T('start_to_mode.primary_setpoint', 'Default hold temperature', 'Used when starting into Hold without choosing a temperature'),
+      I('prime_on_startup', 'Prime before startup (g)', 'Pellets pushed into the pot before igniting (0 = off)', { min: 0 }),
+      I('pwm_duty_cycle', 'Fan speed during startup (%)', 'DC fan only', { min: 10, max: 100 }),
+      B('smartstart.enabled', 'Smart Start', 'Choose the startup profile from how warm the pit already is'),
+      T('smartstart.exit_temp', 'Smart Start exit temperature', ''),
+    ] },
+    { id: 'shutdown', title: 'Shutdown', fields: [
+      I('shutdown_duration', 'Cool-down fan time (s)', 'The fan keeps running this long after the auger stops', { min: 30 }),
+      B('auto_power_off', 'Power off the Pi after shutdown', ''),
+    ] },
+  ] },
+  { key: 'smoke', title: 'Smoke & Smoke+', sub: 'Default smoke mode and fan cycling', section: 'Grill', sections: [{ id: 'smoke_plus', fields: [
+    S('enabled', 'Default smoke mode', 'Which mode Smoke starts in; switch any time from the Home screen', [['false', 'Smoke'], ['true', 'Smoke+']], true),
+    T('min_temp', 'Smoke+ works above', 'Below this the fan stays on continuously'),
+    T('max_temp', 'Smoke+ works below', 'Above this the fan stays on continuously'),
+    I('on_time', 'Fan on (s)', '', { min: 1 }), I('off_time', 'Fan off (s)', '', { min: 1 }),
+    B('fan_ramp', 'Ramp fan speed', 'DC fan only: ramp up instead of switching'), I('duty_cycle', 'Ramp target speed (%)', 'DC fan only', { min: 10, max: 100 }),
+  ] }] },
+  { key: 'fan', title: 'DC fan', sub: 'PWM speed control', section: 'Grill', dc: true, sections: [{ id: 'pwm', fields: [
+    B('pwm_control', 'Vary fan speed with temperature', 'Default for new cooks; can be changed while cooking'),
+    I('frequency', 'PWM frequency (Hz)', '25 000 Hz for 4-wire PC fans', { min: 100, max: 100000 }),
+    I('min_duty_cycle', 'Minimum fan speed (%)', 'Some fans stall below this', { min: 0, max: 100 }),
+    I('max_duty_cycle', 'Maximum fan speed (%)', '', { min: 10, max: 100 }),
+    I('update_time', 'Speed update interval (s)', '', { min: 1 }),
+  ] }] },
+  { key: 'lid', title: 'Lid-open detection', sub: 'Pause the feed when the lid is opened', section: 'Grill', sections: [{ id: 'cycle_data', fields: [
+    B('LidOpenDetectEnabled', 'Detect an open lid', 'A sudden temperature drop pauses the auger so the pot does not overfill'),
+    I('LidOpenThreshold', 'Drop that counts as open (%)', 'Percentage below the set point', { min: 1, max: 50 }),
+    I('LidOpenPauseTime', 'Pause length (s)', '', { min: 10 }),
+  ] }] },
+  // ---- Safety
+  { key: 'safety', title: 'Temperature limits', sub: 'High-temperature cutoff, flame-out detection', section: 'Safety', sections: [{ id: 'safety', fields: [
+    T('maxtemp', 'High-temperature cutoff', 'Above this in any mode everything shuts off and the grill goes to Error'),
+    B('startup_check', 'Flame-out detection', 'Watch for the pit dropping below the flame-out floor in Smoke and Hold'),
+    T('minstartuptemp', 'Flame-out floor (minimum)', 'Lowest floor used after a normal startup'),
+    T('maxstartuptemp', 'Flame-out floor (maximum)', ''),
+    I('reigniteretries', 'Re-ignite attempts', 'Tries to re-light after a flame-out before going to Error', { min: 0, max: 5 }),
+    I('probe_fault_s', 'Pit probe timeout (s)', 'Seconds without a valid pit reading before Error', { min: 3 }),
+    I('error_cooldown_fan_s', 'Fan run after an error (s)', 'Cools the pot when the grill errors while hot', { min: 0 }),
+  ] }] },
+  { key: 'coldstart', title: 'Cold-weather start', sub: 'Confirm ignition by temperature rise instead of a fixed floor', section: 'Safety', sections: [{ id: 'safety', fields: [
+    B('coldstart.enabled', 'Cold-weather start', 'Keep starting until the pit has risen from its cold baseline; for freezing conditions'),
+    { path: 'coldstart.delta_rise', label: 'Rise that confirms ignition', help: 'Above the baseline measured in the first minute', type: 'tempdelta' },
+    I('coldstart.timeout_s', 'Give up after (s)', '0 = same as the startup time', { min: 0 }),
+    B('coldstart.exit_on_rise', 'End startup once the rise is confirmed', 'Otherwise the full startup time runs'),
+  ] }] },
+  { key: 'limits', title: 'Output limits & manual control', sub: 'Igniter and auger time caps, manual overrides', section: 'Safety', sections: [{ id: 'safety', fields: [
+    I('igniter_max_on_s', 'Igniter maximum on time (s)', 'The igniter is forced off after this', { min: 60 }),
+    I('auger_max_on_s', 'Auger maximum continuous run (s)', 'Absolute cap, regardless of controller or manual control', { min: 5 }),
+    B('allow_manual_changes', 'Allow manual outputs while cooking', 'Temporarily override outputs from More → Manual outputs'),
+    I('manual_override_time', 'Manual override lasts (s)', '', { min: 5 }),
+  ] }] },
+  // ---- Cook
+  { key: 'keepwarm', title: 'Keep warm', sub: 'After a probe reaches its target', section: 'Cook', sections: [{ id: 'keep_warm', fields: [T('temp', 'Keep-warm temperature', ''), B('s_plus', 'Use Smoke+ while keeping warm', '')] }] },
+  { key: 'pellets', title: 'Pellets & hopper', sub: 'Low-pellet warnings, hopper sensor calibration', section: 'Cook', sections: [{ id: 'pelletlevel', fields: [
+    B('warning_enabled', 'Low-pellet warnings', ''), I('warning_level', 'Warn below (%)', '', { min: 1, max: 99 }), I('warning_time', 'Repeat every (min)', '', { min: 1 }),
+    I('empty', 'Sensor reading when empty (cm)', 'Distance from the sensor to the bottom of the hopper', { min: 1 }), I('full', 'Sensor reading when full (cm)', '', { min: 0 }),
+  ] }] },
+  { key: 'history', title: 'History', sub: 'Chart sampling and retention', section: 'Cook', sections: [{ id: 'history', fields: [
+    I('sample_s', 'Sample every (s)', '', { min: 1, max: 60 }), I('retention_hours', 'Keep for (hours)', '', { min: 1 }), B('clear_on_startup', 'Clear the chart when a cook starts', ''),
+  ] }] },
+  // ---- Connectivity
+  { key: 'integrations', title: 'MQTT & webhooks', sub: 'Home Assistant, automation', section: 'Connectivity', sections: [{ id: 'notify', fields: [
+    B('mqtt.enabled', 'MQTT', 'Publish state to a broker, with Home Assistant discovery'), X('mqtt.broker', 'Broker host', ''), I('mqtt.port', 'Broker port', '', { min: 1, max: 65535 }),
+    X('mqtt.username', 'Username', ''), { path: 'mqtt.password', label: 'Password', type: 'password' }, X('mqtt.id', 'Device ID', 'Topic prefix'), I('mqtt.update_sec', 'Publish every (s)', '', { min: 5 }),
+    B('webhook.enabled', 'Webhook', 'POST events as JSON to a URL'), X('webhook.url', 'Webhook URL', ''),
+  ] }] },
+  { key: 'hotspot', title: 'Setup hotspot', sub: 'Fallback access point when no Wi-Fi is known', section: 'Connectivity', sections: [{ id: 'network', fields: [
+    X('hotspot_ssid', 'Hotspot name', 'Blank = PiFire-XXXX from the Wi-Fi address'),
+    { path: 'hotspot_password', label: 'Hotspot password', help: 'At least 8 characters', type: 'text' },
+    I('setup_timeout_s', 'Start hotspot after (s)', 'If no network connects within this time after boot', { min: 10, max: 600 }),
+    B('force_setup', 'Start the hotspot on next boot', 'One-shot: cleared automatically'),
+  ] }] },
+  { key: 'webserver', title: 'Web server', sub: 'Port', section: 'Connectivity', sections: [{ id: 'web', fields: [I('port', 'Port', 'Restart required', { min: 1, max: 65535 })] }] },
+  // ---- System
+  { key: 'general', title: 'General', sub: 'Grill name, units', section: 'System', sections: [{ id: 'globals', fields: [
     X('grill_name', 'Grill name', 'Shown in the header and in notifications'),
     S('units', 'Temperature units', 'All temperature settings convert automatically', [['F', 'Fahrenheit'], ['C', 'Celsius']]),
     N('augerrate', 'Auger rate (g/s)', 'Pellets delivered per second of auger run; used for priming and usage estimates', { step: 0.01, min: 0.01 }),
-    B('prime_ignition', 'Igniter during prime', 'Turn the igniter on while priming before a startup'),
+    B('prime_ignition', 'Igniter on while priming', ''),
     B('debug_mode', 'Debug logging', ''),
-  ] },
-  { id: 'globals', key: 'appearance', title: 'Appearance', fields: [
+  ] }] },
+  { key: 'appearance', title: 'Appearance', sub: 'Theme, optional features', section: 'System', sections: [{ id: 'globals', fields: [
     S('theme', 'Theme', '', [['dark', 'Dark'], ['light', 'Light'], ['auto', 'Follow system']]),
     B('show_recipes', 'Show recipes', 'Recipe programs on the Cook page'),
-  ] },
-  { id: 'cycle_data', title: 'Cycle', fields: [
-    I('HoldCycleTime', 'Hold cycle time (s)', 'Length of one auger cycle in Hold. The controller runs once per cycle.', { min: 5, max: 120 }),
-    N('u_min', 'Minimum feed ratio', 'Auger on-fraction floor per cycle, prevents flame-out (0.1 = 10%)', { step: 0.01, min: 0, max: 1 }),
-    N('u_max', 'Maximum feed ratio', 'Auger on-fraction ceiling per cycle so the pot can keep up', { step: 0.01, min: 0, max: 1 }),
-    I('SmokeOnCycleTime', 'Smoke auger on (s)', 'Auger on time per cycle in Smoke and Startup', { min: 1 }),
-    I('SmokeOffCycleTime', 'Smoke auger off (s)', 'Base auger off time in Smoke and Startup; P-mode adds 10 s per level', { min: 1 }),
-    I('PMode', 'P-mode', 'Adds 10 s of auger-off time per level in Smoke', { min: 0, max: 9 }),
-    B('LidOpenDetectEnabled', 'Lid-open detection', 'Pause the feed when the pit temperature drops sharply'),
-    I('LidOpenThreshold', 'Lid-open threshold (%)', 'Drop below this percentage of the set point triggers a pause', { min: 1, max: 50 }),
-    I('LidOpenPauseTime', 'Lid-open pause (s)', '', { min: 10 }),
-    B('FanPidEnabled', 'Fan PID (AC fans)', 'Modulate the fan when the feed is already at its minimum'),
-  ] },
-  { id: 'safety', title: 'Safety', fields: [
-    T('maxtemp', 'Maximum pit temperature', 'Above this in any mode the grill goes to Error and shuts off'),
-    T('minstartuptemp', 'Minimum startup floor', 'Lowest flame-out floor when cold-start is off'),
-    T('maxstartuptemp', 'Maximum startup floor', ''),
-    I('reigniteretries', 'Re-ignite retries', 'Attempts to re-light after a suspected flame-out before Error', { min: 0, max: 5 }),
-    B('startup_check', 'Flame-out detection', 'Watch for the pit dropping below the startup floor in Smoke/Hold'),
-    B('coldstart.enabled', 'Cold-start mode', 'For freezing weather: keep starting until the pit has risen from its baseline instead of a fixed floor'),
-    { path: 'coldstart.delta_rise', label: 'Cold-start rise', help: 'Temperature rise above the startup baseline that confirms ignition', type: 'tempdelta' },
-    I('coldstart.timeout_s', 'Cold-start timeout (s)', '0 = same as startup duration', { min: 0 }),
-    B('coldstart.exit_on_rise', 'End startup once the rise is confirmed', 'Leave startup early when cold-start sees the pit rising (and above the minimum startup temperature) instead of running the full timer'),
-    I('igniter_max_on_s', 'Igniter max on (s)', 'Igniter is forced off after this long', { min: 60 }),
-    I('auger_max_on_s', 'Auger max continuous on (s)', 'Absolute cap regardless of controller or manual control', { min: 5 }),
-    I('probe_fault_s', 'Probe fault timeout (s)', 'Seconds without a valid pit reading before Error', { min: 3 }),
-    I('error_cooldown_fan_s', 'Error cooldown fan (s)', 'Fan run time after an error when the pit is hot', { min: 0 }),
-    B('allow_manual_changes', 'Allow manual output changes while cooking', 'Temporarily override outputs from the Manual page'),
-    I('manual_override_time', 'Manual override time (s)', '', { min: 5 }),
-  ] },
-  { id: 'startup', title: 'Startup', fields: [
-    I('duration', 'Startup duration (s)', 'Igniter and startup feed run for this long', { min: 60, max: 900 }),
-    T('startup_exit_temp', 'Startup exit temperature', 'Leave startup early when the pit reaches this (0 = disabled)', { allowZero: true }),
-    S('start_to_mode.after_startup_mode', 'After startup', '', [['Smoke', 'Smoke'], ['Hold', 'Hold']]),
-    T('start_to_mode.primary_setpoint', 'Default hold temperature', ''),
-    I('prime_on_startup', 'Prime on startup (g)', '0 = disabled', { min: 0 }),
-    I('pwm_duty_cycle', 'Startup fan (%)', 'DC fan speed during startup', { min: 10, max: 100 }),
-    B('smartstart.enabled', 'Smart Start', 'Pick a startup profile from the initial pit temperature'),
-    T('smartstart.exit_temp', 'Smart Start exit temperature', ''),
-  ] },
-  { id: 'shutdown', title: 'Shutdown', fields: [
-    I('shutdown_duration', 'Shutdown fan time (s)', '', { min: 30 }),
-    B('auto_power_off', 'Power off the Pi after shutdown', ''),
-  ] },
-  { id: 'smoke_plus', title: 'Smoke+', fields: [
-    S('enabled', 'Default smoke mode', 'Which mode Smoke starts in; switch any time from the Home screen', [['false', 'Smoke'], ['true', 'Smoke+']], true),
-    T('min_temp', 'Minimum temperature', 'Below this the fan stays on'),
-    T('max_temp', 'Maximum temperature', 'Above this the fan stays on'),
-    I('on_time', 'Fan on (s)', '', { min: 1 }), I('off_time', 'Fan off (s)', '', { min: 1 }),
-    I('duty_cycle', 'Ramp target (%)', 'DC fans only', { min: 10, max: 100 }), B('fan_ramp', 'Ramp fan speed', 'DC fans only'),
-  ] },
-  { id: 'pwm', title: 'DC fan (PWM)', dc: true, fields: [
-    B('pwm_control', 'Temperature-based fan speed by default', ''),
-    I('frequency', 'PWM frequency (Hz)', '25 kHz for 4-wire PC fans', { min: 100, max: 100000 }),
-    I('min_duty_cycle', 'Minimum fan (%)', 'Some fans stall below this', { min: 0, max: 100 }),
-    I('max_duty_cycle', 'Maximum fan (%)', '', { min: 10, max: 100 }),
-    I('update_time', 'Update interval (s)', '', { min: 1 }),
-  ] },
-  { id: 'keep_warm', title: 'Keep warm', fields: [T('temp', 'Keep-warm temperature', ''), B('s_plus', 'Smoke+ while keeping warm', '')] },
-  { id: 'pelletlevel', title: 'Pellets', fields: [
-    B('warning_enabled', 'Low pellet warnings', ''), I('warning_level', 'Warn below (%)', '', { min: 1, max: 99 }),
-    I('warning_time', 'Warning interval (min)', '', { min: 1 }), I('empty', 'Empty distance (cm)', 'Sensor reading when the hopper is empty', { min: 1 }), I('full', 'Full distance (cm)', '', { min: 0 }),
-  ] },
-  { id: 'notify', title: 'Notifications', fields: [
-    B('mqtt.enabled', 'MQTT', 'Publish state to a broker with Home Assistant discovery'), X('mqtt.broker', 'Broker host', ''), I('mqtt.port', 'Broker port', '', { min: 1, max: 65535 }),
-    X('mqtt.username', 'Username', ''), { path: 'mqtt.password', label: 'Password', type: 'password' }, X('mqtt.id', 'Device ID', 'Topic prefix'), I('mqtt.update_sec', 'Publish interval (s)', '', { min: 5 }),
-    B('webhook.enabled', 'Webhook', 'POST events as JSON to a URL'), X('webhook.url', 'Webhook URL', ''),
-  ] },
-  { id: 'network', title: 'Network', fields: [
-    X('hotspot_ssid', 'Hotspot name', 'Blank = PiFire-XXXX from the Wi-Fi address'),
-    { path: 'hotspot_password', label: 'Hotspot password', help: 'At least 8 characters', type: 'text' },
-    I('setup_timeout_s', 'Boot wait before hotspot (s)', 'Start the setup hotspot if no network connects within this time', { min: 10, max: 600 }),
-    B('force_setup', 'Start hotspot on next boot', 'One-shot: cleared automatically'),
-  ] },
-  { id: 'update', title: 'Software updates', fields: [
-    X('repo', 'GitHub repository', 'owner/name whose Releases the updater checks (assets pifire-<ver>-<arch>.tar.gz + SHA256SUMS)'),
-    B('auto_check', 'Check automatically', 'Two minutes after boot and then periodically; a notice is logged when a newer release exists'),
+  ] }] },
+  { key: 'updates', title: 'Software updates', sub: 'Release source and automatic checks', section: 'System', sections: [{ id: 'update', fields: [
+    X('repo', 'GitHub repository', 'owner/name whose releases the updater installs'),
+    B('auto_check', 'Check automatically', 'Shortly after boot and then periodically; a notice is logged when a newer release exists'),
     I('check_interval_h', 'Check every (hours)', '', { min: 1, max: 720 }),
     B('include_prerelease', 'Include pre-releases', 'Offer alpha/beta/rc builds as well as final releases'),
-  ] },
-  { id: 'history', title: 'History', fields: [
-    I('sample_s', 'Sample interval (s)', '', { min: 1, max: 60 }), I('retention_hours', 'Keep history (hours)', '', { min: 1 }), B('clear_on_startup', 'Clear history on startup', ''),
-  ] },
-  { id: 'web', title: 'Web server', fields: [I('port', 'Port', 'Restart required', { min: 1, max: 65535 })] },
+  ] }] },
 ];
+const SECTIONS = ['Grill', 'Safety', 'Cook', 'Connectivity', 'System'];
+const LINKS = { System: [['#/more/hardware', 'Hardware setup', 'Board, pins, display, hopper sensor'], ['#/more/probes', 'Probes', 'Names, profiles, tuning'], ['#/more/network', 'Wi-Fi', 'Networks and connection']] };
 
 const get = (obj, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
 const setDeep = (obj, path, v) => { const ks = path.split('.'); let o = obj; for (const k of ks.slice(0, -1)) o = o[k] ??= {}; o[ks.at(-1)] = v; };
@@ -138,23 +156,27 @@ export function readField(f, form) {
   return f.type === 'int' ? Math.round(v) : v;
 }
 
-function groupCard(g) {
-  const data = PF.settings[g.id] || {};
-  const form = el('form', { onsubmit: async (e) => {
-    e.preventDefault();
-    const patch = {};
-    try { for (const f of g.fields) { const v = readField(f, form); if (v !== undefined) setDeep(patch, f.path, v); } }
-    catch (err) { toast(err.message, true); return; }
-    const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
-    try { await patchSettings(g.id, patch); toast('Saved'); if (g.id === 'globals') location.reload(); } catch (err) { toast(err.message, true); }
-    btn.disabled = false;
-  } });
-  form.append(el('h2', {}, g.title));
-  const card = el('div', { class: 'card' });
-  for (const f of g.fields) card.append(fieldInput(f, get(data, f.path)));
-  card.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'submit' }, 'Save changes')));
-  form.append(card);
-  return form;
+function pageCard(pg) {
+  const wrap = el('div');
+  for (const sec of pg.sections) {
+    const data = PF.settings[sec.id] || {};
+    const form = el('form', { onsubmit: async (e) => {
+      e.preventDefault();
+      const patch = {};
+      try { for (const f of sec.fields) { const v = readField(f, form); if (v !== undefined) setDeep(patch, f.path, v); } }
+      catch (err) { toast(err.message, true); return; }
+      const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
+      try { await patchSettings(sec.id, patch); toast('Saved'); if (sec.id === 'globals' && 'units' in patch) location.reload(); } catch (err) { toast(err.message, true); }
+      btn.disabled = false;
+    } });
+    form.append(el('h2', {}, sec.title || pg.title));
+    const card = el('div', { class: 'card' });
+    for (const f of sec.fields) card.append(fieldInput(f, get(data, f.path)));
+    card.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'submit' }, 'Save')));
+    form.append(card);
+    wrap.append(form);
+  }
+  return wrap;
 }
 
 async function controllerCard() {
@@ -195,28 +217,21 @@ async function controllerCard() {
 export function renderSettings(view, rest) {
   if (!PF.settings) { view.append(el('div', { class: 'card muted' }, 'Loading settings…')); return; }
   const dc = !!PF.settings.platform?.dc_fan;
-  const groups = GROUPS.filter((g) => !g.dc || dc);
-  const key = (g) => g.key || g.id;
+  const pages = PAGES.filter((p) => !p.dc || dc);
   const page = rest?.[0];
   if (page) {
     view.append(el('button', { class: 'btn ghost sm', onclick: () => (location.hash = '#/settings') }, '‹ Settings'));
-    if (page === 'controller') { controllerCard().then((c) => view.append(c)).catch((e) => toast(e.message, true)); return; }
-    const g = groups.find((x) => key(x) === page);
-    if (g) view.append(groupCard(g));
-    else view.append(el('div', { class: 'card muted' }, 'No such settings page'));
+    const pg = pages.find((x) => x.key === page);
+    if (!pg) { view.append(el('div', { class: 'card muted' }, 'No such settings page')); return; }
+    if (pg.controller) { controllerCard().then((c) => view.append(c)).catch((e) => toast(e.message, true)); return; }
+    view.append(pageCard(pg));
     return;
   }
-  // iOS-style index: one row per group, each opening its own page
+  // index: one row per page, grouped
   const row = (href, title, sub) => el('button', { class: 'btn', onclick: () => (location.hash = href) }, el('div', {}, el('div', {}, title), sub ? el('div', { class: 'muted', style: 'font-size:.76rem;font-weight:400' }, sub) : null));
-  const sections = [
-    ['Grill', [['controller', 'Controller', 'Algorithm and tuning'], ['cycle_data', 'Cycle', 'Auger timing, feed limits, lid detection'], ['startup', 'Startup', ''], ['shutdown', 'Shutdown', ''], ['smoke_plus', 'Smoke+', 'Default smoke mode and fan cycling'], ['pwm', 'DC fan (PWM)', ''], ['keep_warm', 'Keep warm', ''], ['safety', 'Safety', 'Limits, flame-out, cold start']]],
-    ['Grill extras', [['pelletlevel', 'Pellets', ''], ['history', 'History', '']]],
-    ['Connectivity', [['notify', 'Notifications', 'MQTT, Home Assistant, webhooks'], ['network', 'Network', 'Hotspot'], ['web', 'Web server', ''], ['update', 'Software updates', '']]],
-    ['App', [['globals', 'General', 'Name, units, auger rate'], ['appearance', 'Appearance', 'Theme, recipes']]],
-  ];
-  for (const [title, rows] of sections) {
-    const items = rows.filter(([id]) => id === 'controller' || groups.some((g) => key(g) === id));
-    if (!items.length) continue;
-    view.append(el('h2', {}, title), el('div', { class: 'menu' }, ...items.map(([id, t, sub]) => row(`#/settings/${id}`, t, sub))));
+  for (const sec of SECTIONS) {
+    const items = pages.filter((p) => p.section === sec).map((p) => row(`#/settings/${p.key}`, p.title, p.sub));
+    for (const [href, t, sub] of LINKS[sec] || []) items.push(row(href, t, sub));
+    if (items.length) view.append(el('h2', {}, sec), el('div', { class: 'menu' }, ...items));
   }
 }

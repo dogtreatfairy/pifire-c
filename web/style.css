@@ -184,24 +184,27 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .stat .v { font-size: 1.4rem; font-weight: 700; }
 .stat .l { font-size: .72rem; color: var(--muted); }
 
-/* ---- home: hero + probe rows (mirrors the grill display) ---- */
-.hero { text-align: center; padding: 10px 12px 14px; }
-.hero .bar { display: flex; justify-content: space-between; align-items: center; font-size: .9rem; color: var(--muted); margin-bottom: 4px; }
-.hero .bar .mode { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; color: var(--text); }
-.hero .bar .mode::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--dotc, var(--muted)); }
-.hero .clock { font-variant-numeric: tabular-nums; }
-.hero .label { font-size: .85rem; color: var(--muted); margin-top: 6px; }
-.hero .big { font-size: clamp(88px, 28vw, 132px); font-weight: 600; line-height: 1; letter-spacing: -3px; font-variant-numeric: tabular-nums; }
+/* ---- home: one-screen layout (mirrors the grill display) ---- */
+.hero { text-align: center; padding: 10px 12px 12px; }
+.hbar { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 6px; align-items: stretch; margin-bottom: 4px; }
+.hbar .mode { display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-weight: 700; font-size: .9rem; background: var(--surface2); border-radius: 10px; padding: 7px 8px; }
+.hbar .mode::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--dotc, var(--muted)); flex: none; }
+.hbar .out { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: .78rem; font-weight: 600; letter-spacing: .04em; color: var(--muted); background: var(--surface2); border-radius: 10px; padding: 7px 4px; }
+.hbar .out::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--line); flex: none; }
+.hbar .out.on { color: var(--text); }
+.hbar .out.on::before { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.hbar .out[data-k="fan"].on::before { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.hero .label { font-size: .8rem; color: var(--muted); margin-top: 8px; }
+.hero .big { font-size: clamp(76px, 24vw, 120px); font-weight: 600; line-height: 1; letter-spacing: -3px; font-variant-numeric: tabular-nums; }
 .hero .big small { font-size: .32em; font-weight: 400; color: var(--muted); letter-spacing: 0; vertical-align: top; margin-left: 2px; }
 .hero .big.invalid { color: var(--muted); }
-.hero .line1 { font-size: 1.25rem; font-weight: 600; color: var(--accent); margin-top: 2px; cursor: pointer; }
+.hero .line1 { font-size: 1.2rem; font-weight: 600; color: var(--accent); margin-top: 2px; cursor: pointer; }
 .hero .line1.ok { color: var(--ok); } .hero .line1.info { color: var(--info); } .hero .line1.warn { color: var(--warn); } .hero .line1.danger { color: var(--danger); } .hero .line1.muted { color: var(--muted); cursor: default; }
-.hero .line2 { font-size: .85rem; color: var(--muted); margin-top: 4px; min-height: 1.2em; }
-.rows { display: flex; flex-direction: column; }
-.prow { display: flex; align-items: center; justify-content: space-between; padding: 11px 4px; border-top: 1px solid var(--line); cursor: pointer; }
-.prow:first-child { border-top: 0; }
-.prow .n { color: var(--muted); font-size: .92rem; }
-.prow .n .tg { color: var(--accent); margin-left: 8px; font-size: .85rem; }
-.prow .t { font-size: 1.6rem; font-weight: 600; font-variant-numeric: tabular-nums; }
-.prow.hit .t, .prow.hit .tg { color: var(--ok); }
-.prow.invalid .t { color: var(--muted); }
+.hero .line2 { font-size: .82rem; color: var(--muted); margin: 3px 0 10px; min-height: 1.2em; }
+.pgrid { display: grid; gap: 8px; margin-bottom: 12px; }
+.pcell { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-s); padding: 8px 6px; text-align: center; cursor: pointer; min-width: 0; }
+.pcell .n { font-size: .74rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pcell .t { font-size: 1.9rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.pcell .tg { font-size: .74rem; color: var(--accent); }
+.pcell.hit .t, .pcell.hit .tg { color: var(--ok); }
+.pcell.invalid .t { color: var(--muted); }
