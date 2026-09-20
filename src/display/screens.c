@@ -162,11 +162,12 @@ static void draw_topbar(pf_gfx *g, const char *mode, const hero_text *t)
 }
 
 /* hero block inside [x, x+w): label, huge temperature, unit, then the two text lines */
-static void draw_hero(pf_gfx *g, const cJSON *primary, const char *units, const hero_text *t, int x, int y, int w, int big)
+static void draw_hero(pf_gfx *g, const cJSON *primary, const char *units, const hero_text *t, int x, int y, int w, int big, bool stopped)
 {
 	bool valid = primary && cJSON_IsNumber(cJSON_GetObjectItem((cJSON *)primary, "temp"));
 	char v[8];
 	fmt_temp(v, sizeof v, valid ? cJSON_GetObjectItem((cJSON *)primary, "temp") : NULL);
+	if (stopped) { snprintf(v, sizeof v, "0"); valid = false; }   /* a stopped grill reads 0 */
 	char unit[4] = { (char)0xC2, (char)0xB0, units[0], 0 };
 	int upx = big / 4;
 	int vw = pf_gfx_text_width(B, big, v), uw = pf_gfx_text_width(R, upx, unit);
@@ -250,17 +251,17 @@ static void render_main(pf_gfx *g, const cJSON *s)
 	int foot = H - 22;  /* outputs row */
 	if (landscape) {
 		if (nf == 0) {
-			draw_hero(g, primary, units, &t, 0, 40, W, 112);
+			draw_hero(g, primary, units, &t, 0, 40, W, 112, !strcmp(mode, "Stop"));
 		} else {
 			int col = 200;
-			draw_hero(g, primary, units, &t, 0, 42, col, 92);
+			draw_hero(g, primary, units, &t, 0, 42, col, 92, !strcmp(mode, "Stop"));
 			int x = col + 4, w = W - x - 10, top = 38;
 			int h = (foot - 6 - top) / nf;
 			if (h > 60) h = 60;
 			for (int i = 0; i < nf; i++) draw_probe_row(g, food[i], x, top + i * h, w, h, i == nf - 1);
 		}
 	} else {
-		draw_hero(g, primary, units, &t, 0, 40, W, 104);
+		draw_hero(g, primary, units, &t, 0, 40, W, 104, !strcmp(mode, "Stop"));
 		int top = 204, w = W - 24;
 		if (nf) {
 			int h = (foot - 6 - top) / nf;

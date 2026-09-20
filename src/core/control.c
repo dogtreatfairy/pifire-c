@@ -424,8 +424,9 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 		if (pf_outputs_get(PF_OUT_FAN)) pf_outputs_fan_pct(c->duty_cycle);
 		break;
 	case PF_CMD_MANUAL_OUTPUT: {
-		if (c->mode != PF_MODE_MANUAL && !c->cfg.allow_manual) { LOGW(TAG, "manual output change refused (not in Manual mode)"); break; }
-		double until = c->mode == PF_MODE_MANUAL ? 1e18 : now + c->cfg.manual_override_s;
+		bool free_mode = c->mode == PF_MODE_MANUAL || c->mode == PF_MODE_MONITOR;   /* outputs are idle: direct control is safe */
+		if (!free_mode && !c->cfg.allow_manual) { LOGW(TAG, "manual output change refused (not in Manual/Monitor mode)"); break; }
+		double until = free_mode ? 1e18 : now + c->cfg.manual_override_s;
 		if (!strcmp(cmd->str, "pwm")) { pf_outputs_fan_pct((int)cmd->num); c->manual_until[PF_OUT_FAN] = until; break; }
 		for (int i = 0; i < PF_OUT_COUNT; i++)
 			if (!strcmp(cmd->str, pf_output_name((pf_output)i))) {

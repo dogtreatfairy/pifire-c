@@ -166,6 +166,8 @@ function route() {
   const hash = location.hash.replace(/^#\/?/, '') || (location.pathname === '/setup' ? 'setup' : 'home');
   const [page, ...rest] = hash.split('/');
   const fn = pages[page] || renderHome;
+  document.documentElement.dataset.page = pages[page] ? page : 'home';
+  const tt = document.getElementById('top-temp'); if (tt) tt.hidden = (pages[page] ? page : 'home') === 'home';
   document.querySelectorAll('.tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === (pages[page] ? page : 'home')));
   if (teardown) { teardown(); teardown = null; }
   const view = document.getElementById('view');
@@ -181,7 +183,18 @@ onStatus((s) => {
   const b = document.getElementById('banner');
   const pill = document.getElementById('mode-pill');
   if (!s) { b.hidden = !PF.connected ? false : true; if (!PF.connected) { b.className = 'banner warn'; b.textContent = 'Connecting to grill…'; } return; }
-  pill.textContent = s.mode; pill.dataset.mode = s.mode;
+  // mode pill: "Startup | 1:15" while a mode counts down, "Hold | 225°F" while holding
+  let extra = '';
+  if (s.mode === 'Startup' || s.mode === 'Reignite' || s.mode === 'Shutdown' || s.mode === 'Prime') {
+    const waiting = (s.mode === 'Startup' || s.mode === 'Reignite') && s.coldstart?.active && !s.coldstart?.reached && s.timers.mode_remaining <= 0;
+    extra = fmtDur(waiting ? s.coldstart.remaining : s.timers.mode_remaining);
+  } else if (s.mode === 'Hold') extra = `${fmtTemp(s.setpoint)}${degUnit()}`;
+  pill.textContent = extra ? `${s.mode} | ${extra}` : s.mode; pill.dataset.mode = s.mode;
+  // grill temperature in the header on every page but Home (which shows it large)
+  const tt = document.getElementById('top-temp');
+  const primary = s.probes?.find((p) => p.role === 'Primary');
+  tt.textContent = s.mode === 'Stop' ? `0${degUnit()}` : primary?.valid ? `${fmtTemp(primary.temp)}${degUnit()}` : '—';
+  tt.hidden = document.documentElement.dataset.page === 'home';
   if (!PF.connected) { b.hidden = false; b.className = 'banner warn'; b.textContent = 'Connection lost — reconnecting…'; return; }
   if (s.safety.error_code) {
     b.hidden = false; b.className = 'banner';
