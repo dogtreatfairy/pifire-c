@@ -16,6 +16,8 @@ typedef struct {
 	double limit_high_c, limit_low_c;   /* 0 = disabled */
 	bool high_tripped, low_tripped;
 	double eta_s;           /* -1 unknown */
+	bool eta_warned;        /* the "about N minutes to target" notice went out for this target */
+	int eta_hits;           /* consecutive estimates under the warning threshold */
 	double hist[PF_ETA_SAMPLES];
 	int hist_len, hist_head;
 	double last_sample_t;

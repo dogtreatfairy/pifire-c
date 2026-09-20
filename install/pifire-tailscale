@@ -1,0 +1,56 @@
+#!/bin/bash
+# pifire-tailscale: the privileged side of PiFire's Tailscale integration (sudoers lets the pifire
+# user run this). Sub-commands:
+#   status            tailscale status as JSON ({"installed":false} when not installed)
+#   install           add Tailscale's apt repository (official keyring) and install it; enable tailscaled;
+#                     let the pifire user operate it
+#   up [hostname]     join the tailnet as <hostname> (default pifire); when a login is needed the auth
+#                     URL appears in `status` (AuthURL) - open it on the phone
+#   down | logout     leave / forget the tailnet
+#   serve [port]      publish the web app over HTTPS on the tailnet (tailscale serve, valid certificate)
+#   unserve           stop the HTTPS publish
+set -euo pipefail
+cmd="${1:-status}"
+LOG=/var/lib/pifire/tailscale.log
+mkdir -p /var/lib/pifire 2>/dev/null || true
+
+case "$cmd" in
+	status)
+		if ! command -v tailscale >/dev/null 2>&1; then echo '{"installed":false}'; exit 0; fi
+		if out=$(tailscale status --json 2>/dev/null); then echo "$out"; else echo '{"installed":true,"BackendState":"NoState"}'; fi
+		;;
+	install)
+		if command -v tailscale >/dev/null 2>&1; then echo "already installed"; else
+			. /etc/os-release
+			dist=debian; [ "${ID:-}" = "raspbian" ] && dist=raspbian
+			code="${VERSION_CODENAME:-bookworm}"
+			echo "adding Tailscale repository for $dist $code"
+			curl -fsSL "https://pkgs.tailscale.com/stable/$dist/$code.noarmor.gpg" -o /usr/share/keyrings/tailscale-archive-keyring.gpg
+			curl -fsSL "https://pkgs.tailscale.com/stable/$dist/$code.tailscale-keyring.list" -o /etc/apt/sources.list.d/tailscale.list
+			apt-get update -qq
+			DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tailscale
+		fi
+		systemctl enable --now tailscaled
+		sleep 2
+		tailscale set --operator=pifire >/dev/null 2>&1 || true
+		echo "installed $(tailscale version | head -1)"
+		;;
+	up)
+		hn="${2:-pifire}"
+		# runs in the background: when the node is not logged in this blocks until the user finishes
+		# the login on the phone, and `status` exposes the URL meanwhile
+		nohup tailscale up --hostname="$hn" --accept-dns=true --reset >"$LOG" 2>&1 </dev/null &
+		disown || true
+		sleep 3
+		echo "started (see $LOG)"
+		;;
+	down)   tailscale down ;;
+	logout) tailscale logout ;;
+	serve)
+		port="${2:-80}"
+		tailscale serve --bg "http://127.0.0.1:$port"
+		echo "serving"
+		;;
+	unserve) tailscale serve reset; echo "stopped" ;;
+	*) echo "usage: pifire-tailscale status|install|up [hostname]|down|logout|serve [port]|unserve" >&2; exit 2 ;;
+esac

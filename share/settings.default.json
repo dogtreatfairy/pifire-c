@@ -397,9 +397,44 @@
       "events": [
         "*"
       ]
-    }
+    },
+    "pushover": {
+      "enabled": false,
+      "user_key": "",
+      "app_token": "",
+      "priority": 0,
+      "alarm_priority": 1,
+      "sound": "",
+      "targets": true,
+      "alarms": true,
+      "pellets": true,
+      "system": false
+    },
+    "ntfy": {
+      "enabled": false,
+      "server": "https://ntfy.sh",
+      "topic": "",
+      "token": "",
+      "priority": 3,
+      "alarm_priority": 5,
+      "targets": true,
+      "alarms": true,
+      "pellets": true,
+      "system": false
+    },
+    "eta_warn_min": 15
+  },
+  "weather": {
+    "enabled": false,
+    "country": "us",
+    "postal_code": "",
+    "place": "",
+    "latitude": 0,
+    "longitude": 0
   },
   "network": {
+    "tailscale_hostname": "pifire",
+    "tailscale_https": false,
     "hotspot_ssid": "",
     "hotspot_password": "pifire1234",
     "force_setup": false,

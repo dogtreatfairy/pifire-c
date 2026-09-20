@@ -13,6 +13,7 @@
 #include "features/cookfile.h"
 #include "features/learning.h"
 #include "features/pellets.h"
+#include "features/weather.h"
 #include "platform/sim.h"
 #include <math.h>
 #include <stdio.h>
@@ -1214,6 +1215,12 @@ static void read_sensors(pf_control *c)
 	for (int i = 0; i < c->sensors.n; i++)
 		if (c->sensors.p[i].ambient && c->sensors.p[i].valid) { c->ambient_c = c->sensors.p[i].temp_c; c->ambient_from_probe = true; break; }
 	if (c->ambient_from_probe && c->ambient_c > AMBIENT_MAX_C) c->ambient_from_probe = false;   /* an "ambient" probe inside the grill is not outdoor air */
+	if (!c->ambient_from_probe) {
+		/* local weather for the configured postal code: the best outdoor reference there is without a probe */
+		pf_weather w;
+		pf_weather_get(&w);
+		if (w.valid && !isnan(w.temp_c) && w.temp_c <= AMBIENT_MAX_C) { c->ambient_c = w.temp_c; c->ambient_from_probe = true; }
+	}
 	if (!c->ambient_from_probe && c->safety.coldstart_active && !isnan(c->safety.baseline_c) && c->safety.baseline_c <= AMBIENT_MAX_C) c->ambient_c = c->safety.baseline_c;
 	if (isnan(c->ambient_c) || c->ambient_c > AMBIENT_MAX_C) ambient_provisional(c);
 	ambient_remember(c);

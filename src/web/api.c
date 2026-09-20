@@ -17,6 +17,9 @@
 #include "features/update.h"
 #include "net/netmgr.h"
 #include "net/sysinfo.h"
+#include "net/tailscale.h"
+#include "features/push.h"
+#include "features/weather.h"
 #include "net/wifi.h"
 #include "probes/ble/bluez.h"
 #include "probes/probes.h"
@@ -384,6 +387,21 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		}
 	}
 	if (get && !strcmp(p, "/network/status")) { reply(resp, 200, pf_netmgr_status()); return; }
+	if (get && !strcmp(p, "/network/tailscale")) { reply(resp, 200, pf_tailscale_status_json()); return; }
+	if (post && !strncmp(p, "/network/tailscale/", 19)) {
+		char err[160];
+		if (pf_tailscale_action(p + 19, err, sizeof err)) { reply_err(resp, 409, err); return; }
+		reply_ok(resp);
+		return;
+	}
+	if (post && !strncmp(p, "/notify/test/", 13)) {
+		char err[160];
+		if (pf_push_test(p + 13, err, sizeof err)) { reply_err(resp, 502, err); return; }
+		reply_ok(resp);
+		return;
+	}
+	if (get && !strcmp(p, "/weather")) { reply(resp, 200, pf_weather_json()); return; }
+	if (post && !strcmp(p, "/weather/refresh")) { pf_weather_refresh(); reply_ok(resp); return; }
 	if (get && !strcmp(p, "/network/scan")) { reply(resp, 200, pf_wifi_scan(query_num(req->query, "rescan", 1) != 0)); return; }
 	if (get && !strcmp(p, "/network/saved")) { reply(resp, 200, pf_wifi_saved()); return; }
 	if (post && !strcmp(p, "/network/connect")) {

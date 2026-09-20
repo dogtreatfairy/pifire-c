@@ -1,5 +1,6 @@
 #include "core/notify.h"
 #include "core/events.h"
+#include "core/settings.h"
 #include "core/log.h"
 #include <math.h>
 #include <stdio.h>
@@ -44,6 +45,8 @@ int pf_notify_set_target(pf_notify *n, const char *label, double target_c, int a
 {
 	pf_notify_probe *p = find_mut(n, label);
 	if (!p) return -1;
+	p->eta_warned = false;
+	p->eta_hits = 0;
 	p->target_c = target_c > 0 ? target_c : 0;
 	p->after = after;
 	p->eta_s = -1;
@@ -159,7 +162,21 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 				p->target_c = 0;
 				p->after = PF_AFTER_NONE;
 				p->eta_s = -1;
-			} else if (do_eta) recalc_eta(p);
+			} else if (do_eta) {
+				recalc_eta(p);
+				/* "about N minutes to go": once per target, only when the estimate is settled (a second
+				 * consecutive fit under the threshold) so a single optimistic fit does not fire it */
+				double warn_s = pf_set_num("notify.eta_warn_min", 15) * 60;
+				if (warn_s > 0 && p->eta_s > 0 && p->eta_s <= warn_s) {
+					if (p->eta_hits < 2) p->eta_hits++;
+					if (p->eta_hits >= 2 && !p->eta_warned) {
+						p->eta_warned = true;
+						int mins = (int)(p->eta_s / 60 + 0.5);
+						if (mins < 1) mins = 1;
+						pf_events_emit("Probe_ETA", "Almost there", "%s is about %d min from %.0f%s (now %.0f%s).", name, mins, pf_from_c(p->target_c, units), u, pf_from_c(t, units), u);
+					}
+				} else p->eta_hits = 0;
+			}
 		}
 		if (p->limit_high_c > 0) {
 			if (t > p->limit_high_c && !p->high_tripped) { p->high_tripped = true; pf_events_emit("Probe_Temp_Limit_Alarm", "High temperature alarm", "%s is above %.0f%s (%.0f%s).", name, pf_from_c(p->limit_high_c, units), u, pf_from_c(t, units), u); }

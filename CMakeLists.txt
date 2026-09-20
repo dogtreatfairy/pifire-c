@@ -144,6 +144,8 @@ add_library(pfcore STATIC
   src/features/learning.c
   src/features/mqtt.c
   src/features/webhook.c
+  src/features/push.c
+  src/features/weather.c
   src/features/update.c
   src/features/cooklog.c
   src/display/registry.c
@@ -159,6 +161,7 @@ add_library(pfcore STATIC
   src/net/sysinfo.c
   src/net/wifi.c
   src/net/netmgr.c
+  src/net/tailscale.c
   src/web/api.c
   src/web/server.c
   ${PF_EMBED_OUT}

@@ -4,7 +4,7 @@ import { renderNetwork } from './network.js';
 import { renderPellets } from './pellets.js';
 import { renderLearning } from './learning.js';
 
-const subpages = { events, logs, system, hardware, probes: () => { location.hash = '#/settings/probes'; }, manual, network, about, pellets: renderPellets, learning: renderLearning };
+const subpages = { events, logs, system, hardware, probes: () => { location.hash = '#/settings/probes'; }, manual, network, remote, about, pellets: renderPellets, learning: renderLearning };
 
 export function renderMore(view, rest) {
   const page = rest[0];
@@ -22,6 +22,7 @@ export function renderMore(view, rest) {
       { href: '#/settings/probes', icon: 'thermometer', color: '#ff453a', title: 'Probes', sub: 'Wired and Bluetooth probes, profiles, tuner' },
       { href: '#/more/hardware', icon: 'cpu', color: '#64d2ff', title: 'Hardware setup', sub: 'Board, pins, display, hopper sensor' },
       { href: '#/more/network', icon: 'wifi', color: '#0a84ff', title: 'Network', sub: 'Wi-Fi and hotspot' },
+      { href: '#/more/remote', icon: 'globe', color: '#30d158', title: 'Remote access', sub: 'Tailscale: reach the grill from anywhere' },
     ]),
     listGroup('Diagnostics', [
       { href: '#/more/events', icon: 'scroll-text', color: '#ffd60a', title: 'Events', sub: 'Alerts and mode changes' },
@@ -122,6 +123,47 @@ function manual(view) {
 
 function network(view) {
   return renderNetwork(view);
+}
+
+// ---- remote access through Tailscale ----
+function remote(view) {
+  const card = el('div', { class: 'card' });
+  view.append(el('h2', {}, 'Remote access'), card);
+  let pollT = null;
+  const act = async (verb, msg) => { try { await api(`/network/tailscale/${verb}`, { body: {} }); toast(msg); setTimeout(load, 1500); } catch (e) { toast(e.message, true); } };
+  const load = async () => {
+    let t;
+    try { t = await api('/network/tailscale'); } catch (e) { card.innerHTML = ''; card.append(el('div', { class: 'muted' }, e.message)); return; }
+    card.innerHTML = '';
+    const intro = el('p', { class: 'muted', style: 'font-size:.85rem' }, 'Tailscale puts the grill and your phone on a private network that works from anywhere, with no port forwarding and no public exposure. Install the Tailscale app on your phone and sign in; then join the grill to the same account here.');
+    card.append(intro);
+    const kv = el('div', { class: 'kv' });
+    const running = t.state === 'Running';
+    const url = t.dns_name ? `${t.https ? 'https' : 'http'}://${t.dns_name}${!t.https && t.port !== 80 ? ':' + t.port : ''}/` : '';
+    const rows = [['Tailscale', !t.installed ? 'not installed' : `${t.version || 'installed'}`], ['Status', t.state === 'Running' ? (t.online ? 'connected' : 'connected (offline)') : t.state === 'NeedsLogin' ? 'waiting for sign-in' : t.state]];
+    if (running) { rows.push(['Address', el('a', { href: url, target: '_blank' }, url)]); if (t.ips?.length) rows.push(['Tailnet IP', t.ips.join(', ')]); rows.push(['HTTPS', t.https ? 'on (tailscale serve, valid certificate)' : 'off']); }
+    for (const [k, v] of rows) kv.append(el('div', {}, k), el('div', {}, v));
+    card.append(kv);
+    if (t.busy) card.append(el('p', { class: 'muted' }, `Working: ${t.last_action}…`));
+    else if (t.last_action && t.last_ok === false) card.append(el('p', { class: 'lvl-error', style: 'font-size:.85rem' }, `${t.last_action} failed: ${t.last_output || 'see the daemon log'}`));
+    const row = el('div', { class: 'btnrow', style: 'margin-top:10px' });
+    if (t.state === 'Simulator') card.append(el('p', { class: 'muted' }, 'Not available in the simulator.'));
+    else if (!t.installed) row.append(el('button', { class: 'btn primary', disabled: t.busy, onclick: async () => { if (await confirmDialog('Install Tailscale?', 'Adds Tailscale\'s package repository and installs it (about a minute).', 'Install')) act('install', 'Installing…'); } }, 'Install Tailscale'));
+    else if (!running) {
+      const hn = el('input', { type: 'text', value: t.hostname || 'pifire', style: 'max-width:160px' });
+      card.append(el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'Machine name'), el('div', { class: 'help' }, 'Becomes <name>.<your tailnet>.ts.net')), hn));
+      if (t.auth_url) card.append(el('p', {}, el('a', { class: 'btn primary block', href: t.auth_url, target: '_blank' }, 'Sign in to Tailscale to finish'), el('div', { class: 'help muted', style: 'margin-top:6px' }, 'Opens the Tailscale login; approve the machine, then come back here.')));
+      row.append(el('button', { class: 'btn primary', disabled: t.busy, onclick: async () => { try { await patchSettings('network', { tailscale_hostname: hn.value.trim() || 'pifire' }); } catch (e) { toast(e.message, true); return; } act('up', 'Connecting… a sign-in link appears in a few seconds'); } }, t.auth_url ? 'Restart sign-in' : 'Connect'));
+    } else {
+      row.append(el('button', { class: 'btn', disabled: t.busy, onclick: () => act(t.https ? 'unserve' : 'serve', t.https ? 'Turning HTTPS off…' : 'Publishing over HTTPS…') }, t.https ? 'Turn off HTTPS' : 'Enable HTTPS'),
+        el('button', { class: 'btn ghost', disabled: t.busy, onclick: async () => { if (await confirmDialog('Disconnect?', 'The grill leaves the tailnet until you connect again.', 'Disconnect', true)) act('down', 'Disconnected'); } }, 'Disconnect'));
+      card.append(el('p', { class: 'muted', style: 'font-size:.82rem;margin-top:10px' }, `Tip: add PiFire to your phone\'s Home Screen from ${url} — that address works at home and away, as long as the Tailscale app is signed in.`));
+    }
+    card.append(row);
+    if (t.busy || t.state === 'NeedsLogin' || (t.installed && !running)) { clearTimeout(pollT); pollT = setTimeout(load, 3000); }
+  };
+  load();
+  return () => clearTimeout(pollT);
 }
 
 function about(view) {

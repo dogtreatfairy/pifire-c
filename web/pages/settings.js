@@ -103,6 +103,32 @@ const PAGES = [
     X('mqtt.username', 'Username', ''), { path: 'mqtt.password', label: 'Password', type: 'password' }, X('mqtt.id', 'Device ID', 'Topic prefix'), I('mqtt.update_sec', 'Publish every (s)', '', { min: 5 }),
     B('webhook.enabled', 'Webhook', 'POST events as JSON to a URL'), X('webhook.url', 'Webhook URL', ''),
   ] }] },
+  { key: 'push', title: 'Phone notifications', sub: 'Pushover, ntfy, time-to-target warning', section: 'Connectivity', icon: 'smartphone', color: '#ff9f0a', sections: [
+    { id: 'notify', title: 'Pushover', fields: [
+      { type: 'note', help: 'Install the Pushover app ($5 once), then paste your user key from the app and create an application token at pushover.net/apps/build.' },
+      B('pushover.enabled', 'Pushover', 'Send notifications to the Pushover app'),
+      X('pushover.user_key', 'User key', 'Shown at the top of the Pushover app'), { path: 'pushover.app_token', label: 'Application token', type: 'password' },
+      S('pushover.priority', 'Priority', 'For targets, timers and pellets', [[-1, 'Quiet (no sound)'], [0, 'Normal'], [1, 'High (bypasses quiet hours)']]),
+      S('pushover.alarm_priority', 'Alarm priority', 'For limit alarms and grill errors', [[0, 'Normal'], [1, 'High'], [2, 'Emergency (repeats until acknowledged)']]),
+      X('pushover.sound', 'Sound', 'Blank = your default; e.g. cosmic, bike, siren'),
+      B('pushover.targets', 'Targets & timers', 'Target reached, about-N-minutes-to-target, cook timer, recipe steps'), B('pushover.alarms', 'Alarms & errors', 'Probe limit alarms, flame-out, over-temperature'), B('pushover.pellets', 'Pellets low', ''), B('pushover.system', 'System', 'Autotune and tuning notices'),
+      { type: 'action', label: 'Send a test notification', endpoint: '/notify/test/pushover' },
+    ] },
+    { id: 'notify', title: 'ntfy (free alternative)', fields: [
+      { type: 'note', help: 'Install the ntfy app, subscribe to a private topic name, and enter it here. Use ntfy.sh or your own server.' },
+      B('ntfy.enabled', 'ntfy', ''), X('ntfy.server', 'Server', 'https://ntfy.sh or your own'), X('ntfy.topic', 'Topic', 'Pick something nobody would guess'), { path: 'ntfy.token', label: 'Access token', help: 'Only for protected topics', type: 'password' },
+      B('ntfy.targets', 'Targets & timers', ''), B('ntfy.alarms', 'Alarms & errors', ''), B('ntfy.pellets', 'Pellets low', ''), B('ntfy.system', 'System', ''),
+      { type: 'action', label: 'Send a test notification', endpoint: '/notify/test/ntfy' },
+    ] },
+    { id: 'notify', title: 'Time to target', fields: [
+      I('eta_warn_min', 'Warn when about (minutes) from a probe target', '0 = off. Uses the live estimate; fires once per target once the estimate has settled', { min: 0, max: 240 }),
+    ] },
+  ] },
+  { key: 'weather', title: 'Weather', sub: 'Local conditions as the ambient reference', section: 'Connectivity', icon: 'cloud-sun', color: '#64d2ff', sections: [{ id: 'weather', fields: [
+    { type: 'note', help: 'The controller\'s feed-forward and its learning use the outdoor temperature. With a postal code the grill fetches local conditions (Open-Meteo, no account) every 15 minutes and records wind and humidity with each cook. An ambient probe, if you have one, still takes precedence.' },
+    B('enabled', 'Use local weather', ''), X('country', 'Country code', 'Two letters, e.g. us, ca, de'), X('postal_code', 'Postal / ZIP code', ''),
+    { type: 'weather' },
+  ] }] },
   { key: 'hotspot', title: 'Setup hotspot', sub: 'Fallback access point when no Wi-Fi is known', section: 'Connectivity', icon: 'router', color: '#30d158', sections: [{ id: 'network', fields: [
     X('hotspot_ssid', 'Hotspot name', 'Blank = PiFire-XXXX from the Wi-Fi address'),
     { path: 'hotspot_password', label: 'Hotspot password', help: 'At least 8 characters', type: 'text' },
@@ -134,7 +160,7 @@ const PAGES = [
 const SECTIONS = ['Cooking', 'Hardware', 'Safety', 'Connectivity', 'Data', 'System'];
 const LINKS = {
   Hardware: [{ href: '#/more/hardware', icon: 'cpu', color: '#64d2ff', title: 'Hardware setup', sub: 'Board, pins, display, hopper sensor' }],
-  Connectivity: [{ href: '#/more/network', icon: 'wifi', color: '#0a84ff', title: 'Wi-Fi', sub: 'Networks and connection' }],
+  Connectivity: [{ href: '#/more/network', icon: 'wifi', color: '#0a84ff', title: 'Wi-Fi', sub: 'Networks and connection' }, { href: '#/more/remote', icon: 'globe', color: '#30d158', title: 'Remote access', sub: 'Reach the grill from anywhere with Tailscale' }],
   Data: [{ href: '#/history', icon: 'chart-line', color: '#30d158', title: 'Cook files', sub: 'Saved cooks and analysis logs' }, { href: '#/more/learning', icon: 'brain', color: '#bf5af2', title: 'Learning data', sub: 'Feed-forward model, plant estimate, autotune' }],
   System: [{ href: '#/more/system', icon: 'monitor', color: '#8e8e93', title: 'System', sub: 'Health, restart, power' }, { href: '#/more/about', icon: 'info', color: '#8e8e93', title: 'About', sub: '' }],
 };
@@ -143,6 +169,15 @@ const get = (obj, path) => path.split('.').reduce((o, k) => (o == null ? undefin
 const setDeep = (obj, path, v) => { const ks = path.split('.'); let o = obj; for (const k of ks.slice(0, -1)) o = o[k] ??= {}; o[ks.at(-1)] = v; };
 
 export function fieldInput(f, value) {
+  if (f.type === 'note') return el('p', { class: 'muted', style: 'font-size:.82rem;margin:2px 0 8px' }, f.help);
+  if (f.type === 'action') return el('div', { class: 'field inline' }, el('div', {}, el('label', {}, f.label), f.help ? el('div', { class: 'help' }, f.help) : null),
+    el('button', { class: 'btn sm', type: 'button', onclick: async (e) => { const b = e.currentTarget; b.disabled = true; try { await api(f.endpoint, { body: {} }); toast('Sent — check your phone'); } catch (err) { toast(err.message, true); } b.disabled = false; } }, 'Send test'));
+  if (f.type === 'weather') {
+    const box = el('div', { class: 'kv', style: 'margin-top:6px' });
+    const load = async () => { try { const w = await api('/weather'); box.innerHTML = ''; const rows = w.valid ? [['Location', w.place], ['Outdoor', `${PF.units === 'C' ? w.temp_c.toFixed(1) + ' °C' : (w.temp_c * 9 / 5 + 32).toFixed(0) + ' °F'}`], ['Wind', `${w.wind_kmh} km/h (gusts ${w.gust_kmh})`], ['Humidity', `${w.humidity}%`], ['Updated', `${Math.round(w.age_s / 60)} min ago`]] : [['Status', w.error || (w.enabled ? 'waiting for the first fetch…' : 'off')]]; for (const [k, v] of rows) box.append(el('div', {}, k), el('div', {}, v)); } catch { /* ignore */ } };
+    load();
+    return el('div', {}, box, el('button', { class: 'btn sm ghost', type: 'button', style: 'margin-top:6px', onclick: async () => { try { await api('/weather/refresh', { body: {} }); toast('Refreshing…'); setTimeout(load, 4000); } catch (err) { toast(err.message, true); } } }, 'Refresh now'));
+  }
   const id = 'f_' + f.path.replace(/\W/g, '_') + '_' + Math.random().toString(36).slice(2, 6);
   let input;
   switch (f.type) {
@@ -160,10 +195,11 @@ export function fieldInput(f, value) {
 }
 
 export function readField(f, form) {
+  if (!f.path) return undefined;
   const input = form.querySelector(`[name="${CSS.escape(f.path)}"]`);
   if (!input) return undefined;
   if (f.type === 'bool') return input.checked;
-  if (f.type === 'select') return f.bool ? input.value === 'true' : input.value;
+  if (f.type === 'select') return f.bool ? input.value === 'true' : (f.options?.every(([v]) => typeof v === 'number') ? Number(input.value) : input.value);
   if (f.type === 'text' || f.type === 'password') return input.value;
   const v = parseFloat(String(input.value).replace(',', '.'));
   if (Number.isNaN(v)) throw new Error(`${f.label}: enter a number`);
@@ -182,12 +218,12 @@ function pageCard(pg) {
       try { for (const f of sec.fields) { const v = readField(f, form); if (v !== undefined) setDeep(patch, f.path, v); } }
       catch (err) { toast(err.message, true); return; }
       const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
-      try { await patchSettings(sec.id, patch); toast('Saved'); if (sec.id === 'globals' && 'units' in patch) location.reload(); } catch (err) { toast(err.message, true); }
+      try { await patchSettings(sec.id, patch); toast('Saved'); if (sec.id === 'globals' && 'units' in patch) location.reload(); if (sec.id === 'weather') api('/weather/refresh', { body: {} }).catch(() => {}); } catch (err) { toast(err.message, true); }
       btn.disabled = false;
     } });
     form.append(el('h2', {}, sec.title || pg.title));
     const card = el('div', { class: 'card' });
-    for (const f of sec.fields) card.append(fieldInput(f, get(data, f.path)));
+    for (const f of sec.fields) card.append(fieldInput(f, f.path ? get(data, f.path) : undefined));
     card.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'submit' }, 'Save')));
     form.append(card);
     wrap.append(form);

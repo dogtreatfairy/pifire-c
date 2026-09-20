@@ -1,5 +1,6 @@
 #include "core/status.h"
 #include "core/util.h"
+#include "features/weather.h"
 #include <math.h>
 #include <pthread.h>
 #include <string.h>
@@ -120,6 +121,18 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 		cJSON_AddStringToObject(rc, "message", s->recipe.message);
 	}
 
+	{
+		pf_weather w;
+		pf_weather_get(&w);
+		cJSON *wo = cJSON_AddObjectToObject(o, "weather");
+		cJSON_AddBoolToObject(wo, "valid", w.valid);
+		if (w.valid) {
+			cJSON_AddNumberToObject(wo, "temp", r1(conv(w.temp_c, units)));
+			cJSON_AddNumberToObject(wo, "wind_kmh", round(w.wind_kmh));
+			cJSON_AddNumberToObject(wo, "humidity", round(w.humidity_pct));
+			cJSON_AddStringToObject(wo, "place", w.place);
+		}
+	}
 	cJSON *probes = cJSON_AddArrayToObject(o, "probes");
 	for (int i = 0; i < s->sensors.n; i++) {
 		const pf_probe_reading *p = &s->sensors.p[i];

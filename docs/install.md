@@ -52,6 +52,19 @@ Cross-building Pi binaries on a workstation: `tools/release.sh` runs the same bu
 
 **Manually** — download and unpack a release as in step 1 and run `sudo ./install/install.sh --upgrade`, or rebuild from source and run `sudo install/install.sh` again.
 
+## 3a. Phone notifications, remote access, weather
+
+**Phone notifications** — *Settings → Connectivity → Phone notifications*. Two services with iOS/Android apps and a one-call API are built in; the grill posts to them directly, nothing else to host:
+
+* **Pushover** (recommended, $5 once): install the app, copy your *user key* from it, create an application at pushover.net/apps/build and paste its *token*. Priorities are configurable separately for normal events and for alarms (Emergency repeats until acknowledged).
+* **ntfy** (free): install the app, subscribe to a private topic on ntfy.sh (or your own server) and enter the topic; add an access token only for protected topics.
+
+Each service can receive four categories: *targets & timers* (probe target reached, the **about-N-minutes-to-target** warning, cook timer, recipe steps), *alarms & errors* (probe limits, flame-out, over-temperature), *pellets low* and *system* (autotune/tuning notices). *Send test* checks the credentials immediately. The time-to-target warning fires once per target, after the live estimate has been under `notify.eta_warn_min` (default 15 min) on two consecutive fits.
+
+**Remote access** — *More → Remote access* (or Settings → Connectivity). PiFire joins your [Tailscale](https://tailscale.com) network: *Install Tailscale* adds Tailscale's package repository and installs it, *Connect* joins the tailnet (a sign-in link appears; open it on the phone and approve the machine), and *Enable HTTPS* publishes the web app through `tailscale serve` with a valid certificate. The grill is then reachable from anywhere at `http(s)://<name>.<tailnet>.ts.net/` as long as the phone runs the Tailscale app; add the Home Screen web app from that address so it works at home and away. Privileged steps run through `/usr/local/bin/pifire-tailscale` (sudoers rule installed by `install.sh`); the pifire user is made a Tailscale operator so status and connect need no root.
+
+**Weather** — *Settings → Connectivity → Weather*. Enter a country code and postal/ZIP code and the grill looks the location up once (zippopotam.us) and fetches current conditions from Open-Meteo every 15 minutes (no account, no key). The outdoor temperature becomes the ambient reference for the feed-forward model and for every learning observation (an ambient probe still wins), so the fitted `u = a + b·(setpoint − ambient)` learns how the grill behaves at 30 °F versus 100 °F; wind and humidity are shown in the UI and recorded in the status stream.
+
 ## 4. Where things live
 
 | path | contents |
