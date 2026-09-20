@@ -225,7 +225,8 @@ onStatus((s) => {
 
 // ---------- viewport: iOS standalone apps get the real height late; keep --vh honest ----------
 function fitViewport() {
-  const h = window.visualViewport?.height || window.innerHeight;
+  // the shell is sized by CSS (body: fixed; inset: 0); --vh only remains for the on-screen keyboard case
+  const h = window.innerHeight;
   document.documentElement.style.setProperty('--vh', `${Math.round(h)}px`);
 }
 fitViewport();

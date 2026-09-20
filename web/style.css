@@ -235,8 +235,11 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .cb-caret .ic { width: 16px; height: 16px; }
 
 /* ---- header: grill temperature centre, mode | countdown/target right ---- */
-.topbar { position: relative; }
-.top-temp { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-weight: 700; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.topbar { position: relative; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; column-gap: 8px; }
+.topbar .brand { justify-self: start; }
+.topbar .topbar-right { justify-self: end; }
+.top-temp { justify-self: center; font-weight: 700; font-size: 1.15rem; font-variant-numeric: tabular-nums; line-height: 1; }
+.top-temp[hidden] { display: none; }
 .pill-mode { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* dial pads (temperatures, P-mode) and the caret on menu buttons */
@@ -370,7 +373,7 @@ body::before {
    ===================================================================== */
 :root { --vh: 100dvh; --top-h: calc(env(safe-area-inset-top) + 56px); }
 html { height: 100%; overflow: hidden; }
-body { height: var(--vh); min-height: 0; overflow: hidden; position: relative; display: block; overscroll-behavior: none; }
+body { position: fixed; inset: 0; height: auto; min-height: 0; overflow: hidden; display: block; overscroll-behavior: none; }
 .topbar { position: absolute; top: 0; left: 0; right: 0; z-index: 6; margin: 0; }
 .banner { position: absolute; top: var(--top-h); left: 0; right: 0; z-index: 6; margin: 0 16px; }
 main.view { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;

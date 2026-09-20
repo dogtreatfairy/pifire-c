@@ -145,7 +145,12 @@ function remote(view) {
     for (const [k, v] of rows) kv.append(el('div', {}, k), el('div', {}, v));
     card.append(kv);
     if (t.busy) card.append(el('p', { class: 'muted' }, `Working: ${t.last_action}…`));
-    else if (t.last_action && t.last_ok === false) card.append(el('p', { class: 'lvl-error', style: 'font-size:.85rem' }, `${t.last_action} failed: ${t.last_output || 'see the daemon log'}`));
+    else if (t.last_action && t.last_ok === false) {
+      const out = (t.last_output || '').trim();
+      const link = out.match(/https?:\/\/\S+/)?.[0];
+      const why = t.last_action === 'serve' && /not enabled/i.test(out) ? 'HTTPS needs the "HTTPS certificates" feature turned on for your tailnet once (Tailscale admin console → DNS). Open the link, enable it, then press Enable HTTPS again.' : `${t.last_action} failed: ${out.split('\n').filter(Boolean).join(' · ') || 'see the daemon log'}`;
+      card.append(el('div', { class: 'card tight', style: 'margin:10px 0;border-color:var(--warn)' }, el('div', { style: 'font-size:.85rem' }, why), link ? el('a', { class: 'btn sm', href: link, target: '_blank', style: 'margin-top:8px' }, 'Open the Tailscale page') : null));
+    }
     const row = el('div', { class: 'btnrow', style: 'margin-top:10px' });
     if (t.state === 'Simulator') card.append(el('p', { class: 'muted' }, 'Not available in the simulator.'));
     else if (!t.installed) row.append(el('button', { class: 'btn primary', disabled: t.busy, onclick: async () => { if (await confirmDialog('Install Tailscale?', 'Adds Tailscale\'s package repository and installs it (about a minute).', 'Install')) act('install', 'Installing…'); } }, 'Install Tailscale'));
