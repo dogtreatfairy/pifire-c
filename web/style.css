@@ -350,3 +350,43 @@ body::before {
 @supports not (backdrop-filter: blur(1px)) {
   .card, .hero, .tabbar, .topbar, .ios-list, .dialog { background: var(--surface); }
 }
+
+/* =====================================================================
+   Standalone (Home Screen) app fixes
+   - the page is an app shell: html/body fill the visual viewport and only
+     <main> scrolls, so fixed bars never depend on the pre-launch viewport
+   - blur lives on a pseudo-element layer, not on the element holding the
+     text (iOS renders text inside backdrop-filter layers soft)
+   ===================================================================== */
+:root { --vh: 100dvh; --top-h: calc(env(safe-area-inset-top) + 56px); }
+html { height: 100%; overflow: hidden; }
+body { height: var(--vh); min-height: 0; overflow: hidden; position: relative; display: block; overscroll-behavior: none; }
+.topbar { position: absolute; top: 0; left: 0; right: 0; z-index: 6; margin: 0; }
+.banner { position: absolute; top: var(--top-h); left: 0; right: 0; z-index: 6; margin: 0 16px; }
+main.view { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  padding-top: calc(var(--top-h) + 12px); padding-bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 34px); }
+.tabbar { position: absolute; }
+.toast { position: absolute; }
+@media (min-width: 900px) {
+  .topbar { left: 120px; }
+  main.view { left: 0; margin-left: 0; padding-left: calc(120px + 16px); }
+  .banner { left: 120px; }
+}
+/* blur on a layer behind the content */
+.topbar, .tabbar, .card, .hero, .ios-list, .dialog, .cgroup, .pcell, .toast {
+  background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; isolation: isolate;
+  transform: translateZ(0); -webkit-font-smoothing: antialiased;
+}
+.topbar::before, .tabbar::before, .card::before, .hero::before, .ios-list::before, .dialog::before, .cgroup::before, .pcell::before, .toast::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--glass);
+  backdrop-filter: blur(22px) saturate(160%); -webkit-backdrop-filter: blur(22px) saturate(160%);
+  height: auto; opacity: 1; pointer-events: none;
+}
+.topbar::before { border-radius: 0; }
+.tabbar::before, .cgroup::before, .dialog::before, .toast::before { background: var(--glass-strong); }
+/* specular edge moves to ::after */
+.card::after, .hero::after, .ios-list::after { content: ""; position: absolute; inset: 0 0 auto 0; height: 1px; background: linear-gradient(90deg, transparent, var(--glass-shine), transparent); opacity: .9; pointer-events: none; }
+.tabbar { border-top: 1px solid var(--glass-line); }
+@supports not (backdrop-filter: blur(1px)) {
+  .topbar::before, .tabbar::before, .card::before, .hero::before, .ios-list::before, .dialog::before, .cgroup::before, .pcell::before, .toast::before { background: var(--surface); }
+}

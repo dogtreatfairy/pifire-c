@@ -223,6 +223,17 @@ onStatus((s) => {
   } else b.hidden = true;
 });
 
+// ---------- viewport: iOS standalone apps get the real height late; keep --vh honest ----------
+function fitViewport() {
+  const h = window.visualViewport?.height || window.innerHeight;
+  document.documentElement.style.setProperty('--vh', `${Math.round(h)}px`);
+}
+fitViewport();
+for (const ev of ['resize', 'orientationchange', 'pageshow']) window.addEventListener(ev, fitViewport);
+window.visualViewport?.addEventListener('resize', fitViewport);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { fitViewport(); setTimeout(fitViewport, 300); } });
+setTimeout(fitViewport, 500);
+
 // ---------- boot ----------
 (async () => {
   try { PF.settings = await api('/settings'); PF.units = PF.settings.globals.units; applyTheme(); } catch (e) { toast('Could not load settings', true); }
