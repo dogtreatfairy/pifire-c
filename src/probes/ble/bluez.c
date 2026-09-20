@@ -352,6 +352,8 @@ static void passive_step(pf_ble_dev *d, double now)
 {
 	if (!g_discovering) { set_discovery(true); g_discover_until = now + 3600; }
 	if (!d->path[0]) {
+		if (now < d->next_action) return;
+		d->next_action = now + 5;
 		match_ctx m = { d, false };
 		for_each_object(match_cb, &m);
 		if (m.found) { d->st = ST_READY; d->mfr_last_len = 0; LOGI(TAG, "found %s (%s), listening to advertisements", d->name, d->address); }
@@ -488,6 +490,24 @@ static int on_device_props_changed(sd_bus_message *m, const char *path)
 	pf_ble_dev *d = NULL;
 	for (int i = 0; i < MAX_DEVS; i++)
 		if (g_devs[i].used && g_devs[i].spec.passive && g_devs[i].path[0] && !strcmp(g_devs[i].path, path)) { d = &g_devs[i]; break; }
+	if (!d) {
+		/* not ours yet: the path ends in dev_AA_BB_CC_DD_EE_FF, so an address-pinned passive probe that is
+		 * still unmatched can claim it without walking the object tree */
+		const char *tail = strrchr(path, '/');
+		char addr[20] = "";
+		if (tail && !strncmp(tail, "/dev_", 5) && strlen(tail + 5) == 17) { snprintf(addr, sizeof addr, "%s", tail + 5); for (char *q = addr; *q; q++) if (*q == '_') *q = ':'; }
+		for (int i = 0; addr[0] && i < MAX_DEVS; i++) {
+			pf_ble_dev *u = &g_devs[i];
+			if (u->used && u->spec.passive && !u->path[0] && u->spec.address && *u->spec.address && !strcasecmp(u->spec.address, addr)) {
+				pf_strlcpy(u->path, path, sizeof u->path);
+				pf_strlcpy(u->address, addr, sizeof u->address);
+				u->st = ST_READY; u->mfr_last_len = 0;
+				LOGI(TAG, "found %s by advertisement, listening", addr);
+				d = u;
+				break;
+			}
+		}
+	}
 	if (!d) { pthread_mutex_unlock(&g_mu); return 0; }
 	double now = pf_now();
 	if (sd_bus_message_enter_container(m, 'a', "{sv}") >= 0) {
@@ -686,10 +706,13 @@ static void *manager(void *arg)
 	sd_bus_match_signal(g_bus, NULL, BLUEZ, NULL, "org.freedesktop.DBus.Properties", "PropertiesChanged", on_props_changed, NULL);
 	double last_step = 0;
 	while (atomic_load(&g_run)) {
-		int r = sd_bus_process(g_bus, NULL);
-		if (r > 0) continue;
+		/* drain a bounded batch of bus messages: with the DuplicateData filter BlueZ emits one
+		 * PropertiesChanged per advertisement heard from every neighbour, and an unbounded drain
+		 * would keep the step below (scans, matching, polling) from ever running */
+		int r = 0;
+		for (int k = 0; k < 64; k++) { r = sd_bus_process(g_bus, NULL); if (r <= 0) break; }
 		if (r < 0) { LOGE(TAG, "bus error %d", r); break; }
-		sd_bus_wait(g_bus, 200 * 1000ULL);
+		if (r == 0) sd_bus_wait(g_bus, 200 * 1000ULL);
 		double now = pf_now();
 		if (now - last_step < 1.0) continue;
 		last_step = now;

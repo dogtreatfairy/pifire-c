@@ -51,7 +51,18 @@ export async function renderProbes(view) {
       tog('Enabled', 'enabled'), tog('Show on Home screen', 'show_on_home', 'Also on the grill display'), tog('Ambient reference', 'ambient', 'Aux only: used by learning and cold start'),
       el('div', { class: 'btnrow', style: 'margin-top:12px' },
         // the confirm dialog replaces this one, so the removal saves itself instead of returning through close()
-        isNew ? null : el('button', { class: 'btn ghost', type: 'button', onclick: async () => { close(undefined); if (await confirmDialog('Remove probe?', p.name, 'Remove', true)) { const i = map.probe_info.indexOf(p); if (i >= 0) map.probe_info.splice(i, 1); await save(); } } }, 'Remove'),
+        isNew ? null : el('button', { class: 'btn ghost', type: 'button', onclick: async () => {
+          close(undefined);
+          if (isWireless(p.device)) {
+            // one physical probe = one device with its meat and ambient sensors: they go together
+            const sibs = map.probe_info.filter((x) => x.device === p.device);
+            if (await confirmDialog('Remove probe?', `${sibs.map((x) => x.name).join(' and ')} (the whole ${p.device} probe, unpaired)`, 'Remove', true)) {
+              map.probe_info = map.probe_info.filter((x) => x.device !== p.device);
+              const di = map.probe_devices.findIndex((d) => d.device === p.device); if (di >= 0) map.probe_devices.splice(di, 1);
+              await save();
+            }
+          } else if (await confirmDialog('Remove probe?', p.name, 'Remove', true)) { const i = map.probe_info.indexOf(p); if (i >= 0) map.probe_info.splice(i, 1); await save(); }
+        } }, isWireless(p.device) ? 'Unpair probe' : 'Remove'),
         el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'),
         el('button', { class: 'btn primary', type: 'button', onclick: () => { if (!draft.name) { toast('Name required', true); return; } Object.assign(p, draft); close('saved'); } }, 'Save')));
   }).then(async (r) => { if (r) await save(); });
