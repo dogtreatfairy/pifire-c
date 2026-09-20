@@ -3,6 +3,7 @@ import { renderHome } from './pages/home.js';
 import { renderHistory } from './pages/history.js';
 import { renderCook } from './pages/cook.js';
 import { renderSettings } from './pages/settings.js';
+import { icon as lucide } from './icons.js';
 import { renderMore } from './pages/more.js';
 import { renderNetwork } from './pages/network.js';
 
@@ -152,6 +153,20 @@ export function segmented(options, value, onchange) {
     wrap.append(el('button', { type: 'button', class: v === value ? 'active' : '', onclick: (e) => { wrap.querySelectorAll('button').forEach((b) => b.classList.remove('active')); e.currentTarget.classList.add('active'); onchange(v); } }, label));
   }
   return wrap;
+}
+
+// ---------- iOS-style grouped list: [icon tile][title / subtitle][chevron] ----------
+export function listGroup(title, rows, footer) {
+  const list = el('div', { class: 'ios-list' }, ...rows.filter(Boolean).map((r) => {
+    const tile = r.icon ? el('span', { class: 'tile', style: r.color ? `--tile:${r.color}` : '' }, lucide(r.icon)) : null;
+    const body = el('div', { class: 'body' }, el('div', { class: 't' }, r.title), r.sub ? el('div', { class: 's' }, r.sub) : null);
+    const right = r.value != null ? el('span', { class: 'v' }, r.value) : null;
+    const chevron = r.onclick || r.href ? lucide('chevron-right', 'ic chev') : null;
+    const attrs = { class: `row ${r.danger ? 'danger' : ''}`, type: 'button' };
+    if (r.onclick) attrs.onclick = r.onclick; else if (r.href) attrs.onclick = () => (location.hash = r.href);
+    return el('button', attrs, tile, body, right, chevron);
+  }));
+  return el('section', { class: 'ios-group' }, title ? el('h2', {}, title) : null, list, footer ? el('div', { class: 'foot' }, footer) : null);
 }
 
 // ---------- theme ----------

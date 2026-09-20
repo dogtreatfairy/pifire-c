@@ -1,4 +1,4 @@
-import { PF, el, api, cmd, patchSettings, toast, onStatus, confirmDialog, dialog, fmtTime, degUnit } from '../app.js';
+import { PF, el, api, cmd, patchSettings, toast, onStatus, confirmDialog, dialog, fmtTime, degUnit, listGroup } from '../app.js';
 import { fieldInput, readField } from './settings.js';
 import { renderNetwork } from './network.js';
 import { renderPellets } from './pellets.js';
@@ -12,10 +12,23 @@ export function renderMore(view, rest) {
     view.append(el('button', { class: 'btn ghost sm', onclick: () => (location.hash = '#/more') }, '‹ Back'));
     return subpages[page](view, rest.slice(1));
   }
-  view.append(el('div', { class: 'menu' },
-    ...[['learning', 'Learning & autotune', 'Feed-forward model, plant estimate, autotune'], ['pellets', 'Pellets', 'Brands, hopper level and usage'], ['hardware', 'Hardware setup', 'Board, pins, display, hopper sensor'], ['probes', 'Probes', 'Wired and Bluetooth probes, profiles, tuner'], ['network', 'Network', 'Wi-Fi and hotspot'],
-        ['manual', 'Manual outputs', 'Drive relays directly'], ['events', 'Events', 'Alerts and mode changes'], ['logs', 'Logs', 'Daemon log'], ['system', 'System', 'Health, restart, power'], ['about', 'About', '']]
-      .map(([id, title, sub]) => el('button', { class: 'btn', onclick: () => (location.hash = `#/more/${id}`) }, el('div', {}, el('div', {}, title), el('div', { class: 'muted', style: 'font-size:.76rem;font-weight:400' }, sub))))));
+  view.append(
+    listGroup('Tools', [
+      { href: '#/more/manual', icon: 'wrench', color: '#ff9f0a', title: 'Manual outputs', sub: 'Drive relays directly' },
+      { href: '#/more/pellets', icon: 'package', color: '#ac8e68', title: 'Pellets', sub: 'Brands, hopper level and usage' },
+      { href: '#/more/learning', icon: 'brain', color: '#bf5af2', title: 'Learning & autotune', sub: 'Feed-forward model, plant estimate, autotune' },
+    ]),
+    listGroup('Setup', [
+      { href: '#/settings/probes', icon: 'thermometer', color: '#ff453a', title: 'Probes', sub: 'Wired and Bluetooth probes, profiles, tuner' },
+      { href: '#/more/hardware', icon: 'cpu', color: '#64d2ff', title: 'Hardware setup', sub: 'Board, pins, display, hopper sensor' },
+      { href: '#/more/network', icon: 'wifi', color: '#0a84ff', title: 'Network', sub: 'Wi-Fi and hotspot' },
+    ]),
+    listGroup('Diagnostics', [
+      { href: '#/more/events', icon: 'scroll-text', color: '#ffd60a', title: 'Events', sub: 'Alerts and mode changes' },
+      { href: '#/more/logs', icon: 'file-text', color: '#8e8e93', title: 'Logs', sub: 'Daemon log' },
+      { href: '#/more/system', icon: 'monitor', color: '#8e8e93', title: 'System', sub: 'Health, updates, restart, power' },
+      { href: '#/more/about', icon: 'info', color: '#8e8e93', title: 'About', sub: '' },
+    ]));
 }
 
 function events(view) {
