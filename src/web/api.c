@@ -10,6 +10,7 @@
 #include "core/util.h"
 #include "controllers/registry.h"
 #include "features/cookfile.h"
+#include "features/cooklog.h"
 #include "features/learning.h"
 #include "features/pellets.h"
 #include "features/recipe.h"
@@ -348,10 +349,24 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		if (pf_recipe_delete(atoi(p + 9))) reply_err(resp, 400, "delete failed"); else reply_ok(resp);
 		return;
 	}
+	if (get && !strcmp(p, "/cooklog")) {
+		double from = 0, to = 0; char name[64];
+		const char *qf = strstr(req->query ? req->query : "", "from="), *qt = strstr(req->query ? req->query : "", "to=");
+		if (qf && qt) { from = atof(qf + 5); to = atof(qt + 3); snprintf(name, sizeof name, "range"); }
+		else pf_cooklog_default_window(&from, &to, name, sizeof name);
+		reply(resp, 200, pf_cooklog_json(from, to, name));
+		return;
+	}
 	if (get && !strcmp(p, "/cookfiles")) { reply(resp, 200, pf_cookfile_list()); return; }
 	if (!strncmp(p, "/cookfiles/", 11)) {
 		int id = atoi(p + 11);
 		const char *sub = strchr(p + 11, '/');
+		if (get && sub && !strcmp(sub, "/log")) {
+			double from, to; char name[64];
+			if (pf_cooklog_cook_window(id, &from, &to, name, sizeof name)) { reply_err(resp, 404, "no such cook"); return; }
+			reply(resp, 200, pf_cooklog_json(from, to, name));
+			return;
+		}
 		if (get) {
 			char *txt = pf_cookfile_read(id);
 			if (!txt) { reply_err(resp, 404, "no such cook file"); return; }

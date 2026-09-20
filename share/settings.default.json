@@ -65,7 +65,7 @@
     "rotation": 270,
     "spi_device": 0,
     "spi_hz": 24000000,
-    "backlight_timeout_s": 0,
+    "backlight_timeout_s": 30,
     "theme": "dark",
     "bgr": false
   },

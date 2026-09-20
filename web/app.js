@@ -47,8 +47,8 @@ let ws, wsTimer;
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onopen = () => { setConnected(true); };
-  ws.onclose = () => { setConnected(false); clearTimeout(wsTimer); wsTimer = setTimeout(connect, 2000); };
+  ws.onopen = () => { PF.everConnected = true; PF.wsRetry = 0; setConnected(true); };
+  ws.onclose = () => { setConnected(false); clearTimeout(wsTimer); const wait = Math.min(5000, 500 * 2 ** Math.min(4, PF.wsRetry++ || 0)); wsTimer = setTimeout(connect, wait); };
   ws.onerror = () => ws.close();
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
@@ -57,10 +57,14 @@ function connect() {
     else if (m.type === 'event') { PF.alertGen = (PF.alertGen || 0) + 1; alert(m); emit(); }
   };
 }
+let lostTimer = null;
 function setConnected(on) {
   PF.connected = on;
   document.getElementById('conn-dot').classList.toggle('on', on);
-  emit();
+  // the banner only appears after the link has been down for a while (a reconnect takes < 1 s and must not flash)
+  clearTimeout(lostTimer);
+  if (on) { PF.lost = false; emit(); }
+  else lostTimer = setTimeout(() => { PF.lost = true; emit(); }, 4000);
 }
 function emit() { for (const fn of PF.listeners) fn(PF.status); }
 export function onStatus(fn) { PF.listeners.add(fn); return () => PF.listeners.delete(fn); }
@@ -182,7 +186,7 @@ window.addEventListener('hashchange', route);
 onStatus((s) => {
   const b = document.getElementById('banner');
   const pill = document.getElementById('mode-pill');
-  if (!s) { b.hidden = !PF.connected ? false : true; if (!PF.connected) { b.className = 'banner warn'; b.textContent = 'Connecting to grill…'; } return; }
+  if (!s) { b.hidden = !PF.lost; if (PF.lost) { b.className = 'banner warn'; b.textContent = 'Connecting to grill…'; } return; }
   // mode pill: "Startup | 1:15" while a mode counts down, "Hold | 225°F" while holding
   let extra = '';
   if (s.mode === 'Startup' || s.mode === 'Reignite' || s.mode === 'Shutdown' || s.mode === 'Prime') {
@@ -195,7 +199,7 @@ onStatus((s) => {
   const primary = s.probes?.find((p) => p.role === 'Primary');
   tt.textContent = s.mode === 'Stop' ? `0${degUnit()}` : primary?.valid ? `${fmtTemp(primary.temp)}${degUnit()}` : '—';
   tt.hidden = document.documentElement.dataset.page === 'home';
-  if (!PF.connected) { b.hidden = false; b.className = 'banner warn'; b.textContent = 'Connection lost — reconnecting…'; return; }
+  if (PF.lost) { b.hidden = false; b.className = 'banner warn'; b.textContent = 'Connection lost — reconnecting…'; return; }
   if (s.safety.error_code) {
     b.hidden = false; b.className = 'banner';
     b.innerHTML = '';

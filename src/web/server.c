@@ -21,7 +21,7 @@
 #include <string.h>
 
 #define TAG "web"
-#define MAX_WS 6
+#define MAX_WS 16
 
 extern const pf_embedded_file pf_web_files[];
 extern const size_t pf_web_count;

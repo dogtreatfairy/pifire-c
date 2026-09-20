@@ -96,7 +96,9 @@ static void push_frame(tft_t *t)
 static void backlight(tft_t *t, bool on)
 {
 	if (t->led) pf_gpio_set(t->led, on);
+	cmd(t, on ? 0x29 : 0x28);   /* display on / off: no ghost image behind a dark backlight */
 	t->backlight_on = on;
+	if (on) t->last_hash = 0;   /* force a full redraw on wake */
 }
 
 /* ---------------- encoder ---------------- */
@@ -210,6 +212,7 @@ static void redraw(tft_t *t)
 {
 	apply_theme(t);
 	if (t->ui.screen == PF_SCR_MESSAGE && pf_now() > t->ui.message_until) t->ui.screen = PF_SCR_MAIN;
+	if (!t->backlight_on) return;   /* asleep: nothing to draw */
 	pf_screens_render(&t->fb, t->status, &t->ui);
 	unsigned h = hash_fb(&t->fb);
 	if (h != t->last_hash) { t->last_hash = h; push_frame(t); }
@@ -278,7 +281,11 @@ static void status(void *self, const char *json)
 	t->status = cJSON_Parse(json);
 	int k;
 	while ((k = atomic_exchange(&t->pending_key, PF_KEY_NONE)) != PF_KEY_NONE && k != PF_KEY_LONG_ENTER) handle_key(t, (pf_key)k);
-	if (t->backlight_timeout > 0 && t->backlight_on && pf_now() - t->last_activity > t->backlight_timeout && !strcmp(pf_json_str(t->status, "mode", ""), "Stop")) backlight(t, false);
+	{
+		bool stopped = !strcmp(pf_json_str(t->status, "mode", ""), "Stop");
+		if (!stopped && !t->backlight_on) backlight(t, true);                          /* any active mode: screen on */
+		if (stopped && t->backlight_on && t->backlight_timeout > 0 && t->ui.screen == PF_SCR_MAIN && pf_now() - t->last_activity > t->backlight_timeout) backlight(t, false);
+	}
 	redraw(t);
 	pthread_mutex_unlock(&t->mu);
 }

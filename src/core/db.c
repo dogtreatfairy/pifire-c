@@ -18,6 +18,8 @@ static const char *schema_v1 =
 	"CREATE TABLE IF NOT EXISTS history(ts REAL NOT NULL, mode INTEGER, setpoint REAL, u_raw REAL, u_applied REAL, fan_pct INTEGER, outputs INTEGER);"
 	"CREATE INDEX IF NOT EXISTS history_ts ON history(ts);"
 	"CREATE TABLE IF NOT EXISTS history_probe(ts REAL NOT NULL, label TEXT NOT NULL, temp REAL, target REAL);"
+	"CREATE TABLE IF NOT EXISTS history_ctrl(ts REAL NOT NULL, u_ff REAL, p REAL, i REAL, d REAL, ff REAL, ambient REAL, flags INTEGER, pmode INTEGER, cycle_s REAL);"
+	"CREATE INDEX IF NOT EXISTS history_ctrl_ts ON history_ctrl(ts);"
 	"CREATE INDEX IF NOT EXISTS history_probe_ts ON history_probe(ts, label);"
 	"CREATE TABLE IF NOT EXISTS cooks(id INTEGER PRIMARY KEY, start_ts REAL, end_ts REAL, name TEXT, metrics TEXT);"
 	"CREATE TABLE IF NOT EXISTS observations(id INTEGER PRIMARY KEY, ts REAL, controller TEXT, setpoint_c REAL, ambient_c REAL, u_mean REAL, pit_stdev REAL, pellet TEXT);"
@@ -162,10 +164,11 @@ cJSON *pf_db_events_recent(int limit)
 int pf_db_history_write(const pf_hist_sample *samples, int n)
 {
 	if (n <= 0) return 0;
-	sqlite3_stmt *s1 = NULL, *s2 = NULL;
+	sqlite3_stmt *s1 = NULL, *s2 = NULL, *s3 = NULL;
 	if (sqlite3_prepare_v2(g_db, "INSERT INTO history(ts,mode,setpoint,u_raw,u_applied,fan_pct,outputs) VALUES(?,?,?,?,?,?,?)", -1, &s1, NULL) != SQLITE_OK ||
-	    sqlite3_prepare_v2(g_db, "INSERT INTO history_probe(ts,label,temp,target) VALUES(?,?,?,?)", -1, &s2, NULL) != SQLITE_OK) {
-		sqlite3_finalize(s1); sqlite3_finalize(s2);
+	    sqlite3_prepare_v2(g_db, "INSERT INTO history_probe(ts,label,temp,target) VALUES(?,?,?,?)", -1, &s2, NULL) != SQLITE_OK ||
+	    sqlite3_prepare_v2(g_db, "INSERT INTO history_ctrl(ts,u_ff,p,i,d,ff,ambient,flags,pmode,cycle_s) VALUES(?,?,?,?,?,?,?,?,?,?)", -1, &s3, NULL) != SQLITE_OK) {
+		sqlite3_finalize(s1); sqlite3_finalize(s2); sqlite3_finalize(s3);
 		return -1;
 	}
 	pf_db_exec("BEGIN");
@@ -180,6 +183,12 @@ int pf_db_history_write(const pf_hist_sample *samples, int n)
 		sqlite3_bind_int(s1, 6, s->fan_pct);
 		sqlite3_bind_int(s1, 7, (int)s->outputs);
 		sqlite3_step(s1);
+		sqlite3_reset(s3);
+		sqlite3_bind_double(s3, 1, s->ts);
+		sqlite3_bind_double(s3, 2, s->u_ff); sqlite3_bind_double(s3, 3, s->p); sqlite3_bind_double(s3, 4, s->i); sqlite3_bind_double(s3, 5, s->d); sqlite3_bind_double(s3, 6, s->ff);
+		if (isnan(s->ambient)) sqlite3_bind_null(s3, 7); else sqlite3_bind_double(s3, 7, s->ambient);
+		sqlite3_bind_int(s3, 8, (int)s->flags); sqlite3_bind_int(s3, 9, s->pmode); sqlite3_bind_double(s3, 10, s->cycle_s);
+		sqlite3_step(s3);
 		for (int p = 0; p < s->nprobes; p++) {
 			sqlite3_reset(s2);
 			sqlite3_bind_double(s2, 1, s->ts);
@@ -193,6 +202,7 @@ int pf_db_history_write(const pf_hist_sample *samples, int n)
 	int rc = pf_db_exec("COMMIT");
 	sqlite3_finalize(s1);
 	sqlite3_finalize(s2);
+	sqlite3_finalize(s3);
 	return rc;
 }
 
@@ -267,14 +277,14 @@ cJSON *pf_db_history_query(double from, double to, int res_s)
 
 int pf_db_history_clear(void)
 {
-	return pf_db_exec("DELETE FROM history; DELETE FROM history_probe;");
+	return pf_db_exec("DELETE FROM history; DELETE FROM history_probe; DELETE FROM history_ctrl;");
 }
 
 int pf_db_history_prune(double older_than_ts)
 {
 	sqlite3_stmt *st;
 	int rc = 0;
-	const char *qs[] = { "DELETE FROM history WHERE ts<?", "DELETE FROM history_probe WHERE ts<?" };
+	const char *qs[] = { "DELETE FROM history WHERE ts<?", "DELETE FROM history_probe WHERE ts<?", "DELETE FROM history_ctrl WHERE ts<?" };
 	for (int i = 0; i < 2; i++) {
 		if (sqlite3_prepare_v2(g_db, qs[i], -1, &st, NULL) != SQLITE_OK) return -1;
 		sqlite3_bind_double(st, 1, older_than_ts);

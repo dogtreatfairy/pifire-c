@@ -13,7 +13,7 @@ export function renderHistory(view) {
   const cooks = el('div', { class: 'list' });
   let viewing = null; // cook file being viewed, or null for live
   const title = el('div', { class: 'muted', style: 'font-size:.85rem;margin:6px 0' });
-  view.append(el('div', { class: 'card' }, header, title, chartEl), stats,
+  view.append(el('div', { class: 'row between', style: 'margin-bottom:8px' }, el('h2', { style: 'margin:0' }, 'History'), el('a', { class: 'btn sm', href: '/api/v1/cooklog', download: 'pifire-cooklog.json', title: 'Running cook, else the last cook: samples with controller terms, settings and learning state' }, 'Export analysis log')), el('div', { class: 'card' }, header, title, chartEl), stats,
     el('div', { class: 'btnrow' }, el('button', { class: 'btn ghost', onclick: async () => { if (await confirmDialog('Clear history?', 'Removes all stored samples.', 'Clear', true)) { await api('/history/clear', { body: {} }); load(); } } }, 'Clear history')),
     el('h2', {}, 'Cook files'), el('div', { class: 'card' }, cooks));
 
@@ -27,6 +27,7 @@ export function renderHistory(view) {
           el('div', {}, c.name), el('div', { class: 'meta' }, `${(m.duration_s / 3600).toFixed(1)} h · max ${Math.round(m.max_pit || 0)}${degUnit()} · ≈${((m.pellets_g || 0) / 453.6).toFixed(1)} lb`)),
         el('div', { class: 'btnrow' },
           el('a', { class: 'btn sm ghost', href: `/api/v1/cookfiles/${c.id}`, download: `${c.name.replace(/[^\w.-]+/g, '_')}.json` }, 'Download'),
+          el('a', { class: 'btn sm ghost', href: `/api/v1/cookfiles/${c.id}/log`, download: `cooklog_${c.name.replace(/[^\w.-]+/g, '_')}.json`, title: 'Full analysis log: samples with controller terms, settings, learning state' }, 'Analysis log'),
           el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog('Delete cook file?', c.name, 'Delete', true)) { await api(`/cookfiles/${c.id}/delete`, { body: {} }); loadCooks(); } } }, 'Delete'))));
     }
     if (!list.length) cooks.append(el('div', { class: 'muted' }, 'Cook files are saved automatically when a cook ends.'));

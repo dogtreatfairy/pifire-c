@@ -144,6 +144,7 @@ add_library(pfcore STATIC
   src/features/mqtt.c
   src/features/webhook.c
   src/features/update.c
+  src/features/cooklog.c
   src/display/registry.c
   src/display/gfx.c
   src/display/screens.c

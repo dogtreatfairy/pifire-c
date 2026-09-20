@@ -59,6 +59,10 @@ void pf_history_record(const pf_status *s, double now, double sample_s)
 	h->u_applied = s->u_applied;
 	h->fan_pct = (s->outputs >> PF_OUT_FAN) & 1 ? (s->fan_pct ? s->fan_pct : 100) : 0;
 	h->outputs = s->outputs;
+	h->u_ff = s->u_ff; h->p = s->ctrl_dbg.p; h->i = s->ctrl_dbg.i; h->d = s->ctrl_dbg.d; h->ff = s->ctrl_dbg.ff;
+	h->ambient = s->ambient_c; h->cycle_s = s->cycle_s;
+	h->flags = (s->lid_open ? 1u : 0u) | (s->s_plus ? 2u : 0u) | (s->pwm_control ? 4u : 0u) | (s->target_reached ? 8u : 0u) | (s->coldstart_active ? 16u : 0u) | (s->saturated < 0 ? 32u : 0u) | (s->saturated > 0 ? 64u : 0u);
+	h->pmode = s->pmode;
 	h->nprobes = 0;
 	for (int i = 0; i < s->sensors.n && h->nprobes < PF_MAX_PROBES; i++) {
 		const pf_probe_reading *p = &s->sensors.p[i];
