@@ -96,7 +96,7 @@ int pf_api_command_json(const char *json, char *err, size_t errn)
 		int m = pf_mode_from_name(pf_json_str(j, "mode", ""));
 		if (m < 0) { snprintf(err, errn, "unknown mode"); rc = -1; }
 		else if (m == PF_MODE_ERROR) { snprintf(err, errn, "cannot request Error mode"); rc = -1; }
-		else { c.type = PF_CMD_MODE; c.mode = (pf_mode)m; c.num = pf_json_num(j, "setpoint", 0); }
+		else { c.type = PF_CMD_MODE; c.mode = (pf_mode)m; c.num = pf_json_num(j, "setpoint", 0); c.flag = pf_json_bool(j, "force", false); /* force: leave Startup/Reignite now */ }
 	} else if (!strcmp(cmd, "setpoint")) {
 		c.type = PF_CMD_SETPOINT; c.num = pf_json_num(j, "setpoint", 0);
 		if (c.num <= 0) { snprintf(err, errn, "setpoint required"); rc = -1; }

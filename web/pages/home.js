@@ -4,8 +4,8 @@ import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, numberDialog, dia
 // target line, run timer + hopper, the PiFire-style control bar, probe cells, and manual output switches
 // while monitoring. The mode with its countdown or target lives in the app header (app.js).
 
-const presetsF = [180, 200, 225, 250, 275, 300, 350, 400];
-const presetsC = [80, 95, 107, 120, 135, 150, 175, 205];
+const presetsF = [160, 180, 200, 225, 250, 275, 300, 350, 400];
+const presetsC = [70, 80, 95, 107, 120, 135, 150, 175, 205];
 const presets = () => (PF.units === 'C' ? presetsC : presetsF);
 const gaugeMax = () => (PF.units === 'C' ? 320 : 600);
 
@@ -14,14 +14,14 @@ const I = {
   play: 'M8 5v14l11-7z',
   stop: 'M6 6h12v12H6z',
   glasses: 'M6 10a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zm12 0a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zM9.5 13.5h5M2 12l2-4h3M22 12l-2-4h-3',
-  target: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 4a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0 3.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z',
+  target: 'M12 2v4M12 18v4M2 12h4M18 12h4M12 5.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM12 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z',
   prime: 'M5 6l6 6-6 6M12 6l6 6-6 6',
   smoke: 'M6 15a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 17 8.5 3.5 3.5 0 0 1 17 15H6z',
   power: 'M12 3v9M6.3 7.3a8 8 0 1 0 11.4 0',
   chevron: 'M7 14l5-5 5 5',
   wrench: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.4 2.4-2.1-2.1z',
 };
-const STROKED = ['glasses', 'prime', 'power', 'chevron'];
+const STROKED = ['glasses', 'prime', 'power', 'chevron', 'target'];
 const icon = (name) => {
   const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   s.setAttribute('viewBox', '0 0 24 24');
@@ -43,7 +43,7 @@ function buildGauge() {
   svg.setAttribute('viewBox', '0 0 240 240'); svg.setAttribute('class', 'gauge'); svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', 'Grill temperature');
   svg.innerHTML = `<path class="track" d="${arcPath(START, START + SWEEP)}" fill="none" stroke-width="12"/>
     <path class="arc" id="g-arc" d="${arcPath(START, START + 0.01)}" fill="none" stroke-width="12"/>
-    <line class="sp" id="g-sp" x1="0" y1="0" x2="0" y2="0" stroke-width="4" visibility="hidden"/>
+    <g id="g-sp" visibility="hidden"><line class="sp" x1="0" y1="0" x2="0" y2="0" stroke-width="4"/><polygon class="spm" id="g-spm" points="0,0 0,0 0,0"/></g>
     <text class="label" x="120" y="82" text-anchor="middle" id="g-label">Grill</text>
     <text class="big" x="120" y="146" text-anchor="middle" id="g-temp">0</text>
     <text class="unit" x="120" y="176" text-anchor="middle" id="g-unit">°F</text>`;
@@ -62,17 +62,21 @@ function updateGauge(svg, s, primary, stopped) {
   const holdLike = s.mode === 'Hold' || s.mode === 'Reignite' || (s.mode === 'Startup' && s.next_mode === 'Hold');
   if (holdLike && s.setpoint > 0) {
     const a = START + SWEEP * Math.min(1, s.setpoint / max);
-    const [x1, y1] = polar(a, R - 11), [x2, y2] = polar(a, R + 11);
-    sp.setAttribute('x1', x1); sp.setAttribute('y1', y1); sp.setAttribute('x2', x2); sp.setAttribute('y2', y2);
+    const [x1, y1] = polar(a, R - 10), [x2, y2] = polar(a, R + 10);
+    const line = sp.querySelector('line');
+    line.setAttribute('x1', x1); line.setAttribute('y1', y1); line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+    // triangle pointing at the ring from outside
+    const [tx, ty] = polar(a, R + 13), [lx, ly] = polar(a - 4, R + 23), [rx, ry] = polar(a + 4, R + 23);
+    sp.querySelector('#g-spm').setAttribute('points', `${tx},${ty} ${lx},${ly} ${rx},${ry}`);
     sp.setAttribute('visibility', 'visible');
   } else sp.setAttribute('visibility', 'hidden');
 }
 
 // ---- actions
-const holdAt = async (s, change) => {
+const holdAt = async (s, change, force = false) => {
   const v = await numberDialog('Hold temperature', s.setpoint || PF.settings?.startup?.start_to_mode?.primary_setpoint || (PF.units === 'C' ? 107 : 225), { presets: presets() });
   if (!v) return;
-  if (change) cmd({ cmd: 'setpoint', setpoint: v }); else cmd({ cmd: 'mode', mode: 'Hold', setpoint: v });
+  if (change) cmd({ cmd: 'setpoint', setpoint: v }); else cmd({ cmd: 'mode', mode: 'Hold', setpoint: v, force });
 };
 // Play: honours Settings -> Startup -> "After startup go to" and the hold prompt, like the original
 async function startGrill() {
@@ -90,44 +94,52 @@ function primeMenu() {
       el('button', { class: 'btn primary', type: 'button', onclick: async () => { close(); const g = await numberDialog('Prime amount', 10, { min: 1, max: 100, step: 5, unit: ' g', presets: [5, 10, 20, 30] }); if (g) cmd({ cmd: 'prime', amount: g, next: 'Startup' }); } }, 'Prime, then start')),
     el('button', { class: 'btn ghost block', type: 'button', onclick: () => close() }, 'Cancel')));
 }
-function pmodeMenu() {
-  const cur = PF.settings?.cycle_data?.PMode ?? 2;
-  return dialog((close) => el('div', {}, el('h3', {}, 'P-Mode'),
-    el('p', { class: 'muted', style: 'font-size:.85rem' }, 'Pause between auger runs in Smoke: higher = fewer pellets, more smoke, lower temperature.'),
-    el('div', { class: 'presets' }, ...Array.from({ length: 10 }, (_, n) => el('button', { class: `btn ${n === cur ? 'primary' : ''}`, type: 'button', onclick: async () => { close(); try { await patchSettings('cycle_data', { PMode: n }); toast(`P-Mode ${n}`); } catch (e) { toast(e.message, true); } } }, `P${n}`))),
-    el('button', { class: 'btn ghost block', type: 'button', onclick: () => close() }, 'Cancel')));
-}
+// Smoke button menu: Smoke <-> Smoke+ plus a 1-9 dial pad for the P-mode
 function smokeMenu(s) {
-  return dialog((close) => el('div', {}, el('h3', {}, 'Smoke'),
-    el('div', { class: 'opts' },
-      el('button', { class: 'btn', type: 'button', onclick: async () => { close(); const to = !s.s_plus; if (await confirmDialog(to ? 'Switch to Smoke+?' : 'Switch to Smoke?', to ? 'The fan cycles on and off for more smoke while the pit stays in range.' : 'The fan runs continuously again.', to ? 'Smoke+' : 'Smoke')) cmd({ cmd: 'smoke_plus', enabled: to }); } }, s.s_plus ? 'Switch to Smoke' : 'Switch to Smoke+'),
-      el('button', { class: 'btn', type: 'button', onclick: () => { close(); pmodeMenu(); } }, `P-Mode (now P${PF.settings?.cycle_data?.PMode ?? '?'})`)),
+  const cur = PF.settings?.cycle_data?.PMode ?? 2;
+  return dialog((close) => el('div', {}, el('h3', {}, s.s_plus ? 'Smoke+' : 'Smoke'),
+    el('button', { class: 'btn block', type: 'button', style: 'margin-bottom:12px', onclick: async () => { close(); const to = !s.s_plus; if (await confirmDialog(to ? 'Switch to Smoke+?' : 'Switch to Smoke?', to ? 'The fan cycles on and off for more smoke while the pit stays in range.' : 'The fan runs continuously again.', to ? 'Smoke+' : 'Smoke')) cmd({ cmd: 'smoke_plus', enabled: to }); } }, s.s_plus ? 'Switch to Smoke' : 'Switch to Smoke+'),
+    el('div', { class: 'muted', style: 'font-size:.85rem;margin-bottom:6px' }, `P-Mode · now ${cur} · higher = fewer pellets, more smoke`),
+    el('div', { class: 'presets pad' }, ...Array.from({ length: 9 }, (_, i) => i + 1).map((n) => el('button', { class: `btn ${n === cur ? 'primary' : ''}`, type: 'button', onclick: async () => { close(); try { await patchSettings('cycle_data', { PMode: n }); toast(`P-Mode ${n}`); } catch (e) { toast(e.message, true); } } }, String(n)))),
     el('button', { class: 'btn ghost block', type: 'button', onclick: () => close() }, 'Cancel')));
 }
-const shutdown = (s) => confirmDialog('Shut down?', `Feed stops and the fan runs for ${fmtDur(s.timers.shutdown_duration)} to cool the pot.`, 'Shutdown').then((ok) => ok && cmd({ cmd: 'mode', mode: 'Shutdown' }));
+// Shutdown dialog: the normal cool-down, or an immediate Emergency Stop (everything off, no cool-down)
+const shutdown = (s) => dialog((close) => el('div', {}, el('h3', {}, 'Shut down?'),
+  el('p', { class: 'muted' }, `Feed stops and the fan runs for ${fmtDur(s.timers.shutdown_duration)} to cool the pot.`),
+  el('div', { class: 'btnrow' },
+    el('button', { class: 'btn ghost', type: 'button', onclick: () => close() }, 'Cancel'),
+    el('button', { class: 'btn primary', type: 'button', onclick: () => { close(); cmd({ cmd: 'mode', mode: 'Shutdown' }); } }, 'Shutdown')),
+  el('button', { class: 'btn danger block', type: 'button', style: 'margin-top:10px', onclick: () => { close(); cmd({ cmd: 'stop' }); } }, 'Emergency Stop — all outputs off now')));
 const stopGrill = (s) => (s.mode === 'Error' ? cmd({ cmd: 'stop' }) : confirmDialog('Stop the grill?', 'All outputs turn off immediately.', 'Stop', true).then((ok) => ok && cmd({ cmd: 'stop' })));
 
 // ---- control bar: the transitions that make sense from the current mode
 function controlBar(s) {
-  const b = (ic, label, opts = {}) => el('button', { class: `cb ${opts.active ? 'active' : ''} ${opts.cls || ''}`, disabled: !!opts.disabled, onclick: opts.onclick, 'aria-label': opts.aria || label }, icon(ic), label ? el('span', {}, label) : null);
+  const b = (ic, label, opts = {}) => el('button', { class: `cb ${opts.active ? 'active' : ''} ${opts.cls || ''}`, disabled: !!opts.disabled, onclick: opts.onclick, 'aria-label': opts.aria || label }, icon(ic), label ? el('span', {}, label) : null, opts.caret ? el('span', { class: 'caret' }, icon('chevron')) : null);
   const left = [], right = [];
-  const stop = b('stop', '', { cls: 'danger', active: s.mode === 'Stop', onclick: () => stopGrill(s), aria: 'Stop', disabled: s.mode === 'Stop' });
+  const stop = b('stop', '', { cls: 'danger', onclick: () => stopGrill(s), aria: 'Stop' });
   switch (s.mode) {
     case 'Stop': case 'Monitor':
       left.push(b('prime', '', { onclick: primeMenu, aria: 'Prime' }), el('span', { class: 'cb-caret' }, icon('chevron')));
       right.push(b('play', '', { cls: 'ok', onclick: startGrill, aria: 'Start' }),
-        b('glasses', '', { active: s.mode === 'Monitor', onclick: () => cmd({ cmd: 'mode', mode: s.mode === 'Monitor' ? 'Stop' : 'Monitor' }), aria: 'Monitor' }), stop);
+        b('glasses', '', { active: s.mode === 'Monitor', onclick: () => cmd({ cmd: 'mode', mode: s.mode === 'Monitor' ? 'Stop' : 'Monitor' }), aria: 'Monitor' }),
+        b('stop', '', { cls: 'danger', active: s.mode === 'Stop', disabled: s.mode === 'Stop', onclick: () => cmd({ cmd: 'stop' }), aria: 'Stop' }));
       break;
-    case 'Startup': case 'Reignite': case 'Prime':
-      right.push(b('play', s.mode, { active: true, cls: 'ok', disabled: true }), b('power', '', { onclick: () => shutdown(s), aria: 'Shutdown' }), stop);
+    case 'Startup': case 'Reignite':
+      right.push(b('play', '', { active: true, cls: 'ok', disabled: true, aria: s.mode }),
+        b('smoke', '', { cls: 'accent', onclick: () => confirmDialog('Skip to Smoke?', 'Ends startup now. Only do this once the fire is clearly lit.', 'Smoke').then((ok) => ok && cmd({ cmd: 'mode', mode: 'Smoke', force: true })), aria: 'Smoke' }),
+        b('target', '', { cls: 'ok', onclick: () => confirmDialog('Skip to Hold?', 'Ends startup now. Only do this once the fire is clearly lit.', 'Hold').then((ok) => ok && holdAt(s, false, true)), aria: 'Hold' }),
+        b('power', '', { onclick: () => shutdown(s), aria: 'Shutdown' }));
+      break;
+    case 'Prime':
+      right.push(b('play', 'Prime', { active: true, cls: 'ok', disabled: true }), b('power', '', { onclick: () => shutdown(s), aria: 'Shutdown' }));
       break;
     case 'Smoke':
-      right.push(b('smoke', s.s_plus ? 'Smoke+' : `P${PF.settings?.cycle_data?.PMode ?? ''}`, { active: true, cls: 'ok', onclick: () => smokeMenu(s) }),
-        b('target', '', { onclick: () => holdAt(s, false), aria: 'Hold' }), b('power', '', { onclick: () => shutdown(s), aria: 'Shutdown' }), stop);
+      right.push(b('smoke', s.s_plus ? 'Smoke+' : `P${PF.settings?.cycle_data?.PMode ?? ''}`, { active: true, cls: 'accent', caret: true, onclick: () => smokeMenu(s) }),
+        b('target', '', { onclick: () => holdAt(s, false), aria: 'Hold' }), b('power', '', { onclick: () => shutdown(s), aria: 'Shutdown' }));
       break;
     case 'Hold':
       right.push(b('target', `${fmtTemp(s.setpoint)}°`, { active: true, cls: 'ok', onclick: () => holdAt(s, true) }),
-        b('smoke', '', { onclick: () => cmd({ cmd: 'mode', mode: 'Smoke' }), aria: 'Smoke' }), b('power', '', { onclick: () => shutdown(s), aria: 'Shutdown' }), stop);
+        b('smoke', '', { onclick: () => cmd({ cmd: 'mode', mode: 'Smoke' }), aria: 'Smoke' }), b('power', '', { onclick: () => shutdown(s), aria: 'Shutdown' }));
       break;
     case 'Shutdown':
       right.push(b('power', 'Shutdown', { active: true, cls: 'info', disabled: true }), stop);
@@ -143,19 +155,20 @@ function controlBar(s) {
 }
 
 export function renderHome(view) {
-  const outs = ['auger', 'fan', 'igniter'].map((k) => el('span', { class: 'out', 'data-k': k }, k === 'auger' ? 'AUG' : k === 'fan' ? 'FAN' : 'IGN'));
-  const pchip = el('button', { class: 'out pmode', onclick: () => pmodeMenu() }, 'P-');
-  const header = el('div', { class: 'hbar' }, ...outs, pchip);
+  const outs = ['fan', 'auger', 'igniter'].map((k) => el('span', { class: 'out', 'data-k': k }, k === 'auger' ? 'AUG' : k === 'fan' ? 'FAN' : 'IGN'));
+  const header = el('div', { class: 'hbar' }, ...outs);
   const gauge = buildGauge();
   const target = el('div', { class: 'line1' });
   const detail = el('div', { class: 'line2' });
   const bar = el('div');
+  const hopBrand = el('span', { class: 'muted' }), hopPct = el('span', { class: 'pct' }), hopFill = el('div');
+  const hopper = el('div', { class: 'card tight hopper', hidden: true }, el('div', { class: 'row between' }, el('div', {}, el('strong', {}, 'Hopper'), ' ', hopBrand), hopPct), el('div', { class: 'progress' }, hopFill));
   const manual = el('div', { class: 'card tight', hidden: true });
   const probes = el('div', { class: 'pgrid' });
   const ctrl = el('div', { class: 'kv' });
   view.append(
     el('div', { class: 'card hero' }, header, gauge, target, detail, bar),
-    manual, probes,
+    hopper, manual, probes,
     el('details', { class: 'card tight' }, el('summary', { class: 'muted' }, 'Controller'), ctrl),
   );
 
@@ -172,9 +185,6 @@ export function renderHome(view) {
     const u = degUnit();
     for (const o of outs) { const on = !!s.outputs[o.dataset.k]; o.classList.toggle('on', on); o.textContent = o.dataset.k === 'fan' && on && PF.settings?.platform?.dc_fan ? `FAN ${s.outputs.fan_pct}%` : o.dataset.k === 'auger' ? 'AUG' : o.dataset.k === 'fan' ? 'FAN' : 'IGN'; }
     const pm = PF.settings?.cycle_data?.PMode;
-    pchip.textContent = pm == null ? 'P-' : `P${pm}`;
-    pchip.classList.toggle('on', s.mode === 'Smoke' || s.mode === 'Startup' || s.mode === 'Reignite');
-    pchip.disabled = s.mode !== 'Smoke';
 
     updateGauge(gauge, s, primary, stopped);
 
@@ -182,7 +192,7 @@ export function renderHome(view) {
     switch (s.mode) {
       case 'Hold': t = { text: `Target ${fmtTemp(s.setpoint)}${u}`, cls: '', tap: true }; break;
       case 'Startup': case 'Reignite': t = s.next_mode === 'Hold' && s.setpoint > 0 ? { text: `Igniting → hold ${fmtTemp(s.setpoint)}${u}`, cls: '', tap: true } : { text: 'Igniting → smoke', cls: '' }; break;
-      case 'Smoke': t = { text: s.s_plus ? 'Smoke+' : 'Smoke', cls: 'ok' }; break;
+      case 'Smoke': t = { text: s.s_plus ? 'Smoke+' : 'Smoke', cls: 'accent' }; break;
       case 'Shutdown': t = { text: 'Cooling down', cls: 'info' }; break;
       case 'Prime': t = { text: `Priming ${s.timers.prime_amount} g`, cls: '' }; break;
       case 'Error': t = { text: s.safety.error_code.replace(/_/g, ' '), cls: 'danger' }; break;
@@ -196,8 +206,15 @@ export function renderHome(view) {
     if (s.mode === 'Hold' && s.lid_open) bits.push('Lid open · auger paused');
     if ((s.mode === 'Startup' || s.mode === 'Reignite') && s.coldstart.active && !s.coldstart.reached) bits.push('Cold start · waiting for rise');
     else if ((s.mode === 'Startup' || s.mode === 'Reignite') && s.timers.startup_exit_temp > 0) bits.push(`Exits at ${fmtTemp(s.timers.startup_exit_temp)}${u}`);
-    if (s.hopper_pct >= 0) bits.push(`Hopper ${s.hopper_pct}%${brand ? ' · ' + brand : ''}`);
-    detail.textContent = bits.join(' · ') || ' ';
+    detail.textContent = bits.join(' · ') || '\u00a0';
+    hopper.hidden = !(s.hopper_pct >= 0);
+    if (s.hopper_pct >= 0) {
+      const low = s.hopper_pct <= (PF.settings?.pelletlevel?.warning_level ?? 25);
+      hopBrand.textContent = brand || '';
+      hopPct.textContent = `${s.hopper_pct}%`;
+      hopFill.style.width = `${Math.max(0, Math.min(100, s.hopper_pct))}%`;
+      hopper.classList.toggle('low', low);
+    }
 
     const key = `${s.mode}|${s.s_plus}|${s.setpoint}|${pm}`;
     if (key !== lastBar) { lastBar = key; bar.innerHTML = ''; bar.append(controlBar(s)); }

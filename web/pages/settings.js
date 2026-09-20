@@ -26,6 +26,7 @@ const PAGES = [
     { id: 'startup', title: 'Startup', fields: [
       I('duration', 'Startup time (s)', 'Igniter and startup feed run for this long', { min: 60, max: 900 }),
       T('startup_exit_temp', 'End startup early at', 'Leave startup as soon as the pit reaches this temperature (0 = wait for the timer)', { allowZero: true }),
+      { path: 'exit_rise', label: 'End startup after a rise of', help: 'Leave startup once the pit has climbed this much above where it was when you pressed start - proof the fire is lit (0 = off)', type: 'tempdelta' },
       S('start_to_mode.after_startup_mode', 'After startup go to', '', [['Smoke', 'Smoke'], ['Hold', 'Hold']]),
       T('start_to_mode.primary_setpoint', 'Default hold temperature', 'Used when starting into Hold without choosing a temperature'),
       I('prime_on_startup', 'Prime before startup (g)', 'Pellets pushed into the pot before igniting (0 = off)', { min: 0 }),

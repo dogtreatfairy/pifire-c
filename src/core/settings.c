@@ -23,7 +23,7 @@ static const char *const temp_paths[] = {
 };
 /* Temperature *deltas* (no offset). */
 static const char *const delta_paths[] = {
-	"safety.coldstart.delta_rise", NULL
+	"safety.coldstart.delta_rise", "startup.exit_rise", NULL
 };
 
 /* ---------------- generic JSON path helpers ---------------- */

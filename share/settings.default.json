@@ -159,6 +159,7 @@
     "duration": 240,
     "prime_on_startup": 0,
     "startup_exit_temp": 140,
+    "exit_rise": 15,
     "start_to_mode": {
       "after_startup_mode": "Hold",
       "primary_setpoint": 350,

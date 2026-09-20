@@ -24,7 +24,7 @@ typedef struct {
 	double manual_override_s, igniter_max_on_s, auger_max_on_s, probe_fault_s, error_cooldown_fan_s;
 	bool coldstart; double coldstart_delta_c, coldstart_timeout_s, coldstart_window_s; bool coldstart_exit_on_rise;
 	/* startup / shutdown */
-	double startup_duration_s, prime_on_startup_g, startup_exit_c;
+	double startup_duration_s, prime_on_startup_g, startup_exit_c, startup_exit_rise_c;
 	pf_mode after_startup_mode; double after_startup_setpoint_c;
 	bool smartstart; double ss_exit_c; int ss_n; double ss_ranges_c[PF_SS_MAX];
 	struct { double startuptime, augerontime; int p_mode; } ss_prof[PF_SS_MAX + 1];
@@ -84,6 +84,7 @@ typedef struct {
 	/* prime / startup / shutdown */
 	double prime_duration_s, prime_amount_g;
 	double startup_duration_s, raw_startup_c, startup_exit_c; int ss_profile;
+	double startup_base_c;      /* pit when the current Startup/Reignite began (exit_rise reference), NAN if unknown */
 	pf_safety safety;
 	pf_notify notify;
 	struct {

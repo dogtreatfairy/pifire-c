@@ -128,7 +128,7 @@ export function numberDialog(title, value, { min = 0, max = 600, step = 5, prese
         el('button', { class: 'btn', type: 'button', onclick: () => (inp.value = (parseFloat(inp.value) || 0) - step) }, '−'),
         inp, el('span', { class: 'muted' }, unit),
         el('button', { class: 'btn', type: 'button', onclick: () => (inp.value = (parseFloat(inp.value) || 0) + step) }, '+')),
-      presets.length ? el('div', { class: 'presets' }, presets.map((p) => el('button', { class: 'btn sm', type: 'button', onclick: () => (inp.value = p) }, `${p}${unit}`))) : null,
+      presets.length ? el('div', { class: `presets ${presets.length === 9 ? 'pad' : ''}` }, presets.map((p) => el('button', { class: `btn ${presets.length === 9 ? '' : 'sm'} ${Number(value) === p ? 'primary' : ''}`, type: 'button', onclick: () => { if (presets.length === 9) close(p); else inp.value = p; } }, `${p}${presets.length === 9 ? '°' : unit}`))) : null,
       el('div', { class: 'btnrow' },
         el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'),
         el('button', { class: 'btn primary', type: 'submit' }, 'Set')));

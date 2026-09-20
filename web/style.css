@@ -71,7 +71,8 @@ small, .muted { color: var(--muted); }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; font-size: .8rem; font-weight: 600; background: var(--surface2); }
 .pill-mode { background: var(--surface2); }
-.pill-mode[data-mode="Hold"], .pill-mode[data-mode="Smoke"] { background: color-mix(in oklab, var(--ok) 25%, var(--surface2)); }
+.pill-mode[data-mode="Hold"] { background: color-mix(in oklab, var(--ok) 25%, var(--surface2)); }
+.pill-mode[data-mode="Smoke"] { background: color-mix(in oklab, var(--accent) 30%, var(--surface2)); }
 .pill-mode[data-mode="Startup"], .pill-mode[data-mode="Reignite"], .pill-mode[data-mode="Prime"] { background: color-mix(in oklab, var(--accent) 30%, var(--surface2)); }
 .pill-mode[data-mode="Shutdown"] { background: color-mix(in oklab, var(--info) 30%, var(--surface2)); }
 .pill-mode[data-mode="Error"] { background: var(--danger); color: #fff; }
@@ -102,7 +103,8 @@ small, .muted { color: var(--muted); }
 .gauge { width: min(78vw, 300px); height: auto; aspect-ratio: 1; margin: 0 auto; display: block; }
 .gauge .track { stroke: var(--surface2); }
 .gauge .arc { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset .6s ease; }
-.gauge .sp { stroke: var(--text); stroke-linecap: round; }
+.gauge .sp { stroke: var(--accent); stroke-linecap: round; }
+.gauge .spm { fill: var(--accent); }
 .gauge .ticks line { stroke: var(--line); }
 .gauge text { fill: var(--text); font-family: inherit; }
 .gauge .big { font-size: 56px; font-weight: 700; letter-spacing: -1px; font-variant-numeric: tabular-nums; }
@@ -199,7 +201,7 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .hero .big small { font-size: .32em; font-weight: 400; color: var(--muted); letter-spacing: 0; vertical-align: top; margin-left: 2px; }
 .hero .big.invalid { color: var(--muted); }
 .hero .line1 { font-size: 1.2rem; font-weight: 600; color: var(--accent); margin-top: 2px; cursor: pointer; }
-.hero .line1.ok { color: var(--ok); } .hero .line1.info { color: var(--info); } .hero .line1.warn { color: var(--warn); } .hero .line1.danger { color: var(--danger); } .hero .line1.muted { color: var(--muted); cursor: default; }
+.hero .line1.ok { color: var(--ok); } .hero .line1.accent { color: var(--accent); } .hero .line1.info { color: var(--info); } .hero .line1.warn { color: var(--warn); } .hero .line1.danger { color: var(--danger); } .hero .line1.muted { color: var(--muted); cursor: default; }
 .hero .line2 { font-size: .82rem; color: var(--muted); margin: 3px 0 10px; min-height: 1.2em; }
 .pgrid { display: grid; gap: 8px; margin-bottom: 12px; }
 .pcell { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-s); padding: 8px 6px; text-align: center; cursor: pointer; min-width: 0; }
@@ -210,24 +212,24 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .pcell.invalid .t { color: var(--muted); }
 
 /* ---- home: gauge, countdown, P-mode chip, control bar ---- */
-.hbar { grid-template-columns: 1fr 1fr 1fr .9fr; }
+.hbar { grid-template-columns: 1fr 1fr 1fr; }
 .hbar .pmode { border: 0; font: inherit; font-size: .78rem; font-weight: 600; cursor: pointer; }
 .hbar .pmode::before { display: none; }
 .hbar .pmode:disabled { cursor: default; opacity: .7; }
 .hbar .pmode.on { color: var(--accent); }
-.hero .gauge { width: min(60vw, 230px); height: auto; aspect-ratio: 1; margin: 2px auto 0; display: block; }
+.hero .gauge { width: min(56vw, 215px); height: auto; aspect-ratio: 1; margin: 2px auto 0; display: block; }
 .gauge .big { font-size: 66px; font-weight: 600; letter-spacing: -2px; }
 .gauge .big.muted { fill: var(--muted); }
 .gauge .unit { font-size: 15px; }
 .cbar { display: flex; justify-content: center; gap: 10px; margin-top: 8px; }
-.cgroup { display: inline-flex; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface2); }
-.cb { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 54px; height: 48px; padding: 0 12px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font-weight: 700; font-size: .95rem; cursor: pointer; }
-.cgroup .cb:first-child { border-left: 0; }
+.cgroup { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface2); }
+.cb { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 50px; height: 44px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; color: var(--muted); font-weight: 700; font-size: .95rem; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background .12s; }
+.cb:active { background: color-mix(in oklab, var(--text) 10%, transparent); }
 .cb .ic { width: 22px; height: 22px; }
 .cb:disabled { cursor: default; }
-.cb.ok { color: var(--ok); } .cb.danger { color: var(--danger); } .cb.info { color: var(--info); }
-.cb.active { background: var(--surface); color: var(--text); box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--accent) 60%, transparent); }
-.cb.active.ok { color: var(--ok); } .cb.active.danger { background: var(--danger); color: #fff; box-shadow: none; } .cb.active.info { color: var(--info); }
+.cb.ok { color: var(--ok); } .cb.accent { color: var(--accent); } .cb.danger { color: var(--danger); } .cb.info { color: var(--info); }
+.cb.active { background: color-mix(in oklab, var(--accent) 22%, var(--surface)); color: var(--text); }
+.cb.active.ok { color: var(--ok); } .cb.active.accent { color: var(--accent); } .cb.active.danger { background: var(--danger); color: #fff; } .cb.active.info { color: var(--info); }
 .cb-caret { display: inline-flex; align-items: center; padding-right: 8px; color: var(--accent); }
 .cb-caret .ic { width: 16px; height: 16px; }
 
@@ -235,3 +237,17 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .topbar { position: relative; }
 .top-temp { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-weight: 700; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
 .pill-mode { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* dial pads (temperatures, P-mode) and the caret on menu buttons */
+.presets.pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.presets.pad .btn { min-height: 54px; font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+.cb .caret { display: inline-flex; margin-left: -2px; color: var(--accent); }
+.cb .caret .ic { width: 16px; height: 16px; }
+
+/* hopper level card */
+.hopper { padding: 10px 14px; }
+.hopper .pct { font-weight: 700; font-variant-numeric: tabular-nums; }
+.hopper .progress { height: 12px; border-radius: 6px; margin-top: 8px; }
+.hopper .progress > div { background: var(--ok); }
+.hopper.low .progress > div { background: var(--danger); }
+.hopper.low .pct { color: var(--danger); }

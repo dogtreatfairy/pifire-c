@@ -26,7 +26,8 @@ static void fmt_clock(char *out, size_t n, double secs)
 
 static uint16_t mode_colour(const pf_gfx *g, const char *mode)
 {
-	if (!strcmp(mode, "Hold") || !strcmp(mode, "Smoke")) return g->th.ok;
+	if (!strcmp(mode, "Hold")) return g->th.ok;
+	if (!strcmp(mode, "Smoke")) return g->th.accent;
 	if (!strcmp(mode, "Error")) return g->th.danger;
 	if (!strcmp(mode, "Shutdown")) return g->th.info;
 	if (!strcmp(mode, "Stop") || !strcmp(mode, "Monitor")) return g->th.muted;
@@ -113,7 +114,7 @@ static hero_text compose(const pf_gfx *g, const cJSON *s, const char *mode, cons
 		else snprintf(t.line2, sizeof t.line2, "%s", hopper);
 	} else if (!strcmp(mode, "Smoke")) {
 		snprintf(t.line1, sizeof t.line1, "%s", pf_json_bool((cJSON *)s, "s_plus", false) ? "Smoke+ on" : "Smoke");
-		t.line1_c = g->th.ok;
+		t.line1_c = g->th.accent;
 		snprintf(t.line2, sizeof t.line2, "P%d%s%s", pf_set_int("cycle_data.PMode", 2), hopper[0] ? DOT : "", hopper);
 	} else if (!strcmp(mode, "Startup") || !strcmp(mode, "Reignite")) {
 		double exit_t = pf_json_num((cJSON *)s, "timers.startup_exit_temp", 0);

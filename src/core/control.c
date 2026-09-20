@@ -73,6 +73,7 @@ static void load_cfg(pf_cfg *g)
 	g->prime_on_startup_g = N("startup.prime_on_startup", 0);
 	double exit_user = N("startup.startup_exit_temp", 0);
 	g->startup_exit_c = exit_user > 0 ? pf_to_c(exit_user, u) : 0;
+	g->startup_exit_rise_c = D("startup.exit_rise", 15);
 	const char *am = pf_json_str(r, "startup.start_to_mode.after_startup_mode", "Smoke");
 	g->after_startup_mode = !strcasecmp(am, "Hold") ? PF_MODE_HOLD : PF_MODE_SMOKE;
 	g->after_startup_setpoint_c = T("startup.start_to_mode.primary_setpoint", 165);
@@ -286,6 +287,7 @@ static void enter_mode(pf_control *c, pf_mode m, double now)
 		break;
 	case PF_MODE_STARTUP:
 	case PF_MODE_REIGNITE:
+		c->startup_base_c = c->pit_valid ? c->pit_c : NAN;   /* reference for startup.exit_rise */
 		if (m == PF_MODE_STARTUP) {
 			c->cook_start_wall = pf_wall();
 			c->auger_total_on_s = 0;
@@ -406,6 +408,21 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 		c->safety.error_code[0] = 0; c->safety.error_msg[0] = 0;
 		break;
 	case PF_CMD_MODE:
+		if (cmd->flag && (c->mode == PF_MODE_STARTUP || c->mode == PF_MODE_REIGNITE) && (cmd->mode == PF_MODE_SMOKE || cmd->mode == PF_MODE_HOLD)) {
+			/* user forces the end of startup: the fire is lit by their judgement, so the flame-out floor must
+			 * not sit above the pit they are looking at (it would trip on the next tick) */
+			double sp = cmd->num > 0 ? pf_to_c(cmd->num, u) : c->setpoint_c;
+			if (cmd->mode == PF_MODE_HOLD && sp <= 0) sp = c->cfg.after_startup_setpoint_c;
+			c->setpoint_c = sp;
+			pf_safety_on_startup_exit(c, now);
+			if (c->pit_valid && c->safety.floor_c > c->pit_c - 3.0) c->safety.floor_c = c->pit_c - 3.0;
+			c->safety.floor_set = true;
+			c->s_plus = c->s_plus || c->cfg.splus_default;
+			LOGW(TAG, "startup ended by user at %.0f C; flame-out floor %.0f C", c->pit_c, c->safety.floor_c);
+			event(PF_LVL_WARN, "W09_STARTUP_SKIPPED", "Startup ended early by the user");
+			enter_mode(c, cmd->mode, now);
+			break;
+		}
 		pf_control_request(c, cmd->mode, cmd->num > 0 ? pf_to_c(cmd->num, u) : 0);
 		break;
 	case PF_CMD_SETPOINT:
@@ -912,9 +929,12 @@ static void run_mode(pf_control *c, double now)
 	case PF_MODE_REIGNITE: {
 		bool timer = now - c->mode_start > c->startup_duration_s;
 		bool exit_temp = c->startup_exit_c > 0 && c->pit_c >= c->startup_exit_c;
+		/* the fire is evidently lit once the pit has climbed exit_rise above where this startup began */
+		bool exit_rise_up = g->startup_exit_rise_c > 0 && !isnan(c->startup_base_c) && c->pit_valid && now - c->mode_start > 30 && c->pit_c - c->startup_base_c >= g->startup_exit_rise_c
+		                    && (c->safety.coldstart_active || !c->safety.floor_set || c->pit_c >= c->safety.floor_c);   /* never hand over below the flame-out floor */
 		/* optional: leave startup as soon as cold-start has confirmed a rise and the pit is past the classic minimum */
 		bool exit_rise = g->coldstart_exit_on_rise && c->safety.coldstart_active && c->safety.coldstart_reached && c->pit_c >= g->min_startup_c;
-		if ((timer && pf_safety_startup_can_finish(c, now)) || exit_temp || exit_rise) {
+		if ((timer && pf_safety_startup_can_finish(c, now)) || exit_temp || exit_rise || exit_rise_up) {
 			pf_safety_on_startup_exit(c, now);
 			pf_mode nm = c->mode == PF_MODE_REIGNITE ? c->safety.reignite_last : c->next_mode;
 			if (nm != PF_MODE_SMOKE && nm != PF_MODE_HOLD) nm = PF_MODE_SMOKE;
