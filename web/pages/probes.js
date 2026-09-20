@@ -76,8 +76,11 @@ export async function renderProbes(view) {
       api('/probes/ble/scan?seconds=8', { body: {} }).then((found) => {
         list.innerHTML = '';
         found.sort((a, b) => (b.rssi || -999) - (a.rssi || -999));
-        const mine = found.filter((f) => f.kind === kind), others = found.filter((f) => f.kind !== kind);
-        if (!mine.length) list.append(el('div', { class: 'muted', style: 'margin-bottom:8px' }, `No ${m.friendly_name} seen. Turn the probe on (and wake it if it sleeps), then scan again.`));
+        // already-paired addresses (any Bluetooth device's bt_address config) are left out of the list
+        const paired = new Set(map.probe_devices.flatMap((d) => Object.values(d.config || {})).filter((v) => typeof v === 'string' && /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(v)).map((v) => v.toUpperCase()));
+        const seen = found.filter((f) => !paired.has((f.address || '').toUpperCase()));
+        const mine = seen.filter((f) => f.kind === kind), others = seen.filter((f) => f.kind !== kind);
+        if (!mine.length) list.append(el('div', { class: 'muted', style: 'margin-bottom:8px' }, `No unpaired ${m.friendly_name} seen. Turn the probe on (and wake it if it sleeps), then scan again.`));
         for (const f of mine) list.append(row(f));
         if (others.length) {
           const more = el('div', { class: 'opts', hidden: true }, ...others.map(row));

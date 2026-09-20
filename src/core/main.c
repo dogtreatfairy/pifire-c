@@ -189,7 +189,7 @@ int main(int argc, char **argv)
 	pf_web_stop();
 	pf_threads_stop();
 	/* warm restart: leave the running cook for the next process (a software update restarts us mid-cook) */
-	if (!pf_threads_power_off_requested()) {
+	if (!pf_threads_power_off_requested() && pf_set_bool("update.hot_update", false)) {
 		char *snap = pf_control_resume_json(&ctrl, pf_now());
 		if (snap) { pf_write_file_atomic(resume_path, snap, strlen(snap)); LOGI(TAG, "saved %s for resume", pf_mode_name(ctrl.mode)); free(snap); }
 	}

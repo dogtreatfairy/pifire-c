@@ -78,6 +78,7 @@ function system(view) {
       el('button', { class: 'btn', disabled: busy, onclick: async () => { try { await api('/update/check', { body: {} }); poll(); } catch (e) { toast(e.message, true); } } }, 'Check for updates'),
       el('button', { class: 'btn primary', disabled: busy || !u.installable, onclick: async () => {
         const cooking = !['Stop', 'Monitor', 'Error'].includes(PF.status?.mode);
+        if (cooking && !PF.settings?.update?.hot_update) { toast('Stop the grill first, or enable "Update while cooking" under Settings → Software updates', true); return; }
         if (!await confirmDialog(`Install ${u.latest}?`, cooking ? `The grill is in ${PF.status.mode}. The release is downloaded and verified, then the controller restarts and picks the cook back up where it left off (the fan and auger pause for a few seconds).` : 'The release is downloaded, its checksum verified, then the service reinstalls and restarts (about a minute). This page reloads when it is back.', 'Install')) return;
         try { await api('/update/install', { body: {} }); poll(); } catch (e) { toast(e.message, true); }
       } }, u.available ? `Install ${u.latest}` : 'Up to date')));

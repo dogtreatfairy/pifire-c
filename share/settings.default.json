@@ -414,7 +414,8 @@
     "repo": "dogtreatfairy/pifire-c",
     "auto_check": true,
     "check_interval_h": 24,
-    "include_prerelease": true
+    "include_prerelease": true,
+    "hot_update": false
   },
   "history": {
     "minutes": 15,

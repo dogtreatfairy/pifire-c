@@ -343,8 +343,10 @@ int pf_update_install(char *err, size_t n)
 {
 	pf_status st;
 	pf_status_get(&st);
+	bool cooking = st.mode != PF_MODE_STOP && st.mode != PF_MODE_MONITOR && st.mode != PF_MODE_ERROR;
 	if (st.mode == PF_MODE_MANUAL || st.mode == PF_MODE_PRIME) { snprintf(err, n, "finish the manual / prime run first"); return -1; }
-	/* cooking modes are fine: the daemon hands the running cook to the new process (resume snapshot) */
+	/* with update.hot_update the daemon hands the running cook to the new process (resume snapshot) */
+	if (cooking && !pf_set_bool("update.hot_update", false)) { snprintf(err, n, "stop the grill first (or enable Settings - Software updates - Update while cooking)"); return -1; }
 	if (g.sim) { snprintf(err, n, "not available in simulator"); return -1; }
 	pthread_mutex_lock(&g.mu);
 	if (g.busy) { pthread_mutex_unlock(&g.mu); snprintf(err, n, "an update operation is already running"); return -1; }

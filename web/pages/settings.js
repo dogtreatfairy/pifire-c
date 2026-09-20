@@ -127,6 +127,7 @@ const PAGES = [
     B('auto_check', 'Check automatically', 'Shortly after boot and then periodically; a notice is logged when a newer release exists'),
     I('check_interval_h', 'Check every (hours)', '', { min: 1, max: 720 }),
     B('include_prerelease', 'Include pre-releases', 'Offer alpha/beta/rc builds as well as final releases'),
+    B('hot_update', 'Update while cooking', 'Off: the grill must be stopped to install. On: the controller restarts mid-cook and resumes the running mode a few seconds later (fan and auger pause for the restart)'),
   ] }] },
 ];
 // index order: what you cook with, the hardware, the safety net, connectivity, data, the app itself
