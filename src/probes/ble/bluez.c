@@ -241,7 +241,9 @@ static void set_discovery(bool on)
 	if (on) {
 		sd_bus_error err = SD_BUS_ERROR_NULL;
 		sd_bus_message *rep = NULL;
-		sd_bus_call_method(g_bus, BLUEZ, g_adapter, "org.bluez.Adapter1", "SetDiscoveryFilter", &err, &rep, "a{sv}", 1, "Transport", "s", "le");
+		/* DuplicateData: BlueZ must keep emitting ManufacturerData updates for devices it already knows,
+		 * otherwise a passive probe's payload freezes after its first advertisement */
+		sd_bus_call_method(g_bus, BLUEZ, g_adapter, "org.bluez.Adapter1", "SetDiscoveryFilter", &err, &rep, "a{sv}", 2, "Transport", "s", "le", "DuplicateData", "b", 1);
 		sd_bus_error_free(&err);
 		sd_bus_message_unref(rep);
 		if (call_void(g_adapter, "org.bluez.Adapter1", "StartDiscovery") >= 0) { g_discovering = true; LOGI(TAG, "discovery started"); }
@@ -341,8 +343,19 @@ static void dev_disconnected(pf_ble_dev *d, double now)
 }
 
 /* passive device: no connection; read the advertisement payload while discovery keeps it fresh */
+static double g_passive_restart_t;
+
 static void passive_step(pf_ble_dev *d, double now)
 {
+	if (!g_discovering) { set_discovery(true); g_discover_until = now + 3600; }
+	/* advertisements stopped arriving for everyone although discovery is "on": BlueZ occasionally goes
+	 * quiet after an adapter hiccup; a stop/start once a minute brings it back */
+	if (d->st == ST_READY && d->path[0] && d->last_seen > 0 && now - d->last_seen > 20 && now - g_passive_restart_t > 60) {
+		g_passive_restart_t = now;
+		LOGI(TAG, "no advertisements from %s for 20 s: restarting discovery", d->address);
+		set_discovery(false);
+		set_discovery(true);
+	}
 	if (!d->path[0]) {
 		match_ctx m = { d, false };
 		for_each_object(match_cb, &m);

@@ -1037,6 +1037,132 @@ void pf_control_boot_check(pf_control *c, bool unclean_restart, double now)
 	}
 }
 
+/* ------------------------------------------------------------------ warm restart
+ * A software update restarts the service in the middle of a cook. The outgoing process writes this
+ * snapshot on its clean shutdown; the incoming one re-enters the same mode with the same set point,
+ * timers, probe targets and cook bookkeeping, so the grill only loses the few seconds the restart
+ * takes (outputs park OFF while no daemon owns the GPIO lines). Only safe modes resume: Manual and
+ * Prime drop to Stop, Error stays whatever the safety code decides on the next tick. */
+static bool resumable(pf_mode m)
+{
+	return m == PF_MODE_STARTUP || m == PF_MODE_REIGNITE || m == PF_MODE_SMOKE || m == PF_MODE_HOLD || m == PF_MODE_SHUTDOWN || m == PF_MODE_MONITOR;
+}
+
+char *pf_control_resume_json(const pf_control *c, double now)
+{
+	if (!resumable(c->mode)) return NULL;
+	cJSON *o = cJSON_CreateObject();
+	cJSON_AddStringToObject(o, "version", PF_VERSION);
+	cJSON_AddNumberToObject(o, "saved_wall", pf_wall());
+	cJSON_AddStringToObject(o, "mode", pf_mode_name(c->mode));
+	cJSON_AddStringToObject(o, "next_mode", pf_mode_name(c->next_mode));
+	cJSON_AddNumberToObject(o, "mode_elapsed", now - c->mode_start);
+	cJSON_AddNumberToObject(o, "setpoint_c", c->setpoint_c);
+	cJSON_AddBoolToObject(o, "s_plus", c->s_plus);
+	cJSON_AddBoolToObject(o, "pwm_control", c->pwm_control);
+	cJSON_AddNumberToObject(o, "u_applied", c->u_applied);
+	cJSON_AddNumberToObject(o, "cook_start_wall", c->cook_start_wall);
+	cJSON_AddNumberToObject(o, "auger_total_on_s", c->auger_total_on_s);
+	cJSON_AddNumberToObject(o, "cook_max_pit_c", c->cook_max_pit_c);
+	cJSON_AddNumberToObject(o, "startup_duration_s", c->startup_duration_s);
+	cJSON_AddNumberToObject(o, "startup_exit_c", c->startup_exit_c);
+	cJSON_AddNumberToObject(o, "startup_base_c", isnan(c->startup_base_c) ? -1000 : c->startup_base_c);
+	cJSON_AddNumberToObject(o, "raw_startup_c", c->raw_startup_c);
+	cJSON_AddNumberToObject(o, "ambient_c", isnan(c->ambient_c) ? -1000 : c->ambient_c);
+	cJSON_AddBoolToObject(o, "floor_set", c->safety.floor_set);
+	cJSON_AddNumberToObject(o, "floor_c", c->safety.floor_c);
+	cJSON_AddNumberToObject(o, "reignite_retries_left", c->safety.reignite_retries_left);
+	cJSON *pr = cJSON_AddArrayToObject(o, "probes");
+	for (int i = 0; i < c->notify.n; i++) {
+		const pf_notify_probe *p = &c->notify.probes[i];
+		if (p->target_c <= 0 && p->limit_high_c <= 0 && p->limit_low_c <= 0) continue;
+		cJSON *po = cJSON_CreateObject();
+		cJSON_AddStringToObject(po, "label", p->label);
+		cJSON_AddNumberToObject(po, "target_c", p->target_c);
+		cJSON_AddNumberToObject(po, "after", p->after);
+		cJSON_AddNumberToObject(po, "limit_high_c", p->limit_high_c);
+		cJSON_AddNumberToObject(po, "limit_low_c", p->limit_low_c);
+		cJSON_AddItemToArray(pr, po);
+	}
+	if (c->notify.timer.running) {
+		cJSON *t = cJSON_AddObjectToObject(o, "timer");
+		cJSON_AddNumberToObject(t, "remaining", c->notify.timer.paused ? c->notify.timer.remaining : c->notify.timer.end_t - now);
+		cJSON_AddNumberToObject(t, "duration", c->notify.timer.duration);
+		cJSON_AddNumberToObject(t, "after", c->notify.timer.after);
+		cJSON_AddBoolToObject(t, "paused", c->notify.timer.paused);
+	}
+	char *txt = cJSON_PrintUnformatted(o);
+	cJSON_Delete(o);
+	return txt;
+}
+
+bool pf_control_resume(pf_control *c, const char *json, double now)
+{
+	cJSON *o = cJSON_Parse(json);
+	if (!o) return false;
+	int m = pf_mode_from_name(pf_json_str(o, "mode", ""));
+	double age = pf_wall() - pf_json_num(o, "saved_wall", 0);
+	if (m < 0 || !resumable((pf_mode)m) || age < 0 || age > 300) { cJSON_Delete(o); return false; }
+	if (c->mode != PF_MODE_STOP) { cJSON_Delete(o); return false; }   /* boot check already chose a mode */
+
+	int nm = pf_mode_from_name(pf_json_str(o, "next_mode", ""));
+	c->next_mode = nm >= 0 ? (pf_mode)nm : PF_MODE_STOP;
+	double sp = pf_json_num(o, "setpoint_c", 0);
+	if (sp > 0) c->setpoint_c = sp;
+	c->s_plus = pf_json_bool(o, "s_plus", c->s_plus);
+	c->pwm_control = pf_json_bool(o, "pwm_control", c->pwm_control);
+	double amb = pf_json_num(o, "ambient_c", -1000);
+	if (amb > -999 && !c->ambient_from_probe) c->ambient_c = amb;
+
+	enter_mode(c, (pf_mode)m, now);
+
+	/* continuity: timers keep counting from where they were, the cook keeps its start time */
+	double elapsed = pf_json_num(o, "mode_elapsed", 0);
+	if (elapsed > 0) c->mode_start = now - elapsed;
+	double csw = pf_json_num(o, "cook_start_wall", 0);
+	if (csw > 0) c->cook_start_wall = csw;
+	c->auger_total_on_s = pf_json_num(o, "auger_total_on_s", 0);
+	c->cook_max_pit_c = pf_json_num(o, "cook_max_pit_c", 0);
+	if (m == PF_MODE_STARTUP || m == PF_MODE_REIGNITE) {
+		c->startup_duration_s = pf_json_num(o, "startup_duration_s", c->startup_duration_s);
+		c->startup_exit_c = pf_json_num(o, "startup_exit_c", c->startup_exit_c);
+		double b = pf_json_num(o, "startup_base_c", -1000);
+		c->startup_base_c = b > -999 ? b : NAN;
+		c->raw_startup_c = pf_json_num(o, "raw_startup_c", c->raw_startup_c);
+	}
+	if (m == PF_MODE_SMOKE || m == PF_MODE_HOLD) {
+		c->safety.floor_set = pf_json_bool(o, "floor_set", false);
+		c->safety.floor_c = pf_json_num(o, "floor_c", 0);
+	}
+	c->safety.reignite_retries_left = (int)pf_json_num(o, "reignite_retries_left", c->safety.reignite_retries_left);
+	if (m == PF_MODE_HOLD) {
+		double u = pf_json_num(o, "u_applied", c->u_applied);
+		if (u > 0 && u <= 1) c->u_raw = c->u_applied = u;   /* bumpless controller reset on the first cycle */
+	}
+	pf_notify_sync(&c->notify, &c->sensors);
+	cJSON *pr = cJSON_GetObjectItem(o, "probes"), *po;
+	cJSON_ArrayForEach(po, pr) {
+		const char *label = pf_json_str(po, "label", "");
+		pf_notify_set_target(&c->notify, label, pf_json_num(po, "target_c", 0), (int)pf_json_num(po, "after", 0));
+		pf_notify_set_limits(&c->notify, label, pf_json_num(po, "limit_high_c", 0), pf_json_num(po, "limit_low_c", 0));
+	}
+	cJSON *t = cJSON_GetObjectItem(o, "timer");
+	if (t) {
+		double rem = pf_json_num(t, "remaining", 0);
+		if (rem > 0) {
+			pf_notify_timer_start(&c->notify, rem, (int)pf_json_num(t, "after", 0), now);
+			c->notify.timer.duration = pf_json_num(t, "duration", rem);
+			if (pf_json_bool(t, "paused", false)) pf_notify_timer_pause(&c->notify, now);
+		}
+	}
+	char msg[128];
+	snprintf(msg, sizeof msg, "Resumed %s after a software restart (%.0f s gap)", pf_mode_name((pf_mode)m), age);
+	LOGW(TAG, "%s", msg);
+	event(PF_LVL_WARN, "W11_RESUMED", msg);
+	cJSON_Delete(o);
+	return true;
+}
+
 static void read_sensors(pf_control *c)
 {
 	pf_probes_snapshot(&c->sensors);

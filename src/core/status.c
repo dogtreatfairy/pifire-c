@@ -143,6 +143,12 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 			cJSON_AddNumberToObject(po, "signal", p->valid ? pf_signal_bars(p->rssi) : 0);
 			cJSON_AddNumberToObject(po, "battery", p->battery);
 		}
+		if (p->is_companion) cJSON_AddBoolToObject(po, "companion", true);
+		if (p->companion >= 0 && p->companion < s->sensors.n) {
+			const pf_probe_reading *a = &s->sensors.p[p->companion];
+			add_num_or_null(po, "ambient", a->valid ? r1(conv(a->temp_c, units)) : NAN);
+			cJSON_AddStringToObject(po, "ambient_label", a->label);
+		}
 		cJSON_AddStringToObject(po, "device", p->device);
 		cJSON_AddStringToObject(po, "port", p->port);
 		cJSON_AddItemToArray(probes, po);

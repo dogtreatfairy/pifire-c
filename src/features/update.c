@@ -321,7 +321,7 @@ static void *install_thread(void *arg)
 		const char *tar[] = { "tar", "-xzf", tarball, "-C", stage, "--strip-components=1", NULL };
 		if (pf_run_capture(tar, out, sizeof out, 120) != 0) { set_state(ST_ERROR, "unpack failed: %.120s", out); goto done; }
 	}
-	set_state(ST_INSTALLING, "installing %s - the service will restart", latest);
+	set_state(ST_INSTALLING, "installing %s - the service restarts and a running cook resumes", latest);
 	LOGW(TAG, "installing %s from %s", latest, stage);
 	if (pf_db_handle()) pf_db_event(PF_LVL_WARN, "UPDATE_INSTALL", g.message);
 	{
@@ -343,7 +343,8 @@ int pf_update_install(char *err, size_t n)
 {
 	pf_status st;
 	pf_status_get(&st);
-	if (st.mode != PF_MODE_STOP && st.mode != PF_MODE_MONITOR && st.mode != PF_MODE_ERROR) { snprintf(err, n, "stop the grill first"); return -1; }
+	if (st.mode == PF_MODE_MANUAL || st.mode == PF_MODE_PRIME) { snprintf(err, n, "finish the manual / prime run first"); return -1; }
+	/* cooking modes are fine: the daemon hands the running cook to the new process (resume snapshot) */
 	if (g.sim) { snprintf(err, n, "not available in simulator"); return -1; }
 	pthread_mutex_lock(&g.mu);
 	if (g.busy) { pthread_mutex_unlock(&g.mu); snprintf(err, n, "an update operation is already running"); return -1; }

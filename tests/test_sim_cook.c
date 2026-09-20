@@ -228,6 +228,66 @@ static void test_manual_refused_and_override_expires(void)
 	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_AUGER));
 }
 
+/* software update mid-cook: the outgoing process snapshots the cook, the new one resumes it */
+static void test_warm_restart_resumes_hold(void)
+{
+	pf_cmd_mode(PF_MODE_HOLD, 225);
+	tick(1);
+	TEST_ASSERT_EQUAL(PF_MODE_STARTUP, ctrl.mode);
+	/* restart during Startup: the countdown continues from where it was */
+	tick(100);
+	char *snap = pf_control_resume_json(&ctrl, now);
+	TEST_ASSERT_NOT_NULL(snap);
+	double cook_start = ctrl.cook_start_wall;
+	pf_control_shutdown(&ctrl);
+	pf_control_init(&ctrl, true);
+	tick(2);
+	TEST_ASSERT_EQUAL(PF_MODE_STOP, ctrl.mode);
+	TEST_ASSERT_TRUE(pf_control_resume(&ctrl, snap, now));
+	free(snap);
+	TEST_ASSERT_EQUAL(PF_MODE_STARTUP, ctrl.mode);
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.next_mode);
+	TEST_ASSERT_DOUBLE_WITHIN(5, 100, now - ctrl.mode_start);
+	TEST_ASSERT_EQUAL_DOUBLE(cook_start, ctrl.cook_start_wall);
+	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_IGNITER));
+	tick(150);
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+
+	/* restart during Hold with a probe target and a timer set */
+	tick(10 * 60);
+	pf_notify_set_target(&ctrl.notify, "Probe1", pf_f_to_c(203), PF_AFTER_NONE);
+	pf_notify_timer_start(&ctrl.notify, 1800, PF_AFTER_NONE, now);
+	tick(1);
+	snap = pf_control_resume_json(&ctrl, now);
+	TEST_ASSERT_NOT_NULL(snap);
+	double u_before = ctrl.u_applied;
+	pf_control_shutdown(&ctrl);
+	pf_control_init(&ctrl, true);
+	tick(2);
+	TEST_ASSERT_TRUE(pf_control_resume(&ctrl, snap, now));
+	free(snap);
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	TEST_ASSERT_DOUBLE_WITHIN(0.01, pf_f_to_c(225), ctrl.setpoint_c);
+	TEST_ASSERT_DOUBLE_WITHIN(0.01, u_before, ctrl.u_applied);
+	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_FAN));
+	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_POWER));
+	const pf_notify_probe *np = pf_notify_find(&ctrl.notify, "Probe1");
+	TEST_ASSERT_NOT_NULL(np);
+	TEST_ASSERT_DOUBLE_WITHIN(0.01, pf_f_to_c(203), np->target_c);
+	TEST_ASSERT_TRUE(ctrl.notify.timer.running);
+	TEST_ASSERT_DOUBLE_WITHIN(5, 1800, ctrl.notify.timer.end_t - now);
+	tick(5 * 60);
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	TEST_ASSERT_EQUAL_STRING("", ctrl.safety.error_code);
+
+	/* a stale snapshot (or one taken while stopped) is refused */
+	pf_cmd_mode(PF_MODE_STOP, 0);
+	tick(1);
+	TEST_ASSERT_NULL(pf_control_resume_json(&ctrl, now));
+	TEST_ASSERT_FALSE(pf_control_resume(&ctrl, "{\"mode\":\"Hold\",\"saved_wall\":1}", now));
+	TEST_ASSERT_EQUAL(PF_MODE_STOP, ctrl.mode);
+}
+
 int main(void)
 {
 	pf_log_init(PF_LOG_WARN);
@@ -239,5 +299,6 @@ int main(void)
 	RUN_TEST(test_coldstart_winter);
 	RUN_TEST(test_coldstart_failure);
 	RUN_TEST(test_manual_refused_and_override_expires);
+	RUN_TEST(test_warm_restart_resumes_hold);
 	return UNITY_END();
 }

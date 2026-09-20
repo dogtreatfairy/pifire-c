@@ -24,6 +24,8 @@ typedef struct {
 	bool wireless;     /* Bluetooth device */
 	int rssi;          /* dBm, 0 unknown (wireless only) */
 	int battery;       /* %, -1 unknown (wireless only) */
+	int companion;     /* index of this probe's ambient sibling on the same wireless device, or -1 */
+	bool is_companion; /* this reading is shown inside its sibling's card, not as its own */
 } pf_probe_reading;
 
 /* 0..4 bars from an RSSI in dBm (0 = unknown / no link) */

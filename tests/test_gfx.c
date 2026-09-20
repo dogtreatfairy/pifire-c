@@ -15,7 +15,8 @@ static const char *status_json =
 "\"timer\":{\"running\":false,\"remaining\":0},\"coldstart\":{\"active\":false,\"reached\":false,\"remaining\":0},"
 "\"safety\":{\"error_code\":\"\",\"error_msg\":\"\"},"
 "\"probes\":[{\"label\":\"Grill\",\"name\":\"Grill\",\"role\":\"Primary\",\"enabled\":true,\"valid\":true,\"temp\":227,\"target\":0},"
-"{\"label\":\"Probe1\",\"name\":\"Probe 1\",\"role\":\"Food\",\"enabled\":true,\"valid\":true,\"temp\":164,\"target\":203,\"eta_s\":4920,\"wireless\":true,\"rssi\":-67,\"signal\":3,\"battery\":80},"
+"{\"label\":\"Probe1\",\"name\":\"Probe 1\",\"role\":\"Food\",\"enabled\":true,\"valid\":true,\"temp\":164,\"target\":203,\"eta_s\":4920,\"wireless\":true,\"rssi\":-67,\"signal\":3,\"battery\":80,\"ambient\":221,\"ambient_label\":\"Chef1Amb\"},"
+"{\"label\":\"Chef1Amb\",\"name\":\"Chef iQ 1 Ambient\",\"role\":\"Food\",\"enabled\":true,\"valid\":true,\"temp\":221,\"target\":0,\"wireless\":true,\"companion\":true},"
 "{\"label\":\"Probe2\",\"name\":\"Probe 2\",\"role\":\"Food\",\"enabled\":true,\"valid\":true,\"temp\":195,\"target\":195},"
 "{\"label\":\"Probe3\",\"name\":\"Probe 3\",\"role\":\"Food\",\"enabled\":true,\"valid\":false,\"temp\":null,\"target\":0}]}";
 
@@ -45,15 +46,15 @@ static void test_render_screens(void)
 	/* flash phases: probe 1 pushed 6 F over target (orange), probe 3 12 F over (red), probe 2 done (green) */
 	cJSON *pr = cJSON_GetObjectItem(st, "probes");
 	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 1), "temp", cJSON_CreateNumber(209));
-	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 3), "temp", cJSON_CreateNumber(172));
-	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 3), "target", cJSON_CreateNumber(160));
+	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 4), "temp", cJSON_CreateNumber(172));
+	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 4), "target", cJSON_CreateNumber(160));
 	render_to(&g, st, &ui, "flash_on");
 	ui.blink = true;
 	render_to(&g, st, &ui, "flash_off");
 	ui.blink = false;
 	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 1), "temp", cJSON_CreateNumber(164));
-	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 3), "temp", cJSON_CreateNull());
-	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 3), "target", cJSON_CreateNumber(0));
+	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 4), "temp", cJSON_CreateNull());
+	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 4), "target", cJSON_CreateNumber(0));
 	ui.screen = PF_SCR_MENU; ui.menu_index = 1;
 	render_to(&g, st, &ui, "menu");
 	ui.screen = PF_SCR_SETPOINT; ui.edit_setpoint = 250; ui.edit_is_change = true;
@@ -63,13 +64,14 @@ static void test_render_screens(void)
 	render_to(&g, st, &ui, "startup3");
 	/* fewer food probes: drop the last entries */
 	cJSON *probes = cJSON_GetObjectItem(st, "probes");
-	cJSON_DeleteItemFromArray(probes, 3);
+	cJSON_DeleteItemFromArray(probes, 4);
 	set_mode(st, "Smoke", 0);
 	cJSON_ReplaceItemInObject(st, "s_plus", cJSON_CreateTrue());
 	render_to(&g, st, &ui, "smoke2");
-	cJSON_DeleteItemFromArray(probes, 2);
+	cJSON_DeleteItemFromArray(probes, 3);
 	set_mode(st, "Shutdown", 221);
 	render_to(&g, st, &ui, "shutdown1");
+	cJSON_DeleteItemFromArray(probes, 2);
 	cJSON_DeleteItemFromArray(probes, 1);
 	set_mode(st, "Hold", 0);
 	pf_gfx_set_theme(&g, "light");

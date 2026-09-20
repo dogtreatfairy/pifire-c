@@ -156,6 +156,7 @@ function probePopup(label) {
         el('div', { class: 'ppop-temp' }, q.valid ? fmtTemp(q.temp) : '—', el('small', {}, degUnit())),
         el('div', { class: 'kv' },
           el('div', {}, 'Target'), el('div', {}, q.target > 0 ? `${fmtTemp(q.target)}${degUnit()}` : '—'),
+          q.ambient_label ? el('div', {}, 'Ambient') : null, q.ambient_label ? el('div', {}, q.ambient == null ? '—' : `${fmtTemp(q.ambient)}${degUnit()}`) : null,
           q.target > 0 ? el('div', {}, 'Time to target') : null, q.target > 0 ? el('div', {}, q.valid && q.temp >= q.target ? 'reached' : q.eta_s > 0 ? `about ${fmtEta(q.eta_s)}` : 'estimating…') : null,
           q.wireless ? el('div', {}, 'Signal') : null, q.wireless ? el('div', { class: 'row', style: 'gap:6px' }, sigBars(q.signal || 0), q.rssi ? `${q.rssi} dBm` : 'no link') : null,
           q.wireless && q.battery >= 0 ? el('div', {}, 'Battery') : null, q.wireless && q.battery >= 0 ? el('div', {}, `${q.battery}%`) : null,
@@ -251,12 +252,13 @@ export function renderHome(view) {
     } else manual.dataset.state = '';
 
     probes.innerHTML = '';
-    const food = s.probes.filter((p) => p.role === 'Food' && p.enabled && p.home !== false).slice(0, 3);
+    const food = s.probes.filter((p) => p.role === 'Food' && p.enabled && p.home !== false && !p.companion).slice(0, 3);
     probes.style.gridTemplateColumns = `repeat(${Math.max(1, food.length)}, 1fr)`;
     for (const p of food) {
       const hit = p.target > 0 && p.valid && p.temp >= p.target;
       probes.append(el('div', { class: `pcell ${p.valid ? '' : 'invalid'} ${hit ? 'hit' : ''}`, onclick: () => probePopup(p.label) },
-        el('div', { class: 'n' }, p.wireless ? [btIcon(), sigBars(p.signal || 0, p.rssi ? `${p.rssi} dBm` : 'no link'), ' '] : null, p.name), el('div', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
+        el('div', { class: 'n' }, p.wireless ? [btIcon(), sigBars(p.signal || 0, p.rssi ? `${p.rssi} dBm` : 'no link'), p.battery >= 0 ? el('span', { class: `batt ${p.battery <= 20 ? 'low' : ''}` }, `${p.battery}%`) : null, ' '] : null, p.name), el('div', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
+        p.ambient_label ? el('div', { class: 'amb' }, `Ambient ${p.ambient == null ? '—' : fmtTemp(p.ambient) + '°'}`) : null,
         el('div', { class: `tg ${p.target > 0 ? '' : 'muted'}` }, p.target > 0 ? `Target ${fmtTemp(p.target)}°${!hit && p.eta_s > 0 ? ` · ${fmtEta(p.eta_s)}` : ''}` : 'Set target')));
     }
     probes.hidden = !food.length;

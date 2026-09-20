@@ -135,6 +135,21 @@ int pf_probes_init(void)
 		n++;
 	}
 	g_snap.n = n;
+	/* wireless devices with an ambient port (Chef iQ BT_Ambient, MEATER BT_Ambient): pair that reading
+	 * with the meat reading of the same device so the UI shows both inside one card */
+	for (int i = 0; i < n; i++) {
+		pf_probe_reading *r = &g_snap.p[i];
+		r->companion = -1;
+		r->battery = -1;
+		if (g_priv[i].dev < 0 || !g_dev[g_priv[i].dev].ops->link || strcasestr(r->port, "Ambient")) continue;
+		for (int j = 0; j < n; j++) {
+			pf_probe_reading *a = &g_snap.p[j];
+			if (j == i || g_priv[j].dev != g_priv[i].dev || !a->enabled || a->role == PF_PROBE_PRIMARY || !strcasestr(a->port, "Ambient")) continue;
+			r->companion = j;
+			a->is_companion = true;
+			break;
+		}
+	}
 	pthread_mutex_unlock(&g_mu);
 	cJSON_Delete(map);
 	cJSON_Delete(profiles);

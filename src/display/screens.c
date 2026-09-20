@@ -213,30 +213,42 @@ static void draw_probe_col(pf_gfx *g, const cJSON *p, const char *units, bool bl
 	uint16_t mc = filled ? g->th.accent_text : hit ? alert : g->th.muted;
 	uint16_t sig_on = filled ? g->th.accent_text : bars >= 3 ? g->th.info : bars == 2 ? g->th.warn : g->th.danger;
 	uint16_t sig_off = filled ? alert : g->th.line;
-	char name[12], t[8], tg[12] = "", et[8] = "";
+	char name[12], t[8], tg[12] = "", et[8] = "", amb[16] = "", bat[8] = "";
 	snprintf(name, sizeof name, "%.8s", pf_json_str((cJSON *)p, "name", "?"));
 	upper(name);
 	fmt_temp(t, sizeof t, tv);
 	if (target > 0) snprintf(tg, sizeof tg, "%.0f" DEG, target);
 	if (target > 0 && !hit && eta > 0) fmt_eta(et, sizeof et, eta);
+	const cJSON *av = cJSON_GetObjectItem((cJSON *)p, "ambient");
+	if (cJSON_GetObjectItem((cJSON *)p, "ambient_label")) { char a[8]; fmt_temp(a, sizeof a, av); snprintf(amb, sizeof amb, "AMB %s" DEG, a); }
+	int battery = (int)pf_json_num((cJSON *)p, "battery", -1);
+	if (wireless && battery >= 0) snprintf(bat, sizeof bat, "%d%%", battery % 1000);
 	uint16_t tgc = filled ? g->th.accent_text : tc == alert ? alert : g->th.accent;
+	uint16_t dim = filled ? g->th.accent_text : g->th.muted;
+	uint16_t batc = filled ? g->th.accent_text : battery <= 20 ? g->th.danger : g->th.muted;
 	if (w >= 90) {
-		/* row 1: name left, Bluetooth rune + bars right; row 2: temperature left, target / ETA stacked right */
+		/* row 1: name left, Bluetooth rune + bars right
+		 * row 2: temperature left; target and ETA stacked on the right
+		 * row 3: ambient readout left, battery right */
 		int nw = w - 12;
 		if (wireless) { pf_gfx_bt_rune(g, x + w - 6 - 15 - 11, y + 4, sig_on); pf_gfx_signal(g, x + w - 6 - 15, y + 3, bars, sig_on, sig_off); nw -= 30; }
-		int px = 14;
+		int px = 13;
 		while (px > 10 && pf_gfx_text_width(B, px, name) > nw) px--;
-		pf_gfx_text(g, B, px, x + 6, y + 4, name, mc);
-		pf_gfx_text(g, B, 32, x + 6, y + 18, t, tc);
-		if (tg[0]) pf_gfx_text_right(g, B, 15, x + w - 6, y + 20, tg, tgc);
-		if (et[0]) pf_gfx_text_right(g, B, 13, x + w - 6, y + 40, et, filled ? g->th.accent_text : g->th.muted);
-	} else {   /* narrow (portrait): name + bars / temperature / ETA + target */
+		pf_gfx_text(g, B, px, x + 6, y + 3, name, mc);
+		pf_gfx_text(g, B, 28, x + 6, y + 15, t, tc);
+		if (tg[0]) pf_gfx_text_right(g, B, 13, x + w - 6, y + 17, tg, tgc);
+		if (et[0]) pf_gfx_text_right(g, B, 12, x + w - 6, y + 31, et, dim);
+		if (amb[0]) pf_gfx_text(g, B, 11, x + 6, y + 47, amb, dim);
+		if (bat[0]) pf_gfx_text_right(g, B, 11, x + w - 6, y + 47, bat, batc);
+	} else {   /* narrow (portrait): name + bars / temperature / ambient + target / ETA + battery */
 		name[6] = 0;
 		if (wireless) pf_gfx_signal(g, x + w - 5 - 15, y + 3, bars, sig_on, sig_off);
-		pf_gfx_text(g, B, 12, x + 5, y + 3, name, mc);
-		pf_gfx_text(g, B, 28, x + 5, y + 15, t, tc);
-		if (et[0]) pf_gfx_text(g, B, 11, x + 5, y + 47, et, filled ? g->th.accent_text : g->th.muted);
-		if (tg[0]) pf_gfx_text_right(g, B, 12, x + w - 5, y + 46, tg, tgc);
+		pf_gfx_text(g, B, 11, x + 5, y + 3, name, mc);
+		pf_gfx_text(g, B, 24, x + 5, y + 13, t, tc);
+		if (amb[0]) { memmove(amb + 1, amb + 4, strlen(amb + 4) + 1); pf_gfx_text(g, B, 10, x + 5, y + 38, amb, dim); }   /* "AMB 221°" -> "A221°": room for the target */
+		if (tg[0]) pf_gfx_text_right(g, B, 11, x + w - 5, y + 37, tg, tgc);
+		if (et[0]) pf_gfx_text(g, B, 10, x + 5, y + 49, et, dim);
+		if (bat[0]) pf_gfx_text_right(g, B, 10, x + w - 5, y + 49, bat, batc);
 	}
 }
 
@@ -254,7 +266,7 @@ static void render_main(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 	cJSON_ArrayForEach(p, probes) {
 		const char *role = pf_json_str((cJSON *)p, "role", "");
 		if (!strcmp(role, "Primary")) { if (!primary) primary = p; continue; }
-		if (!strcmp(role, "Food") && pf_json_bool((cJSON *)p, "enabled", true) && pf_json_bool((cJSON *)p, "home", true) && nf < 3) food[nf++] = p;
+		if (!strcmp(role, "Food") && pf_json_bool((cJSON *)p, "enabled", true) && pf_json_bool((cJSON *)p, "home", true) && !pf_json_bool((cJSON *)p, "companion", false) && nf < 3) food[nf++] = p;
 	}
 
 	if (landscape) {

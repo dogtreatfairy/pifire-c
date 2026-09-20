@@ -125,6 +125,10 @@ void pf_control_step(pf_control *c, double now);
 void pf_control_request(pf_control *c, pf_mode mode, double setpoint_c);
 /* Called once after the first sensor poll: handle unclean-restart recovery. */
 void pf_control_boot_check(pf_control *c, bool unclean_restart, double now);
+/* Warm restart (software update while cooking): snapshot the running cook as JSON (NULL when nothing
+ * is worth resuming), and restore it in the new process. Resume returns true when a mode was re-entered. */
+char *pf_control_resume_json(const pf_control *c, double now);
+bool  pf_control_resume(pf_control *c, const char *json, double now);
 
 /* safety.c */
 void pf_safety_reset(pf_control *c);

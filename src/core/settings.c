@@ -184,6 +184,25 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 2");
 			added = 1;
 		}
+		if (ver < 3) {
+			/* Chef iQ port BT_Food was renamed BT_Probe (the internal sensor; BT_Ambient is the handle) */
+			cJSON *devs = pf_json_path(g_root, "probe_settings.probe_map.probe_devices"), *d;
+			cJSON_ArrayForEach(d, devs) {
+				if (strcmp(pf_json_str(d, "module", ""), "chefiq")) continue;
+				cJSON *ports = cJSON_GetObjectItem(d, "ports"), *pt;
+				cJSON_ArrayForEach(pt, ports) if (cJSON_IsString(pt) && !strcmp(pt->valuestring, "BT_Food")) cJSON_SetValuestring(pt, "BT_Probe");
+				cJSON *infos = pf_json_path(g_root, "probe_settings.probe_map.probe_info"), *pi;
+				cJSON_ArrayForEach(pi, infos) {
+					if (strcmp(pf_json_str(pi, "device", ""), pf_json_str(d, "device", "")) || strcmp(pf_json_str(pi, "port", ""), "BT_Food")) continue;
+					cJSON *pp = cJSON_GetObjectItem(pi, "port");
+					if (cJSON_IsString(pp)) cJSON_SetValuestring(pp, "BT_Probe");
+				}
+			}
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 3); else cJSON_AddNumberToObject(g_root, "schema_version", 3);
+			LOGI(TAG, "settings migrated to schema 3");
+			added = 1;
+		}
 	} else {
 		g_root = defaults;
 		added = 1;

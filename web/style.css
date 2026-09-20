@@ -268,6 +268,9 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .sig i.on { background: currentColor; }
 .sig.s1 i.on { background: var(--danger); } .sig.s2 i.on { background: var(--warn); }
 .pcell .n .sig { margin-right: 4px; color: var(--info); }
+.pcell .n .batt { font-size: .68rem; margin-right: 4px; color: var(--muted); }
+.pcell .n .batt.low { color: var(--danger); }
+.pcell .amb { font-size: .74rem; color: var(--muted); margin-top: -2px; }
 .pcell .tg.muted { color: var(--muted); }
 .ppop-temp { font-size: 3rem; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; margin: 6px 0 10px; }
 .ppop-temp small { font-size: 1rem; color: var(--muted); margin-left: 4px; }

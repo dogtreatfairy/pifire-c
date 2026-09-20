@@ -88,12 +88,22 @@ export async function renderProbes(view) {
       return el('div', {}, el('h3', {}, `Pair ${m.friendly_name}`), list, el('button', { class: 'btn ghost block', type: 'button', style: 'margin-top:10px', onclick: () => close(undefined) }, 'Cancel'));
     });
     if (!addr) return;
-    const n = map.probe_devices.filter((d) => d.module === m.filename).length + 1;
+    // devices: ChefiQ1, ChefiQ2 ... (first free number); probes: BT1, BT2 ... counted across every
+    // Bluetooth device, with the ambient sensor as "BTn Ambient" - hidden on Home, shown inside BTn's card
+    const base = m.friendly_name.replace(/^BT\s+/i, '').replace(/\s*\(.*\)\s*$/, '').trim().replace(/[^A-Za-z0-9]/g, '');
+    let n = 1; while (map.probe_devices.some((d) => d.device === `${base}${n}`)) n++;
     const cfg = {}; for (const c of m.device_specific?.config || []) cfg[c.label] = c.type === 'bt_address' ? addr : c.default;
     cfg.transient = true;
-    const dev = { device: `${m.friendly_name.replace(/[^A-Za-z0-9]/g, '')}${n}`, module: m.filename, ports: m.device_specific?.ports || [], config: cfg };
+    const dev = { device: `${base}${n}`, module: m.filename, ports: m.device_specific?.ports || [], config: cfg };
     map.probe_devices.push(dev);
-    dev.ports.forEach((port, i) => map.probe_info.push({ type: 'Food', label: `${dev.device}${i + 1}`, name: `${m.friendly_name.split(' ')[0]} ${i + 1}`, profile: 'TWPS00', device: dev.device, port, enabled: true, show_on_home: i < 3 }));
+    const taken = new Set(map.probe_info.map((p) => p.name.toLowerCase()));
+    let k = 1; const nextBt = () => { while (taken.has(`bt${k}`)) k++; taken.add(`bt${k}`); return `BT${k}`; };
+    let lastMeat = null;
+    dev.ports.forEach((port, i) => {
+      const ambient = /ambient/i.test(port);
+      const name = ambient ? `${lastMeat || nextBt()} Ambient` : (lastMeat = nextBt());
+      map.probe_info.push({ type: 'Food', label: `${dev.device}${i + 1}`, name, profile: 'TWPS00', device: dev.device, port, enabled: true, show_on_home: !ambient && i < 3 });
+    });
     await save();
   };
 

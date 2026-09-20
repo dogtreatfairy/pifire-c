@@ -67,7 +67,7 @@ typedef struct {
 	char address[20];
 } cq_t;
 
-static const char *port_names[2] = { "BT_Food", "BT_Ambient" };
+static const char *port_names[2] = { "BT_Probe", "BT_Ambient" };   /* internal (meat) sensor, handle ambient sensor */
 
 static void on_connected(pf_ble_dev *d, void *ctx)
 {

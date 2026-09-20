@@ -114,6 +114,10 @@ int main(int argc, char **argv)
 	if (pf_db_open(dbpath)) return 1;
 	bool unclean = pf_file_exists(marker);
 	pf_write_file_atomic(marker, "1", 1);
+	char resume_path[600];
+	snprintf(resume_path, sizeof resume_path, "%s/resume.json", data_dir);
+	char *resume = unclean ? NULL : pf_read_file(resume_path, NULL);   /* only a clean handoff resumes */
+	unlink(resume_path);
 	pf_db_event(PF_LVL_INFO, "SYS_START", sim ? "pifired started (simulator)" : "pifired started");
 
 	/* plugins and hardware */
@@ -153,6 +157,11 @@ int main(int argc, char **argv)
 	for (int i = 0; i < 12; i++) { pf_probes_poll(pf_now()); pf_sleep_ms(50); }
 	pf_control_step(&ctrl, pf_now());
 	pf_control_boot_check(&ctrl, unclean, pf_now());
+	if (resume) {
+		if (pf_control_resume(&ctrl, resume, pf_now())) pf_control_step(&ctrl, pf_now());
+		else LOGI(TAG, "resume snapshot ignored (stale or not resumable)");
+		free(resume);
+	}
 
 	pf_threads_opts topts = { .sim = sim, .sim_time_scale = speed };
 	if (pf_threads_start(&ctrl, &topts)) return 1;
@@ -179,6 +188,11 @@ int main(int argc, char **argv)
 	pf_netmgr_stop();
 	pf_web_stop();
 	pf_threads_stop();
+	/* warm restart: leave the running cook for the next process (a software update restarts us mid-cook) */
+	if (!pf_threads_power_off_requested()) {
+		char *snap = pf_control_resume_json(&ctrl, pf_now());
+		if (snap) { pf_write_file_atomic(resume_path, snap, strlen(snap)); LOGI(TAG, "saved %s for resume", pf_mode_name(ctrl.mode)); free(snap); }
+	}
 	pf_control_shutdown(&ctrl);
 	pf_probes_shutdown();
 	pf_pellets_shutdown();
