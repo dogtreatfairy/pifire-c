@@ -8,11 +8,13 @@
  * Both palettes are tuned for a transmissive TFT read outdoors: full-contrast text, no dim greys. */
 typedef struct {
 	uint16_t bg, card, card2, line, text, muted, accent, accent_text, ok, warn, danger, info;
+	uint16_t fan, auger, igniter;   /* status tile fills */
 	bool light;
 } pf_gfx_theme;
 
 typedef struct {
-	int w, h;
+	int w, h;        /* framebuffer */
+	int vw, vh;      /* visible area used for layout (panels hide a few px under the bezel) */
 	uint16_t *px;    /* w*h, big-endian RGB565 as the ILI9341 expects (byte-swapped on little-endian hosts) */
 	pf_gfx_theme th;
 } pf_gfx;

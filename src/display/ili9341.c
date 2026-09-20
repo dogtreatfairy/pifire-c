@@ -38,7 +38,7 @@ typedef struct {
 	int chipfd, spi;
 	pf_gpio_line *dc, *rst, *led;
 	pf_gpio_line *clk, *dt, *sw;
-	int rotation;
+	int rotation, margin_right, margin_bottom;
 	bool bgr, encoder;
 	pf_gfx fb;
 	pf_ui_state ui;
@@ -299,6 +299,10 @@ static void *create(const char *cfg_json, const pf_env *env)
 	pthread_mutex_init(&t->mu, NULL);
 	t->rotation = pf_json_int(c, "rotation", 0);
 	t->bgr = pf_json_bool(c, "bgr", false);
+	t->margin_right = pf_json_int(c, "margin_right", 16);
+	t->margin_bottom = pf_json_int(c, "margin_bottom", 0);
+	if (t->margin_right < 0 || t->margin_right > 60) t->margin_right = 16;
+	if (t->margin_bottom < 0 || t->margin_bottom > 60) t->margin_bottom = 0;
 	t->backlight_timeout = pf_json_num(c, "backlight_timeout_s", 5);
 	int spi_dev = pf_json_int(c, "spi_device", 0), hz = pf_json_int(c, "spi_hz", 32000000);
 	t->encoder = pf_json_bool(c, "encoder", true);
@@ -318,6 +322,7 @@ static void *create(const char *cfg_json, const pf_env *env)
 	if (!t->dc) { env->log(PF_LVL_ERROR, TAG, "cannot claim DC GPIO%d", dc); free(t); return NULL; }
 	bool landscape = t->rotation == 90 || t->rotation == 270;
 	pf_gfx_init(&t->fb, landscape ? 320 : 240, landscape ? 240 : 320);
+	t->fb.vw = t->fb.w - t->margin_right; t->fb.vh = t->fb.h - t->margin_bottom;   /* bezel hides the edge */
 	init_panel(t);
 	backlight(t, true);
 	t->ui.screen = PF_SCR_MAIN;

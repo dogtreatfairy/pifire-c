@@ -3386,6 +3386,28 @@
             ],
             "default": false,
             "hidden": false
+          },
+          {
+            "label": "margin_right",
+            "friendly_name": "Right margin (px)",
+            "description": "Pixels hidden under the bezel on the right; the layout stops short of them. 16 px is about 1/8 inch on a 2.8-inch panel.",
+            "type": "int",
+            "default": 16,
+            "min": 0,
+            "max": 60,
+            "step": 1,
+            "hidden": false
+          },
+          {
+            "label": "margin_bottom",
+            "friendly_name": "Bottom margin (px)",
+            "description": "Pixels hidden under the bezel at the bottom.",
+            "type": "int",
+            "default": 0,
+            "min": 0,
+            "max": 60,
+            "step": 1,
+            "hidden": false
           }
         ]
       },
@@ -3474,6 +3496,28 @@
               "BGR"
             ],
             "default": false,
+            "hidden": false
+          },
+          {
+            "label": "margin_right",
+            "friendly_name": "Right margin (px)",
+            "description": "Pixels hidden under the bezel on the right; the layout stops short of them. 16 px is about 1/8 inch on a 2.8-inch panel.",
+            "type": "int",
+            "default": 16,
+            "min": 0,
+            "max": 60,
+            "step": 1,
+            "hidden": false
+          },
+          {
+            "label": "margin_bottom",
+            "friendly_name": "Bottom margin (px)",
+            "description": "Pixels hidden under the bezel at the bottom.",
+            "type": "int",
+            "default": 0,
+            "min": 0,
+            "max": 60,
+            "step": 1,
             "hidden": false
           }
         ]

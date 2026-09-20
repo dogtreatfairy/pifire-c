@@ -37,6 +37,7 @@ static void test_render_screens(void)
 {
 	pf_gfx g;
 	TEST_ASSERT_EQUAL_INT(0, pf_gfx_init(&g, 320, 240));
+	g.vw = 320 - 16;   /* default right margin */
 	cJSON *st = cJSON_Parse(status_json);
 	TEST_ASSERT_NOT_NULL(st);
 	pf_ui_state ui = { .screen = PF_SCR_MAIN };

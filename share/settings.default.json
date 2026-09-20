@@ -67,7 +67,9 @@
     "spi_hz": 32000000,
     "backlight_timeout_s": 5,
     "theme": "dark",
-    "bgr": false
+    "bgr": false,
+    "margin_right": 16,
+    "margin_bottom": 0
   },
   "distance": {
     "i2c_bus_addr": "0x29"
