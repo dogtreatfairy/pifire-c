@@ -165,34 +165,48 @@ static void draw_datablock(pf_gfx *g, const cJSON *s, const cJSON *primary, cons
 	if (pf_json_bool((cJSON *)s, "lid_open", false)) pf_gfx_text(g, B, p3, x, ly + 12, "LID OPEN", g->th.warn);
 }
 
-static void draw_pit(pf_gfx *g, const cJSON *primary, const char *units, const char *mode, int x, int y, int big)
+static void draw_pit(pf_gfx *g, const cJSON *primary, const char *units, const char *mode, int x, int y, int big, int maxw)
 {
 	bool stopped = !strcmp(mode, "Stop");
 	bool valid = primary && cJSON_IsNumber(cJSON_GetObjectItem((cJSON *)primary, "temp"));
 	char v[8];
 	fmt_temp(v, sizeof v, valid ? cJSON_GetObjectItem((cJSON *)primary, "temp") : NULL);
 	if (stopped) { snprintf(v, sizeof v, "0"); valid = false; }
-	char label[24];
-	snprintf(label, sizeof label, "%.10s " DEG "%c", primary ? pf_json_str((cJSON *)primary, "name", "PIT") : "PIT", units[0]);
-	upper(label);
-	pf_gfx_text(g, B, 14, x, y, label, g->th.muted);
-	pf_gfx_text(g, B, big, x - 4, y + 8, v, valid ? g->th.text : g->th.muted);
+	/* big number with the unit at half size, baseline-aligned to its bottom right */
+	uint16_t c = valid ? g->th.text : g->th.muted;
+	char u[4];
+	snprintf(u, sizeof u, DEG "%c", units[0]);
+	while (big > 40 && pf_gfx_text_width(B, big, v) + 2 + pf_gfx_text_width(B, big / 2, u) > maxw) big -= 4;   /* shrink to fit */
+	int small = big / 2;
+	int adv = pf_gfx_text(g, B, big, x - 4, y, v, c);
+	int uy = y + pf_gfx_ascent(B, big) - pf_gfx_ascent(B, small);   /* baselines aligned */
+	pf_gfx_text(g, B, small, x - 4 + adv + 2, uy, u, c);
 }
 
 /* food probe: name, big temperature, target */
-static void draw_probe_col(pf_gfx *g, const cJSON *p, int x, int y, int w)
+/* Done probes flash green; 5 °F (3 °C) over the target flash orange; 10 °F (6 °C) over flash red.
+ * The flash alternates between a filled card and an outlined card on each display tick. */
+static void draw_probe_col(pf_gfx *g, const cJSON *p, const char *units, bool blink, int x, int y, int w)
 {
 	const cJSON *tv = cJSON_GetObjectItem((cJSON *)p, "temp");
 	double target = pf_json_num((cJSON *)p, "target", 0);
 	bool valid = cJSON_IsNumber(tv), hit = target > 0 && valid && tv->valuedouble >= target;
-	pf_gfx_rrect(g, x, y, w, 62, 6, hit ? g->th.ok : g->th.card);
-	uint16_t tc = hit ? g->th.accent_text : valid ? g->th.text : g->th.muted, mc = hit ? g->th.accent_text : g->th.muted;
+	double over = hit ? tv->valuedouble - target : 0, step = units[0] == 'C' ? 3 : 5;
+	uint16_t alert = over >= 2 * step ? g->th.danger : over >= step ? g->th.accent : g->th.ok;
+	bool filled = hit && !blink;
+	if (filled) pf_gfx_rrect(g, x, y, w, 62, 6, alert);
+	else {
+		pf_gfx_rrect(g, x, y, w, 62, 6, g->th.card);
+		if (hit) { pf_gfx_rrect(g, x, y, w, 62, 6, alert); pf_gfx_rrect(g, x + 3, y + 3, w - 6, 56, 4, g->th.card); }
+	}
+	uint16_t tc = filled ? g->th.accent_text : hit ? alert : valid ? g->th.text : g->th.muted;
+	uint16_t mc = filled ? g->th.accent_text : hit ? alert : g->th.muted;
 	char name[12], t[8], tg[12] = "";
 	snprintf(name, sizeof name, "%.8s", pf_json_str((cJSON *)p, "name", "?"));
 	upper(name);
 	fmt_temp(t, sizeof t, tv);
 	if (target > 0) snprintf(tg, sizeof tg, "%.0f" DEG, target);
-	uint16_t tgc = hit ? g->th.accent_text : g->th.accent;
+	uint16_t tgc = filled ? g->th.accent_text : tc == alert ? alert : g->th.accent;
 	if (w >= 90) {
 		pf_gfx_text(g, B, 14, x + 6, y + 4, name, mc);
 		pf_gfx_text(g, B, 34, x + 6, y + 18, t, tc);
@@ -205,7 +219,7 @@ static void draw_probe_col(pf_gfx *g, const cJSON *p, int x, int y, int w)
 	}
 }
 
-static void render_main(pf_gfx *g, const cJSON *s)
+static void render_main(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 {
 	const char *mode = pf_json_str((cJSON *)s, "mode", "Stop");
 	const char *units = pf_json_str((cJSON *)s, "units", "F");
@@ -225,17 +239,17 @@ static void render_main(pf_gfx *g, const cJSON *s)
 	if (landscape) {
 		draw_tiles(g, s, 39, 36, 20);
 		int col = W - 100;                                      /* data column on the right */
-		draw_pit(g, primary, units, mode, 8, 78, 100);
+		draw_pit(g, primary, units, mode, 8, 78, 100, col - 12);
 		draw_datablock(g, s, primary, mode, units, col, 80, W - col - 6, true);
 		int top = H - 66, w = (W - 12 - 10) / 3;
 		if (nf == 0) pf_gfx_text(g, R, 16, 8, top + 22, "No food probes enabled", g->th.muted);
-		for (int i = 0; i < nf; i++) draw_probe_col(g, food[i], 6 + i * (w + 5), top, w);
+		for (int i = 0; i < nf; i++) draw_probe_col(g, food[i], units, ui->blink, 6 + i * (w + 5), top, w);
 	} else {
 		draw_tiles(g, s, 39, 36, 18);
-		draw_pit(g, primary, units, mode, 10, 76, 118);
+		draw_pit(g, primary, units, mode, 10, 80, 118, W - 16);
 		draw_datablock(g, s, primary, mode, units, 10, 190, W - 20, true);
 		int top = H - 66, w = (W - 12 - 10) / 3;
-		for (int i = 0; i < nf; i++) draw_probe_col(g, food[i], 6 + i * (w + 5), top, w);
+		for (int i = 0; i < nf; i++) draw_probe_col(g, food[i], units, ui->blink, 6 + i * (w + 5), top, w);
 	}
 }
 
@@ -294,6 +308,6 @@ void pf_screens_render(pf_gfx *g, const cJSON *status, const pf_ui_state *ui)
 		pf_gfx_text_center(g, B, px, g->vw / 2, g->vh / 2 - pf_gfx_line_height(B, px) / 2, ui->message, g->th.text);
 		return;
 	}
-	if (status) render_main(g, status);
+	if (status) render_main(g, status, ui);
 	else pf_gfx_text_center(g, B, 32, g->vw / 2, g->vh / 2 - 20, "PiFire", g->th.accent);
 }

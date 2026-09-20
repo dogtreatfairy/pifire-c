@@ -21,6 +21,7 @@ typedef struct {
 	bool edit_is_change;     /* true: change the running set point, false: start Hold at it */
 	char message[64];
 	double message_until;
+	bool blink;              /* toggled by the driver each tick: drives the done / over-target flash */
 } pf_ui_state;
 
 /* Build the menu for the current mode. Returns the item count. */

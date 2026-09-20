@@ -42,6 +42,18 @@ static void test_render_screens(void)
 	TEST_ASSERT_NOT_NULL(st);
 	pf_ui_state ui = { .screen = PF_SCR_MAIN };
 	render_to(&g, st, &ui, "hold3");
+	/* flash phases: probe 1 pushed 6 F over target (orange), probe 3 12 F over (red), probe 2 done (green) */
+	cJSON *pr = cJSON_GetObjectItem(st, "probes");
+	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 1), "temp", cJSON_CreateNumber(209));
+	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 3), "temp", cJSON_CreateNumber(172));
+	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 3), "target", cJSON_CreateNumber(160));
+	render_to(&g, st, &ui, "flash_on");
+	ui.blink = true;
+	render_to(&g, st, &ui, "flash_off");
+	ui.blink = false;
+	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 1), "temp", cJSON_CreateNumber(164));
+	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 3), "temp", cJSON_CreateNull());
+	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 3), "target", cJSON_CreateNumber(0));
 	ui.screen = PF_SCR_MENU; ui.menu_index = 1;
 	render_to(&g, st, &ui, "menu");
 	ui.screen = PF_SCR_SETPOINT; ui.edit_setpoint = 250; ui.edit_is_change = true;
@@ -69,6 +81,7 @@ static void test_render_screens(void)
 	cJSON_Delete(st);
 	st = cJSON_Parse(status_json);
 	TEST_ASSERT_EQUAL_INT(0, pf_gfx_init(&g, 240, 320));
+	g.vw = 240 - 16;
 	ui.screen = PF_SCR_MAIN;
 	render_to(&g, st, &ui, "portrait");
 	cJSON_Delete(st);

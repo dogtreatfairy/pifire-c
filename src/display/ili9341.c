@@ -365,6 +365,7 @@ static void status(void *self, const char *json)
 	cJSON_Delete(t->status);
 	t->status = cJSON_Parse(json);
 	double now = pf_now();
+	t->ui.blink = !t->ui.blink;   /* 2 Hz tick -> 1 Hz flash */
 	bool stopped = !strcmp(pf_json_str(t->status, "mode", ""), "Stop");
 	if ((t->ui.screen == PF_SCR_MENU || t->ui.screen == PF_SCR_SETPOINT) && now - t->last_activity > MENU_TIMEOUT_S) t->ui.screen = PF_SCR_MAIN;
 	if (!stopped && !t->backlight_on) backlight(t, true);                       /* any active mode: screen on */
