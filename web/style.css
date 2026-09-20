@@ -236,9 +236,9 @@ legend { font-weight: 600; margin-bottom: 6px; }
 
 /* ---- header: grill temperature centre, mode | countdown/target right ---- */
 .topbar { position: relative; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; column-gap: 8px; }
-.topbar .brand { justify-self: start; }
-.topbar .topbar-right { justify-self: end; }
-.top-temp { justify-self: center; font-weight: 700; font-size: 1.15rem; font-variant-numeric: tabular-nums; line-height: 1; }
+.topbar .brand { grid-column: 1; justify-self: start; }
+.top-temp { grid-column: 2; justify-self: center; font-weight: 700; font-size: 1.15rem; font-variant-numeric: tabular-nums; line-height: 1; }
+.topbar .topbar-right { grid-column: 3; justify-self: end; }
 .top-temp[hidden] { display: none; }
 .pill-mode { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
@@ -395,7 +395,10 @@ main.view { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scr
   backdrop-filter: blur(22px) saturate(160%); -webkit-backdrop-filter: blur(22px) saturate(160%);
   height: auto; opacity: 1; pointer-events: none;
 }
-.topbar::before { border-radius: 0; }
+/* The header keeps no backdrop blur at all: iOS rasterised its text soft whatever layer the blur
+ * sat on (the cards are fine), and a crisp title matters more than glass on a 56 px bar. */
+.topbar::before { border-radius: 0; backdrop-filter: none; -webkit-backdrop-filter: none; background: color-mix(in oklab, var(--bg) 94%, transparent); }
+.topbar { transform: none; isolation: auto; -webkit-font-smoothing: auto; }
 .tabbar::before, .cgroup::before, .dialog::before, .toast::before { background: var(--glass-strong); }
 /* specular edge moves to ::after */
 .card::after, .hero::after, .ios-list::after { content: ""; position: absolute; inset: 0 0 auto 0; height: 1px; background: linear-gradient(90deg, transparent, var(--glass-shine), transparent); opacity: .9; pointer-events: none; }
