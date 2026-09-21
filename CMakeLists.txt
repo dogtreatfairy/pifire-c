@@ -72,7 +72,7 @@ add_custom_command(
 
 # ---- web assets: gzip at build time, embed ---------------------------------
 set(PF_WEB_FILES index.html style.css app.js sw.js manifest.webmanifest icon.svg icon-180.png icon-192.png icon-512.png icon-512-maskable.png
-    pages/home.js pages/history.js pages/cook.js pages/settings.js pages/more.js pages/network.js pages/pellets.js pages/learning.js pages/probes.js icons.js)
+    pages/home.js pages/history.js pages/cook.js pages/settings.js pages/more.js pages/network.js pages/pellets.js pages/learning.js pages/probes.js pages/rules.js icons.js)
 set(PF_WEB_GZ "")
 foreach(f ${PF_WEB_FILES})
   get_filename_component(base ${f} NAME)

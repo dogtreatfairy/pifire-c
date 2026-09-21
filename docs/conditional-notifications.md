@@ -8,9 +8,9 @@ Today's notifications are hard-coded in C (`Probe_Temp_Achieved`, `Probe_ETA`, `
 the `E0x` errors). This design keeps every one of them working by shipping them as built-in rules,
 so what was fixed behaviour becomes something you can read, edit and switch off.
 
-Status: **the engine is built** (`src/features/rules.c`, `tests/test_rules.c`), with the built-in
-rules shipping in the defaults and a schema-5 migration. The editor described in section 8 is the
-remaining piece; until it lands, rules are edited through `PUT /api/v1/settings/notify`.
+Status: **built.** The engine is `src/features/rules.c` with `tests/test_rules.c`; the editor is
+`web/pages/rules.js` under *Settings → Notifications → Conditional Notifications*. The built-in
+rules ship in the defaults and a schema-5 migration carries the old predictive setting across.
 
 ---
 

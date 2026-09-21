@@ -1,5 +1,6 @@
 import { PF, el, api, patchSettings, toast, degUnit, confirmDialog } from '../app.js';
 import { renderProbes } from './probes.js';
+import { renderRules } from './rules.js';
 import { renderLearning } from './learning.js';
 import { renderPellets } from './pellets.js';
 import { renderNetwork } from './network.js';
@@ -97,6 +98,7 @@ const PAGES = [
     I('sample_s', 'Sample every (s)', '', { min: 1, max: 60 }), I('retention_hours', 'Keep for (hours)', '', { min: 1 }), B('clear_on_startup', 'Clear the chart when a cook starts', ''),
   ] }] },
   // ---- Connectivity
+  { key: 'rules', title: 'Conditional Notifications', sub: 'Your own if-this-then-notify rules', section: 'Notifications', icon: 'git-branch', color: '#bf5af2', custom: renderRules },
   { key: 'integrations', title: 'Home Assistant & Webhooks', sub: 'MQTT with Home Assistant discovery, JSON webhook', section: 'Notifications', icon: 'house', color: '#0a84ff', sections: [{ id: 'notify', fields: [
     B('mqtt.enabled', 'MQTT', 'Publish state to a broker, with Home Assistant discovery'), X('mqtt.broker', 'Broker host', ''), I('mqtt.port', 'Broker port', '', { min: 1, max: 65535 }),
     X('mqtt.username', 'Username', ''), { path: 'mqtt.password', label: 'Password', type: 'password' }, X('mqtt.id', 'Device ID', 'Topic prefix'), I('mqtt.update_sec', 'Publish every (s)', '', { min: 5 }),

@@ -59,7 +59,15 @@ Cross-building Pi binaries on a workstation: `tools/release.sh` runs the same bu
 * **Pushover** (recommended, $5 once): install the app, copy your *user key* from it, create an application at pushover.net/apps/build and paste its *token*. Priorities are configurable separately for normal events and for alarms (Emergency repeats until acknowledged).
 * **ntfy** (free): install the app, subscribe to a private topic on ntfy.sh (or your own server) and enter the topic; add an access token only for protected topics.
 
-The page leads with **Predictive alerts** (how long before a probe reaches its target you want to hear about it), then a collapsible group per service. Each service can receive four categories: *targets & timers* (probe target reached, the **about-N-minutes-to-target** warning, cook timer, recipe steps), *alarms & errors* (probe limits, flame-out, over-temperature), *pellets low* and *system* (autotune/tuning notices). *Send test* checks the credentials immediately. The time-to-target warning fires once per target, after the live estimate has been under `notify.eta_warn_min` (default 15 min) on two consecutive fits.
+**Conditional Notifications** (*Settings → Notifications*) is where your own rules live: pick what
+to watch (a class of probes, filtered by role and by wired or Bluetooth, with any of them excluded
+by name), describe the condition over its readings, and write the message. A value can be compared
+against *another reading of the same probe*, which is how one rule covers every probe at once and
+still names the one that matched. Tokens like `{probe}`, `{temp}`, `{target}` and `{eta}` go in the
+title and message from a row of chips, and a live preview shows what would be sent against the
+current readings, along with how many probes the rule watches and how many match right now.
+
+The Phone Notifications page leads with **Predictive alerts** (how long before a probe reaches its target you want to hear about it), then a collapsible group per service. Each service can receive four categories: *targets & timers* (probe target reached, the **about-N-minutes-to-target** warning, cook timer, recipe steps), *alarms & errors* (probe limits, flame-out, over-temperature), *pellets low* and *system* (autotune/tuning notices). *Send test* checks the credentials immediately. The time-to-target warning fires once per target, after the live estimate has been under `notify.eta_warn_min` (default 15 min) on two consecutive fits.
 
 **Remote access** — *Settings → Network → Remote access*. PiFire joins your [Tailscale](https://tailscale.com) network: *Install Tailscale* adds Tailscale's package repository and installs it, *Connect* joins the tailnet (a sign-in link appears; open it on the phone and approve the machine), and *Enable HTTPS* publishes the web app through `tailscale serve` with a valid certificate. The grill is then reachable from anywhere at `http(s)://<name>.<tailnet>.ts.net/` as long as the phone runs the Tailscale app; add the Home Screen web app from that address so it works at home and away. Privileged steps run through `/usr/local/bin/pifire-tailscale` (sudoers rule installed by `install.sh`); the pifire user is made a Tailscale operator so status and connect need no root.
 
