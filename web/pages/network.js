@@ -16,7 +16,7 @@ async function passwordDialog(ssid, secured) {
   });
 }
 
-export function renderNetwork(view, { captive = false } = {}) {
+export function renderNetwork(view, { captive = false, hotspotExtra = null } = {}) {
   const statusCard = el('div', { class: 'card' });
   const hotspotCard = el('div', { class: 'card' });
   const list = el('div', { class: 'list' });
@@ -24,7 +24,7 @@ export function renderNetwork(view, { captive = false } = {}) {
   view.append(...[
     captive ? el('div', { class: 'card' }, el('h3', {}, 'Welcome to PiFire'), el('p', { class: 'muted' }, 'Pick your home Wi-Fi network below. After it joins, open pifire.local from your phone or computer on that network.')) : null,
     el('h2', {}, 'Connection'), statusCard,
-    captive ? null : el('h2', {}, 'Setup hotspot'), captive ? null : hotspotCard,
+    captive ? null : el('h2', {}, 'Setup hotspot'), captive ? null : hotspotCard, captive ? null : hotspotExtra,
     el('div', { class: 'row between' }, el('h2', {}, 'Networks'), scanBtn),
     el('div', { class: 'card' }, list)].filter(Boolean));
 
@@ -46,7 +46,7 @@ export function renderNetwork(view, { captive = false } = {}) {
 
     hotspotCard.innerHTML = '';
     hotspotCard.append(el('div', { class: 'kv' }, el('div', {}, 'Hotspot name'), el('div', {}, s.hotspot.ssid), el('div', {}, 'Password'), el('div', {}, s.hotspot.password), el('div', {}, 'Address'), el('div', {}, '10.42.0.1')),
-      el('p', { class: 'muted', style: 'font-size:.82rem' }, 'The hotspot starts automatically when no known network is found after boot. Change the password under Settings → Network.'),
+      el('p', { class: 'muted', style: 'font-size:.82rem' }, 'The hotspot starts automatically when no known network is found after boot. Change its name and password below.'),
       el('div', { class: 'form-actions' }, el('button', { class: 'btn sm' + (s.hotspot.active ? '' : ' primary'), onclick: async () => { if (s.hotspot.active || await confirmDialog('Start the setup hotspot?', 'Your current Wi-Fi connection will drop.', 'Start hotspot')) { await api('/network/hotspot', { body: { on: !s.hotspot.active } }); setTimeout(status, 1500); } } }, s.hotspot.active ? 'Stop hotspot' : 'Start hotspot')));
   }
   async function scan(rescan) {

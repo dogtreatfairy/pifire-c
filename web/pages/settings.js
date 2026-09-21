@@ -1,5 +1,8 @@
 import { PF, el, api, patchSettings, toast, degUnit, confirmDialog } from '../app.js';
 import { renderProbes } from './probes.js';
+import { renderLearning } from './learning.js';
+import { renderPellets } from './pellets.js';
+import { renderNetwork } from './network.js';
 import { listGroup } from '../app.js';
 
 // Field descriptors: path relative to the group, type: num|int|bool|select|text|temp|tempdelta
@@ -14,7 +17,8 @@ const X = (path, label, help) => ({ path, label, help, type: 'text' });
 // and saves independently, so a page can combine related groups (e.g. startup + shutdown).
 const PAGES = [
   // ---- Grill
-  { key: 'controller', title: 'Temperature control', sub: 'Control algorithm and tuning', section: 'Cooking', icon: 'gauge', color: '#ff8a1f', controller: true },
+  { key: 'controller', title: 'Temperature control & learning', sub: 'Controller, what it learns from every cook, local weather', section: 'Cooking', icon: 'gauge', color: '#ff8a1f', custom: controllerPage },
+  { key: 'hardware', title: 'Grill hardware', sub: 'Board, pins, display, hopper sensor', section: 'Hardware', icon: 'cpu', color: '#64d2ff', custom: (v) => import('./more.js').then((m) => m.hardware(v)) },
   { key: 'probes', title: 'Probes', sub: 'Wired and Bluetooth probes, profiles, tuner', section: 'Hardware', icon: 'thermometer', color: '#ff453a', custom: renderProbes },
   { key: 'auger', title: 'Auger & feed', sub: 'Cycle length, feed limits, P-mode', section: 'Cooking', icon: 'sliders-horizontal', color: '#ff9f0a', sections: [{ id: 'cycle_data', fields: [
     I('HoldCycleTime', 'Control cycle (s)', 'Length of one auger cycle while holding a temperature; the controller decides the feed once per cycle', { min: 5, max: 120 }),
@@ -56,11 +60,6 @@ const PAGES = [
     I('max_duty_cycle', 'Maximum fan speed (%)', '', { min: 10, max: 100 }),
     I('update_time', 'Speed update interval (s)', '', { min: 1 }),
   ] }] },
-  { key: 'learning', title: 'Learning', sub: 'What the grill learns from every cook', section: 'Cooking', icon: 'brain', color: '#bf5af2', sections: [{ id: 'learning', fields: [
-    B('enabled', 'Learn from cooks', 'Record the steady feed for each set point and ambient temperature, and the plant model from every startup'),
-    B('auto_tune', 'Apply learned tuning automatically', 'Hand the measured plant model (and autotune results) to the controller as soon as they are known'),
-    I('half_life_obs', 'Memory half-life (observations)', 'How quickly old cooks fade; ~12 observations per hour of Hold', { min: 5, max: 500 }),
-  ] }] },
   { key: 'lid', title: 'Lid-open detection', sub: 'Pause the feed when the lid is opened', section: 'Cooking', icon: 'lock-open', color: '#ffd60a', sections: [{ id: 'cycle_data', fields: [
     B('LidOpenDetectEnabled', 'Detect an open lid', 'A sudden temperature drop pauses the auger so the pot does not overfill'),
     I('LidOpenThreshold', 'Drop that counts as open (%)', 'Percentage below the set point', { min: 1, max: 50 }),
@@ -90,20 +89,20 @@ const PAGES = [
   ] }] },
   // ---- Cook
   { key: 'keepwarm', title: 'Keep warm', sub: 'After a probe reaches its target', section: 'Cooking', icon: 'flame', color: '#ff6b35', sections: [{ id: 'keep_warm', fields: [T('temp', 'Keep-warm temperature', ''), B('s_plus', 'Use Smoke+ while keeping warm', '')] }] },
-  { key: 'pellets', title: 'Pellets & hopper', sub: 'Low-pellet warnings, hopper sensor calibration', section: 'Hardware', icon: 'package', color: '#ac8e68', sections: [{ id: 'pelletlevel', fields: [
+  { key: 'pellets', title: 'Pellets & hopper', sub: 'Loaded pellets, brands, low-pellet warnings, hopper sensor', section: 'Cooking', icon: 'package', color: '#ac8e68', after: renderPellets, sections: [{ id: 'pelletlevel', title: 'Hopper', fields: [
     B('warning_enabled', 'Low-pellet warnings', ''), I('warning_level', 'Warn below (%)', '', { min: 1, max: 99 }), I('warning_time', 'Repeat every (min)', '', { min: 1 }),
     I('empty', 'Sensor reading when empty (cm)', 'Distance from the sensor to the bottom of the hopper', { min: 1 }), I('full', 'Sensor reading when full (cm)', '', { min: 0 }),
   ] }] },
-  { key: 'history', title: 'History & cook files', sub: 'Chart sampling and retention', section: 'Data', icon: 'database', color: '#5e5ce6', sections: [{ id: 'history', fields: [
+  { key: 'history', title: 'Data & history', sub: 'Chart sampling and retention', section: 'System', icon: 'database', color: '#5e5ce6', sections: [{ id: 'history', fields: [
     I('sample_s', 'Sample every (s)', '', { min: 1, max: 60 }), I('retention_hours', 'Keep for (hours)', '', { min: 1 }), B('clear_on_startup', 'Clear the chart when a cook starts', ''),
   ] }] },
   // ---- Connectivity
-  { key: 'integrations', title: 'Notifications & integrations', sub: 'MQTT, Home Assistant, webhooks', section: 'Connectivity', icon: 'bell', color: '#ff453a', sections: [{ id: 'notify', fields: [
+  { key: 'integrations', title: 'Home Assistant & webhooks', sub: 'MQTT with Home Assistant discovery, JSON webhook', section: 'Notifications', icon: 'house', color: '#0a84ff', sections: [{ id: 'notify', fields: [
     B('mqtt.enabled', 'MQTT', 'Publish state to a broker, with Home Assistant discovery'), X('mqtt.broker', 'Broker host', ''), I('mqtt.port', 'Broker port', '', { min: 1, max: 65535 }),
     X('mqtt.username', 'Username', ''), { path: 'mqtt.password', label: 'Password', type: 'password' }, X('mqtt.id', 'Device ID', 'Topic prefix'), I('mqtt.update_sec', 'Publish every (s)', '', { min: 5 }),
     B('webhook.enabled', 'Webhook', 'POST events as JSON to a URL'), X('webhook.url', 'Webhook URL', ''),
   ] }] },
-  { key: 'push', title: 'Phone notifications', sub: 'Pushover, ntfy, time-to-target warning', section: 'Connectivity', icon: 'smartphone', color: '#ff9f0a', sections: [
+  { key: 'push', title: 'Phone notifications', sub: 'Pushover, ntfy, time-to-target warning', section: 'Notifications', icon: 'bell', color: '#ff453a', sections: [
     { id: 'notify', title: 'Pushover', fields: [
       { type: 'note', help: 'Install the Pushover app ($5 once), then paste your user key from the app and create an application token at pushover.net/apps/build.' },
       B('pushover.enabled', 'Pushover', 'Send notifications to the Pushover app'),
@@ -124,18 +123,9 @@ const PAGES = [
       I('eta_warn_min', 'Warn when about (minutes) from a probe target', '0 = off. Uses the live estimate; fires once per target once the estimate has settled', { min: 0, max: 240 }),
     ] },
   ] },
-  { key: 'weather', title: 'Weather', sub: 'Local conditions as the ambient reference', section: 'Connectivity', icon: 'cloud-sun', color: '#64d2ff', sections: [{ id: 'weather', fields: [
-    { type: 'note', help: 'The controller\'s feed-forward and its learning use the outdoor temperature. With a postal code the grill fetches local conditions (Open-Meteo, no account) every 15 minutes and records wind and humidity with each cook. An ambient probe, if you have one, still takes precedence.' },
-    B('enabled', 'Use local weather', ''), X('country', 'Country code', 'Two letters, e.g. us, ca, de'), X('postal_code', 'Postal / ZIP code', ''),
-    { type: 'weather' },
-  ] }] },
-  { key: 'hotspot', title: 'Setup hotspot', sub: 'Fallback access point when no Wi-Fi is known', section: 'Connectivity', icon: 'router', color: '#30d158', sections: [{ id: 'network', fields: [
-    X('hotspot_ssid', 'Hotspot name', 'Blank = PiFire-XXXX from the Wi-Fi address'),
-    { path: 'hotspot_password', label: 'Hotspot password', help: 'At least 8 characters', type: 'text' },
-    I('setup_timeout_s', 'Start hotspot after (s)', 'If no network connects within this time after boot', { min: 10, max: 600 }),
-    B('force_setup', 'Start the hotspot on next boot', 'One-shot: cleared automatically'),
-  ] }] },
-  { key: 'webserver', title: 'Web server', sub: 'Port', section: 'Connectivity', icon: 'network', color: '#8e8e93', sections: [{ id: 'web', fields: [I('port', 'Port', 'Restart required', { min: 1, max: 65535 })] }] },
+  { key: 'network', title: 'Wi-Fi & hotspot', sub: 'Networks, connection, the setup hotspot', section: 'Network', icon: 'wifi', color: '#0a84ff', custom: networkPage },
+  { key: 'remote', title: 'Remote access', sub: 'Tailscale: reach the grill from anywhere', section: 'Network', icon: 'globe', color: '#30d158', custom: (v) => import('./more.js').then((m) => m.remote(v)) },
+  { key: 'webserver', title: 'Web server', sub: 'Port', section: 'Network', icon: 'network', color: '#8e8e93', sections: [{ id: 'web', fields: [I('port', 'Port', 'Restart required', { min: 1, max: 65535 })] }] },
   // ---- System
   { key: 'general', title: 'General', sub: 'Grill name, units, auger rate', section: 'System', icon: 'settings-2', color: '#8e8e93', sections: [{ id: 'globals', fields: [
     X('grill_name', 'Grill name', 'Shown in the header and in notifications'),
@@ -148,7 +138,7 @@ const PAGES = [
     S('theme', 'Theme', '', [['dark', 'Dark'], ['light', 'Light'], ['auto', 'Follow system']]),
     B('show_recipes', 'Show recipes', 'Recipe programs on the Cook page'),
   ] }] },
-  { key: 'updates', title: 'Software updates', sub: 'Release source and automatic checks', section: 'System', icon: 'refresh-cw', color: '#0a84ff', sections: [{ id: 'update', fields: [
+  { key: 'updates', title: 'Software updates', sub: 'Check and install releases, update source', section: 'System', icon: 'refresh-cw', color: '#0a84ff', before: (v) => import('./more.js').then((m) => m.softwareUpdates(v)), sections: [{ id: 'update', title: 'Update source', fields: [
     X('repo', 'GitHub repository', 'owner/name whose releases the updater installs'),
     B('auto_check', 'Check automatically', 'Shortly after boot and then periodically; a notice is logged when a newer release exists'),
     I('check_interval_h', 'Check every (hours)', '', { min: 1, max: 720 }),
@@ -157,13 +147,11 @@ const PAGES = [
   ] }] },
 ];
 // index order: what you cook with, the hardware, the safety net, connectivity, data, the app itself
-const SECTIONS = ['Cooking', 'Hardware', 'Safety', 'Connectivity', 'Data', 'System'];
-const LINKS = {
-  Hardware: [{ href: '#/more/hardware', icon: 'cpu', color: '#64d2ff', title: 'Hardware setup', sub: 'Board, pins, display, hopper sensor' }],
-  Connectivity: [{ href: '#/more/network', icon: 'wifi', color: '#0a84ff', title: 'Wi-Fi', sub: 'Networks and connection' }, { href: '#/more/remote', icon: 'globe', color: '#30d158', title: 'Remote access', sub: 'Reach the grill from anywhere with Tailscale' }],
-  Data: [{ href: '#/history', icon: 'chart-line', color: '#30d158', title: 'Cook files', sub: 'Saved cooks and analysis logs' }, { href: '#/more/learning', icon: 'brain', color: '#bf5af2', title: 'Learning data', sub: 'Feed-forward model, plant estimate, autotune' }],
-  System: [{ href: '#/more/system', icon: 'monitor', color: '#8e8e93', title: 'System', sub: 'Health, restart, power' }, { href: '#/more/about', icon: 'info', color: '#8e8e93', title: 'About', sub: '' }],
-};
+// Every concern has exactly one home. Settings = what you configure; More = what you do and what you
+// look at (manual outputs, events, logs, system health). Sections follow the questions people ask:
+// how it cooks, what it is made of, what keeps it safe, how it tells me, how I reach it, the app itself.
+const SECTIONS = ['Cooking', 'Hardware', 'Safety', 'Notifications', 'Network', 'System'];
+const LINKS = {};
 
 const get = (obj, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
 const setDeep = (obj, path, v) => { const ks = path.split('.'); let o = obj; for (const k of ks.slice(0, -1)) o = o[k] ??= {}; o[ks.at(-1)] = v; };
@@ -221,7 +209,7 @@ function pageCard(pg) {
       try { await patchSettings(sec.id, patch); toast('Saved'); if (sec.id === 'globals' && 'units' in patch) location.reload(); if (sec.id === 'weather') api('/weather/refresh', { body: {} }).catch(() => {}); } catch (err) { toast(err.message, true); }
       btn.disabled = false;
     } });
-    form.append(el('h2', {}, sec.title || pg.title));
+    if (sec.title !== '') form.append(el('h2', {}, sec.title || pg.title));
     const card = el('div', { class: 'card' });
     for (const f of sec.fields) card.append(fieldInput(f, f.path ? get(data, f.path) : undefined));
     card.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'submit' }, 'Save')));
@@ -266,6 +254,34 @@ async function controllerCard() {
   return wrap;
 }
 
+const learningFields = [
+  B('enabled', 'Learn from cooks', 'Record the steady feed for each set point and ambient temperature, and the plant model from every startup'),
+  B('auto_tune', 'Apply learned tuning automatically', 'Hand the measured plant model (and autotune results) to the controller as soon as they are known'),
+  I('half_life_obs', 'Memory half-life (observations)', 'How quickly old cooks fade; ~12 observations per hour of Hold', { min: 5, max: 500 }),
+];
+const weatherFields = [
+  { type: 'note', help: 'The feed-forward and the learning use the outdoor temperature as the ambient reference. With a postal code the grill fetches local conditions (Open-Meteo, no account) every 15 minutes and records wind and humidity with each cook. An ambient-flagged probe still takes precedence.' },
+  B('enabled', 'Use local weather', ''), X('country', 'Country code', 'Two letters, e.g. us, ca, de'), X('postal_code', 'Postal / ZIP code', ''),
+  { type: 'weather' },
+];
+// Temperature control & learning: the controller, what it learns, the weather it learns against, and the learned data
+async function controllerPage(view) {
+  view.append(await controllerCard());
+  view.append(pageCard({ title: 'Learning', sections: [{ id: 'learning', title: 'Learning', fields: learningFields }, { id: 'weather', title: 'Local weather', fields: weatherFields }] }));
+  return renderLearning(view);
+}
+// Wi-Fi & hotspot: live connection and networks, then the hotspot settings
+function networkPage(view) {
+  // the hotspot's live state, its settings and its start/stop button belong together
+  const hotspotExtra = pageCard({ sections: [{ id: 'network', title: '', fields: [
+    X('hotspot_ssid', 'Hotspot name', 'Blank = PiFire-XXXX from the Wi-Fi address'),
+    { path: 'hotspot_password', label: 'Hotspot password', help: 'At least 8 characters', type: 'text' },
+    I('setup_timeout_s', 'Start hotspot after (s)', 'If no network connects within this time after boot', { min: 10, max: 600 }),
+    B('force_setup', 'Start the hotspot on next boot', 'One-shot: cleared automatically'),
+  ] }] });
+  return renderNetwork(view, { hotspotExtra });
+}
+
 export function renderSettings(view, rest) {
   if (!PF.settings) { view.append(el('div', { class: 'card muted' }, 'Loading settings…')); return; }
   const dc = !!PF.settings.platform?.dc_fan;
@@ -275,10 +291,13 @@ export function renderSettings(view, rest) {
     view.append(el('button', { class: 'btn ghost sm', onclick: () => (location.hash = '#/settings') }, '‹ Settings'));
     const pg = pages.find((x) => x.key === page);
     if (!pg) { view.append(el('div', { class: 'card muted' }, 'No such settings page')); return; }
-    if (pg.controller) { controllerCard().then((c) => view.append(c)).catch((e) => toast(e.message, true)); return; }
-    if (pg.custom) { Promise.resolve(pg.custom(view)).catch((e) => toast(e.message, true)); return; }
+    if (pg.custom) return Promise.resolve(pg.custom(view)).catch((e) => { toast(e.message, true); });
+    // pages made of settings fields, optionally with live content before (updates) or after (pellets)
+    const parts = [];
+    if (pg.before) { const slot = el('div'); view.append(slot); parts.push(Promise.resolve(pg.before(slot))); }
     view.append(pageCard(pg));
-    return;
+    if (pg.after) parts.push(Promise.resolve(pg.after(view)));
+    return Promise.all(parts).then((ts) => () => ts.forEach((t) => typeof t === 'function' && t())).catch((e) => { toast(e.message, true); });
   }
   // index: iOS-style grouped lists, one row per page
   for (const sec of SECTIONS) {

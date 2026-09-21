@@ -4,30 +4,27 @@ import { renderNetwork } from './network.js';
 import { renderPellets } from './pellets.js';
 import { renderLearning } from './learning.js';
 
-const subpages = { events, logs, system, hardware, probes: () => { location.hash = '#/settings/probes'; }, manual, network, remote, about, pellets: renderPellets, learning: renderLearning };
+// More = things you do and things you look at. Everything you configure lives under Settings; the
+// old More routes for those pages redirect so bookmarks and links keep working.
+const go = (h) => () => { location.hash = h; };
+const subpages = { events, logs, system, manual, about,
+  hardware: go('#/settings/hardware'), network: go('#/settings/network'), remote: go('#/settings/remote'), learning: go('#/settings/controller'), pellets: go('#/settings/pellets'), probes: go('#/settings/probes') };
 
 export function renderMore(view, rest) {
   const page = rest[0];
   if (page && subpages[page]) {
+    if (['hardware', 'network', 'remote', 'learning', 'pellets', 'probes'].includes(page)) return subpages[page]();
     view.append(el('button', { class: 'btn ghost sm', onclick: () => (location.hash = '#/more') }, '‹ Back'));
     return subpages[page](view, rest.slice(1));
   }
   view.append(
     listGroup('Tools', [
-      { href: '#/more/manual', icon: 'wrench', color: '#ff9f0a', title: 'Manual outputs', sub: 'Drive relays directly' },
-      { href: '#/more/pellets', icon: 'package', color: '#ac8e68', title: 'Pellets', sub: 'Brands, hopper level and usage' },
-      { href: '#/more/learning', icon: 'brain', color: '#bf5af2', title: 'Learning & autotune', sub: 'Feed-forward model, plant estimate, autotune' },
-    ]),
-    listGroup('Setup', [
-      { href: '#/settings/probes', icon: 'thermometer', color: '#ff453a', title: 'Probes', sub: 'Wired and Bluetooth probes, profiles, tuner' },
-      { href: '#/more/hardware', icon: 'cpu', color: '#64d2ff', title: 'Hardware setup', sub: 'Board, pins, display, hopper sensor' },
-      { href: '#/more/network', icon: 'wifi', color: '#0a84ff', title: 'Network', sub: 'Wi-Fi and hotspot' },
-      { href: '#/more/remote', icon: 'globe', color: '#30d158', title: 'Remote access', sub: 'Tailscale: reach the grill from anywhere' },
+      { href: '#/more/manual', icon: 'wrench', color: '#ff9f0a', title: 'Manual outputs', sub: 'Switch the auger, fan and igniter by hand' },
     ]),
     listGroup('Diagnostics', [
       { href: '#/more/events', icon: 'scroll-text', color: '#ffd60a', title: 'Events', sub: 'Alerts and mode changes' },
       { href: '#/more/logs', icon: 'file-text', color: '#8e8e93', title: 'Logs', sub: 'Daemon log' },
-      { href: '#/more/system', icon: 'monitor', color: '#8e8e93', title: 'System', sub: 'Health, updates, restart, power' },
+      { href: '#/more/system', icon: 'monitor', color: '#8e8e93', title: 'System health', sub: 'Version, uptime, temperatures, restart, power off' },
       { href: '#/more/about', icon: 'info', color: '#8e8e93', title: 'About', sub: '' },
     ]));
 }
@@ -65,21 +62,30 @@ function system(view) {
   };
   load();
 
-  // ---- software updates from GitHub Releases ----
+  view.append(el('p', { class: 'muted', style: 'font-size:.82rem' }, 'Software updates are under Settings → System → Software updates.'));
+  view.append(el('div', { class: 'btnrow' },
+    el('button', { class: 'btn', onclick: async () => { if (await confirmDialog('Reboot?', 'The grill must be stopped first.', 'Reboot')) api('/admin/reboot', { body: {} }).then(() => toast('Rebooting…')).catch((e) => toast(e.message, true)); } }, 'Reboot'),
+    el('button', { class: 'btn danger', onclick: async () => { if (await confirmDialog('Power off?', 'The grill must be stopped first.', 'Power off', true)) api('/admin/poweroff', { body: {} }).then(() => toast('Powering off…')).catch((e) => toast(e.message, true)); } }, 'Power off')));
+  const t = setInterval(load, 10000);
+  return () => clearInterval(t);
+}
+
+// ---- software updates from GitHub Releases (rendered inside Settings → System → Software updates) ----
+export function softwareUpdates(view) {
   const upd = el('div', { class: 'card' });
   const renderUpd = (u) => {
     upd.innerHTML = '';
     const busy = u.busy;
     const rows = el('div', { class: 'kv' }, el('div', {}, 'Installed'), el('div', {}, `${u.current} (${u.arch})`), el('div', {}, 'Latest release'), el('div', {}, u.latest || '—'),
-      el('div', {}, 'Source'), el('div', {}, u.repo ? el('a', { href: `https://github.com/${u.repo}/releases`, target: '_blank' }, u.repo) : '— (set in Settings → Admin)'));
-    upd.append(el('h3', {}, 'Software'), rows, el('p', { class: 'muted', style: 'font-size:.85rem;margin:8px 0' }, u.state === 'error' ? `⚠ ${u.message}` : u.message + (u.state === 'downloading' ? ` ${(u.progress * 100).toFixed(0)}%` : '')));
+      el('div', {}, 'Source'), el('div', {}, u.repo ? el('a', { href: `https://github.com/${u.repo}/releases`, target: '_blank' }, u.repo) : '— (set below)'));
+    upd.append(rows, el('p', { class: 'muted', style: 'font-size:.85rem;margin:8px 0' }, u.state === 'error' ? `⚠ ${u.message}` : u.message + (u.state === 'downloading' ? ` ${(u.progress * 100).toFixed(0)}%` : '')));
     if (u.state === 'downloading') upd.append(el('div', { class: 'progress' }, el('div', { style: `width:${(u.progress * 100).toFixed(0)}%` })));
     if (u.available && u.notes) upd.append(el('details', {}, el('summary', { class: 'muted' }, `What's new in ${u.latest}`), el('div', { class: 'mono', style: 'margin-top:6px' }, u.notes)));
     upd.append(el('div', { class: 'btnrow', style: 'margin-top:10px' },
       el('button', { class: 'btn', disabled: busy, onclick: async () => { try { await api('/update/check', { body: {} }); poll(); } catch (e) { toast(e.message, true); } } }, 'Check for updates'),
       el('button', { class: 'btn primary', disabled: busy || !u.installable, onclick: async () => {
         const cooking = !['Stop', 'Monitor', 'Error'].includes(PF.status?.mode);
-        if (cooking && !PF.settings?.update?.hot_update) { toast('Stop the grill first, or enable "Update while cooking" under Settings → Software updates', true); return; }
+        if (cooking && !PF.settings?.update?.hot_update) { toast('Stop the grill first, or turn on "Update while cooking" below', true); return; }
         if (!await confirmDialog(`Install ${u.latest}?`, cooking ? `The grill is in ${PF.status.mode}. The release is downloaded and verified, then the controller restarts and picks the cook back up where it left off (the fan and auger pause for a few seconds).` : 'The release is downloaded, its checksum verified, then the service reinstalls and restarts (about a minute). This page reloads when it is back.', 'Install')) return;
         try { await api('/update/install', { body: {} }); poll(); } catch (e) { toast(e.message, true); }
       } }, u.available ? `Install ${u.latest}` : 'Up to date')));
@@ -89,13 +95,8 @@ function system(view) {
     try { const u = await api('/update'); renderUpd(u); if (u.busy) { clearTimeout(pollT); pollT = setTimeout(poll, 1000); } } catch { /* daemon restarting during install */ }
   };
   poll();
-  view.append(upd);
-
-  view.append(el('div', { class: 'btnrow' },
-    el('button', { class: 'btn', onclick: async () => { if (await confirmDialog('Reboot?', 'The grill must be stopped first.', 'Reboot')) api('/admin/reboot', { body: {} }).then(() => toast('Rebooting…')).catch((e) => toast(e.message, true)); } }, 'Reboot'),
-    el('button', { class: 'btn danger', onclick: async () => { if (await confirmDialog('Power off?', 'The grill must be stopped first.', 'Power off', true)) api('/admin/poweroff', { body: {} }).then(() => toast('Powering off…')).catch((e) => toast(e.message, true)); } }, 'Power off')));
-  const t = setInterval(load, 10000);
-  return () => { clearInterval(t); clearTimeout(pollT); };
+  view.append(upd);   /* the page title above already says Software updates */
+  return () => clearTimeout(pollT);
 }
 
 function manual(view) {
@@ -126,7 +127,7 @@ function network(view) {
 }
 
 // ---- remote access through Tailscale ----
-function remote(view) {
+export function remote(view) {
   const card = el('div', { class: 'card' });
   view.append(el('h2', {}, 'Remote access'), card);
   let pollT = null;
@@ -176,7 +177,7 @@ function about(view) {
 }
 
 // ---- hardware wizard: board + pins + probe devices, from the manifest ----
-async function hardware(view) {
+export async function hardware(view) {
   const man = await api('/manifest');
   const plat = structuredClone(PF.settings.platform);
   const map = structuredClone(PF.settings.probe_settings.probe_map);

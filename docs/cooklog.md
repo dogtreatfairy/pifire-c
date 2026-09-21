@@ -37,4 +37,4 @@ events        {ts, level, code, message} — mode changes, safety events, TUNING
 * **Flame-out margin**: minimum `temp` in Smoke/Hold versus `settings.safety` floors and the cold-start floor.
 * **Feed-forward quality**: `u_ff` versus the mean `u_applied` in calm Hold windows; a consistent offset is what the learning layer corrects over cooks, a per-set-point difference suggests the physics prior needs a set-point term.
 
-The adaptive controller's learned PB/Ti/Td/scale are in `controller.tuning_note`; the events show when they changed (`TUNING_LEARNED`). Manual tuning goes in *Settings → Grill → Temperature control*; turning off *Learn tuning automatically* freezes the loop at the entered values.
+The adaptive controller's learned PB/Ti/Td/scale are in `controller.tuning_note`; the events show when they changed (`TUNING_LEARNED`). Manual tuning goes in *Settings → Cooking → Temperature control & learning*; turning off *Learn tuning automatically* freezes the loop at the entered values.

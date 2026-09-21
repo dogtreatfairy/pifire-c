@@ -310,6 +310,7 @@ function route() {
   view.scrollTop = 0;
   const r = fn(view, rest);
   if (typeof r === 'function') teardown = r;
+  else if (r && typeof r.then === 'function') { const token = (route.token = (route.token || 0) + 1); r.then((t) => { if (typeof t === 'function') { if (route.token === token) teardown = t; else t(); } }); }
 }
 window.addEventListener('hashchange', route);
 
