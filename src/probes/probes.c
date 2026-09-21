@@ -130,7 +130,7 @@ int pf_probes_init(void)
 		pv->shh.A = pf_json_num(pobj, "A", 0);
 		pv->shh.B = pf_json_num(pobj, "B", 0);
 		pv->shh.C = pf_json_num(pobj, "C", 0);
-		pf_tempq_init(&pv->q, 2.64); /* PiFire's 4.75 F outlier gate, in C */
+		pf_tempq_init(&pv->q);
 		if (r->role == PF_PROBE_PRIMARY && r->enabled && g_snap.primary < 0) g_snap.primary = n;
 		n++;
 	}

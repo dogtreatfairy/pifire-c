@@ -83,5 +83,22 @@ export function renderHistory(view) {
   const ro = new ResizeObserver(() => { if (plot) plot.setSize({ width: chartEl.clientWidth, height: plot.height }); });
   ro.observe(chartEl);
   timer = setInterval(() => { if (live && document.visibilityState === 'visible') load(); }, minutes <= 60 ? 10000 : 60000);
-  return () => { clearInterval(timer); ro.disconnect(); if (plot) plot.destroy(); };
+
+  /* Coming back to the app must redraw at once. The interval skips every tick spent in the
+     background, and iOS suspends timers in a backgrounded Home Screen app anyway, so without this
+     the chart sits on whatever it last drew until a tick happens to land, which on the longer
+     ranges is a minute away and after a suspend may be longer still. */
+  const resume = () => { if (live && !viewing && document.visibilityState === 'visible') load(); };
+  document.addEventListener('visibilitychange', resume);
+  window.addEventListener('pageshow', resume);
+  window.addEventListener('focus', resume);
+
+  return () => {
+    clearInterval(timer);
+    document.removeEventListener('visibilitychange', resume);
+    window.removeEventListener('pageshow', resume);
+    window.removeEventListener('focus', resume);
+    ro.disconnect();
+    if (plot) plot.destroy();
+  };
 }

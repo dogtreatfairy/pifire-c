@@ -119,6 +119,15 @@ static void stop_and_cool(void)
 	tick(5);
 }
 
+/* Stop and wait for the barrel to actually come down. A tuning run climbs from its lowest set
+ * point, so starting one on a grill still hot from the last thing it did means waiting for it to
+ * cool before anything can be measured. */
+static void stop_and_wait_cold(void)
+{
+	stop_and_cool();
+	for (int i = 0; i < 240 && ctrl.pit_c > pf_f_to_c(120); i++) tick(60);
+}
+
 /* Settle the model at a fixed burn rate and report the pit temperature. The pot is refilled every
  * step so the burn rate, not the auger, decides the fire. */
 static double settle_at_burn(double gps)
@@ -284,7 +293,7 @@ static void test_single_adds_and_full_profile_replaces(void)
 	/* the conditions it was measured in came from the status, not from nowhere */
 	TEST_ASSERT_FALSE(isnan(a[0].ambient_c));
 
-	stop_and_cool();
+	stop_and_wait_cold();
 	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(NULL, true, err, sizeof err));
 	/* the old library is gone the moment a full profile begins */
 	TEST_ASSERT_EQUAL_INT(0, pf_learning_anchor_list(a, PF_TUNE_ANCHORS));

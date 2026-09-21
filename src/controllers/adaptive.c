@@ -91,9 +91,16 @@ static void recompute(ad_t *s)
 	s->Ti = use_sched ? s->sch_Ti : use_learned ? s->l_Ti : s->cfg_Ti;
 	s->Td = use_sched ? s->sch_Td : use_learned ? s->l_Td : s->cfg_Td;
 	double sc = s->auto_tune ? s->scale : 1.0;   /* s->scale mirrors the band in use */
+	double ki_was = s->ki;
 	s->kp = s->PB_c > 0 ? -sc / s->PB_c : 0;
 	s->ki = s->Ti > 0 ? s->kp / s->Ti : 0;
 	s->kd = s->kp * s->Td;
+	/* The integrator holds an accumulated error, and its contribution to the output is ki times
+	 * that. When the gains move under it -- a new set point picking a different entry from the
+	 * tuning library, a band correction, a fresh tune -- the accumulated error has to be rescaled
+	 * or the contribution jumps by the ratio of the gains, which at the extremes is enough to send
+	 * the output off scale and get the controller swapped out for the fallback PID. */
+	if (ki_was != 0 && s->ki != 0) s->inter *= ki_was / s->ki;
 }
 
 static void save_learned(ad_t *s)

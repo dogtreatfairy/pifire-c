@@ -104,7 +104,10 @@ typedef struct {
 	/* relay autotune (core-owned; controller update() is bypassed while active) */
 	struct {
 		bool active; int phase; double u_center, h, hyst_c, start_t, last_cross_t;
-		double peak_max, peak_min; int crossings; double periods[8]; double amps[8];
+		/* `halves` holds the time between successive crossings. A full oscillation is one half
+		 * plus the next, which is not the same as twice either one: a grill heats far faster
+		 * than it cools, so its limit cycle is lopsided. */
+		double peak_max, peak_min; int crossings; double halves[8]; double amps[8];
 		char note[64];
 	} autotune;
 	/* sensors */

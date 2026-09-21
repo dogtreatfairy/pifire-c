@@ -190,6 +190,52 @@ static void test_scale_is_learned_per_temperature_band(void)
 	ops->destroy(c);
 }
 
+/* Gains move under the controller all the time: a new set point picks a different entry from the
+ * tuning library, the monitor corrects a band, a fresh tune lands. The integrator stores an
+ * accumulated error, so its contribution is ki times that, and if the accumulator is not rescaled
+ * when ki changes the contribution jumps by the ratio of the gains. At the extremes that was
+ * enough to push the output off scale and have the daemon swap the controller out. */
+static void test_gain_change_does_not_jolt_the_integrator(void)
+{
+	g_kv[0] = 0;
+	const pf_controller_ops *ops = pf_controller_find("adaptive");
+	void *c = ops->create("{\"_units\":\"C\",\"PB\":80,\"Ti\":400,\"Td\":30}", &env);
+	pf_ctrl_dbg dbg = { 0 };
+	double t = 1000;
+
+	/* settle in with a seeded integrator, close to the target */
+	pf_ctrl_in in = { .now_s = t, .pit_c = 108, .setpoint_c = 110, .ambient_c = 20,
+	                  .u_prev_applied = 0.45, .u_ff = 0.30, .cycle_time_s = 20, .u_min = 0.1, .u_max = 0.9 };
+	ops->reset(c, &in);
+	for (int k = 0; k < 5; k++) { t += 20; in.now_s = t; ops->update(c, &in, &dbg); }
+	double i_before = dbg.i, u_before = dbg.p + dbg.i + dbg.d + dbg.ff;
+
+	/* now hand over a very different tuning for this set point, as the library does */
+	in.sched_PB_c = 20; in.sched_Ti = 60; in.sched_Td = 10;
+	t += 20; in.now_s = t;
+	double u = ops->update(c, &in, &dbg);
+	/* Those gains are about twenty-seven times more aggressive. Unrescaled, the integral's
+	 * contribution would be multiplied by that; it should instead carry over, moving only by the
+	 * one cycle of fresh integration that genuinely happened. */
+	printf("integral %.4f -> %.4f, output %.3f -> %.3f\n", i_before, dbg.i, u_before, u);
+	TEST_ASSERT_TRUE_MESSAGE(fabs(u) <= 5.0, "the output must stay in range when the gains change");
+	TEST_ASSERT_TRUE_MESSAGE(fabs(dbg.i - i_before) < 0.5 * fabs(i_before) + 0.05, "the integral's contribution should carry over, not scale with the gains");
+
+	/* several more cycles at the new gains: it must stay bounded rather than run away */
+	for (int k = 0; k < 20; k++) { t += 20; in.now_s = t; u = ops->update(c, &in, &dbg); }
+	printf("after 20 more cycles: integral %.4f, output %.3f\n", dbg.i, u);
+	TEST_ASSERT_TRUE_MESSAGE(fabs(u) <= 5.0, "the output must stay in range");
+
+	/* and back the other way, to a much wider band */
+	double i_mid = dbg.i;
+	in.sched_PB_c = 200; in.sched_Ti = 1200; in.sched_Td = 90;
+	t += 20; in.now_s = t;
+	u = ops->update(c, &in, &dbg);
+	TEST_ASSERT_TRUE(fabs(u) <= 5.0);
+	TEST_ASSERT_TRUE_MESSAGE(fabs(dbg.i - i_mid) < 0.5 * fabs(i_mid) + 0.05, "widening the band should not jolt it either");
+	ops->destroy(c);
+}
+
 int main(void)
 {
 	pf_controllers_init(NULL);
@@ -198,6 +244,7 @@ int main(void)
 	RUN_TEST(test_monitor_adjusts_scale);
 	RUN_TEST(test_overshoot_lowers_scale);
 	RUN_TEST(test_scale_is_learned_per_temperature_band);
+	RUN_TEST(test_gain_change_does_not_jolt_the_integrator);
 	RUN_TEST(test_integrator_seed_and_no_opposition);
 	return UNITY_END();
 }

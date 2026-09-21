@@ -737,8 +737,12 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 	c->autotune.active = false;
 	if (!ok) { pf_events_emit("Autotune_Failed", "Autotune stopped", "%s", why); return; }
 	int n = c->autotune.crossings > 8 ? 8 : c->autotune.crossings;
+	/* One full period is a rise half plus the fall half beside it. Doubling either one on its own
+	 * overstates the period whenever the cycle is lopsided, and a pellet grill's always is: the
+	 * fire brings the pit up in a couple of minutes and the barrel takes many to come back down.
+	 * The first half is skipped because the test starts part way through a swing. */
 	double Pu = 0, A = 0; int k = 0;
-	for (int i = 1; i < n; i++) { Pu += c->autotune.periods[i]; A += c->autotune.amps[i]; k++; }
+	for (int i = 2; i < n; i++) { Pu += c->autotune.halves[i] + c->autotune.halves[i - 1]; A += c->autotune.amps[i]; k++; }
 	if (k < 2) { pf_events_emit("Autotune_Failed", "Autotune stopped", "Not enough oscillations were captured."); return; }
 	Pu /= k; A /= k;
 	if (A < 0.5) { pf_events_emit("Autotune_Failed", "Autotune stopped", "Oscillation too small to measure."); return; }
@@ -786,7 +790,7 @@ static double autotune_step(pf_control *c, double now)
 		c->autotune.phase = want;
 		int k = c->autotune.crossings;
 		if (k < 8) {
-			c->autotune.periods[k] = 2.0 * (now - c->autotune.last_cross_t);   /* half period x2 */
+			c->autotune.halves[k] = now - c->autotune.last_cross_t;
 			c->autotune.amps[k] = (c->autotune.peak_max - c->autotune.peak_min) / 2.0;
 		}
 		c->autotune.crossings++;
