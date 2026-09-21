@@ -186,3 +186,11 @@ int pf_mode_from_name(const char *s)
 }
 static const char *output_names[PF_OUT_COUNT] = { "power", "fan", "auger", "igniter" };
 const char *pf_output_name(pf_output o) { return (unsigned)o < PF_OUT_COUNT ? output_names[o] : "?"; }
+
+void pf_system_power(bool reboot)
+{
+	if (fork() == 0) {
+		execlp("systemctl", "systemctl", reboot ? "reboot" : "poweroff", (char *)NULL);
+		_exit(1);
+	}
+}

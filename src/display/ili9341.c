@@ -187,6 +187,10 @@ static void menu_select(tft_t *t)
 		c.type = PF_CMD_MODE; c.mode = PF_MODE_SHUTDOWN; pf_cmdq_push(&c); break;
 	case PF_MI_STOP: case PF_MI_CLEAR:
 		c.type = PF_CMD_STOP; pf_cmdq_push(&c); break;
+	case PF_MI_NETINFO:
+		t->ui.screen = PF_SCR_NETINFO; return;
+	case PF_MI_POWER:
+		t->ui.screen = PF_SCR_POWER; t->ui.power_index = PF_PW_BACK; return;   /* start on the harmless row */
 	default: break;
 	}
 	t->ui.screen = PF_SCR_MAIN;
@@ -224,6 +228,27 @@ static void handle_key(tft_t *t, pf_key k, double now)
 			pf_cmdq_push(&c);
 			t->ui.screen = PF_SCR_MAIN;
 		}
+		break;
+	case PF_SCR_POWER:
+		if (k == PF_KEY_UP) t->ui.power_index = (t->ui.power_index + 1) % PF_PW_COUNT;
+		else if (k == PF_KEY_DOWN) t->ui.power_index = (t->ui.power_index + PF_PW_COUNT - 1) % PF_PW_COUNT;
+		else if (k == PF_KEY_ENTER) {
+			int sel = t->ui.power_index % PF_PW_COUNT;
+			if (sel == PF_PW_BACK) { t->ui.screen = PF_SCR_MENU; break; }
+			bool reboot = sel == PF_PW_RESTART;
+			pf_cmd c = { .type = PF_CMD_STOP };
+			pf_cmdq_push(&c);
+			pf_strlcpy(t->ui.message, reboot ? "Restarting..." : "Shutting down...", sizeof t->ui.message);
+			t->ui.screen = PF_SCR_MESSAGE;
+			t->ui.message_until = now + 30;
+			LOGW(TAG, "%s requested from the panel", reboot ? "restart" : "power off");
+			redraw(t);
+			pf_sleep_ms(400);
+			pf_system_power(reboot);   /* the simulator never loads this driver */
+		}
+		break;
+	case PF_SCR_NETINFO:
+		t->ui.screen = PF_SCR_MENU;   /* any key goes back */
 		break;
 	default: t->ui.screen = PF_SCR_MAIN; break;
 	}

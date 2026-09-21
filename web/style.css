@@ -234,13 +234,35 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .cb-caret { display: inline-flex; align-items: center; padding-right: 8px; color: var(--accent); }
 .cb-caret .ic { width: 16px; height: 16px; }
 
-/* ---- header: grill temperature centre, mode | countdown/target right ---- */
-.topbar { position: relative; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; column-gap: 8px; }
-.topbar .brand { grid-column: 1; justify-self: start; }
-.top-temp { grid-column: 2; justify-self: center; font-weight: 700; font-size: 1.15rem; font-variant-numeric: tabular-nums; line-height: 1; }
-.topbar .topbar-right { grid-column: 3; justify-self: end; }
-.top-temp[hidden] { display: none; }
-.pill-mode { font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* ---- header as a control strip: identity, link quality, the live readout, alerts ---- */
+.topbar { position: relative; display: flex; align-items: center; gap: 10px; }
+.topbar .brand { margin-right: auto; min-width: 0; }
+.topbar .brand #grill-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-inds { display: flex; align-items: center; gap: 8px; flex: none; }
+.tb-ind { display: inline-flex; align-items: center; color: var(--muted); }
+.tb-ind.ok { color: var(--ok); } .tb-ind.warn { color: var(--warn); } .tb-ind.muted { color: var(--line); }
+.tb-ind svg { width: 18px; height: 18px; }
+.tb-ind .sig.wifi { color: var(--text); }
+.tb-tag { font-size: .6rem; font-weight: 800; letter-spacing: .06em; border: 1px solid currentColor; border-radius: 3px; padding: 1px 3px; }
+/* industrial readout: a segmented mode plate and the number, square and tabular */
+.readout { display: inline-flex; align-items: stretch; height: 28px; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; flex: none; font-variant-numeric: tabular-nums; }
+.readout .rd-mode { display: flex; align-items: center; padding: 0 7px; font-size: .62rem; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; background: var(--surface2); color: var(--muted); }
+.readout .rd-val { display: flex; align-items: center; padding: 0 8px; font-size: .95rem; font-weight: 700; color: var(--text); }
+.readout .rd-val[hidden] { display: none; }
+.readout[data-mode="Hold"] .rd-mode { background: var(--ok); color: #04210d; }
+.readout[data-mode="Smoke"] .rd-mode, .readout[data-mode="Startup"] .rd-mode, .readout[data-mode="Reignite"] .rd-mode, .readout[data-mode="Prime"] .rd-mode { background: var(--accent); color: #140c00; }
+.readout[data-mode="Shutdown"] .rd-mode { background: var(--info); color: #041018; }
+.readout[data-mode="Manual"] .rd-mode { background: var(--warn); color: #1a1500; }
+.readout[data-mode="Error"] .rd-mode { background: var(--danger); color: #fff; }
+/* collapsible settings groups */
+.fold { border: 1px solid var(--line); border-radius: var(--radius-s); margin-bottom: 12px; overflow: hidden; }
+.fold > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; cursor: pointer; font-weight: 600; list-style: none; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::after { content: "›"; color: var(--muted); font-size: 1.2rem; transform: rotate(90deg); transition: transform .18s; }
+.fold[open] > summary::after { transform: rotate(-90deg); }
+.fold .fold-state { font-size: .72rem; font-weight: 700; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; margin-left: auto; }
+.fold .fold-state.on { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 50%, var(--line)); }
+.fold > .card { margin: 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; }
 
 /* dial pads (temperatures, P-mode) and the caret on menu buttons */
 .presets.pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }

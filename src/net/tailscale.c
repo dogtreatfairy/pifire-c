@@ -70,6 +70,49 @@ int pf_tailscale_action(const char *verb, char *err, size_t n)
 	return 0;
 }
 
+/* ---------------- cached summary for the status stream ---------------- */
+
+static pthread_mutex_t g_brief_mu = PTHREAD_MUTEX_INITIALIZER;
+static bool g_brief_configured, g_brief_online;
+static char g_brief_name[128];
+static double g_brief_t;
+static atomic_bool g_brief_busy;
+
+static void *brief_refresh(void *arg)
+{
+	(void)arg;
+	pthread_setname_np(pthread_self(), "pf-ts-brief");
+	cJSON *j = pf_tailscale_status_json();
+	const char *state = pf_json_str(j, "state", "");
+	bool configured = cJSON_IsTrue(cJSON_GetObjectItem(j, "installed")) && strcmp(state, "NoState") && strcmp(state, "NeedsLogin");
+	pthread_mutex_lock(&g_brief_mu);
+	g_brief_configured = configured;
+	g_brief_online = !strcmp(state, "Running") && pf_json_bool(j, "online", false);
+	pf_strlcpy(g_brief_name, pf_json_str(j, "dns_name", ""), sizeof g_brief_name);
+	g_brief_t = pf_now();
+	pthread_mutex_unlock(&g_brief_mu);
+	cJSON_Delete(j);
+	atomic_store(&g_brief_busy, false);
+	return NULL;
+}
+
+void pf_tailscale_brief(bool *configured, bool *online, char *name, size_t n)
+{
+	pthread_mutex_lock(&g_brief_mu);
+	bool stale = pf_now() - g_brief_t > 30;
+	if (configured) *configured = g_brief_configured;
+	if (online) *online = g_brief_online;
+	if (name) pf_strlcpy(name, g_brief_name, n);
+	pthread_mutex_unlock(&g_brief_mu);
+	if (!stale || atomic_exchange(&g_brief_busy, true)) return;
+	pthread_t t;
+	pthread_attr_t at;
+	pthread_attr_init(&at);
+	pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
+	if (pthread_create(&t, &at, brief_refresh, NULL)) atomic_store(&g_brief_busy, false);
+	pthread_attr_destroy(&at);
+}
+
 cJSON *pf_tailscale_status_json(void)
 {
 	cJSON *o = cJSON_CreateObject();

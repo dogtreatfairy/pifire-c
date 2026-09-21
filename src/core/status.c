@@ -1,6 +1,9 @@
 #include "core/status.h"
+#include "core/settings.h"
 #include "core/util.h"
 #include "features/weather.h"
+#include "net/netmgr.h"
+#include "net/tailscale.h"
 #include <math.h>
 #include <pthread.h>
 #include <string.h>
@@ -131,6 +134,26 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 			cJSON_AddNumberToObject(wo, "wind_kmh", round(w.wind_kmh));
 			cJSON_AddNumberToObject(wo, "humidity", round(w.humidity_pct));
 			cJSON_AddStringToObject(wo, "place", w.place);
+		}
+	}
+	{
+		/* how to reach the grill: the panel builds its QR code from this and the web header
+		 * shows the Wi-Fi strength and the Tailscale state without polling anything extra */
+		char ip[32], ssid[64], ts[128];
+		int signal = 0;
+		bool hotspot = false, ts_on = false, ts_up = false;
+		pf_netmgr_brief(ip, sizeof ip, ssid, sizeof ssid, &signal, &hotspot);
+		pf_tailscale_brief(&ts_on, &ts_up, ts, sizeof ts);
+		cJSON *no = cJSON_AddObjectToObject(o, "net");
+		cJSON_AddStringToObject(no, "ip", ip);
+		cJSON_AddStringToObject(no, "ssid", ssid);
+		cJSON_AddNumberToObject(no, "signal", signal);
+		cJSON_AddBoolToObject(no, "hotspot", hotspot);
+		cJSON_AddNumberToObject(no, "port", pf_set_int("web.port", 80));
+		if (ts_on) {
+			cJSON *to = cJSON_AddObjectToObject(no, "tailscale");
+			cJSON_AddBoolToObject(to, "online", ts_up);
+			cJSON_AddStringToObject(to, "name", ts);
 		}
 	}
 	cJSON *probes = cJSON_AddArrayToObject(o, "probes");

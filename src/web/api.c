@@ -438,7 +438,7 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		LOGW(TAG, "%s requested via API", p + 7);
 		pf_db_event(PF_LVL_WARN, "ADMIN", p + 7);
 		pf_sleep_ms(500);
-		if (fork() == 0) { execlp("systemctl", "systemctl", strstr(p, "reboot") ? "reboot" : "poweroff", (char *)NULL); _exit(1); }
+		pf_system_power(strstr(p, "reboot") != NULL);
 		reply_ok(resp);
 		return;
 	}

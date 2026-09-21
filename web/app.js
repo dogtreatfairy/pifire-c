@@ -302,7 +302,6 @@ function route() {
   const [page, ...rest] = hash.split('/');
   const fn = pages[page] || renderHome;
   document.documentElement.dataset.page = pages[page] ? page : 'home';
-  const tt = document.getElementById('top-temp'); if (tt) tt.hidden = (pages[page] ? page : 'home') === 'home';
   document.querySelectorAll('.tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === (pages[page] ? page : 'home')));
   if (teardown) { teardown(); teardown = null; }
   const view = document.getElementById('view');
@@ -314,23 +313,54 @@ function route() {
 }
 window.addEventListener('hashchange', route);
 
-// ---------- banner ----------
+// ---------- header control strip and alert banner ----------
+const bars = (n, cls) => el('span', { class: `sig s${n} ${cls}` }, [1, 2, 3, 4].map((i) => el('i', { class: i <= n ? 'on' : '' })));
+const wifiBars = (pct) => (!pct ? 0 : pct >= 75 ? 4 : pct >= 55 ? 3 : pct >= 35 ? 2 : 1);
+
 onStatus((s) => {
   const b = document.getElementById('banner');
-  const pill = document.getElementById('mode-pill');
   if (!s) { b.hidden = !PF.lost; if (PF.lost) { b.className = 'banner warn'; b.textContent = 'Connecting to grill…'; } return; }
-  // mode pill: "Startup | 1:15" while a mode counts down, "Hold | 225°F" while holding
-  let extra = '';
-  if (s.mode === 'Startup' || s.mode === 'Reignite' || s.mode === 'Shutdown' || s.mode === 'Prime') {
+
+  // Wi-Fi strength, or a hotspot marker when the grill is running its own access point
+  const wifi = document.getElementById('ind-wifi');
+  const net = s.net || {};
+  if (net.hotspot) {
+    wifi.hidden = false; wifi.className = 'tb-ind warn'; wifi.title = `Setup hotspot: ${net.ssid || ''}`;
+    wifi.replaceChildren(el('span', { class: 'tb-tag' }, 'AP'));
+  } else if (net.signal > 0) {
+    wifi.hidden = false; wifi.className = 'tb-ind'; wifi.title = `${net.ssid || 'Wi-Fi'} · ${net.signal}%`;
+    wifi.replaceChildren(bars(wifiBars(net.signal), 'wifi'));
+  } else if (net.ip) {
+    wifi.hidden = false; wifi.className = 'tb-ind'; wifi.title = `Wired · ${net.ip}`;
+    wifi.replaceChildren(el('span', { class: 'tb-tag' }, 'LAN'));
+  } else wifi.hidden = true;
+
+  // Tailscale, only once the grill has actually joined a tailnet
+  const ts = document.getElementById('ind-ts');
+  if (net.tailscale) {
+    ts.hidden = false;
+    ts.className = `tb-ind ${net.tailscale.online ? 'ok' : 'muted'}`;
+    ts.title = `Tailscale: ${net.tailscale.online ? 'connected' : 'offline'}${net.tailscale.name ? ' · ' + net.tailscale.name : ''}`;
+    ts.replaceChildren(lucide('globe'));
+  } else ts.hidden = true;
+
+  // mode and the number that matters: the target or countdown on Home, the grill temperature elsewhere
+  const home = document.documentElement.dataset.page === 'home';
+  const readout = document.getElementById('readout');
+  const rdMode = document.getElementById('rd-mode'), rdVal = document.getElementById('rd-val');
+  let value = '';
+  if (!home) {
+    const primary = s.probes?.find((p) => p.role === 'Primary');
+    value = s.mode === 'Stop' ? `0${degUnit()}` : primary?.valid ? `${fmtTemp(primary.temp)}${degUnit()}` : '—';
+  } else if (s.mode === 'Startup' || s.mode === 'Reignite' || s.mode === 'Shutdown' || s.mode === 'Prime') {
     const waiting = (s.mode === 'Startup' || s.mode === 'Reignite') && s.coldstart?.active && !s.coldstart?.reached && s.timers.mode_remaining <= 0;
-    extra = fmtDur(waiting ? s.coldstart.remaining : s.timers.mode_remaining);
-  } else if (s.mode === 'Hold') extra = `${fmtTemp(s.setpoint)}${degUnit()}`;
-  pill.textContent = extra ? `${s.mode} | ${extra}` : s.mode; pill.dataset.mode = s.mode;
-  // grill temperature in the header on every page but Home (which shows it large)
-  const tt = document.getElementById('top-temp');
-  const primary = s.probes?.find((p) => p.role === 'Primary');
-  tt.textContent = s.mode === 'Stop' ? `0${degUnit()}` : primary?.valid ? `${fmtTemp(primary.temp)}${degUnit()}` : '—';
-  tt.hidden = document.documentElement.dataset.page === 'home';
+    value = fmtDur(waiting ? s.coldstart.remaining : s.timers.mode_remaining);
+  } else if (s.mode === 'Hold') value = `${fmtTemp(s.setpoint)}${degUnit()}`;
+  rdMode.textContent = s.mode;
+  rdVal.textContent = value;
+  rdVal.hidden = !value;
+  readout.dataset.mode = s.mode;
+
   if (PF.lost) { b.hidden = false; b.className = 'banner warn'; b.textContent = 'Connection lost — reconnecting…'; return; }
   if (s.safety.error_code) {
     b.hidden = false; b.className = 'banner';

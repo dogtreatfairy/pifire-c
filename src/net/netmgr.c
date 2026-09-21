@@ -155,6 +155,16 @@ cJSON *pf_netmgr_status(void)
 	return o;
 }
 
+void pf_netmgr_brief(char *ip, size_t ipn, char *ssid, size_t ssidn, int *signal, bool *hotspot)
+{
+	pthread_mutex_lock(&g_mu);
+	if (ip) pf_strlcpy(ip, g_ip, ipn);
+	if (ssid) pf_strlcpy(ssid, g_hs_active ? g_hs_ssid : g_ssid, ssidn);
+	if (signal) *signal = g_hs_active ? 0 : g_signal;
+	if (hotspot) *hotspot = g_hs_active;
+	pthread_mutex_unlock(&g_mu);
+}
+
 int pf_netmgr_connect(const char *ssid, const char *psk)
 {
 	pthread_mutex_lock(&g_mu);

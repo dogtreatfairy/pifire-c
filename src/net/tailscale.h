@@ -3,6 +3,7 @@
  * from anywhere at http(s)://<hostname>.<tailnet>.ts.net. Everything privileged goes through the
  * pifire-tailscale helper (sudoers). */
 #include <cJSON.h>
+#include <stdbool.h>
 #include <stddef.h>
 
 /* {installed, state, auth_url, ips[], dns_name, hostname, online, version, https, busy, last_action, last_ok, last_output} */
@@ -10,3 +11,6 @@ cJSON *pf_tailscale_status_json(void);
 /* Start an action on a worker thread: "install" | "up" | "down" | "logout" | "serve" | "unserve".
  * Returns 0 when started, -1 with err when refused (busy, unknown verb, simulator). */
 int pf_tailscale_action(const char *verb, char *err, size_t n);
+/* Cached summary for the status stream: returns immediately and refreshes in the background at
+ * most every 30 s (the status query shells out through sudo, so it must not run at 1 Hz). */
+void pf_tailscale_brief(bool *configured, bool *online, char *name, size_t n);

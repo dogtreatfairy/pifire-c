@@ -150,6 +150,7 @@ add_library(pfcore STATIC
   src/features/cooklog.c
   src/display/registry.c
   src/display/gfx.c
+  src/display/qr.c
   src/display/screens.c
   src/display/ili9341.c
   src/distance/vl53l0x.c
@@ -215,6 +216,7 @@ if(PF_BUILD_TESTS)
   pf_test(test_controllers)
   pf_test(test_learning)
   pf_test(test_gfx)
+  pf_test(test_qr)
   pf_test(test_adaptive)
   pf_test(test_chefiq)
 endif()

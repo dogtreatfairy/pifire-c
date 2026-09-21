@@ -2,6 +2,7 @@
  * igniter, the pit temperature large with the set point and the error next to it, food probes below.
  * Everything is bold and high-contrast; nothing is decorative. */
 #include "display/screens.h"
+#include "display/qr.h"
 #include "core/settings.h"
 #include <math.h>
 #include <stdio.h>
@@ -58,6 +59,8 @@ int pf_menu_build(const cJSON *status, pf_menu_item *out, int max)
 		ADD(PF_MI_HOLD, "Hold at...");
 		ADD(PF_MI_PRIME, "Prime 10 g");
 		if (strcmp(mode, "Monitor")) ADD(PF_MI_MONITOR, "Monitor"); else ADD(PF_MI_STOP, "Stop");
+		ADD(PF_MI_NETINFO, "Network info");
+		ADD(PF_MI_POWER, "Power");
 	} else if (!strcmp(mode, "Shutdown")) {
 		ADD(PF_MI_STOP, "Stop");
 	} else {  /* Startup, Reignite, Smoke, Hold, Manual */
@@ -329,11 +332,76 @@ static void render_setpoint(pf_gfx *g, const pf_ui_state *ui, const cJSON *s)
 	pf_gfx_text_center(g, B, 16, W / 2, H - 34, "TURN TO ADJUST  \xC2\xB7  PRESS TO CONFIRM", g->th.muted);
 }
 
+/* Power: restart or shut the Pi down, offered only while the grill is stopped. */
+static void render_power(pf_gfx *g, const pf_ui_state *ui)
+{
+	static const char *const rows[PF_PW_COUNT] = { "Restart", "Shut down", "Back" };
+	int W = g->vw, H = g->vh;
+	pf_gfx_rect(g, 0, 0, g->w, 34, g->th.card2);
+	pf_gfx_text(g, B, 22, 10, 5, "POWER", g->th.text);
+	int rowh = (H - 40) / PF_PW_COUNT;
+	if (rowh > 44) rowh = 44;
+	int y = 38 + ((H - 40) - rowh * PF_PW_COUNT) / 2;
+	int sel = ui->power_index % PF_PW_COUNT;
+	for (int i = 0; i < PF_PW_COUNT; i++) {
+		bool is = i == sel;
+		if (is) pf_gfx_rrect(g, 6, y + 1, W - 12, rowh - 3, 7, i == PF_PW_BACK ? g->th.accent : g->th.danger);
+		int ty = y + (rowh - pf_gfx_line_height(B, 24)) / 2;
+		uint16_t c = is ? (i == PF_PW_BACK ? g->th.accent_text : g->th.text) : i == PF_PW_BACK ? g->th.text : g->th.danger;
+		pf_gfx_text(g, B, 24, 20, ty, rows[i], c);
+		y += rowh;
+	}
+}
+
+/* Network info: a QR code for the grill's web address, plus the address and Wi-Fi in text. */
+static void render_netinfo(pf_gfx *g, const cJSON *s)
+{
+	int W = g->vw, H = g->vh;
+	pf_gfx_rect(g, 0, 0, g->w, 34, g->th.card2);
+	pf_gfx_text(g, B, 22, 10, 5, "NETWORK", g->th.text);
+	const char *ip = pf_json_str((cJSON *)s, "net.ip", "");
+	const char *ssid = pf_json_str((cJSON *)s, "net.ssid", "");
+	int port = (int)pf_json_num((cJSON *)s, "net.port", 80);
+	int signal = (int)pf_json_num((cJSON *)s, "net.signal", 0);
+	if (!ip[0]) {
+		pf_gfx_text_center(g, B, 20, W / 2, H / 2 - 30, "No network", g->th.muted);
+		pf_gfx_text_center(g, R, 15, W / 2, H / 2, "Join Wi-Fi from the setup hotspot", g->th.muted);
+		return;
+	}
+	char url[80];
+	if (port == 80) snprintf(url, sizeof url, "http://%.40s/", ip);
+	else snprintf(url, sizeof url, "http://%.40s:%d/", ip, port % 100000);
+
+	pf_qr q;
+	int top = 40, bottom = H - 4;
+	if (pf_qr_encode(url, &q)) {
+		/* quiet zone of four modules, scaled to whatever room the panel has */
+		int avail = (bottom - top) - 34;
+		int scale = avail / (q.size + 8);
+		if (scale < 2) scale = 2;
+		int side = (q.size + 8) * scale;
+		int ox = (W - side) / 2, oy = top;
+		pf_gfx_rect(g, ox, oy, side, side, 0xFFFF);   /* white background: scanners need the quiet zone */
+		for (int y = 0; y < q.size; y++)
+			for (int x = 0; x < q.size; x++)
+				if (q.m[y][x]) pf_gfx_rect(g, ox + (x + 4) * scale, oy + (y + 4) * scale, scale, scale, 0x0000);
+		top = oy + side + 6;
+	}
+	pf_gfx_text_center(g, B, 16, W / 2, top, url, g->th.text);
+	if (ssid[0]) {
+		char line[64];
+		snprintf(line, sizeof line, "%.24s  %d%%", ssid, signal % 1000);
+		pf_gfx_text_center(g, R, 13, W / 2, top + 19, line, g->th.muted);
+	}
+}
+
 void pf_screens_render(pf_gfx *g, const cJSON *status, const pf_ui_state *ui)
 {
 	pf_gfx_clear(g, g->th.bg);
 	if (ui->screen == PF_SCR_MENU && status) { render_menu(g, status, ui); return; }
 	if (ui->screen == PF_SCR_SETPOINT && status) { render_setpoint(g, ui, status); return; }
+	if (ui->screen == PF_SCR_POWER) { render_power(g, ui); return; }
+	if (ui->screen == PF_SCR_NETINFO && status) { render_netinfo(g, status); return; }
 	if (ui->screen == PF_SCR_MESSAGE) {
 		int w = g->vw - 24, h = 72;
 		pf_gfx_rrect(g, 12, g->vh / 2 - h / 2, w, h, 8, g->th.card2);

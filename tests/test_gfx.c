@@ -14,6 +14,7 @@ static const char *status_json =
 "\"cycle\":{\"u_raw\":0.41,\"u_applied\":0.41},\"timers\":{\"startup_duration\":240,\"shutdown_duration\":240,\"mode_remaining\":0,\"startup_exit_temp\":0,\"prime_amount\":0},"
 "\"timer\":{\"running\":false,\"remaining\":0},\"coldstart\":{\"active\":false,\"reached\":false,\"remaining\":0},"
 "\"safety\":{\"error_code\":\"\",\"error_msg\":\"\"},"
+"\"net\":{\"ip\":\"10.0.0.5\",\"ssid\":\"Kitchen\",\"signal\":72,\"port\":80},"
 "\"probes\":[{\"label\":\"Grill\",\"name\":\"Grill\",\"role\":\"Primary\",\"enabled\":true,\"valid\":true,\"temp\":227,\"target\":0},"
 "{\"label\":\"Probe1\",\"name\":\"Probe 1\",\"role\":\"Food\",\"enabled\":true,\"valid\":true,\"temp\":164,\"target\":203,\"eta_s\":4920,\"wireless\":true,\"rssi\":-67,\"signal\":3,\"battery\":80,\"ambient\":221,\"ambient_label\":\"Chef1Amb\"},"
 "{\"label\":\"Chef1Amb\",\"name\":\"Chef iQ 1 Ambient\",\"role\":\"Food\",\"enabled\":true,\"valid\":true,\"temp\":221,\"target\":0,\"wireless\":true,\"companion\":true},"
@@ -57,6 +58,10 @@ static void test_render_screens(void)
 	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 4), "target", cJSON_CreateNumber(0));
 	ui.screen = PF_SCR_MENU; ui.menu_index = 1;
 	render_to(&g, st, &ui, "menu");
+	ui.screen = PF_SCR_POWER; ui.power_index = PF_PW_RESTART;
+	render_to(&g, st, &ui, "power");
+	ui.screen = PF_SCR_NETINFO;
+	render_to(&g, st, &ui, "netinfo");
 	ui.screen = PF_SCR_SETPOINT; ui.edit_setpoint = 250; ui.edit_is_change = true;
 	render_to(&g, st, &ui, "setpoint");
 	ui.screen = PF_SCR_MAIN;
