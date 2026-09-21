@@ -16,6 +16,8 @@
 #include "display/gfx.h"
 #include "display/registry.h"
 #include "display/screens.h"
+#include "probes/ble/bluez.h"
+#include "probes/probes.h"
 #include "hal/gpio.h"
 #include "hal/spi.h"
 #include <math.h>
@@ -127,7 +129,7 @@ static unsigned hash_fb(const pf_gfx *g)
 static void redraw(tft_t *t)
 {
 	apply_theme(t);
-	if (t->ui.screen == PF_SCR_MESSAGE && pf_now() > t->ui.message_until) t->ui.screen = PF_SCR_MAIN;
+	if (pf_nav_screen(&t->ui) == PF_SCR_MESSAGE && pf_now() > t->ui.message_until) pf_nav_reset(&t->ui);
 	if (!t->backlight_on) return;   /* asleep: nothing to draw */
 	pf_screens_render(&t->fb, t->status, &t->ui);
 	unsigned h = hash_fb(&t->fb);
@@ -136,65 +138,325 @@ static void redraw(tft_t *t)
 
 /* ---------------- keys (caller holds t->mu) ---------------- */
 
-static void open_menu(tft_t *t) { t->ui.screen = PF_SCR_MENU; t->ui.menu_index = 0; }
+/* ---------------- navigation ---------------- */
 
-static void open_setpoint(tft_t *t, bool change)
+static void open_menu(tft_t *t)
 {
-	const char *units = pf_json_str(t->status, "units", "F");
-	double sp = pf_json_num(t->status, "setpoint", 0);
-	if (sp <= 0) sp = pf_set_num("startup.start_to_mode.primary_setpoint", units[0] == 'C' ? 107 : 225);
-	t->ui.edit_setpoint = sp;
-	t->ui.edit_is_change = change;
-	t->ui.screen = PF_SCR_SETPOINT;
-	t->spin_count = 0;
+	pf_nav_reset(&t->ui);
+	pf_nav_push(&t->ui, PF_SCR_LIST, PF_LIST_ROOT);
 }
 
-static void spin_setpoint(tft_t *t, int dir, double now)
+static void show_message(tft_t *t, const char *msg, double secs)
+{
+	pf_strlcpy(t->ui.message, msg, sizeof t->ui.message);
+	t->ui.message_until = pf_now() + secs;
+	pf_nav_reset(&t->ui);
+	pf_nav_push(&t->ui, PF_SCR_MESSAGE, 0);
+}
+
+static double temp_step(const tft_t *t, bool *celsius)
 {
 	const char *units = pf_json_str(t->status, "units", "F");
 	bool c = units[0] == 'C';
-	double step = c ? 2 : 5, lo = c ? 50 : 120, hi = c ? 260 : 500;
+	if (celsius) *celsius = c;
+	return c ? 2 : 5;
+}
+
+static void open_temp(tft_t *t, pf_action act, const char *title, const char *button, double value)
+{
+	bool c = false;
+	temp_step(t, &c);
+	double lo = c ? 50 : 120, hi = c ? 300 : 570;
+	if (value < lo) value = lo;
+	if (value > hi) value = hi;
+	t->ui.temp_value = round(value);
+	t->ui.temp_action = act;
+	t->ui.temp_focus = 0;
+	t->ui.temp_editing = false;
+	pf_strlcpy(t->ui.temp_title, title, sizeof t->ui.temp_title);
+	pf_strlcpy(t->ui.temp_button, button, sizeof t->ui.temp_button);
+	pf_nav_push(&t->ui, PF_SCR_TEMP, 0);
+}
+
+static void open_confirm(tft_t *t, pf_action act, const char *text, const char *yes, bool danger)
+{
+	t->ui.confirm_action = act;
+	t->ui.confirm_focus = 0;   /* Cancel: a stray press never triggers the action */
+	t->ui.confirm_danger = danger;
+	pf_strlcpy(t->ui.confirm_text, text, sizeof t->ui.confirm_text);
+	pf_strlcpy(t->ui.confirm_yes, yes, sizeof t->ui.confirm_yes);
+	pf_nav_push(&t->ui, PF_SCR_CONFIRM, 0);
+}
+
+static void spin_temp(tft_t *t, int dir, double now)
+{
+	bool c = false;
+	double step = temp_step(t, &c), lo = c ? 50 : 120, hi = c ? 300 : 570;
 	if (now - t->spin_last_t < 0.5) t->spin_count++; else t->spin_count = 0;
 	t->spin_last_t = now;
 	if (t->spin_count >= 7) step *= 6; else if (t->spin_count >= 3) step *= 4;
-	t->ui.edit_setpoint += dir * step;
-	if (t->ui.edit_setpoint > hi) t->ui.edit_setpoint = lo;
-	if (t->ui.edit_setpoint < lo) t->ui.edit_setpoint = hi;
-	t->ui.edit_setpoint = round(t->ui.edit_setpoint);
+	t->ui.temp_value += dir * step;
+	if (t->ui.temp_value > hi) t->ui.temp_value = lo;
+	if (t->ui.temp_value < lo) t->ui.temp_value = hi;
+	t->ui.temp_value = round(t->ui.temp_value);
 }
 
-static void menu_select(tft_t *t)
+/* ---------------- Bluetooth pairing from the panel ---------------- */
+
+/* the ports each make exposes, matching share/manifest.json */
+static const char *const BT_PORTS[][3] = {
+	{ "BT_Probe", "BT_Ambient", NULL },   /* chefiq */
+	{ "BT_Tip", "BT_Ambient", NULL },     /* meater */
+	{ "BT0", "BT1", NULL },               /* ibbq: the first two channels */
+};
+
+static void bt_begin_scan(tft_t *t, int kind)
 {
-	pf_menu_item items[PF_MENU_MAX];
-	int n = pf_menu_build(t->status, items, PF_MENU_MAX);
-	if (n <= 0) { t->ui.screen = PF_SCR_MAIN; return; }
-	if (t->ui.menu_index >= n) t->ui.menu_index = n - 1;
+	if (kind < 0 || kind >= PF_BT_KIND_COUNT) return;
+	pf_strlcpy(t->ui.bt_kind, PF_BT_KINDS[kind].module, sizeof t->ui.bt_kind);
+	pf_strlcpy(t->ui.bt_label, PF_BT_KINDS[kind].label, sizeof t->ui.bt_label);
+	t->ui.bt_n = 0;
+	t->ui.bt_scanning = true;
+	pf_ble_scan_start(8);
+	pf_nav_push(&t->ui, PF_SCR_BTSCAN, 0);
+}
+
+/* caller holds t->mu */
+static void bt_collect(tft_t *t)
+{
+	cJSON *found = NULL;
+	if (!t->ui.bt_scanning || !pf_ble_scan_take(&found)) return;
+	t->ui.bt_scanning = false;
+	t->ui.bt_n = 0;
+	cJSON *f;
+	cJSON_ArrayForEach(f, found) {
+		if (t->ui.bt_n >= PF_BT_MAX) break;
+		if (strcmp(pf_json_str(f, "kind", ""), t->ui.bt_kind)) continue;   /* only this make */
+		const char *addr = pf_json_str(f, "address", "");
+		if (!addr[0]) continue;
+		pf_bt_found *b = &t->ui.bt[t->ui.bt_n++];
+		pf_strlcpy(b->name, pf_json_str(f, "name", addr), sizeof b->name);
+		pf_strlcpy(b->addr, addr, sizeof b->addr);
+		b->bars = pf_signal_bars((int)pf_json_num(f, "rssi", 0));
+		b->mine = true;
+	}
+	cJSON_Delete(found);
+	if (pf_nav_top(&t->ui)) pf_nav_top(&t->ui)->index = 0;
+}
+
+/* Add the probe to settings the way the web pairing flow does: one device with its ports, and one
+ * probe per port, the ambient sensor hidden from the home screens. */
+static void bt_add(tft_t *t, int idx)
+{
+	if (idx < 0 || idx >= t->ui.bt_n) return;
+	int kind = 0;
+	for (int i = 0; i < PF_BT_KIND_COUNT; i++) if (!strcmp(PF_BT_KINDS[i].module, t->ui.bt_kind)) kind = i;
+
+	cJSON *root = pf_settings_lock();
+	cJSON *map = pf_json_path(root, "probe_settings.probe_map");
+	cJSON *devs = cJSON_GetObjectItem(map, "probe_devices");
+	cJSON *infos = cJSON_GetObjectItem(map, "probe_info");
+	if (!devs || !infos) { pf_settings_unlock(); show_message(t, "Cannot add probe", 4); return; }
+
+	/* a device name nothing else is using, and the next free BTn probe name */
+	char dev[32];
+	for (int n = 1; n < 100; n++) {
+		snprintf(dev, sizeof dev, "%.16s%d", t->ui.bt_kind, n % 1000);
+		bool taken = false;
+		cJSON *d;
+		cJSON_ArrayForEach(d, devs) if (!strcasecmp(pf_json_str(d, "device", ""), dev)) taken = true;
+		if (!taken) break;
+	}
+	int bt = 1;
+	for (; bt < 100; bt++) {
+		char want[12];
+		snprintf(want, sizeof want, "BT%d", bt % 1000);
+		bool taken = false;
+		cJSON *pi;
+		cJSON_ArrayForEach(pi, infos) if (!strcasecmp(pf_json_str(pi, "name", ""), want)) taken = true;
+		if (!taken) break;
+	}
+
+	cJSON *d = cJSON_CreateObject();
+	cJSON_AddStringToObject(d, "device", dev);
+	cJSON_AddStringToObject(d, "module", t->ui.bt_kind);
+	cJSON *ports = cJSON_AddArrayToObject(d, "ports");
+	for (int i = 0; BT_PORTS[kind][i]; i++) cJSON_AddItemToArray(ports, cJSON_CreateString(BT_PORTS[kind][i]));
+	cJSON *cfg = cJSON_AddObjectToObject(d, "config");
+	cJSON_AddStringToObject(cfg, "hardware_id", t->ui.bt[idx].addr);
+	cJSON_AddBoolToObject(cfg, "transient", true);
+	cJSON_AddItemToArray(devs, d);
+
+	for (int i = 0; BT_PORTS[kind][i]; i++) {
+		bool ambient = strcasestr(BT_PORTS[kind][i], "Ambient") != NULL;
+		char name[40], label[40];
+		snprintf(name, sizeof name, ambient ? "BT%d Ambient" : "BT%d", bt % 1000);
+		snprintf(label, sizeof label, "%.30s%d", dev, i + 1);
+		cJSON *pi = cJSON_CreateObject();
+		cJSON_AddStringToObject(pi, "type", "Food");
+		cJSON_AddStringToObject(pi, "label", label);
+		cJSON_AddStringToObject(pi, "name", name);
+		cJSON_AddStringToObject(pi, "profile", "TWPS00");
+		cJSON_AddStringToObject(pi, "device", dev);
+		cJSON_AddStringToObject(pi, "port", BT_PORTS[kind][i]);
+		cJSON_AddBoolToObject(pi, "enabled", true);
+		cJSON_AddBoolToObject(pi, "show_on_home", !ambient);
+		cJSON_AddItemToArray(infos, pi);
+	}
+	pf_settings_unlock();
+	pf_settings_save();
+	pf_cmd c = { .type = PF_CMD_PROBES_CHANGED };
+	pf_cmdq_push(&c);
+	char msg[64];
+	snprintf(msg, sizeof msg, "BT%d added", bt % 1000);
+	show_message(t, msg, 3);
+}
+
+/* ---------------- acting on a menu row ---------------- */
+
+static void do_action(tft_t *t, pf_action act, int arg)
+{
 	pf_cmd c = { 0 };
-	switch (items[t->ui.menu_index].id) {
-	case PF_MI_STARTUP:
+	const char *mode = pf_json_str(t->status, "mode", "Stop");
+	switch (act) {
+	case PF_ACT_BACK:
+		pf_nav_pop(&t->ui);
+		return;
+	case PF_ACT_LIST:
+		pf_nav_push(&t->ui, PF_SCR_LIST, arg);
+		return;
+	case PF_ACT_NETINFO:
+		pf_nav_push(&t->ui, PF_SCR_NETINFO, 0);
+		return;
+	case PF_ACT_MANUAL:
+		t->ui.manual_focus = 0;
+		pf_nav_push(&t->ui, PF_SCR_MANUAL, 0);
+		return;
+
+	case PF_ACT_STARTUP:
 		c.type = PF_CMD_MODE; c.mode = PF_MODE_STARTUP; pf_cmdq_push(&c); break;
-	case PF_MI_HOLD:
-		open_setpoint(t, !strcmp(pf_json_str(t->status, "mode", ""), "Hold")); return;
-	case PF_MI_PRIME:
-		c.type = PF_CMD_PRIME; c.num = 10; pf_cmdq_push(&c); break;
-	case PF_MI_MONITOR:
-		c.type = PF_CMD_MODE; c.mode = PF_MODE_MONITOR; pf_cmdq_push(&c); break;
-	case PF_MI_SMOKE:
+	case PF_ACT_STARTUP_HOLD:
+		/* the target is remembered and applied when startup finishes */
+		open_temp(t, PF_ACT_STARTUP_HOLD, "STARTUP TO HOLD", "Startup",
+		          pf_json_num(t->status, "setpoint", 0) > 0 ? pf_json_num(t->status, "setpoint", 0) : pf_set_num("startup.start_to_mode.primary_setpoint", 225));
+		return;
+	case PF_ACT_STARTUP_SMOKE:
 		c.type = PF_CMD_MODE; c.mode = PF_MODE_SMOKE; pf_cmdq_push(&c); break;
-	case PF_MI_SMOKE_PLUS:
-		c.type = PF_CMD_SMOKE_PLUS; c.flag = !pf_json_bool(t->status, "s_plus", false); pf_cmdq_push(&c); break;
-	case PF_MI_SHUTDOWN:
+	case PF_ACT_HOLD:
+		open_temp(t, PF_ACT_HOLD, "HOLD", "Start",
+		          pf_json_num(t->status, "setpoint", 0) > 0 ? pf_json_num(t->status, "setpoint", 0) : pf_set_num("startup.start_to_mode.primary_setpoint", 225));
+		return;
+	case PF_ACT_SMOKE:
+		open_confirm(t, PF_ACT_SMOKE, "Switch to Smoke Mode?", "Start", false);
+		return;
+	case PF_ACT_MONITOR:
+		c.type = PF_CMD_MODE; c.mode = PF_MODE_MONITOR; pf_cmdq_push(&c); break;
+	case PF_ACT_END_COOK:
 		c.type = PF_CMD_MODE; c.mode = PF_MODE_SHUTDOWN; pf_cmdq_push(&c); break;
-	case PF_MI_STOP: case PF_MI_CLEAR:
+	case PF_ACT_STOP: case PF_ACT_CLEAR_ERROR:
 		c.type = PF_CMD_STOP; pf_cmdq_push(&c); break;
-	case PF_MI_NETINFO:
-		t->ui.screen = PF_SCR_NETINFO; return;
-	case PF_MI_POWER:
-		t->ui.screen = PF_SCR_POWER; t->ui.power_index = PF_PW_BACK; return;   /* start on the harmless row */
+	case PF_ACT_ESTOP:
+		open_confirm(t, PF_ACT_STOP, "Emergency Stop?", "Stop", true);
+		return;
+
+	case PF_ACT_PROBE_TARGET: {
+		const cJSON *p = cJSON_GetArrayItem(cJSON_GetObjectItem(t->status, "probes"), arg);
+		if (!p) return;
+		bool cel = false;
+		temp_step(t, &cel);
+		double cur = pf_json_num((cJSON *)p, "target", 0);
+		pf_strlcpy(t->ui.temp_probe, pf_json_str((cJSON *)p, "label", ""), sizeof t->ui.temp_probe);
+		open_temp(t, PF_ACT_PROBE_TARGET, "PROBE TARGET", "Save", cur > 0 ? cur : (cel ? 95 : 203));
+		return;
+	}
+	case PF_ACT_BT_SCAN:
+		bt_begin_scan(t, arg);
+		return;
+	case PF_ACT_BT_ADD: {
+		if (arg < 0 || arg >= t->ui.bt_n) return;
+		char q[44];
+		snprintf(q, sizeof q, "Connect %.24s?", t->ui.bt[arg].name);
+		t->ui.confirm_focus = 0;
+		open_confirm(t, PF_ACT_BT_ADD, q, "Connect", false);
+		pf_nav_top(&t->ui)->index = arg;   /* remember which one was chosen */
+		return;
+	}
+
+	case PF_ACT_RESTART: case PF_ACT_POWEROFF:
+		open_confirm(t, act, act == PF_ACT_RESTART ? "Restart the controller?" : "Shut down the controller?",
+		             act == PF_ACT_RESTART ? "Restart" : "Shut Down", true);
+		return;
+	default:
+		(void)mode;
+		return;
+	}
+	pf_nav_reset(&t->ui);
+}
+
+/* the action button on the temperature selector */
+static void temp_confirm(tft_t *t)
+{
+	pf_cmd c = { 0 };
+	switch (t->ui.temp_action) {
+	case PF_ACT_STARTUP_HOLD:
+		/* from Stop this routes through Startup and lands in Hold at the chosen target */
+		c.type = PF_CMD_MODE; c.mode = PF_MODE_HOLD; c.num = t->ui.temp_value; pf_cmdq_push(&c);
+		break;
+	case PF_ACT_HOLD:
+		if (!strcmp(pf_json_str(t->status, "mode", ""), "Hold")) { c.type = PF_CMD_SETPOINT; c.num = t->ui.temp_value; }
+		else { c.type = PF_CMD_MODE; c.mode = PF_MODE_HOLD; c.num = t->ui.temp_value; }
+		pf_cmdq_push(&c);
+		break;
+	case PF_ACT_PROBE_TARGET:
+		c.type = PF_CMD_NOTIFY_TARGET; c.num = t->ui.temp_value;
+		pf_strlcpy(c.str, t->ui.temp_probe, sizeof c.str);
+		pf_cmdq_push(&c);
+		break;
 	default: break;
 	}
-	t->ui.screen = PF_SCR_MAIN;
+	pf_nav_reset(&t->ui);
 }
+
+static void confirm_yes(tft_t *t)
+{
+	pf_action act = t->ui.confirm_action;
+	if (act == PF_ACT_RESTART || act == PF_ACT_POWEROFF) {
+		bool reboot = act == PF_ACT_RESTART;
+		pf_cmd c = { .type = PF_CMD_STOP };
+		pf_cmdq_push(&c);
+		show_message(t, reboot ? "Restarting..." : "Shutting down...", 30);
+		LOGW(TAG, "%s requested from the panel", reboot ? "restart" : "power off");
+		redraw(t);
+		pf_sleep_ms(400);
+		pf_system_power(reboot);   /* the simulator never loads this driver */
+		return;
+	}
+	if (act == PF_ACT_BT_ADD) { int i = pf_nav_top(&t->ui) ? pf_nav_top(&t->ui)->index : 0; pf_nav_pop(&t->ui); bt_add(t, i); return; }
+	pf_nav_pop(&t->ui);
+	do_action(t, act, 0);
+}
+
+static void manual_press(tft_t *t)
+{
+	static const char *const outs[3] = { "auger", "fan", "igniter" };
+	static const char *const keys[3] = { "outputs.auger", "outputs.fan", "outputs.igniter" };
+	int f = t->ui.manual_focus;
+	if (f >= 0 && f < 3) {
+		pf_cmd c = { .type = PF_CMD_MANUAL_OUTPUT, .flag = !pf_json_bool(t->status, keys[f], false) };
+		pf_strlcpy(c.str, outs[f], sizeof c.str);
+		pf_cmdq_push(&c);
+		return;
+	}
+	/* Exit: everything this screen switched on goes off again */
+	for (int i = 0; i < 3; i++) {
+		pf_cmd c = { .type = PF_CMD_MANUAL_OUTPUT, .flag = false };
+		pf_strlcpy(c.str, outs[i], sizeof c.str);
+		pf_cmdq_push(&c);
+	}
+	pf_nav_pop(&t->ui);
+}
+
+/* ---------------- keys ---------------- */
 
 static void handle_key(tft_t *t, pf_key k, double now)
 {
@@ -206,51 +468,78 @@ static void handle_key(tft_t *t, pf_key k, double now)
 	}
 	if (!t->status) return;
 	const char *mode = pf_json_str(t->status, "mode", "Stop");
-	switch (t->ui.screen) {
+	int dir = k == PF_KEY_UP ? 1 : k == PF_KEY_DOWN ? -1 : 0;
+
+	switch (pf_nav_screen(&t->ui)) {
 	case PF_SCR_MAIN:
 		if (k == PF_KEY_ENTER) open_menu(t);
-		else if ((k == PF_KEY_UP || k == PF_KEY_DOWN) && !strcmp(mode, "Hold")) { open_setpoint(t, true); spin_setpoint(t, k == PF_KEY_UP ? 1 : -1, now); }
+		else if (dir && !strcmp(mode, "Hold")) {
+			open_temp(t, PF_ACT_HOLD, "HOLD", "Start", pf_json_num(t->status, "setpoint", 0));
+			t->ui.temp_editing = true;
+			spin_temp(t, dir, now);
+		}
 		break;
-	case PF_SCR_MENU: {
+
+	case PF_SCR_LIST: {
 		pf_menu_item items[PF_MENU_MAX];
-		int n = pf_menu_build(t->status, items, PF_MENU_MAX);
-		if (n <= 0) { t->ui.screen = PF_SCR_MAIN; break; }
-		if (k == PF_KEY_UP) t->ui.menu_index = (t->ui.menu_index + 1) % n;
-		else if (k == PF_KEY_DOWN) t->ui.menu_index = (t->ui.menu_index + n - 1) % n;
-		else if (k == PF_KEY_ENTER) menu_select(t);
+		int n = pf_menu_build(t->status, &t->ui, items, PF_MENU_MAX);
+		pf_nav *nav = pf_nav_top(&t->ui);
+		if (n <= 0 || !nav) { pf_nav_pop(&t->ui); break; }
+		if (dir) nav->index = ((nav->index + dir) % n + n) % n;
+		else if (k == PF_KEY_ENTER) do_action(t, items[nav->index % n].act, items[nav->index % n].arg);
 		break;
 	}
-	case PF_SCR_SETPOINT:
-		if (k == PF_KEY_UP || k == PF_KEY_DOWN) spin_setpoint(t, k == PF_KEY_UP ? 1 : -1, now);
-		else if (k == PF_KEY_ENTER) {
-			pf_cmd c = t->ui.edit_is_change ? (pf_cmd){ .type = PF_CMD_SETPOINT, .num = t->ui.edit_setpoint }
-			                                : (pf_cmd){ .type = PF_CMD_MODE, .mode = PF_MODE_HOLD, .num = t->ui.edit_setpoint };
-			pf_cmdq_push(&c);
-			t->ui.screen = PF_SCR_MAIN;
+
+	case PF_SCR_TEMP:
+		if (t->ui.temp_editing) {
+			if (dir) spin_temp(t, dir, now);
+			else if (k == PF_KEY_ENTER) t->ui.temp_editing = false;
+		} else if (dir) {
+			/* three stops that clamp: the value sits between Back and the action button */
+			int f = t->ui.temp_focus + (dir > 0 ? 1 : -1);
+			if (f < 0) f = 0;
+			if (f > 2) f = 2;
+			/* turning forward from the value reaches the action button, backward reaches Back */
+			t->ui.temp_focus = f;
+		} else if (k == PF_KEY_ENTER) {
+			if (t->ui.temp_focus == 0) t->ui.temp_editing = true;
+			else if (t->ui.temp_focus == 1) temp_confirm(t);
+			else pf_nav_pop(&t->ui);
 		}
 		break;
-	case PF_SCR_POWER:
-		if (k == PF_KEY_UP) t->ui.power_index = (t->ui.power_index + 1) % PF_PW_COUNT;
-		else if (k == PF_KEY_DOWN) t->ui.power_index = (t->ui.power_index + PF_PW_COUNT - 1) % PF_PW_COUNT;
+
+	case PF_SCR_CONFIRM:
+		if (dir) t->ui.confirm_focus = dir > 0 ? 1 : 0;
 		else if (k == PF_KEY_ENTER) {
-			int sel = t->ui.power_index % PF_PW_COUNT;
-			if (sel == PF_PW_BACK) { t->ui.screen = PF_SCR_MENU; break; }
-			bool reboot = sel == PF_PW_RESTART;
-			pf_cmd c = { .type = PF_CMD_STOP };
-			pf_cmdq_push(&c);
-			pf_strlcpy(t->ui.message, reboot ? "Restarting..." : "Shutting down...", sizeof t->ui.message);
-			t->ui.screen = PF_SCR_MESSAGE;
-			t->ui.message_until = now + 30;
-			LOGW(TAG, "%s requested from the panel", reboot ? "restart" : "power off");
-			redraw(t);
-			pf_sleep_ms(400);
-			pf_system_power(reboot);   /* the simulator never loads this driver */
+			if (t->ui.confirm_focus == 1) confirm_yes(t);
+			else pf_nav_pop(&t->ui);
 		}
 		break;
+
+	case PF_SCR_BTSCAN: {
+		if (t->ui.bt_scanning) break;
+		pf_nav *nav = pf_nav_top(&t->ui);
+		int rows = t->ui.bt_n + 1;
+		if (!nav) break;
+		if (dir) nav->index = ((nav->index + dir) % rows + rows) % rows;
+		else if (k == PF_KEY_ENTER) {
+			if (t->ui.bt_n == 0) { t->ui.bt_scanning = true; pf_ble_scan_start(8); }   /* scan again */
+			else if (nav->index % rows == t->ui.bt_n) pf_nav_pop(&t->ui);
+			else do_action(t, PF_ACT_BT_ADD, nav->index % rows);
+		}
+		break;
+	}
+
+	case PF_SCR_MANUAL:
+		if (dir) t->ui.manual_focus = ((t->ui.manual_focus + dir) % 4 + 4) % 4;
+		else if (k == PF_KEY_ENTER) manual_press(t);
+		break;
+
 	case PF_SCR_NETINFO:
-		t->ui.screen = PF_SCR_MENU;   /* any key goes back */
+	case PF_SCR_MESSAGE:
+	default:
+		pf_nav_pop(&t->ui);
 		break;
-	default: t->ui.screen = PF_SCR_MAIN; break;
 	}
 }
 
@@ -306,7 +595,7 @@ static void *encoder_thread(void *arg)
 		if (pressed && !long_sent && now - press_t >= LONG_PRESS_S) {
 			long_sent = true;
 			pthread_mutex_lock(&t->mu);
-			if (t->ui.screen == PF_SCR_SETPOINT || t->ui.screen == PF_SCR_MENU) { t->ui.screen = PF_SCR_MAIN; redraw(t); }   /* long press backs out */
+			if (t->ui.depth > 0) { pf_nav_reset(&t->ui); redraw(t); }   /* long press backs out to the grill */
 			else atomic_store(&t->estop, true);
 			pthread_mutex_unlock(&t->mu);
 		}
@@ -350,7 +639,7 @@ static void *create(const char *cfg_json, const pf_env *env)
 	t->fb.vw = t->fb.w - t->margin_right; t->fb.vh = t->fb.h - t->margin_bottom;   /* bezel hides the edge */
 	init_panel(t);
 	backlight(t, true);
-	t->ui.screen = PF_SCR_MAIN;
+	pf_nav_reset(&t->ui);
 	apply_theme(t);
 	pf_screens_render(&t->fb, NULL, &t->ui);
 	push_frame(t);
@@ -392,9 +681,10 @@ static void status(void *self, const char *json)
 	double now = pf_now();
 	t->ui.blink = !t->ui.blink;   /* 2 Hz tick -> 1 Hz flash */
 	bool stopped = !strcmp(pf_json_str(t->status, "mode", ""), "Stop");
-	if ((t->ui.screen == PF_SCR_MENU || t->ui.screen == PF_SCR_SETPOINT) && now - t->last_activity > MENU_TIMEOUT_S) t->ui.screen = PF_SCR_MAIN;
+	bt_collect(t);
+	if (t->ui.depth > 0 && pf_nav_screen(&t->ui) != PF_SCR_MESSAGE && !t->ui.bt_scanning && now - t->last_activity > MENU_TIMEOUT_S) pf_nav_reset(&t->ui);
 	if (!stopped && !t->backlight_on) backlight(t, true);                       /* any active mode: screen on */
-	if (stopped && t->backlight_on && t->backlight_timeout > 0 && t->ui.screen == PF_SCR_MAIN && now - t->last_activity > t->backlight_timeout) backlight(t, false);
+	if (stopped && t->backlight_on && t->backlight_timeout > 0 && pf_nav_screen(&t->ui) == PF_SCR_MAIN && now - t->last_activity > t->backlight_timeout) backlight(t, false);
 	redraw(t);
 	pthread_mutex_unlock(&t->mu);
 }
@@ -404,7 +694,8 @@ static void text(void *self, const char *msg)
 	tft_t *t = self;
 	pthread_mutex_lock(&t->mu);
 	pf_strlcpy(t->ui.message, msg, sizeof t->ui.message);
-	t->ui.screen = PF_SCR_MESSAGE;
+	pf_nav_reset(&t->ui);
+	pf_nav_push(&t->ui, PF_SCR_MESSAGE, 0);
 	t->ui.message_until = pf_now() + 4;
 	if (!t->backlight_on) backlight(t, true);
 	t->last_activity = pf_now();

@@ -43,6 +43,10 @@ const char *pf_ble_name(const pf_ble_dev *d);
 
 /* Discovery for the UI: runs discovery for ~seconds and returns [{name,address,rssi}]. */
 struct cJSON *pf_ble_scan_json(int seconds);
+/* Non-blocking form for the panel, whose thread must keep drawing: start one, then poll.
+ * take() returns 1 and hands over the array (caller frees) once a scan has finished, else 0. */
+void pf_ble_scan_start(int seconds);
+int  pf_ble_scan_take(struct cJSON **out);
 
 /* Helpers for 16-bit UUIDs: "fff4" -> "0000fff4-0000-1000-8000-00805f9b34fb" */
 const char *pf_ble_uuid16(const char *short4, char out[40]);

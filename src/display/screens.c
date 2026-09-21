@@ -45,33 +45,116 @@ static bool is_timed(const char *mode)
 	return !strcmp(mode, "Startup") || !strcmp(mode, "Reignite") || !strcmp(mode, "Shutdown") || !strcmp(mode, "Prime");
 }
 
-/* --------------------------------------------------------------- menu (same sets as the original) */
+/* --------------------------------------------------------------- navigation */
 
-int pf_menu_build(const cJSON *status, pf_menu_item *out, int max)
+const pf_bt_kind PF_BT_KINDS[] = {
+	{ "chefiq", "Chef iQ" }, { "meater", "MEATER" }, { "ibbq", "Inkbird / iBBQ" },
+};
+const int PF_BT_KIND_COUNT = (int)(sizeof PF_BT_KINDS / sizeof PF_BT_KINDS[0]);
+
+void pf_nav_reset(pf_ui_state *ui) { ui->depth = 0; }
+
+void pf_nav_push(pf_ui_state *ui, pf_screen screen, int list)
+{
+	if (ui->depth >= PF_NAV_MAX) ui->depth = PF_NAV_MAX - 1;
+	ui->stack[ui->depth].screen = screen;
+	ui->stack[ui->depth].list = list;
+	ui->stack[ui->depth].index = 0;
+	ui->depth++;
+}
+
+void pf_nav_pop(pf_ui_state *ui) { if (ui->depth > 0) ui->depth--; }
+
+pf_screen pf_nav_screen(const pf_ui_state *ui)
+{
+	return ui->depth > 0 ? ui->stack[ui->depth - 1].screen : PF_SCR_MAIN;
+}
+
+pf_nav *pf_nav_top(pf_ui_state *ui) { return ui->depth > 0 ? &ui->stack[ui->depth - 1] : NULL; }
+
+/* --------------------------------------------------------------- menus */
+
+int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out, int max)
 {
 	const char *mode = pf_json_str((cJSON *)status, "mode", "Stop");
+	int list = ui->depth > 0 ? ui->stack[ui->depth - 1].list : PF_LIST_ROOT;
 	int n = 0;
-#define ADD(i, l) do { if (n < max) { out[n].id = (i); snprintf(out[n].label, sizeof out[n].label, "%s", (l)); n++; } } while (0)
-	if (!strcmp(mode, "Error")) {
-		ADD(PF_MI_CLEAR, "Clear Error");
-	} else if (!strcmp(mode, "Stop") || !strcmp(mode, "Monitor") || !strcmp(mode, "Prime")) {
-		ADD(PF_MI_STARTUP, "Startup");
-		ADD(PF_MI_HOLD, "Hold");
-		ADD(PF_MI_PRIME, "Prime");
-		if (strcmp(mode, "Monitor")) ADD(PF_MI_MONITOR, "Monitor"); else ADD(PF_MI_STOP, "Stop");
-		ADD(PF_MI_NETINFO, "Network Info");
-		ADD(PF_MI_POWER, "Power");
-	} else if (!strcmp(mode, "Shutdown")) {
-		ADD(PF_MI_STOP, "Stop");
-	} else {  /* Startup, Reignite, Smoke, Hold, Manual */
-		ADD(PF_MI_HOLD, "Hold");
-		if (strcmp(mode, "Smoke")) ADD(PF_MI_SMOKE, "Smoke");
-		if (!strcmp(mode, "Smoke")) ADD(PF_MI_SMOKE_PLUS, pf_json_bool((cJSON *)status, "s_plus", false) ? "Smoke+ Off" : "Smoke+ On");
-		ADD(PF_MI_SHUTDOWN, "Shutdown");
-		ADD(PF_MI_STOP, "Stop");
+#define ADD(a, ar, l) do { if (n < max) { out[n].act = (a); out[n].arg = (ar); out[n].danger = false; out[n].right[0] = 0; snprintf(out[n].label, sizeof out[n].label, "%s", (l)); n++; } } while (0)
+#define DANGER() do { if (n > 0) out[n - 1].danger = true; } while (0)
+
+	switch (list) {
+	case PF_LIST_STARTUP:
+		ADD(PF_ACT_STARTUP_HOLD, 0, "Startup To Hold");
+		ADD(PF_ACT_STARTUP_SMOKE, 0, "Startup To Smoke");
+		ADD(PF_ACT_BACK, 0, "Back");
+		break;
+
+	case PF_LIST_POWER:
+		ADD(PF_ACT_RESTART, 0, "Restart"); DANGER();
+		ADD(PF_ACT_POWEROFF, 0, "Shut Down"); DANGER();
+		ADD(PF_ACT_BACK, 0, "Back");
+		break;
+
+	case PF_LIST_PROBE: {
+		/* every probe that can carry a target, with its current reading alongside */
+		const cJSON *probes = cJSON_GetObjectItem((cJSON *)status, "probes"), *p;
+		const char *units = pf_json_str((cJSON *)status, "units", "F");
+		int i = 0;
+		cJSON_ArrayForEach(p, probes) {
+			const char *role = pf_json_str((cJSON *)p, "role", "");
+			/* companions are shown inside their sibling's card, so they carry no target of their own */
+			if (strcmp(role, "Food") || !pf_json_bool((cJSON *)p, "enabled", true) || pf_json_bool((cJSON *)p, "companion", false)) { i++; continue; }
+			ADD(PF_ACT_PROBE_TARGET, i, pf_json_str((cJSON *)p, "name", "Probe"));
+			if (n > 0) {
+				const cJSON *tv = cJSON_GetObjectItem((cJSON *)p, "temp");
+				double target = pf_json_num((cJSON *)p, "target", 0);
+				if (target > 0) snprintf(out[n - 1].right, sizeof out[n - 1].right, "%.0f" DEG "%c", target, units[0]);
+				else if (cJSON_IsNumber(tv)) snprintf(out[n - 1].right, sizeof out[n - 1].right, "%.0f" DEG, tv->valuedouble);
+			}
+			i++;
+		}
+		if (n == 0) ADD(PF_ACT_NONE, 0, "No food probes");
+		ADD(PF_ACT_BACK, 0, "Back");
+		break;
 	}
-	ADD(PF_MI_BACK, "Back");
+
+	case PF_LIST_BTKIND:
+		for (int i = 0; i < PF_BT_KIND_COUNT; i++) ADD(PF_ACT_BT_SCAN, i, PF_BT_KINDS[i].label);
+		ADD(PF_ACT_BACK, 0, "Back");
+		break;
+
+	default:   /* PF_LIST_ROOT: the mode decides which menu this is */
+		if (!strcmp(mode, "Error")) {
+			ADD(PF_ACT_CLEAR_ERROR, 0, "Clear Error"); DANGER();
+			ADD(PF_ACT_NETINFO, 0, "Network Info");
+			ADD(PF_ACT_BACK, 0, "Back");
+		} else if (!strcmp(mode, "Monitor")) {
+			ADD(PF_ACT_MANUAL, 0, "Control");
+			ADD(PF_ACT_LIST, PF_LIST_STARTUP, "Startup");
+			ADD(PF_ACT_STOP, 0, "Stop"); DANGER();
+			ADD(PF_ACT_LIST, PF_LIST_BTKIND, "Connect Bluetooth Probe");
+			ADD(PF_ACT_NETINFO, 0, "Network Info");
+			ADD(PF_ACT_BACK, 0, "Back");
+		} else if (!strcmp(mode, "Stop") || !strcmp(mode, "Prime")) {
+			ADD(PF_ACT_LIST, PF_LIST_STARTUP, "Startup");
+			ADD(PF_ACT_MONITOR, 0, "Monitor");
+			ADD(PF_ACT_NETINFO, 0, "Network Info");
+			ADD(PF_ACT_LIST, PF_LIST_POWER, "Power");
+			ADD(PF_ACT_BACK, 0, "Back");
+		} else {   /* the active menu: Startup, Reignite, Smoke, Hold, Shutdown, Manual */
+			if (!strcmp(mode, "Hold")) ADD(PF_ACT_SMOKE, 0, "Smoke Mode");
+			else ADD(PF_ACT_HOLD, 0, "Hold Mode");
+			ADD(PF_ACT_END_COOK, 0, "End Cook");
+			ADD(PF_ACT_LIST, PF_LIST_PROBE, "Probe Target");
+			ADD(PF_ACT_LIST, PF_LIST_BTKIND, "Connect Bluetooth Probe");
+			ADD(PF_ACT_NETINFO, 0, "Network Info");
+			ADD(PF_ACT_ESTOP, 0, "Emergency Stop"); DANGER();
+			ADD(PF_ACT_BACK, 0, "Back");
+		}
+		break;
+	}
 #undef ADD
+#undef DANGER
 	return n;
 }
 
@@ -291,65 +374,127 @@ static void render_main(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 
 /* --------------------------------------------------------------- menu / set point / message */
 
-static void render_menu(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
+/* a title bar shared by every screen that is not the grill itself */
+static void chrome(pf_gfx *g, const char *title, const cJSON *s, uint16_t fill)
+{
+	pf_gfx_rect(g, 0, 0, g->w, 34, fill);
+	uint16_t tc = on_fill_text(g, fill);
+	pf_gfx_text(g, B, 22, 10, 5, title, tc);
+	if (!s) return;
+	const char *mode = pf_json_str((cJSON *)s, "mode", "Stop");
+	char up[16];
+	snprintf(up, sizeof up, "%.12s", mode);
+	upper(up);
+	pf_gfx_text_right(g, B, 18, g->vw - 10, 8, up, tc);
+}
+
+static void render_list(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 {
 	int W = g->vw, H = g->vh;
-	const char *mode = pf_json_str((cJSON *)s, "mode", "Stop");
 	pf_menu_item items[PF_MENU_MAX];
-	int n = pf_menu_build(s, items, PF_MENU_MAX);
-	pf_gfx_rect(g, 0, 0, g->w, 34, g->th.card2);
-	pf_gfx_text(g, B, 22, 10, 5, "MENU", g->th.text);
-	char up[16]; snprintf(up, sizeof up, "%.12s", mode); upper(up);
-	pf_gfx_text_right(g, B, 18, W - 10, 8, up, mode_fill(g, mode) == g->th.card2 ? g->th.muted : mode_fill(g, mode));
+	int n = pf_menu_build(s, ui, items, PF_MENU_MAX);
+	chrome(g, "MENU", s, g->th.card2);
 	int rowh = (H - 40) / (n > 0 ? n : 1);
 	if (rowh > 44) rowh = 44;
-	int px = rowh - 8 < 24 ? (rowh - 8 < 14 ? 14 : rowh - 8) : 24;
+	int px = rowh - 8 < 24 ? (rowh - 8 < 13 ? 13 : rowh - 8) : 24;
 	int y = 38 + ((H - 40) - rowh * n) / 2;
-	int sel = ui->menu_index % (n > 0 ? n : 1);
+	int sel = ui->depth > 0 ? ui->stack[ui->depth - 1].index : 0;
+	if (n > 0) sel = ((sel % n) + n) % n;
 	for (int i = 0; i < n; i++) {
 		bool is = i == sel;
-		if (is) pf_gfx_rrect(g, 6, y + 1, W - 12, rowh - 3, 7, g->th.accent);
+		if (is) pf_gfx_rrect(g, 6, y + 1, W - 12, rowh - 3, 7, items[i].danger ? g->th.danger : g->th.accent);
 		int ty = y + (rowh - pf_gfx_line_height(B, px)) / 2;
-		uint16_t c = is ? g->th.accent_text : (items[i].id == PF_MI_STOP || items[i].id == PF_MI_CLEAR) ? g->th.danger : g->th.text;
-		pf_gfx_text(g, B, px, 20, ty, items[i].label, c);
+		uint16_t c = is ? (items[i].danger ? g->th.text : g->th.accent_text) : items[i].danger ? g->th.danger : g->th.text;
+		pf_gfx_text(g, B, px, 16, ty, items[i].label, c);
+		if (items[i].right[0]) pf_gfx_text_right(g, B, px - 4 < 12 ? 12 : px - 4, W - 14, ty + 2, items[i].right, is ? c : g->th.muted);
 		y += rowh;
 	}
 }
 
-static void render_setpoint(pf_gfx *g, const pf_ui_state *ui, const cJSON *s)
+/* Temperature selector: the value, an action button bottom right, Back bottom left. The encoder
+ * moves between those three stops and clamps at the ends; pressing the value starts editing it. */
+static void render_temp(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 {
 	int W = g->vw, H = g->vh;
 	const char *units = pf_json_str((cJSON *)s, "units", "F");
-	pf_gfx_rect(g, 0, 0, g->w, 34, g->th.ok);
-	pf_gfx_text(g, B, 22, 10, 5, ui->edit_is_change ? "SET TARGET" : "HOLD AT", g->th.accent_text);
+	chrome(g, ui->temp_title, NULL, ui->temp_editing ? g->th.accent : g->th.card2);
+
 	char v[16];
-	snprintf(v, sizeof v, "%.0f", ui->edit_setpoint);
-	int big = W >= 320 ? 110 : 92;
+	snprintf(v, sizeof v, "%.0f", ui->temp_value);
 	char unit[4] = { (char)0xC2, (char)0xB0, units[0], 0 };
+	int bh = H - 34 - 46;
+	int big = W >= 320 ? 96 : 76;
 	int vw = pf_gfx_text_width(B, big, v), uw = pf_gfx_text_width(B, big / 3, unit);
-	int left = (W - vw - 6 - uw) / 2, ty = 44 + (H - 44 - 40 - pf_gfx_line_height(B, big)) / 2;
-	pf_gfx_text(g, B, big, left, ty, v, g->th.text);
-	pf_gfx_text(g, B, big / 3, left + vw + 6, ty + (int)(big * 0.18), unit, g->th.muted);
-	pf_gfx_text_center(g, B, 16, W / 2, H - 34, "TURN TO ADJUST  \xC2\xB7  PRESS TO CONFIRM", g->th.muted);
+	int left = (W - vw - 6 - uw) / 2, ty = 38 + (bh - pf_gfx_line_height(B, big)) / 2;
+	bool on_value = ui->temp_focus == 0;
+	if (on_value) {
+		/* editing pulses the plate so it is obvious the knob now changes the number */
+		uint16_t plate = ui->temp_editing ? (ui->blink ? g->th.accent : g->th.card2) : g->th.card2;
+		pf_gfx_rrect(g, left - 14, 38, vw + uw + 34, bh - 4, 8, plate);
+	}
+	uint16_t vc = on_value && ui->temp_editing && ui->blink ? g->th.accent_text : g->th.text;
+	pf_gfx_text(g, B, big, left, ty, v, vc);
+	pf_gfx_text(g, B, big / 3, left + vw + 6, ty + (int)(big * 0.18), unit, on_value && ui->temp_editing && ui->blink ? g->th.accent_text : g->th.muted);
+
+	/* the two buttons */
+	int bw = (W - 18) / 2, by = H - 42;
+	bool on_back = ui->temp_focus == 2, on_act = ui->temp_focus == 1;
+	pf_gfx_rrect(g, 6, by, bw, 36, 7, on_back ? g->th.accent : g->th.card2);
+	pf_gfx_text_center(g, B, 18, 6 + bw / 2, by + 8, "Back", on_back ? g->th.accent_text : g->th.text);
+	pf_gfx_rrect(g, W - 6 - bw, by, bw, 36, 7, on_act ? g->th.ok : g->th.card2);
+	pf_gfx_text_center(g, B, 18, W - 6 - bw / 2, by + 8, ui->temp_button, on_act ? g->th.accent_text : g->th.text);
 }
 
-/* Power: restart or shut the Pi down, offered only while the grill is stopped. */
-static void render_power(pf_gfx *g, const pf_ui_state *ui)
+static void render_confirm(pf_gfx *g, const pf_ui_state *ui)
 {
-	static const char *const rows[PF_PW_COUNT] = { "Restart", "Shut down", "Back" };
 	int W = g->vw, H = g->vh;
-	pf_gfx_rect(g, 0, 0, g->w, 34, g->th.card2);
-	pf_gfx_text(g, B, 22, 10, 5, "POWER", g->th.text);
-	int rowh = (H - 40) / PF_PW_COUNT;
-	if (rowh > 44) rowh = 44;
-	int y = 38 + ((H - 40) - rowh * PF_PW_COUNT) / 2;
-	int sel = ui->power_index % PF_PW_COUNT;
-	for (int i = 0; i < PF_PW_COUNT; i++) {
+	uint16_t accent = ui->confirm_danger ? g->th.danger : g->th.accent;
+	chrome(g, ui->confirm_danger ? "CONFIRM" : "CONFIRM", NULL, accent);
+	int px = pf_gfx_text_width(B, 22, ui->confirm_text) <= W - 24 ? 22 : 17;
+	pf_gfx_text_center(g, B, px, W / 2, 34 + (H - 34 - 46 - pf_gfx_line_height(B, px)) / 2, ui->confirm_text, g->th.text);
+	int bw = (W - 18) / 2, by = H - 42;
+	bool yes = ui->confirm_focus == 1;
+	pf_gfx_rrect(g, 6, by, bw, 36, 7, yes ? g->th.card2 : g->th.accent);
+	pf_gfx_text_center(g, B, 18, 6 + bw / 2, by + 8, "Cancel", yes ? g->th.text : g->th.accent_text);
+	pf_gfx_rrect(g, W - 6 - bw, by, bw, 36, 7, yes ? accent : g->th.card2);
+	pf_gfx_text_center(g, B, 18, W - 6 - bw / 2, by + 8, ui->confirm_yes, yes ? (ui->confirm_danger ? g->th.text : g->th.accent_text) : g->th.text);
+}
+
+/* Bluetooth scan results: name, signal bars and whether it is the make being paired. */
+static void render_btscan(pf_gfx *g, const pf_ui_state *ui)
+{
+	int W = g->vw, H = g->vh;
+	char title[28];
+	snprintf(title, sizeof title, "%.20s", ui->bt_label);
+	upper(title);
+	chrome(g, title, NULL, g->th.info);
+	if (ui->bt_scanning) {
+		pf_gfx_text_center(g, B, 20, W / 2, H / 2 - 24, "Scanning...", g->th.text);
+		pf_gfx_text_center(g, R, 14, W / 2, H / 2 + 4, "Take the probe out of its charger", g->th.muted);
+		return;
+	}
+	if (ui->bt_n == 0) {
+		pf_gfx_text_center(g, B, 20, W / 2, H / 2 - 24, "None found", g->th.muted);
+		pf_gfx_text_center(g, R, 14, W / 2, H / 2 + 4, "Press to scan again", g->th.muted);
+		return;
+	}
+	int rows = ui->bt_n + 1;   /* + Back */
+	int rowh = (H - 40) / rows;
+	if (rowh > 40) rowh = 40;
+	int y = 38;
+	int sel = ui->depth > 0 ? ui->stack[ui->depth - 1].index : 0;
+	sel = ((sel % rows) + rows) % rows;
+	for (int i = 0; i < rows; i++) {
 		bool is = i == sel;
-		if (is) pf_gfx_rrect(g, 6, y + 1, W - 12, rowh - 3, 7, i == PF_PW_BACK ? g->th.accent : g->th.danger);
-		int ty = y + (rowh - pf_gfx_line_height(B, 24)) / 2;
-		uint16_t c = is ? (i == PF_PW_BACK ? g->th.accent_text : g->th.text) : i == PF_PW_BACK ? g->th.text : g->th.danger;
-		pf_gfx_text(g, B, 24, 20, ty, rows[i], c);
+		if (is) pf_gfx_rrect(g, 6, y + 1, W - 12, rowh - 3, 7, g->th.accent);
+		int ty = y + (rowh - pf_gfx_line_height(B, 18)) / 2;
+		uint16_t c = is ? g->th.accent_text : g->th.text;
+		if (i < ui->bt_n) {
+			pf_gfx_text(g, B, 18, 14, ty, ui->bt[i].name, c);
+			pf_gfx_signal(g, W - 14 - 15, y + (rowh - 13) / 2, ui->bt[i].bars, is ? c : g->th.info, g->th.line);
+		} else {
+			pf_gfx_text(g, B, 18, 14, ty, "Back", c);
+		}
 		y += rowh;
 	}
 }
@@ -396,20 +541,68 @@ static void render_netinfo(pf_gfx *g, const cJSON *s)
 	}
 }
 
+/* Monitor control: the grill screen with the three outputs selectable, plus Exit. One press
+ * toggles whatever is highlighted; leaving the screen turns them all off again. */
+static void render_manual(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
+{
+	static const char *const names[3] = { "AUGER", "FAN", "IGNITER" };
+	static const char *const keys[3] = { "outputs.auger", "outputs.fan", "outputs.igniter" };
+	int W = g->vw, H = g->vh;
+	chrome(g, "CONTROL", NULL, g->th.warn);
+	const cJSON *probes = cJSON_GetObjectItem((cJSON *)s, "probes"), *p, *primary = NULL;
+	cJSON_ArrayForEach(p, probes) if (!strcmp(pf_json_str((cJSON *)p, "role", ""), "Primary")) { primary = p; break; }
+
+	/* four rows (three outputs and Exit) share whatever is left under the pit temperature */
+	int gap = 4, rows = 4;
+	int avail = H - 38 - 4;
+	int rowh = (avail - 52) / rows - gap;
+	if (rowh > 34) rowh = 34;
+	if (rowh < 20) rowh = 20;
+	int block = rows * (rowh + gap);
+	int pit_h = avail - block;
+	int big = pit_h > 58 ? 52 : pit_h - 6;
+	if (big < 26) big = 26;
+	draw_pit(g, primary, pf_json_str((cJSON *)s, "units", "F"), "Monitor", 8, 38, big, W - 16);
+
+	int y = H - block - 2;
+	for (int i = 0; i < 3; i++) {
+		bool on = pf_json_bool((cJSON *)s, keys[i], false);
+		bool is = ui->manual_focus == i;
+		uint16_t fill = on ? (i == 0 ? g->th.auger : i == 1 ? g->th.fan : g->th.igniter) : g->th.card2;
+		pf_gfx_rrect(g, 6, y, W - 12, rowh, 6, fill);
+		if (is) pf_gfx_frame(g, 6, y, W - 12, rowh, g->th.text);
+		uint16_t tc = on ? g->th.accent_text : is ? g->th.text : g->th.muted;
+		int px = rowh >= 30 ? 18 : 15;
+		pf_gfx_text(g, B, px, 14, y + (rowh - pf_gfx_line_height(B, px)) / 2, names[i], tc);
+		pf_gfx_text_right(g, B, px - 2, W - 14, y + (rowh - pf_gfx_line_height(B, px - 2)) / 2 + 1, on ? "ON" : "OFF", tc);
+		y += rowh + gap;
+	}
+	bool is_exit = ui->manual_focus == 3;
+	int px = rowh >= 30 ? 18 : 15;
+	pf_gfx_rrect(g, 6, y, W - 12, rowh, 6, is_exit ? g->th.accent : g->th.card2);
+	pf_gfx_text_center(g, B, px, W / 2, y + (rowh - pf_gfx_line_height(B, px)) / 2, "Exit", is_exit ? g->th.accent_text : g->th.text);
+}
+
 void pf_screens_render(pf_gfx *g, const cJSON *status, const pf_ui_state *ui)
 {
 	pf_gfx_clear(g, g->th.bg);
-	if (ui->screen == PF_SCR_MENU && status) { render_menu(g, status, ui); return; }
-	if (ui->screen == PF_SCR_SETPOINT && status) { render_setpoint(g, ui, status); return; }
-	if (ui->screen == PF_SCR_POWER) { render_power(g, ui); return; }
-	if (ui->screen == PF_SCR_NETINFO && status) { render_netinfo(g, status); return; }
-	if (ui->screen == PF_SCR_MESSAGE) {
+	pf_screen scr = pf_nav_screen(ui);
+	if (scr == PF_SCR_MESSAGE) {
 		int w = g->vw - 24, h = 72;
 		pf_gfx_rrect(g, 12, g->vh / 2 - h / 2, w, h, 8, g->th.card2);
 		int px = pf_gfx_text_width(B, 20, ui->message) <= w - 24 ? 20 : 15;
 		pf_gfx_text_center(g, B, px, g->vw / 2, g->vh / 2 - pf_gfx_line_height(B, px) / 2, ui->message, g->th.text);
 		return;
 	}
-	if (status) render_main(g, status, ui);
-	else pf_gfx_text_center(g, B, 32, g->vw / 2, g->vh / 2 - 20, "PiFire", g->th.accent);
+	if (scr == PF_SCR_CONFIRM) { render_confirm(g, ui); return; }
+	if (scr == PF_SCR_BTSCAN) { render_btscan(g, ui); return; }
+	if (status) {
+		if (scr == PF_SCR_LIST) { render_list(g, status, ui); return; }
+		if (scr == PF_SCR_TEMP) { render_temp(g, status, ui); return; }
+		if (scr == PF_SCR_NETINFO) { render_netinfo(g, status); return; }
+		if (scr == PF_SCR_MANUAL) { render_manual(g, status, ui); return; }
+		render_main(g, status, ui);
+		return;
+	}
+	pf_gfx_text_center(g, B, 32, g->vw / 2, g->vh / 2 - 20, "PiFire", g->th.accent);
 }

@@ -849,6 +849,33 @@ bool pf_ble_has_service(const pf_ble_dev *d, const char *uuid_prefix)
 	return false;
 }
 
+static unsigned g_scan_want_gen;
+static bool g_scan_pending;
+
+void pf_ble_scan_start(int seconds)
+{
+	if (!pf_ble_available()) return;
+	if (seconds < 2) seconds = 2;
+	if (seconds > 30) seconds = 30;
+	pthread_mutex_lock(&g_mu);
+	g_scan_want_gen = g_scan_gen;
+	g_scan_pending = true;
+	pthread_mutex_unlock(&g_mu);
+	atomic_store(&g_scan_seconds, seconds);
+}
+
+int pf_ble_scan_take(cJSON **out)
+{
+	pthread_mutex_lock(&g_mu);
+	int done = g_scan_pending && g_scan_gen != g_scan_want_gen;
+	if (done) {
+		*out = g_scan_result ? cJSON_Duplicate(g_scan_result, 1) : cJSON_CreateArray();
+		g_scan_pending = false;
+	}
+	pthread_mutex_unlock(&g_mu);
+	return done;
+}
+
 cJSON *pf_ble_scan_json(int seconds)
 {
 	if (!pf_ble_available()) return cJSON_CreateArray();
@@ -884,5 +911,7 @@ int pf_ble_rssi(const pf_ble_dev *d) { (void)d; return 0; }
 const char *pf_ble_address(const pf_ble_dev *d) { (void)d; return ""; }
 const char *pf_ble_name(const pf_ble_dev *d) { (void)d; return ""; }
 cJSON *pf_ble_scan_json(int s) { (void)s; return cJSON_CreateArray(); }
+void pf_ble_scan_start(int s) { (void)s; }
+int pf_ble_scan_take(cJSON **out) { (void)out; return 0; }
 const char *pf_ble_uuid16(const char *short4, char out[40]) { snprintf(out, 40, "0000%s-0000-1000-8000-00805f9b34fb", short4); return out; }
 #endif

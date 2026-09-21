@@ -42,7 +42,7 @@ static void test_render_screens(void)
 	g.vw = 320 - 16;   /* default right margin */
 	cJSON *st = cJSON_Parse(status_json);
 	TEST_ASSERT_NOT_NULL(st);
-	pf_ui_state ui = { .screen = PF_SCR_MAIN };
+	pf_ui_state ui = { 0 };
 	render_to(&g, st, &ui, "hold3");
 	/* flash phases: probe 1 pushed 6 F over target (orange), probe 3 12 F over (red), probe 2 done (green) */
 	cJSON *pr = cJSON_GetObjectItem(st, "probes");
@@ -56,15 +56,47 @@ static void test_render_screens(void)
 	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 1), "temp", cJSON_CreateNumber(164));
 	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 4), "temp", cJSON_CreateNull());
 	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(pr, 4), "target", cJSON_CreateNumber(0));
-	ui.screen = PF_SCR_MENU; ui.menu_index = 1;
-	render_to(&g, st, &ui, "menu");
-	ui.screen = PF_SCR_POWER; ui.power_index = PF_PW_RESTART;
-	render_to(&g, st, &ui, "power");
-	ui.screen = PF_SCR_NETINFO;
+
+	/* the active menu, and the screens it leads to */
+	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_ROOT);
+	pf_nav_top(&ui)->index = 1;
+	render_to(&g, st, &ui, "menu_active");
+	pf_nav_reset(&ui);
+	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_PROBE);
+	render_to(&g, st, &ui, "menu_probe");
+	pf_nav_reset(&ui);
+	pf_nav_push(&ui, PF_SCR_NETINFO, 0);
 	render_to(&g, st, &ui, "netinfo");
-	ui.screen = PF_SCR_SETPOINT; ui.edit_setpoint = 250; ui.edit_is_change = true;
-	render_to(&g, st, &ui, "setpoint");
-	ui.screen = PF_SCR_MAIN;
+	pf_nav_reset(&ui);
+	ui.temp_value = 250; ui.temp_focus = 1;
+	snprintf(ui.temp_title, sizeof ui.temp_title, "%s", "STARTUP TO HOLD");
+	snprintf(ui.temp_button, sizeof ui.temp_button, "%s", "Startup");
+	pf_nav_push(&ui, PF_SCR_TEMP, 0);
+	render_to(&g, st, &ui, "tempsel");
+	ui.temp_focus = 0; ui.temp_editing = true; ui.blink = true;
+	render_to(&g, st, &ui, "tempsel_edit");
+	ui.temp_editing = false; ui.blink = false;
+	pf_nav_reset(&ui);
+	snprintf(ui.confirm_text, sizeof ui.confirm_text, "%s", "Emergency Stop?");
+	snprintf(ui.confirm_yes, sizeof ui.confirm_yes, "%s", "Stop");
+	ui.confirm_danger = true; ui.confirm_focus = 1;
+	pf_nav_push(&ui, PF_SCR_CONFIRM, 0);
+	render_to(&g, st, &ui, "confirm");
+	pf_nav_reset(&ui);
+	ui.manual_focus = 1;
+	pf_nav_push(&ui, PF_SCR_MANUAL, 0);
+	render_to(&g, st, &ui, "manual");
+	pf_nav_reset(&ui);
+	snprintf(ui.bt_label, sizeof ui.bt_label, "%s", "Chef iQ");
+	ui.bt_n = 2;
+	snprintf(ui.bt[0].name, sizeof ui.bt[0].name, "%s", "CQ60");
+	ui.bt[0].bars = 3;
+	snprintf(ui.bt[1].name, sizeof ui.bt[1].name, "%s", "CQ60");
+	ui.bt[1].bars = 1;
+	pf_nav_push(&ui, PF_SCR_BTSCAN, 0);
+	render_to(&g, st, &ui, "btscan");
+	pf_nav_reset(&ui);
+
 	set_mode(st, "Startup", 187);
 	render_to(&g, st, &ui, "startup3");
 	/* fewer food probes: drop the last entries */
@@ -78,38 +110,90 @@ static void test_render_screens(void)
 	render_to(&g, st, &ui, "shutdown1");
 	cJSON_DeleteItemFromArray(probes, 2);
 	cJSON_DeleteItemFromArray(probes, 1);
+	set_mode(st, "Stop", 0);
+	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_ROOT);
+	render_to(&g, st, &ui, "menu_stopped");
+	pf_nav_reset(&ui);
 	set_mode(st, "Hold", 0);
 	pf_gfx_set_theme(&g, "light");
 	render_to(&g, st, &ui, "hold0_light");
-	ui.screen = PF_SCR_MENU; ui.menu_index = 0;
-	render_to(&g, st, &ui, "menu_light");
 	pf_gfx_free(&g);
 	/* portrait, three probes again */
 	cJSON_Delete(st);
 	st = cJSON_Parse(status_json);
 	TEST_ASSERT_EQUAL_INT(0, pf_gfx_init(&g, 240, 320));
 	g.vw = 240 - 16;
-	ui.screen = PF_SCR_MAIN;
 	render_to(&g, st, &ui, "portrait");
 	cJSON_Delete(st);
 	pf_gfx_free(&g);
 }
 
-static void test_menu_by_mode(void)
+/* the menus name modes and actions, and their shape follows the running mode */
+static void test_menus_by_mode(void)
 {
 	pf_menu_item items[PF_MENU_MAX];
-	cJSON *st = cJSON_Parse("{\"mode\":\"Smoke\",\"s_plus\":false}");
-	int n = pf_menu_build(st, items, PF_MENU_MAX);
+	pf_ui_state ui = { 0 };
+	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_ROOT);
+
+	cJSON *st = cJSON_Parse("{\"mode\":\"Stop\"}");
+	int n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
 	TEST_ASSERT_EQUAL_INT(5, n);
-	TEST_ASSERT_EQUAL_INT(PF_MI_HOLD, items[0].id);
-	TEST_ASSERT_EQUAL_INT(PF_MI_SMOKE_PLUS, items[1].id);
-	TEST_ASSERT_EQUAL_STRING("Smoke+ On", items[1].label);
+	TEST_ASSERT_EQUAL_STRING("Startup", items[0].label);
+	TEST_ASSERT_EQUAL_STRING("Monitor", items[1].label);
+	TEST_ASSERT_EQUAL_STRING("Network Info", items[2].label);
+	TEST_ASSERT_EQUAL_STRING("Power", items[3].label);
+	TEST_ASSERT_EQUAL_STRING("Back", items[4].label);
 	cJSON_Delete(st);
+
+	/* the active menu offers the opposite mode, ending the cook and an emergency stop */
 	st = cJSON_Parse("{\"mode\":\"Hold\"}");
-	n = pf_menu_build(st, items, PF_MENU_MAX);
-	for (int i = 0; i < n; i++) TEST_ASSERT_NOT_EQUAL(PF_MI_SMOKE_PLUS, items[i].id);  /* Smoke+ only in Smoke */
-	TEST_ASSERT_EQUAL_INT(PF_MI_HOLD, items[0].id);
+	n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
+	TEST_ASSERT_EQUAL_STRING("Smoke Mode", items[0].label);
+	TEST_ASSERT_EQUAL_STRING("End Cook", items[1].label);
+	TEST_ASSERT_EQUAL_STRING("Emergency Stop", items[n - 2].label);
+	TEST_ASSERT_TRUE(items[n - 2].danger);
 	cJSON_Delete(st);
+	st = cJSON_Parse("{\"mode\":\"Smoke\"}");
+	n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
+	TEST_ASSERT_EQUAL_STRING("Hold Mode", items[0].label);
+	cJSON_Delete(st);
+
+	st = cJSON_Parse("{\"mode\":\"Monitor\"}");
+	n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
+	TEST_ASSERT_EQUAL_STRING("Control", items[0].label);
+	TEST_ASSERT_EQUAL_STRING("Startup", items[1].label);
+	TEST_ASSERT_EQUAL_STRING("Stop", items[2].label);
+	cJSON_Delete(st);
+
+	/* the startup menu picks the mode startup runs into */
+	pf_nav_reset(&ui);
+	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_STARTUP);
+	st = cJSON_Parse("{\"mode\":\"Stop\"}");
+	n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
+	TEST_ASSERT_EQUAL_INT(3, n);
+	TEST_ASSERT_EQUAL_INT(PF_ACT_STARTUP_HOLD, items[0].act);
+	TEST_ASSERT_EQUAL_INT(PF_ACT_STARTUP_SMOKE, items[1].act);
+	TEST_ASSERT_EQUAL_INT(PF_ACT_BACK, items[2].act);
+	cJSON_Delete(st);
+}
+
+/* the stack unwinds one screen at a time, and a long press returns to the grill */
+static void test_navigation_stack(void)
+{
+	pf_ui_state ui = { 0 };
+	TEST_ASSERT_EQUAL_INT(PF_SCR_MAIN, pf_nav_screen(&ui));
+	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_ROOT);
+	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_STARTUP);
+	pf_nav_push(&ui, PF_SCR_TEMP, 0);
+	TEST_ASSERT_EQUAL_INT(PF_SCR_TEMP, pf_nav_screen(&ui));
+	pf_nav_pop(&ui);
+	TEST_ASSERT_EQUAL_INT(PF_LIST_STARTUP, pf_nav_top(&ui)->list);
+	pf_nav_pop(&ui);
+	TEST_ASSERT_EQUAL_INT(PF_LIST_ROOT, pf_nav_top(&ui)->list);
+	pf_nav_reset(&ui);
+	TEST_ASSERT_EQUAL_INT(PF_SCR_MAIN, pf_nav_screen(&ui));
+	pf_nav_pop(&ui);   /* popping past the root is harmless */
+	TEST_ASSERT_EQUAL_INT(PF_SCR_MAIN, pf_nav_screen(&ui));
 }
 
 static void test_text_metrics(void)
@@ -131,7 +215,8 @@ int main(void)
 {
 	UNITY_BEGIN();
 	RUN_TEST(test_render_screens);
-	RUN_TEST(test_menu_by_mode);
+	RUN_TEST(test_menus_by_mode);
+	RUN_TEST(test_navigation_stack);
 	RUN_TEST(test_text_metrics);
 	return UNITY_END();
 }
