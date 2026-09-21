@@ -102,7 +102,7 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 	const char *mode = pf_json_str((cJSON *)status, "mode", "Stop");
 	int list = ui->depth > 0 ? ui->stack[ui->depth - 1].list : PF_LIST_ROOT;
 	int n = 0;
-#define ADD(a, ar, l) do { if (n < max) { out[n].act = (a); out[n].arg = (ar); out[n].danger = false; out[n].right[0] = 0; snprintf(out[n].label, sizeof out[n].label, "%s", (l)); n++; } } while (0)
+#define ADD(a, ar, l) do { if (n < max) { out[n].act = (a); out[n].arg = (ar); out[n].danger = false; out[n].right[0] = 0; snprintf(out[n].label, sizeof out[n].label, "%.*s", (int)sizeof out[n].label - 1, (l)); n++; } } while (0)
 #define DANGER() do { if (n > 0) out[n - 1].danger = true; } while (0)
 
 	switch (list) {

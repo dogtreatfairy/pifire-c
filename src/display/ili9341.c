@@ -293,7 +293,8 @@ static void bt_add(tft_t *t, int idx)
 		bool ambient = strcasestr(BT_PORTS[kind][i], "Ambient") != NULL;
 		char name[40], label[40];
 		snprintf(name, sizeof name, ambient ? "BT%d Ambient" : "BT%d", bt % 1000);
-		snprintf(label, sizeof label, "%.30s%d", dev, i + 1);
+		/* the port index is one digit in practice; bound the name so the pair always fits */
+		snprintf(label, sizeof label, "%.*s%d", (int)sizeof label - 12, dev, i + 1);
 		cJSON *pi = cJSON_CreateObject();
 		cJSON_AddStringToObject(pi, "type", "Food");
 		cJSON_AddStringToObject(pi, "label", label);
