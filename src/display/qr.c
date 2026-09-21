@@ -23,11 +23,15 @@ static void gf_init(void)
 
 static uint8_t gf_mul(uint8_t a, uint8_t b) { return (a && b) ? gf_exp[gf_log[a] + gf_log[b]] : 0; }
 
-/* generator polynomial of degree n, highest coefficient first (g[0] == 1) */
+/* generator polynomial of degree n, highest coefficient first (g[0] == 1).
+ * n comes from the CAP table and is 7..26; the bound is spelled out so the optimiser can see it. */
+#define RS_MAX 32
+
 static void rs_gen(int n, uint8_t *g)
 {
-	uint8_t tmp[64];
-	memset(g, 0, 64);
+	uint8_t tmp[RS_MAX + 1];
+	if (n < 1 || n > RS_MAX) return;
+	memset(g, 0, RS_MAX + 1);
 	g[0] = 1;
 	int len = 1;
 	for (int i = 0; i < n; i++) {
@@ -43,7 +47,8 @@ static void rs_gen(int n, uint8_t *g)
 
 static void rs_ecc(const uint8_t *data, int dlen, int n, uint8_t *ecc)
 {
-	uint8_t g[64];
+	uint8_t g[RS_MAX + 1];
+	if (n < 1 || n > RS_MAX) return;
 	rs_gen(n, g);
 	memset(ecc, 0, (size_t)n);
 	for (int i = 0; i < dlen; i++) {
