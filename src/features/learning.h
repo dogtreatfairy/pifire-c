@@ -28,13 +28,16 @@ unsigned pf_learning_autotune_gen(void);
 
 /* Gain schedule: one controller, tuning that follows the set point.
  * A pellet grill loses more heat the hotter it runs, so its process gain falls as the set point
- * rises and a single proportional band cannot suit 180 F and 450 F at once. The guided tuner
- * measures the loop at a few anchor set points and stores one entry each; the controller then
- * interpolates between them. */
+ * rises and a single proportional band cannot suit 180 F and 450 F at once. Autotune measures
+ * the loop at a temperature and stores one entry per temperature; the controller interpolates
+ * between them. This is the tuning library the app shows. */
 #define PF_TUNE_ANCHORS 8
-typedef struct { double setpoint_c, Ku, Pu, PB_c, Ti, Td, ts; bool valid; } pf_tune_anchor;
+/* `ambient_c` and `wind` are the conditions the measurement was taken in. A grill behaves
+ * differently on a still 80 F afternoon than in a 20 F wind, so an anchor is only fully meaningful
+ * alongside the weather it was measured in, and the app shows both. */
+typedef struct { double setpoint_c, Ku, Pu, PB_c, Ti, Td, ts, ambient_c, wind; bool valid; } pf_tune_anchor;
 
-void pf_learning_store_anchor(double setpoint_c, const pf_autotune_result *r);
+void pf_learning_store_anchor(double setpoint_c, const pf_autotune_result *r, double ambient_c, double wind);
 /* Gains for this set point, interpolated between anchors and clamped outside their range.
  * False when the schedule is empty, in which case the controller keeps its own tuning. */
 bool pf_learning_gains(double setpoint_c, double *PB_c, double *Ti, double *Td);

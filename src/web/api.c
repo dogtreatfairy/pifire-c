@@ -409,7 +409,12 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		if (st.mode != PF_MODE_STOP && st.mode != PF_MODE_MONITOR) { reply_err(resp, 409, "stop the grill first"); return; }
 		cJSON *body = req->body ? cJSON_Parse(req->body) : NULL;
 		char err[160];
-		int rc = pf_tuner_start(body ? cJSON_GetObjectItem(body, "setpoints") : NULL, err, sizeof err);
+		/* A full profile is the default: it is what "tune my grill" means. A caller that passes
+		 * its own set points is tuning one temperature and adding it to the library. */
+		const cJSON *pts = body ? cJSON_GetObjectItem(body, "setpoints") : NULL;
+		bool full = body && cJSON_IsBool(cJSON_GetObjectItem(body, "full_profile"))
+		            ? cJSON_IsTrue(cJSON_GetObjectItem(body, "full_profile")) : !cJSON_IsArray(pts);
+		int rc = pf_tuner_start(pts, full, err, sizeof err);
 		cJSON_Delete(body);
 		if (rc) { reply_err(resp, 409, err); return; }
 		reply_ok(resp);

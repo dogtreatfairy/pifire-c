@@ -18,7 +18,7 @@ The ABI is `include/pifire/controller.h`, currently **version 2**. A plugin buil
 | `pit_c`, `setpoint_c`, `ambient_c` | temperatures; `ambient_c` may be NaN |
 | `u_prev_raw` / `u_prev_applied` | your last output / what the daemon actually ran after clamping |
 | `u_ff` | learned steady-state feed for this set point and ambient (see `docs/safety.md`, "Learning") |
-| `sched_PB_c`, `sched_Ti`, `sched_Td` | tuning the guided tuning run measured at this set point, interpolated between its anchors; all zero when no run has been done. A PID-family plugin should prefer these over its configured values, because a pellet grill's process gain falls as it gets hotter and one fixed band does not suit 180 °F and 450 °F alike. See `docs/learning.md`. |
+| `sched_PB_c`, `sched_Ti`, `sched_Td` | tuning autotune measured at this set point, interpolated between the entries in the tuning library; all zero when nothing has been measured. A PID-family plugin should prefer these over its configured values, because a pellet grill's process gain falls as it gets hotter and one fixed band does not suit 180 °F and 450 °F alike. See `docs/learning.md`. |
 | `saturated` | −1 clamped at `u_min`, +1 at `u_max`, 0 free — use it for conditional integration |
 | `cycle_time_s`, `u_min`, `u_max` | current cycle configuration |
 | `target_reached`, `fan_on`, `fan_pct` | state hints |

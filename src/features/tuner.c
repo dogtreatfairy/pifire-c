@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-/* The guided tuning run.
+/* Autotune runs: a full profile across the grill's range, or one temperature on its own.
  *
  * A pellet grill loses more heat the hotter it runs, so the loop it presents at 180 F is not the
  * loop it presents at 450 F. One proportional band cannot suit both. This walks a list of anchor
@@ -47,6 +47,8 @@ static struct {
 	unsigned at_gen;           /* stored-result counter, to tell a fresh measurement from the last */
 	int measured;
 	int tries;                 /* attempts at the current set point */
+	bool full;                 /* a full profile, which replaces the library, or a single set point */
+	double amb_c, wind_kmh;    /* conditions this run is being measured in */
 	char message[120];
 } g;
 
@@ -73,9 +75,12 @@ static void finish(bool ok, const char *why, double now)
 	set_phase(ok ? PH_DONE : PH_FAILED, now, why);
 	if (was) mark_inflight(false);
 	if (!was) return;
-	if (ok)
+	if (ok && g.full)
+		pf_events_emit("Tune_Done", "Full profile tune finished",
+		               "Measured %d of %d set points. That is the grill's new baseline, and the controller now follows the tuning it found at each one.", g.measured, g.n);
+	else if (ok)
 		pf_events_emit("Tune_Done", "Tuning finished",
-		               "Measured %d of %d set points. The controller now follows the tuning it found at each one.", g.measured, g.n);
+		               "Measured %d set point and added it to the tuning library.", g.measured);
 	else
 		pf_events_emit("Tune_Failed", "Tuning stopped", "%s%s", why,
 		               g.measured > 0 ? " The set points already measured were kept." : "");
@@ -101,7 +106,7 @@ void pf_tuner_init(void)
 	}
 }
 
-int pf_tuner_start(const cJSON *setpoints_json, char *err, size_t n)
+int pf_tuner_start(const cJSON *setpoints_json, bool full_profile, char *err, size_t n)
 {
 	pthread_mutex_lock(&g_mu);
 	if (g.running) { snprintf(err, n, "a tuning run is already going"); pthread_mutex_unlock(&g_mu); return -1; }
@@ -130,6 +135,8 @@ int pf_tuner_start(const cJSON *setpoints_json, char *err, size_t n)
 	memcpy(g.points_c, pts, sizeof pts);
 	g.n = np;
 	g.step = 0;
+	g.full = full_profile;
+	g.amb_c = NAN;              /* until the first status says otherwise */
 	g.running = true;
 	g.at_gen = pf_learning_autotune_gen();
 	/* Phase timing runs on the control clock, which arrives with the first tick. Taking it from
@@ -138,11 +145,20 @@ int pf_tuner_start(const cJSON *setpoints_json, char *err, size_t n)
 	mark_inflight(true);
 	pthread_mutex_unlock(&g_mu);
 
+	/* A full profile is a fresh baseline: the old library described a grill that may since have
+	 * been cleaned, re-gasketed or moved, so it is cleared rather than merged into. */
+	if (full_profile) pf_learning_clear_anchors();
+
 	pf_cmd c = { .type = PF_CMD_MODE, .mode = PF_MODE_HOLD, .num = pf_from_c(pts[0], pf_settings_units()) };
 	pf_cmdq_push(&c);
-	pf_events_emit("Tune_Started", "Tuning started",
-	               "The grill will hold %d set points in turn and oscillate a few degrees at each. Leave it empty; this takes a few hours.", np);
-	LOGW(TAG, "guided tuning started over %d set points", np);
+	if (full_profile)
+		pf_events_emit("Tune_Started", "Full profile tune started",
+		               "The grill will hold %d set points in turn and oscillate a few degrees at each, then shut down. This replaces the tuning library. Leave it empty; it takes a few hours.", np);
+	else
+		pf_events_emit("Tune_Started", "Tuning started",
+		               "The grill will hold %.0f and oscillate a few degrees around it, then shut down. Leave it empty.",
+		               pf_from_c(pts[0], pf_settings_units()));
+	LOGW(TAG, "%s tuning started over %d set point%s", full_profile ? "full profile" : "single", np, np == 1 ? "" : "s");
 	return 0;
 }
 
@@ -172,6 +188,11 @@ void pf_tuner_tick(const cJSON *status, double now)
 	if (g.phase_start == 0) g.phase_start = now;
 	if (g.run_start == 0) g.run_start = now;
 	g.last_now = now;
+
+	/* the conditions this measurement is being taken in, kept with the anchor */
+	const cJSON *amb = cJSON_GetObjectItem((cJSON *)status, "ambient");
+	if (cJSON_IsNumber(amb)) g.amb_c = pf_to_c(amb->valuedouble, pf_settings_units());
+	if (pf_json_bool((cJSON *)status, "weather.valid", false)) g.wind_kmh = pf_json_num((cJSON *)status, "weather.wind_kmh", 0);
 
 	const char *mode = pf_json_str((cJSON *)status, "mode", "Stop");
 	bool at_active = pf_json_bool((cJSON *)status, "autotune.active", false);
@@ -234,7 +255,7 @@ void pf_tuner_tick(const cJSON *status, double now)
 		if (elapsed < 5) break;                 /* give the command a moment to be picked up */
 		unsigned gen = pf_learning_autotune_gen();
 		if (gen != g.at_gen && r.PB_c > 0) {
-			pf_learning_store_anchor(g.points_c[g.step], &r);
+			pf_learning_store_anchor(g.points_c[g.step], &r, g.amb_c, g.wind_kmh);
 			g.measured++;
 			g.at_gen = gen;
 			LOGI(TAG, "set point %.0f C measured: PB %.1f C, Ti %.0f s, Td %.0f s", g.points_c[g.step], r.PB_c, r.Ti, r.Td);
@@ -292,6 +313,19 @@ cJSON *pf_tuner_json(void)
 	cJSON_AddNumberToObject(o, "step", g.running ? g.step + 1 : g.step);
 	cJSON_AddNumberToObject(o, "steps", g.n);
 	cJSON_AddNumberToObject(o, "measured", g.measured);
+	cJSON_AddBoolToObject(o, "full_profile", g.full);
+	/* the configured full profile, so the app can name the temperatures a full run would visit */
+	{
+		cJSON *prof = cJSON_AddArrayToObject(o, "profile");
+		cJSON *cfg = pf_set_dup("learning.tune_setpoints"), *it;
+		cJSON_ArrayForEach(it, cfg)
+			if (cJSON_IsNumber(it)) cJSON_AddItemToArray(prof, cJSON_CreateNumber(round(it->valuedouble)));
+		cJSON_Delete(cfg);
+		if (cJSON_GetArraySize(prof) == 0) {
+			static const double def_f[] = { 180, 225, 350, 450 };
+			for (int i = 0; i < 4; i++) cJSON_AddItemToArray(prof, cJSON_CreateNumber(round(pf_from_c(pf_to_c(def_f[i], PF_UNITS_F), u))));
+		}
+	}
 	if (g.running) {
 		cJSON_AddNumberToObject(o, "setpoint", round(pf_from_c(g.points_c[g.step < g.n ? g.step : g.n - 1], u)));
 		cJSON_AddNumberToObject(o, "elapsed_s", round(g.run_start > 0 ? g.last_now - g.run_start : 0));
@@ -311,6 +345,8 @@ cJSON *pf_tuner_json(void)
 		cJSON_AddNumberToObject(e, "Ti", round(a[i].Ti));
 		cJSON_AddNumberToObject(e, "Td", round(a[i].Td));
 		cJSON_AddNumberToObject(e, "ts", a[i].ts);
+		if (!isnan(a[i].ambient_c)) cJSON_AddNumberToObject(e, "ambient", round(pf_from_c(a[i].ambient_c, u)));
+		if (a[i].wind > 0) cJSON_AddNumberToObject(e, "wind_kmh", round(a[i].wind));
 		cJSON_AddItemToArray(arr, e);
 	}
 	return o;

@@ -2,25 +2,24 @@
 
 The default controller is **Adaptive** (`controllers/adaptive.c`). It is built so that a grill gets better with every cook without anyone touching a PID number, in four layers. Everything below is on by default; *Settings → Cooking → Temperature control & learning* and the controller's own *Learn tuning automatically* switch turn parts of it off.
 
-## 0. Guided tuning: one button, every set point (`features/tuner.c`)
+## 0. Autotune: the tuning library (`features/tuner.c`)
 
-A pellet grill loses heat by convection *and* by radiation, and radiation grows with the fourth power of absolute temperature. The practical consequence is that the same extra gram of pellets buys far fewer degrees at 450 °F than at 180 °F, so the grill presents a different loop at each end of its range and no single proportional band suits both. Guided tuning measures the loop at several set points and saves the answers.
+A pellet grill loses heat by convection *and* by radiation, and radiation grows with the fourth power of absolute temperature. The same extra gram of pellets therefore buys far fewer degrees at 450 °F than at 180 °F, so the grill presents a different loop at each end of its range and no single proportional band suits both. Autotune measures the loop at a temperature and files the answer in the **tuning library**, one entry per temperature.
 
-Press *Start guided tuning* in *Settings → Cooking → Temperature Control & Learning*. The run then needs nobody:
+Either kind of run is hands off. The grill starts itself, waits until the set point has been reached and held, runs the relay test (the feed oscillates gently around the target until seven crossings have been counted, giving the ultimate gain and period), turns that into PB, Ti and Td with Tyreus-Luyben, and shuts down at the end. It drives the grill only through the ordinary command queue and reads only the published status, so it can do nothing a patient person with the web app could not do, and Stop always wins. The grill should be empty, and a run will not start while one is cooking.
 
-1. It starts the grill and asks for the lowest set point (180 °F by default).
-2. When the pit has reached that set point and held within a few degrees for ninety seconds, it runs the ordinary relay test: the feed oscillates gently around the target until seven crossings have been counted, which gives the ultimate gain and period.
-3. Tyreus-Luyben turns those into PB, Ti and Td, and the result is saved as an **anchor** for that set point.
-4. It raises the set point to the next anchor and repeats, climbing so the grill never has to cool down.
-5. When the last anchor is measured it shuts the grill down.
+*Settings → Cooking → Temperature Control & Learning → Autotune* offers two:
 
-The anchors are `learning.tune_setpoints`, 180, 225, 350 and 450 °F by default, and a run takes a few hours. The grill should be empty. Anything that stops the grill, including the Stop button and any safety error, ends the run and keeps the anchors already measured. A set point that produces no usable measurement is skipped rather than wasting the rest of the run.
+* **Full Profile** visits every temperature in `learning.tune_setpoints` (180, 225, 350 and 450 °F by default) in turn, climbing so the grill never has to cool down. It is the grill's new baseline, so it **clears the library** before it starts. A few hours.
+* **One Temperature** tunes a single temperature you pick between 180 and 450 °F and **adds** it to the library beside what is already there. About an hour. Use it for a temperature the profile does not cover, or one that has drifted.
 
-While holding, the daemon looks up the two anchors that bracket the current set point and interpolates PB, Ti and Td between them, clamping to the nearest anchor outside the measured range (`pf_learning_gains`). The controller prefers this schedule over anything it learned passively, and prefers passive learning over the configured numbers. The schedule survives reboots (kv namespace `learning`, key `anchors`) and is listed anchor by anchor on the same page.
+Every entry records the outdoor temperature and wind it was measured in, from the ambient probe or the local weather, and the app shows them: the same grill behaves differently on a still summer afternoon than in a winter wind, and an entry means little without the conditions behind it.
 
-The run drives the grill only through the ordinary command queue and reads only the published status, so it can do nothing a patient person with the web app could not do, and the Stop button always wins.
+While holding, the daemon looks up the two entries that bracket the current set point and interpolates PB, Ti and Td between them, clamping to the nearest entry outside the measured range (`pf_learning_gains`). The controller prefers this over anything it learned passively and over the configured numbers, and its note says `tuned` when it is following the library. From there the ordinary learning carries on: the feed-forward keeps fitting how much fuel this grill needs, and the performance monitor keeps nudging the loop gain from how each cook actually behaves, so a tune is a starting point that keeps improving rather than a fixed answer.
 
-In the simulator (`tests/test_tuner.c`) a full run takes the mean holding error from 9.7 °F to 0.2 °F at 180 °F and from 13.3 °F to 0.2 °F at 225 °F, while 350 °F and 450 °F stay within a third of a degree.
+A run that a restart interrupts is noticed at the next boot and reported, and whatever it had already measured is kept. The library survives reboots (kv namespace `learning`, key `anchors`) and is cleared by *Reset learning*.
+
+In the simulator (`tests/test_tuner.c`) a full profile takes the mean holding error at 180 °F from 4.3 °F to 0.2 °F, with 225, 350 and 450 °F all inside half a degree; the same test asserts that the controller is actually running on the library rather than merely storing it, and that a single-temperature run adds to the library while a full profile replaces it.
 
 ## 1. Feed-forward: how much fuel this grill needs (`features/learning.c`)
 
@@ -60,7 +59,9 @@ Every ten minutes of Hold the controller scores itself:
 | mean error > 3 °C, no crossings, not saturated, no recent set-point change (sluggish) | × 1.15 (× 1.25 if > 6 °C) |
 | overshoot > 5 °C and > 15 % of a set-point step | × 0.9 |
 
-The scale is bounded to 0.4–2.0, persisted, and pulled halfway back toward 1.0 whenever a fresh plant model arrives so the two mechanisms do not fight. Windows spent saturated at the minimum or maximum duty are ignored: a grill that cannot go any lower is not the loop's fault.
+The correction is learned **per temperature band** (below 200 °F, to 275 °F, to 400 °F, above), because a grill that hunts while smoking at 180 °F is not necessarily hunting while searing at 450 °F, and one number across the whole range would average away the very difference the controller is trying to learn. Each band is bounded to 0.4–2.0, persisted, and pulled halfway back toward 1.0 whenever a fresh plant model arrives so the two mechanisms do not fight. Windows spent saturated at the minimum or maximum duty are ignored: a grill that cannot go any lower is not the loop's fault.
+
+Together with the tuning library this is how the grill learns what temperature does to it: autotune measures each temperature directly, the feed-forward keeps fitting how much fuel each set point needs against the weather, and the monitor keeps correcting the loop at each end of the range from how the cooks there actually went.
 
 ## What you see
 
@@ -71,4 +72,4 @@ In the simulator (`tests/test_learning.c`) three consecutive cooks at the same c
 
 ## Limits (honest)
 
-The passive plant fit is rough and the monitor is rule-based, not a model-predictive controller. The learning cannot see pellet brand or wind directly (pellet brand is stored with observations for a future per-brand offset). Until a guided tuning run has been done, every set point reuses the same PB/Ti/Td and only the feed-forward changes with set point; the guided run is what removes that limitation, and between anchors the schedule interpolates rather than measuring.
+The passive plant fit is rough and the monitor is rule-based, not a model-predictive controller. The learning cannot see pellet brand or wind directly (pellet brand is stored with observations for a future per-brand offset). Until an autotune run has been done, every set point reuses the same PB/Ti/Td and only the feed-forward changes with set point; the tuning library is what removes that limitation, and between its entries the daemon interpolates rather than measuring.

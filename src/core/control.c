@@ -811,7 +811,7 @@ static void run_hold_cycle(pf_control *c, double now)
 	} else {
 		int nobs = 0;
 		c->learn.u_ff = pf_learning_uff(c->setpoint_c, isnan(c->ambient_c) ? 20 : c->ambient_c, c->cfg.u_min, c->cfg.u_max, &nobs);
-		/* tuning measured at this set point, if the guided tuner has been round the anchors */
+		/* tuning autotune measured at this set point, if the library has anything in it */
 		double sched_PB = 0, sched_Ti = 0, sched_Td = 0;
 		pf_learning_gains(c->setpoint_c, &sched_PB, &sched_Ti, &sched_Td);
 		pf_ctrl_in in = {

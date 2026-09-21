@@ -10,9 +10,15 @@
 #include <stddef.h>
 
 void pf_tuner_init(void);
-/* Begin a run. `setpoints_json` may be an array of set points in user units, or NULL for the
- * configured defaults. 0 on success, -1 with err when the grill is busy or already tuning. */
-int  pf_tuner_start(const cJSON *setpoints_json, char *err, size_t n);
+/* Begin a run.
+ *
+ * `setpoints_json` may be an array of set points in the user's units, or NULL for the configured
+ * full profile. `full_profile` says what the result means: a full profile is a new baseline for
+ * the grill and clears the tuning library before it starts, while a single set point is added to
+ * the library alongside whatever is already there.
+ *
+ * 0 on success, -1 with err when the grill is busy or a run is already going. */
+int  pf_tuner_start(const cJSON *setpoints_json, bool full_profile, char *err, size_t n);
 /* Stop early. The anchors already measured are kept. */
 void pf_tuner_stop(const char *why);
 /* Drive the run; called once a second from the services thread with the latest status. */

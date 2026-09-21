@@ -143,6 +143,53 @@ static void test_integrator_seed_and_no_opposition(void)
 	ops->destroy(c);
 }
 
+/* an oscillation around a 230 C set point, for the top band */
+static double pit_oscillating_hot(double t) { return 230 + 6.0 * sin(t / 40.0); }
+
+/* What the loop gain needs at 110 C is not what it needs at 230 C, so the correction the monitor
+ * learns is kept per temperature band and a lesson at one end must not move the other. */
+static void test_scale_is_learned_per_temperature_band(void)
+{
+	g_kv[0] = 0;
+	const pf_controller_ops *ops = pf_controller_find("adaptive");
+	void *c = ops->create("{\"_units\":\"C\"}", &env);
+	double t = 1000;
+	pf_ctrl_in in0 = { .now_s = t, .pit_c = 110, .setpoint_c = 110, .ambient_c = 20, .u_prev_applied = 0.3, .u_ff = 0.3, .cycle_time_s = 20, .u_min = 0.1, .u_max = 0.9 };
+	ops->reset(c, &in0);
+
+	/* hunt badly at 110 C (a low band) until the monitor pulls the gain down */
+	run_window(ops, c, &t, 110, pit_oscillating, 0);
+	run_window(ops, c, &t, 110, pit_oscillating, 0);
+	double low = state_num(ops, c, "scale");
+	printf("scale at 110 C: %.3f\n", low);
+	TEST_ASSERT_TRUE_MESSAGE(low < 1.0, "hunting should pull the gain down");
+
+	/* move to 230 C: the correction from the low band must not follow */
+	t += 2000;
+	run_window(ops, c, &t, 230, pit_good, 0);
+	double hot = state_num(ops, c, "scale");
+	printf("scale at 230 C: %.3f\n", hot);
+	TEST_ASSERT_EQUAL_DOUBLE_MESSAGE(1.0, hot, "the hot band should start from its own, untouched, correction");
+
+	/* and a lesson up here stays up here */
+	run_window(ops, c, &t, 230, pit_oscillating_hot, 0);
+	run_window(ops, c, &t, 230, pit_oscillating_hot, 0);
+	double hot2 = state_num(ops, c, "scale");
+	TEST_ASSERT_TRUE(hot2 < 1.0);
+	t += 2000;
+	run_window(ops, c, &t, 110, pit_good, 0);
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.001, low, state_num(ops, c, "scale"), "the low band should be as it was left");
+
+	/* both survive a restart */
+	ops->destroy(c);
+	c = ops->create("{\"_units\":\"C\"}", &env);
+	pf_ctrl_in in1 = { .now_s = t, .pit_c = 230, .setpoint_c = 230, .ambient_c = 20, .u_prev_applied = 0.3, .u_ff = 0.3, .cycle_time_s = 20, .u_min = 0.1, .u_max = 0.9 };
+	ops->reset(c, &in1);
+	ops->update(c, &in1, NULL);
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.001, hot2, state_num(ops, c, "scale"), "per-band corrections should persist");
+	ops->destroy(c);
+}
+
 int main(void)
 {
 	pf_controllers_init(NULL);
@@ -150,6 +197,7 @@ int main(void)
 	RUN_TEST(test_model_tuning_and_persistence);
 	RUN_TEST(test_monitor_adjusts_scale);
 	RUN_TEST(test_overshoot_lowers_scale);
+	RUN_TEST(test_scale_is_learned_per_temperature_band);
 	RUN_TEST(test_integrator_seed_and_no_opposition);
 	return UNITY_END();
 }

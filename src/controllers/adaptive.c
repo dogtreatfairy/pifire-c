@@ -29,6 +29,7 @@
 #define THETA_MIN     40.0
 #define THETA_MAX     240.0
 #define THETA_DEFAULT 90.0
+#define PF_SCALE_BANDS 4      /* temperature bands the loop-gain correction is learned in */
 
 typedef struct {
 	const pf_env *env;
@@ -38,7 +39,11 @@ typedef struct {
 	double cfg_PB_c, cfg_Ti, cfg_Td, ff_gain;
 	/* learned gains, used when valid and auto_tune */
 	double l_PB_c, l_Ti, l_Td, scale; bool l_valid; double l_ts; char l_src[8];
-	/* tuning the guided run measured at this set point, handed over fresh each cycle */
+	/* The loop gain correction the monitor learns, kept per temperature band. A grill that hunts
+	 * at 180 F is not necessarily hunting at 450 F, and one number across the whole range would
+	 * average away exactly the difference this controller is trying to learn. */
+	double band_scale[PF_SCALE_BANDS];
+	/* tuning autotune measured at this set point, handed over fresh each cycle */
 	double sch_PB_c, sch_Ti, sch_Td; bool sch_valid;
 	/* effective */
 	double PB_c, Ti, Td, kp, ki, kd;
@@ -63,9 +68,21 @@ static const char schema[] =
 
 static double clampd(double v, double lo, double hi) { return v < lo ? lo : v > hi ? hi : v; }
 
+/* Band edges in C: below 93 (200 F), to 135 (275 F), to 204 (400 F), above. Four is enough to
+ * separate low smoking from searing without splitting the data too thin to learn from. */
+static const double BAND_EDGE_C[PF_SCALE_BANDS - 1] = { 93.3, 135.0, 204.4 };
+
+static void use_band(ad_t *s, double setpoint_c);
+
+static int band_of(double setpoint_c)
+{
+	for (int i = 0; i < PF_SCALE_BANDS - 1; i++) if (setpoint_c < BAND_EDGE_C[i]) return i;
+	return PF_SCALE_BANDS - 1;
+}
+
 static void recompute(ad_t *s)
 {
-	/* Order of preference: what the guided run measured at this very set point, then what the
+	/* Order of preference: what autotune measured at this very set point, then what the
 	 * grill taught us over ordinary cooks, then the configured numbers. The schedule wins because
 	 * it is the only one of the three that knows which set point we are holding. */
 	bool use_sched = s->auto_tune && s->sch_valid;
@@ -73,7 +90,7 @@ static void recompute(ad_t *s)
 	s->PB_c = use_sched ? s->sch_PB_c : use_learned ? s->l_PB_c : s->cfg_PB_c;
 	s->Ti = use_sched ? s->sch_Ti : use_learned ? s->l_Ti : s->cfg_Ti;
 	s->Td = use_sched ? s->sch_Td : use_learned ? s->l_Td : s->cfg_Td;
-	double sc = s->auto_tune ? s->scale : 1.0;
+	double sc = s->auto_tune ? s->scale : 1.0;   /* s->scale mirrors the band in use */
 	s->kp = s->PB_c > 0 ? -sc / s->PB_c : 0;
 	s->ki = s->Ti > 0 ? s->kp / s->Ti : 0;
 	s->kd = s->kp * s->Td;
@@ -82,15 +99,18 @@ static void recompute(ad_t *s)
 static void save_learned(ad_t *s)
 {
 	if (!s->env || !s->env->kv_put) return;
-	char buf[200];
-	snprintf(buf, sizeof buf, "{\"PB_c\":%.2f,\"Ti\":%.1f,\"Td\":%.1f,\"scale\":%.3f,\"valid\":%s,\"ts\":%.0f,\"src\":\"%s\",\"theta\":%.0f}",
-	         s->l_PB_c, s->l_Ti, s->l_Td, s->scale, s->l_valid ? "true" : "false", s->l_ts, s->l_src, s->theta);
+	char buf[320];
+	snprintf(buf, sizeof buf, "{\"PB_c\":%.2f,\"Ti\":%.1f,\"Td\":%.1f,\"scale\":%.3f,\"band_scale\":[%.3f,%.3f,%.3f,%.3f],\"valid\":%s,\"ts\":%.0f,\"src\":\"%s\",\"theta\":%.0f}",
+	         s->l_PB_c, s->l_Ti, s->l_Td, s->scale,
+	         s->band_scale[0], s->band_scale[1], s->band_scale[2], s->band_scale[3],
+	         s->l_valid ? "true" : "false", s->l_ts, s->l_src, s->theta);
 	s->env->kv_put(s->env, "learned", buf);
 }
 
 static void load_learned(ad_t *s)
 {
 	s->scale = 1.0;
+	for (int i = 0; i < PF_SCALE_BANDS; i++) s->band_scale[i] = 1.0;
 	if (!s->env || !s->env->kv_get) return;
 	char buf[256];
 	if (s->env->kv_get(s->env, "learned", buf, sizeof buf) != 0) return;
@@ -98,6 +118,13 @@ static void load_learned(ad_t *s)
 	if (!j) return;
 	s->l_PB_c = pf_pid_cfg_num(j, "PB_c", 0); s->l_Ti = pf_pid_cfg_num(j, "Ti", 0); s->l_Td = pf_pid_cfg_num(j, "Td", 0);
 	s->scale = clampd(pf_pid_cfg_num(j, "scale", 1.0), SCALE_MIN, SCALE_MAX);
+	/* Per-band corrections, or the old single value spread across every band when upgrading from
+	 * a release that only had one. */
+	cJSON *bs = cJSON_GetObjectItem(j, "band_scale");
+	for (int i = 0; i < PF_SCALE_BANDS; i++) {
+		cJSON *it = cJSON_IsArray(bs) ? cJSON_GetArrayItem(bs, i) : NULL;
+		s->band_scale[i] = clampd(cJSON_IsNumber(it) ? it->valuedouble : s->scale, SCALE_MIN, SCALE_MAX);
+	}
 	s->l_ts = pf_pid_cfg_num(j, "ts", 0);
 	s->theta = clampd(pf_pid_cfg_num(j, "theta", THETA_DEFAULT), THETA_MIN, THETA_MAX);
 	cJSON *v = cJSON_GetObjectItem(j, "valid"), *src = cJSON_GetObjectItem(j, "src");
@@ -143,6 +170,7 @@ static void reset(void *self, const pf_ctrl_in *in)
 	bool sp_change = s->have_last && s->setpoint_c != in->setpoint_c;
 	if (sp_change) { s->step_t = in->now_s; s->step_size = in->setpoint_c - s->setpoint_c; s->step_peak = 0; s->step_open = true; s->settled_n = 0; }
 	s->setpoint_c = in->setpoint_c;
+	use_band(s, in->setpoint_c);      /* the correction learned around this temperature, not the last one */
 	s->last_t = in->now_s;
 	s->last_pit = in->pit_c;
 	s->last_err = in->pit_c - in->setpoint_c;
@@ -163,14 +191,27 @@ static void reset(void *self, const pf_ctrl_in *in)
 	s->in_band = fabs(s->last_err) <= IBAND_C;
 }
 
+/* Point s->scale at the band this set point falls in, so recompute() and the published note both
+ * show the correction actually in force. */
+static void use_band(ad_t *s, double setpoint_c)
+{
+	double v = s->band_scale[band_of(setpoint_c)];
+	if (v <= 0) v = 1.0;
+	if (fabs(v - s->scale) < 1e-6) return;
+	s->scale = v;
+	recompute(s);
+}
+
 static void set_scale(ad_t *s, double v, const char *why)
 {
 	v = clampd(v, SCALE_MIN, SCALE_MAX);
 	if (fabs(v - s->scale) < 1e-6) return;
+	int b = band_of(s->setpoint_c);
 	s->scale = v;
+	s->band_scale[b] = v;
 	recompute(s);
 	save_learned(s);
-	if (s->env && s->env->log) s->env->log(PF_LVL_INFO, "adaptive", "loop gain x%.2f (%s)", s->scale, why);
+	if (s->env && s->env->log) s->env->log(PF_LVL_INFO, "adaptive", "loop gain x%.2f around %.0f C (%s)", v, s->setpoint_c, why);
 }
 
 /* rule-based self-correction from the last window of Hold behaviour */
@@ -226,7 +267,7 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 {
 	ad_t *s = self;
 	if (!s->have_last || s->setpoint_c != in->setpoint_c) reset(self, in);
-	/* The daemon interpolates the guided run's anchors for whatever set point is being held, so
+	/* The daemon interpolates the tuning library for whatever set point is being held, so
 	 * these change as the set point moves. Take them whenever they differ from what we are using. */
 	bool sch = in->sched_PB_c > 0 && in->sched_Ti > 0;
 	if (sch != s->sch_valid || (sch && (in->sched_PB_c != s->sch_PB_c || in->sched_Ti != s->sch_Ti || in->sched_Td != s->sch_Td))) {
@@ -323,6 +364,8 @@ static void apply_tuning(void *self, double Ku, double Pu, double K, double tau,
 	s->l_PB_c = PB; s->l_Ti = Ti; s->l_Td = Td; s->l_valid = true; s->l_ts = (double)time(NULL);
 	snprintf(s->l_src, sizeof s->l_src, "%s", src);
 	/* a fresh model resets the empirical scale toward neutral, keeping half of what was learned */
+	/* a fresh model supersedes half of what the monitor had concluded, in every band */
+	for (int i = 0; i < PF_SCALE_BANDS; i++) s->band_scale[i] = clampd(1.0 + 0.5 * (s->band_scale[i] - 1.0), SCALE_MIN, SCALE_MAX);
 	s->scale = clampd(1.0 + 0.5 * (s->scale - 1.0), SCALE_MIN, SCALE_MAX);
 	recompute(s);
 	save_learned(s);

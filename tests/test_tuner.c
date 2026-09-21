@@ -166,7 +166,7 @@ static void test_guided_tune_improves_holding(void)
 	/* the run itself: started once, hands off from here */
 	char err[160];
 	cJSON *pts = cJSON_Parse("[180,225,350,450]");
-	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(pts, err, sizeof err));
+	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(pts, true, err, sizeof err));
 	cJSON_Delete(pts);
 	for (int i = 0; i < 12 * 60 * 60; i += 30) {
 		cJSON *j = pf_tuner_json();
@@ -234,8 +234,8 @@ static void test_gain_schedule_interpolates(void)
 
 	pf_autotune_result lo = { .Ku = 1, .Pu = 200, .PB_c = 20, .Ti = 200, .Td = 30, .valid = true };
 	pf_autotune_result hi = { .Ku = 1, .Pu = 400, .PB_c = 40, .Ti = 400, .Td = 60, .valid = true };
-	pf_learning_store_anchor(pf_f_to_c(200), &lo);
-	pf_learning_store_anchor(pf_f_to_c(400), &hi);
+	pf_learning_store_anchor(pf_f_to_c(200), &lo, 20.0, 0.0);
+	pf_learning_store_anchor(pf_f_to_c(400), &hi, 20.0, 0.0);
 
 	TEST_ASSERT_TRUE(pf_learning_gains(pf_f_to_c(300), &PB, &Ti, &Td));
 	TEST_ASSERT_DOUBLE_WITHIN(0.5, 30, PB);      /* halfway between the two anchors */
@@ -246,11 +246,64 @@ static void test_gain_schedule_interpolates(void)
 	TEST_ASSERT_DOUBLE_WITHIN(0.5, 40, PB);      /* above it: the highest */
 }
 
+/* drive whatever run is in progress to its end */
+static void run_to_completion(void)
+{
+	for (int i = 0; i < 12 * 60 * 60; i += 30) {
+		cJSON *j = pf_tuner_json();
+		bool running = cJSON_IsTrue(cJSON_GetObjectItem(j, "running"));
+		cJSON_Delete(j);
+		if (!running) break;
+		tick(30);
+	}
+}
+
+/* One temperature joins the library; a full profile is a new baseline and replaces it. */
+static void test_single_adds_and_full_profile_replaces(void)
+{
+	pf_learning_clear_anchors();
+
+	/* an anchor from an earlier day, at a temperature no profile covers */
+	pf_autotune_result old = { .Ku = 1, .Pu = 300, .PB_c = 30, .Ti = 300, .Td = 45, .valid = true };
+	pf_learning_store_anchor(pf_f_to_c(300), &old, 10.0, 12.0);
+
+	char err[160];
+	cJSON *one = cJSON_Parse("[225]");
+	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(one, false, err, sizeof err));
+	cJSON_Delete(one);
+	run_to_completion();
+
+	pf_tune_anchor a[PF_TUNE_ANCHORS];
+	int n = pf_learning_anchor_list(a, PF_TUNE_ANCHORS);
+	printf("after one temperature: %d entries\n", n);
+	for (int i = 0; i < n; i++)
+		printf("  %4.0f F, measured at %.0f F out\n", pf_from_c(a[i].setpoint_c, PF_UNITS_F), pf_from_c(a[i].ambient_c, PF_UNITS_F));
+	TEST_ASSERT_EQUAL_INT_MESSAGE(2, n, "a single tune should join the library, not replace it");
+	TEST_ASSERT_DOUBLE_WITHIN(3, 225, pf_from_c(a[0].setpoint_c, PF_UNITS_F));
+	TEST_ASSERT_DOUBLE_WITHIN(3, 300, pf_from_c(a[1].setpoint_c, PF_UNITS_F));
+	/* the conditions it was measured in came from the status, not from nowhere */
+	TEST_ASSERT_FALSE(isnan(a[0].ambient_c));
+
+	stop_and_cool();
+	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(NULL, true, err, sizeof err));
+	/* the old library is gone the moment a full profile begins */
+	TEST_ASSERT_EQUAL_INT(0, pf_learning_anchor_list(a, PF_TUNE_ANCHORS));
+	run_to_completion();
+
+	n = pf_learning_anchor_list(a, PF_TUNE_ANCHORS);
+	printf("after a full profile: %d entries\n", n);
+	TEST_ASSERT_TRUE_MESSAGE(n >= 3, "a full profile should measure the whole range");
+	for (int i = 0; i < n; i++)
+		TEST_ASSERT_TRUE_MESSAGE(fabs(pf_from_c(a[i].setpoint_c, PF_UNITS_F) - 300) > 5, "the 300 F entry should have been replaced");
+	stop_and_cool();
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
 	RUN_TEST(test_simulator_gain_falls_with_temperature);
 	RUN_TEST(test_gain_schedule_interpolates);
+	RUN_TEST(test_single_adds_and_full_profile_replaces);
 	RUN_TEST(test_guided_tune_improves_holding);
 	return UNITY_END();
 }

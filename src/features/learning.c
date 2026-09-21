@@ -45,6 +45,8 @@ static void load_kv(void)
 			g_anchors[i].Ti = pf_json_num(it, "Ti", 0);
 			g_anchors[i].Td = pf_json_num(it, "Td", 0);
 			g_anchors[i].ts = pf_json_num(it, "ts", 0);
+			g_anchors[i].ambient_c = pf_json_num(it, "amb", NAN);
+			g_anchors[i].wind = pf_json_num(it, "wind", 0);
 			g_anchors[i].valid = g_anchors[i].PB_c > 0 && g_anchors[i].Ti > 0;
 			i++;
 		}
@@ -188,6 +190,8 @@ static void anchors_save(void)
 		cJSON_AddNumberToObject(o, "Ti", g_anchors[i].Ti);
 		cJSON_AddNumberToObject(o, "Td", g_anchors[i].Td);
 		cJSON_AddNumberToObject(o, "ts", g_anchors[i].ts);
+		if (!isnan(g_anchors[i].ambient_c)) cJSON_AddNumberToObject(o, "amb", g_anchors[i].ambient_c);
+		cJSON_AddNumberToObject(o, "wind", g_anchors[i].wind);
 		cJSON_AddItemToArray(arr, o);
 	}
 	char *txt = cJSON_PrintUnformatted(arr);
@@ -196,7 +200,7 @@ static void anchors_save(void)
 	free(txt);
 }
 
-void pf_learning_store_anchor(double setpoint_c, const pf_autotune_result *r)
+void pf_learning_store_anchor(double setpoint_c, const pf_autotune_result *r, double ambient_c, double wind)
 {
 	if (!r || r->PB_c <= 0 || r->Ti <= 0) return;
 	pthread_mutex_lock(&g_mu);
@@ -219,6 +223,8 @@ void pf_learning_store_anchor(double setpoint_c, const pf_autotune_result *r)
 	g_anchors[slot].Ti = r->Ti;
 	g_anchors[slot].Td = r->Td;
 	g_anchors[slot].ts = pf_wall();
+	g_anchors[slot].ambient_c = ambient_c;
+	g_anchors[slot].wind = wind;
 	g_anchors[slot].valid = true;
 	anchors_save();
 	pthread_mutex_unlock(&g_mu);
@@ -286,7 +292,7 @@ void pf_learning_reset(void)
 	pthread_mutex_lock(&g_mu);
 	memset(&g_fopdt, 0, sizeof g_fopdt);
 	memset(&g_at, 0, sizeof g_at);
-	/* the guided run's anchors go too, and in memory as well: deleting only the stored copy would
+	/* the tuning library goes too, and in memory as well: deleting only the stored copy would
 	 * leave the controller following a schedule the user has just asked to be rid of */
 	memset(g_anchors, 0, sizeof g_anchors);
 	g_fit_dirty = true;
