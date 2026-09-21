@@ -53,20 +53,20 @@ int pf_menu_build(const cJSON *status, pf_menu_item *out, int max)
 	int n = 0;
 #define ADD(i, l) do { if (n < max) { out[n].id = (i); snprintf(out[n].label, sizeof out[n].label, "%s", (l)); n++; } } while (0)
 	if (!strcmp(mode, "Error")) {
-		ADD(PF_MI_CLEAR, "Clear error & stop");
+		ADD(PF_MI_CLEAR, "Clear Error");
 	} else if (!strcmp(mode, "Stop") || !strcmp(mode, "Monitor") || !strcmp(mode, "Prime")) {
 		ADD(PF_MI_STARTUP, "Startup");
-		ADD(PF_MI_HOLD, "Hold at...");
-		ADD(PF_MI_PRIME, "Prime 10 g");
+		ADD(PF_MI_HOLD, "Hold");
+		ADD(PF_MI_PRIME, "Prime");
 		if (strcmp(mode, "Monitor")) ADD(PF_MI_MONITOR, "Monitor"); else ADD(PF_MI_STOP, "Stop");
-		ADD(PF_MI_NETINFO, "Network info");
+		ADD(PF_MI_NETINFO, "Network Info");
 		ADD(PF_MI_POWER, "Power");
 	} else if (!strcmp(mode, "Shutdown")) {
 		ADD(PF_MI_STOP, "Stop");
 	} else {  /* Startup, Reignite, Smoke, Hold, Manual */
-		ADD(PF_MI_HOLD, !strcmp(mode, "Hold") ? "Change target" : "Hold at...");
+		ADD(PF_MI_HOLD, "Hold");
 		if (strcmp(mode, "Smoke")) ADD(PF_MI_SMOKE, "Smoke");
-		if (!strcmp(mode, "Smoke")) ADD(PF_MI_SMOKE_PLUS, pf_json_bool((cJSON *)status, "s_plus", false) ? "Smoke+ off" : "Smoke+ on");
+		if (!strcmp(mode, "Smoke")) ADD(PF_MI_SMOKE_PLUS, pf_json_bool((cJSON *)status, "s_plus", false) ? "Smoke+ Off" : "Smoke+ On");
 		ADD(PF_MI_SHUTDOWN, "Shutdown");
 		ADD(PF_MI_STOP, "Stop");
 	}
@@ -303,14 +303,15 @@ static void render_menu(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 	pf_gfx_text_right(g, B, 18, W - 10, 8, up, mode_fill(g, mode) == g->th.card2 ? g->th.muted : mode_fill(g, mode));
 	int rowh = (H - 40) / (n > 0 ? n : 1);
 	if (rowh > 44) rowh = 44;
+	int px = rowh - 8 < 24 ? (rowh - 8 < 14 ? 14 : rowh - 8) : 24;
 	int y = 38 + ((H - 40) - rowh * n) / 2;
 	int sel = ui->menu_index % (n > 0 ? n : 1);
 	for (int i = 0; i < n; i++) {
 		bool is = i == sel;
 		if (is) pf_gfx_rrect(g, 6, y + 1, W - 12, rowh - 3, 7, g->th.accent);
-		int ty = y + (rowh - pf_gfx_line_height(B, 24)) / 2;
+		int ty = y + (rowh - pf_gfx_line_height(B, px)) / 2;
 		uint16_t c = is ? g->th.accent_text : (items[i].id == PF_MI_STOP || items[i].id == PF_MI_CLEAR) ? g->th.danger : g->th.text;
-		pf_gfx_text(g, B, 24, 20, ty, items[i].label, c);
+		pf_gfx_text(g, B, px, 20, ty, items[i].label, c);
 		y += rowh;
 	}
 }

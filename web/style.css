@@ -235,6 +235,8 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .cb-caret .ic { width: 16px; height: 16px; }
 
 /* ---- header as a control strip: identity, link quality, the live readout, alerts ---- */
+/* a solid 1 px plate at the very top: WebKit samples the edge when compositing and can smear it */
+.edge-anchor { position: fixed; top: 0; left: 0; right: 0; height: 1px; background: var(--bg); z-index: 9999; pointer-events: none; }
 .topbar { position: relative; display: flex; align-items: center; gap: 10px; }
 .topbar .brand { margin-right: auto; min-width: 0; }
 .topbar .brand #grill-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -24,7 +24,7 @@ export function renderNetwork(view, { captive = false, hotspotExtra = null } = {
   view.append(...[
     captive ? el('div', { class: 'card' }, el('h3', {}, 'Welcome to PiFire'), el('p', { class: 'muted' }, 'Pick your home Wi-Fi network below. After it joins, open pifire.local from your phone or computer on that network.')) : null,
     el('h2', {}, 'Connection'), statusCard,
-    captive ? null : el('h2', {}, 'Setup hotspot'), captive ? null : hotspotCard, captive ? null : hotspotExtra,
+    captive ? null : el('h2', {}, 'Setup Hotspot'), captive ? null : hotspotCard, captive ? null : hotspotExtra,
     el('div', { class: 'row between' }, el('h2', {}, 'Networks'), scanBtn),
     el('div', { class: 'card' }, list)].filter(Boolean));
 

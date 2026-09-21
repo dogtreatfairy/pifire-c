@@ -19,12 +19,12 @@ export function renderMore(view, rest) {
   }
   view.append(
     listGroup('Tools', [
-      { href: '#/more/manual', icon: 'wrench', color: '#ff9f0a', title: 'Manual outputs', sub: 'Switch the auger, fan and igniter by hand' },
+      { href: '#/more/manual', icon: 'wrench', color: '#ff9f0a', title: 'Manual Outputs', sub: 'Switch the auger, fan and igniter by hand' },
     ]),
     listGroup('Diagnostics', [
       { href: '#/more/events', icon: 'scroll-text', color: '#ffd60a', title: 'Events', sub: 'Alerts and mode changes' },
       { href: '#/more/logs', icon: 'file-text', color: '#8e8e93', title: 'Logs', sub: 'Daemon log' },
-      { href: '#/more/system', icon: 'monitor', color: '#8e8e93', title: 'System health', sub: 'Version, uptime, temperatures, restart, power off' },
+      { href: '#/more/system', icon: 'monitor', color: '#8e8e93', title: 'System Health', sub: 'Version, uptime, temperatures, restart, power off' },
       { href: '#/more/about', icon: 'info', color: '#8e8e93', title: 'About', sub: '' },
     ]));
 }
@@ -101,7 +101,7 @@ export function softwareUpdates(view) {
 
 function manual(view) {
   const card = el('div', { class: 'card' });
-  view.append(el('h2', {}, 'Manual outputs'), el('div', { class: 'card muted', style: 'font-size:.85rem' }, 'Outputs can be driven directly in Manual mode, or temporarily while cooking if "Allow manual output changes" is enabled in Safety. The auger safety cap still applies.'), card);
+  view.append(el('h2', {}, 'Manual Outputs'), el('div', { class: 'card muted', style: 'font-size:.85rem' }, 'Outputs can be driven directly in Manual mode, or temporarily while cooking if "Allow manual output changes" is enabled in Safety. The auger safety cap still applies.'), card);
   const update = (s) => {
     if (!s) return;
     card.innerHTML = '';
@@ -129,7 +129,7 @@ function network(view) {
 // ---- remote access through Tailscale ----
 export function remote(view) {
   const card = el('div', { class: 'card' });
-  view.append(el('h2', {}, 'Remote access'), card);
+  view.append(el('h2', {}, 'Remote Access'), card);
   let pollT = null;
   const act = async (verb, msg) => { try { await api(`/network/tailscale/${verb}`, { body: {} }); toast(msg); setTimeout(load, 1500); } catch (e) { toast(e.message, true); } };
   const load = async () => {

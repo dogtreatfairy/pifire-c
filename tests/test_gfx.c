@@ -103,7 +103,7 @@ static void test_menu_by_mode(void)
 	TEST_ASSERT_EQUAL_INT(5, n);
 	TEST_ASSERT_EQUAL_INT(PF_MI_HOLD, items[0].id);
 	TEST_ASSERT_EQUAL_INT(PF_MI_SMOKE_PLUS, items[1].id);
-	TEST_ASSERT_EQUAL_STRING("Smoke+ on", items[1].label);
+	TEST_ASSERT_EQUAL_STRING("Smoke+ On", items[1].label);
 	cJSON_Delete(st);
 	st = cJSON_Parse("{\"mode\":\"Hold\"}");
 	n = pf_menu_build(st, items, PF_MENU_MAX);

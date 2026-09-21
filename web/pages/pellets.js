@@ -20,8 +20,8 @@ export function renderPellets(view) {
   const current = el('div', { class: 'card' });
   const list = el('div', { class: 'list' });
   const log = el('div', { class: 'list' });
-  view.append(el('h2', {}, 'Loaded pellets'), current,
-    el('div', { class: 'row between' }, el('h2', {}, 'Pellet profiles'), el('button', { class: 'btn sm', onclick: async () => { const r = await profileDialog(); if (r) { await api('/pellets/profile', { body: r }).catch((e) => toast(e.message, true)); load(); } } }, 'Add')),
+  view.append(el('h2', {}, 'Loaded Pellets'), current,
+    el('div', { class: 'row between' }, el('h2', {}, 'Pellet Profiles'), el('button', { class: 'btn sm', onclick: async () => { const r = await profileDialog(); if (r) { await api('/pellets/profile', { body: r }).catch((e) => toast(e.message, true)); load(); } } }, 'Add')),
     el('div', { class: 'card' }, list), el('h2', {}, 'Log'), el('div', { class: 'card' }, log));
 
   async function load() {

@@ -5,7 +5,7 @@ export function renderLearning(view) {
   const plantCard = el('div', { class: 'card' });
   const atCard = el('div', { class: 'card' });
   const recent = el('div', { class: 'list' });
-  view.append(el('h2', {}, 'Tuning in use'), el('div', { class: 'card', id: 'learned-note' }, el('div', { class: 'muted' }, 'Tuning in use appears here for the adaptive controller.')), el('h2', {}, 'Feed-forward model'), ffCard, el('h2', {}, 'Plant estimate'), plantCard, el('h2', {}, 'Autotune'), atCard, el('h2', {}, 'Recent observations'), el('div', { class: 'card' }, recent));
+  view.append(el('h2', {}, 'Tuning in Use'), el('div', { class: 'card', id: 'learned-note' }, el('div', { class: 'muted' }, 'Tuning in use appears here for the adaptive controller.')), el('h2', {}, 'Feed-Forward Model'), ffCard, el('h2', {}, 'Plant Estimate'), plantCard, el('h2', {}, 'Autotune'), atCard, el('h2', {}, 'Recent Observations'), el('div', { class: 'card' }, recent));
 
   let data = null;
   async function load() {

@@ -6,7 +6,10 @@
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#111214">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- "black" gives the status bar its own solid plate and starts the web view below it. With
+     "black-translucent" iOS draws a progressive blur over the top of the page to keep the clock
+     legible, which is what made the header look soft however the header itself was styled. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="PiFire">
 <meta name="mobile-web-app-capable" content="yes">
 <title>PiFire</title>
@@ -17,6 +20,7 @@
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+<div class="edge-anchor" aria-hidden="true"></div>
 <header class="topbar">
   <div class="brand"><span class="dot" id="conn-dot" title="connection"></span><span id="grill-name">PiFire</span></div>
   <div class="tb-inds">
