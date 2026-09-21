@@ -22,5 +22,23 @@ void pf_learning_store_fopdt(double K, double tau, double theta);
 pf_fopdt pf_learning_fopdt(void);
 void pf_learning_store_autotune(const pf_autotune_result *r);
 pf_autotune_result pf_learning_autotune(void);
+/* Bumped on every stored result, so a caller can tell a fresh measurement from the previous one
+ * without relying on the clock (two results can land in the same second). */
+unsigned pf_learning_autotune_gen(void);
+
+/* Gain schedule: one controller, tuning that follows the set point.
+ * A pellet grill loses more heat the hotter it runs, so its process gain falls as the set point
+ * rises and a single proportional band cannot suit 180 F and 450 F at once. The guided tuner
+ * measures the loop at a few anchor set points and stores one entry each; the controller then
+ * interpolates between them. */
+#define PF_TUNE_ANCHORS 8
+typedef struct { double setpoint_c, Ku, Pu, PB_c, Ti, Td, ts; bool valid; } pf_tune_anchor;
+
+void pf_learning_store_anchor(double setpoint_c, const pf_autotune_result *r);
+/* Gains for this set point, interpolated between anchors and clamped outside their range.
+ * False when the schedule is empty, in which case the controller keeps its own tuning. */
+bool pf_learning_gains(double setpoint_c, double *PB_c, double *Ti, double *Td);
+int  pf_learning_anchor_list(pf_tune_anchor *out, int max);
+void pf_learning_clear_anchors(void);
 void pf_learning_reset(void);
 cJSON *pf_learning_json(void);   /* everything above, temperatures in user units */

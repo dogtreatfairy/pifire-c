@@ -11,7 +11,7 @@
  */
 #include "pifire/common.h"
 
-#define PF_CONTROLLER_ABI 1
+#define PF_CONTROLLER_ABI 2
 
 typedef struct {
 	double t;          /* monotonic seconds */
@@ -40,6 +40,11 @@ typedef struct {
 	double now_s;                        /* CLOCK_MONOTONIC */
 	double pit_c, setpoint_c, ambient_c;
 	double u_prev_raw, u_prev_applied;
+	/* Tuning measured at this set point, interpolated from the gain schedule the guided tuner fills
+	 * in; zero when the schedule is empty, in which case the controller uses its own. A pellet
+	 * grill's process gain falls as it gets hotter, so one fixed band cannot suit every set point:
+	 * this is how a single controller stays right from 180 F to 450 F. */
+	double sched_PB_c, sched_Ti, sched_Td;
 	double u_ff;                         /* learned steady-state feed for this set point/ambient (daemon) */
 	int    saturated;                    /* -1 clamped at u_min, +1 at u_max, 0 free */
 	double cycle_time_s, u_min, u_max;

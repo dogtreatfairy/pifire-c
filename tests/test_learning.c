@@ -85,11 +85,12 @@ static double cook(const char *controller, double ambient_c, double minutes, dou
 
 static void test_observations_and_fit_across_ambients(void)
 {
-	cook("adaptive", -1.0, 60, 30);           /* 30 F day */
+	/* long enough cooks that the pit settles and the steady windows the fit needs can be logged */
+	cook("adaptive", -1.0, 100, 30);          /* 30 F day */
 	pf_ff_fit f1 = pf_learning_fit();
 	printf("after cold cook: n=%d a=%.3f b=%.4f\n", f1.n, f1.a, f1.b);
 	TEST_ASSERT_TRUE(f1.n >= 3);
-	cook("adaptive", 38.0, 60, 30);           /* 100 F day */
+	cook("adaptive", 38.0, 100, 30);          /* 100 F day */
 	pf_ff_fit f2 = pf_learning_fit();
 	printf("after hot cook:  n=%d a=%.3f b=%.4f rms=%.3f\n", f2.n, f2.a, f2.b, f2.rms);
 	TEST_ASSERT_TRUE(f2.n > f1.n);

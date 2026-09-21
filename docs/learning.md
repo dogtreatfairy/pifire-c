@@ -1,6 +1,26 @@
 # How the grill learns
 
-The default controller is **Adaptive** (`controllers/adaptive.c`). It is built so that a grill gets better with every cook without anyone touching a PID number, in three layers. Everything below is on by default; *Settings → Cooking → Temperature control & learning* and the controller's own *Learn tuning automatically* switch turn parts of it off.
+The default controller is **Adaptive** (`controllers/adaptive.c`). It is built so that a grill gets better with every cook without anyone touching a PID number, in four layers. Everything below is on by default; *Settings → Cooking → Temperature control & learning* and the controller's own *Learn tuning automatically* switch turn parts of it off.
+
+## 0. Guided tuning: one button, every set point (`features/tuner.c`)
+
+A pellet grill loses heat by convection *and* by radiation, and radiation grows with the fourth power of absolute temperature. The practical consequence is that the same extra gram of pellets buys far fewer degrees at 450 °F than at 180 °F, so the grill presents a different loop at each end of its range and no single proportional band suits both. Guided tuning measures the loop at several set points and saves the answers.
+
+Press *Start guided tuning* in *Settings → Cooking → Temperature Control & Learning*. The run then needs nobody:
+
+1. It starts the grill and asks for the lowest set point (180 °F by default).
+2. When the pit has reached that set point and held within a few degrees for ninety seconds, it runs the ordinary relay test: the feed oscillates gently around the target until seven crossings have been counted, which gives the ultimate gain and period.
+3. Tyreus-Luyben turns those into PB, Ti and Td, and the result is saved as an **anchor** for that set point.
+4. It raises the set point to the next anchor and repeats, climbing so the grill never has to cool down.
+5. When the last anchor is measured it shuts the grill down.
+
+The anchors are `learning.tune_setpoints`, 180, 225, 350 and 450 °F by default, and a run takes a few hours. The grill should be empty. Anything that stops the grill, including the Stop button and any safety error, ends the run and keeps the anchors already measured. A set point that produces no usable measurement is skipped rather than wasting the rest of the run.
+
+While holding, the daemon looks up the two anchors that bracket the current set point and interpolates PB, Ti and Td between them, clamping to the nearest anchor outside the measured range (`pf_learning_gains`). The controller prefers this schedule over anything it learned passively, and prefers passive learning over the configured numbers. The schedule survives reboots (kv namespace `learning`, key `anchors`) and is listed anchor by anchor on the same page.
+
+The run drives the grill only through the ordinary command queue and reads only the published status, so it can do nothing a patient person with the web app could not do, and the Stop button always wins.
+
+In the simulator (`tests/test_tuner.c`) a full run takes the mean holding error from 9.7 °F to 0.2 °F at 180 °F and from 13.3 °F to 0.2 °F at 225 °F, while 350 °F and 450 °F stay within a third of a degree.
 
 ## 1. Feed-forward: how much fuel this grill needs (`features/learning.c`)
 
@@ -51,4 +71,4 @@ In the simulator (`tests/test_learning.c`) three consecutive cooks at the same c
 
 ## Limits (honest)
 
-The passive plant fit is rough and the monitor is rule-based, not a model-predictive controller. The learning cannot see pellet brand or wind directly (pellet brand is stored with observations for a future per-brand offset). Very different set points reuse the same PB/Ti/Td; only the feed-forward changes with set point.
+The passive plant fit is rough and the monitor is rule-based, not a model-predictive controller. The learning cannot see pellet brand or wind directly (pellet brand is stored with observations for a future per-brand offset). Until a guided tuning run has been done, every set point reuses the same PB/Ti/Td and only the feed-forward changes with set point; the guided run is what removes that limitation, and between anchors the schedule interpolates rather than measuring.

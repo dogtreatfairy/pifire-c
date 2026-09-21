@@ -15,6 +15,7 @@
 #include "features/webhook.h"
 #include "features/push.h"
 #include "features/rules.h"
+#include "features/tuner.h"
 #include "features/weather.h"
 #include "core/log.h"
 #include "core/outputs.h"
@@ -177,6 +178,7 @@ int main(int argc, char **argv)
 	pf_webhook_init();
 	pf_push_init();
 	pf_rules_init();
+	pf_tuner_init();
 	pf_weather_init(sim);
 
 	pf_sd_notify("READY=1\nSTATUS=running");

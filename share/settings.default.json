@@ -790,7 +790,13 @@
   "learning": {
     "enabled": true,
     "half_life_obs": 60,
-    "auto_tune": true
+    "auto_tune": true,
+    "tune_setpoints": [
+      180,
+      225,
+      350,
+      450
+    ]
   },
   "update": {
     "repo": "dogtreatfairy/pifire-c",

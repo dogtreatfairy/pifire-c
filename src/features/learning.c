@@ -20,6 +20,8 @@ static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 static pf_ff_fit g_fit;
 static bool g_fit_dirty = true;
 static pf_fopdt g_fopdt;
+static pf_tune_anchor g_anchors[PF_TUNE_ANCHORS];
+static unsigned g_at_gen;
 static pf_autotune_result g_at;
 
 static void load_kv(void)
@@ -29,6 +31,23 @@ static void load_kv(void)
 		cJSON *j = cJSON_Parse(buf);
 		g_fopdt.K = pf_json_num(j, "K", 0); g_fopdt.tau = pf_json_num(j, "tau", 0); g_fopdt.theta = pf_json_num(j, "theta", 0);
 		g_fopdt.ts = pf_json_num(j, "ts", 0); g_fopdt.valid = g_fopdt.tau > 0;
+		cJSON_Delete(j);
+	}
+	if (pf_db_kv_get("learning", "anchors", buf, sizeof buf) == 0) {
+		cJSON *j = cJSON_Parse(buf), *it;
+		int i = 0;
+		cJSON_ArrayForEach(it, j) {
+			if (i >= PF_TUNE_ANCHORS) break;
+			g_anchors[i].setpoint_c = pf_json_num(it, "sp", 0);
+			g_anchors[i].Ku = pf_json_num(it, "Ku", 0);
+			g_anchors[i].Pu = pf_json_num(it, "Pu", 0);
+			g_anchors[i].PB_c = pf_json_num(it, "PB", 0);
+			g_anchors[i].Ti = pf_json_num(it, "Ti", 0);
+			g_anchors[i].Td = pf_json_num(it, "Td", 0);
+			g_anchors[i].ts = pf_json_num(it, "ts", 0);
+			g_anchors[i].valid = g_anchors[i].PB_c > 0 && g_anchors[i].Ti > 0;
+			i++;
+		}
 		cJSON_Delete(j);
 	}
 	if (pf_db_kv_get("learning", "autotune", buf, sizeof buf) == 0) {
@@ -147,9 +166,116 @@ void pf_learning_store_autotune(const pf_autotune_result *r)
 	g_at.valid = r->Pu > 0;
 	char buf[256];
 	snprintf(buf, sizeof buf, "{\"Ku\":%.5f,\"Pu\":%.1f,\"PB_c\":%.2f,\"Ti\":%.1f,\"Td\":%.1f,\"amplitude_c\":%.2f,\"ts\":%.0f}", g_at.Ku, g_at.Pu, g_at.PB_c, g_at.Ti, g_at.Td, g_at.amplitude_c, g_at.ts);
+	g_at_gen++;
 	if (pf_db_handle()) pf_db_kv_put("learning", "autotune", buf);
 	pthread_mutex_unlock(&g_mu);
 }
+
+
+/* ---------------- gain schedule ---------------- */
+
+/* caller holds g_mu */
+static void anchors_save(void)
+{
+	cJSON *arr = cJSON_CreateArray();
+	for (int i = 0; i < PF_TUNE_ANCHORS; i++) {
+		if (!g_anchors[i].valid) continue;
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddNumberToObject(o, "sp", g_anchors[i].setpoint_c);
+		cJSON_AddNumberToObject(o, "Ku", g_anchors[i].Ku);
+		cJSON_AddNumberToObject(o, "Pu", g_anchors[i].Pu);
+		cJSON_AddNumberToObject(o, "PB", g_anchors[i].PB_c);
+		cJSON_AddNumberToObject(o, "Ti", g_anchors[i].Ti);
+		cJSON_AddNumberToObject(o, "Td", g_anchors[i].Td);
+		cJSON_AddNumberToObject(o, "ts", g_anchors[i].ts);
+		cJSON_AddItemToArray(arr, o);
+	}
+	char *txt = cJSON_PrintUnformatted(arr);
+	cJSON_Delete(arr);
+	if (txt && pf_db_handle()) pf_db_kv_put("learning", "anchors", txt);
+	free(txt);
+}
+
+void pf_learning_store_anchor(double setpoint_c, const pf_autotune_result *r)
+{
+	if (!r || r->PB_c <= 0 || r->Ti <= 0) return;
+	pthread_mutex_lock(&g_mu);
+	/* one entry per set point: a repeat measurement replaces the nearest within 5 C */
+	int slot = -1;
+	for (int i = 0; i < PF_TUNE_ANCHORS; i++)
+		if (g_anchors[i].valid && fabs(g_anchors[i].setpoint_c - setpoint_c) < 5) { slot = i; break; }
+	if (slot < 0) for (int i = 0; i < PF_TUNE_ANCHORS; i++) if (!g_anchors[i].valid) { slot = i; break; }
+	if (slot < 0) {   /* full: replace whichever is furthest from this set point */
+		double worst = -1;
+		for (int i = 0; i < PF_TUNE_ANCHORS; i++) {
+			double d = fabs(g_anchors[i].setpoint_c - setpoint_c);
+			if (d > worst) { worst = d; slot = i; }
+		}
+	}
+	g_anchors[slot].setpoint_c = setpoint_c;
+	g_anchors[slot].Ku = r->Ku;
+	g_anchors[slot].Pu = r->Pu;
+	g_anchors[slot].PB_c = r->PB_c;
+	g_anchors[slot].Ti = r->Ti;
+	g_anchors[slot].Td = r->Td;
+	g_anchors[slot].ts = pf_wall();
+	g_anchors[slot].valid = true;
+	anchors_save();
+	pthread_mutex_unlock(&g_mu);
+}
+
+bool pf_learning_gains(double setpoint_c, double *PB_c, double *Ti, double *Td)
+{
+	pthread_mutex_lock(&g_mu);
+	/* the two anchors that bracket this set point, or the single nearest one outside their range */
+	const pf_tune_anchor *lo = NULL, *hi = NULL;
+	for (int i = 0; i < PF_TUNE_ANCHORS; i++) {
+		const pf_tune_anchor *a = &g_anchors[i];
+		if (!a->valid) continue;
+		if (a->setpoint_c <= setpoint_c && (!lo || a->setpoint_c > lo->setpoint_c)) lo = a;
+		if (a->setpoint_c >= setpoint_c && (!hi || a->setpoint_c < hi->setpoint_c)) hi = a;
+	}
+	const pf_tune_anchor *one = lo ? lo : hi;
+	bool ok = one != NULL;
+	if (ok) {
+		if (lo && hi && hi->setpoint_c > lo->setpoint_c) {
+			double f = (setpoint_c - lo->setpoint_c) / (hi->setpoint_c - lo->setpoint_c);
+			if (PB_c) *PB_c = lo->PB_c + f * (hi->PB_c - lo->PB_c);
+			if (Ti) *Ti = lo->Ti + f * (hi->Ti - lo->Ti);
+			if (Td) *Td = lo->Td + f * (hi->Td - lo->Td);
+		} else {
+			if (PB_c) *PB_c = one->PB_c;
+			if (Ti) *Ti = one->Ti;
+			if (Td) *Td = one->Td;
+		}
+	}
+	pthread_mutex_unlock(&g_mu);
+	return ok;
+}
+
+int pf_learning_anchor_list(pf_tune_anchor *out, int max)
+{
+	pthread_mutex_lock(&g_mu);
+	int n = 0;
+	for (int i = 0; i < PF_TUNE_ANCHORS && n < max; i++) if (g_anchors[i].valid) out[n++] = g_anchors[i];
+	pthread_mutex_unlock(&g_mu);
+	/* ascending set point, so the UI and any interpolation read naturally */
+	for (int i = 1; i < n; i++)
+		for (int j = i; j > 0 && out[j - 1].setpoint_c > out[j].setpoint_c; j--) {
+			pf_tune_anchor t = out[j - 1]; out[j - 1] = out[j]; out[j] = t;
+		}
+	return n;
+}
+
+void pf_learning_clear_anchors(void)
+{
+	pthread_mutex_lock(&g_mu);
+	memset(g_anchors, 0, sizeof g_anchors);
+	anchors_save();
+	pthread_mutex_unlock(&g_mu);
+}
+
+unsigned pf_learning_autotune_gen(void) { pthread_mutex_lock(&g_mu); unsigned v = g_at_gen; pthread_mutex_unlock(&g_mu); return v; }
 
 pf_autotune_result pf_learning_autotune(void) { pthread_mutex_lock(&g_mu); pf_autotune_result r = g_at; pthread_mutex_unlock(&g_mu); return r; }
 
@@ -160,6 +286,9 @@ void pf_learning_reset(void)
 	pthread_mutex_lock(&g_mu);
 	memset(&g_fopdt, 0, sizeof g_fopdt);
 	memset(&g_at, 0, sizeof g_at);
+	/* the guided run's anchors go too, and in memory as well: deleting only the stored copy would
+	 * leave the controller following a schedule the user has just asked to be rid of */
+	memset(g_anchors, 0, sizeof g_anchors);
 	g_fit_dirty = true;
 	pthread_mutex_unlock(&g_mu);
 	LOGI(TAG, "learning data cleared");

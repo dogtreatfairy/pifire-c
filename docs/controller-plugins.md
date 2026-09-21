@@ -2,7 +2,7 @@
 
 A controller turns the pit temperature and set point into a **feed ratio `u` in [0, 1]**: the fraction of each auger cycle the auger runs. Everything else — the cycle timing, `u_min`/`u_max` clamps, the absolute auger-on cap, lid-open pauses, safety — is owned by the daemon, so a plugin only has to do control math.
 
-The ABI is `include/pifire/controller.h`. Plugins can be compiled into the daemon (add to `src/controllers/registry.c`) or built as shared objects and dropped into `/usr/lib/pifire/controllers/`. `plugins/example_controller/` is a complete, dependency-free example.
+The ABI is `include/pifire/controller.h`, currently **version 2**. A plugin built against version 1 is refused with a logged reason, so rebuild it after updating; version 2 only adds the three gain-schedule fields described below, which a plugin may ignore. Plugins can be compiled into the daemon (add to `src/controllers/registry.c`) or built as shared objects and dropped into `/usr/lib/pifire/controllers/`. `plugins/example_controller/` is a complete, dependency-free example.
 
 ## Units and timing
 
@@ -18,6 +18,7 @@ The ABI is `include/pifire/controller.h`. Plugins can be compiled into the daemo
 | `pit_c`, `setpoint_c`, `ambient_c` | temperatures; `ambient_c` may be NaN |
 | `u_prev_raw` / `u_prev_applied` | your last output / what the daemon actually ran after clamping |
 | `u_ff` | learned steady-state feed for this set point and ambient (see `docs/safety.md`, "Learning") |
+| `sched_PB_c`, `sched_Ti`, `sched_Td` | tuning the guided tuning run measured at this set point, interpolated between its anchors; all zero when no run has been done. A PID-family plugin should prefer these over its configured values, because a pellet grill's process gain falls as it gets hotter and one fixed band does not suit 180 °F and 450 °F alike. See `docs/learning.md`. |
 | `saturated` | −1 clamped at `u_min`, +1 at `u_max`, 0 free — use it for conditional integration |
 | `cycle_time_s`, `u_min`, `u_max` | current cycle configuration |
 | `target_reached`, `fan_on`, `fan_pct` | state hints |

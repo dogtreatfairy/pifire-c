@@ -811,9 +811,13 @@ static void run_hold_cycle(pf_control *c, double now)
 	} else {
 		int nobs = 0;
 		c->learn.u_ff = pf_learning_uff(c->setpoint_c, isnan(c->ambient_c) ? 20 : c->ambient_c, c->cfg.u_min, c->cfg.u_max, &nobs);
+		/* tuning measured at this set point, if the guided tuner has been round the anchors */
+		double sched_PB = 0, sched_Ti = 0, sched_Td = 0;
+		pf_learning_gains(c->setpoint_c, &sched_PB, &sched_Ti, &sched_Td);
 		pf_ctrl_in in = {
 			.now_s = now, .pit_c = c->pit_c, .setpoint_c = c->setpoint_c, .ambient_c = c->ambient_c,
 			.u_prev_raw = c->u_raw, .u_prev_applied = c->u_applied, .u_ff = c->learn.u_ff, .saturated = c->saturated,
+			.sched_PB_c = sched_PB, .sched_Ti = sched_Ti, .sched_Td = sched_Td,
 			.cycle_time_s = c->ccfg.cycle_s, .u_min = c->ccfg.u_min, .u_max = c->ccfg.u_max,
 			.target_reached = c->target_reached, .fan_on = pf_outputs_get(PF_OUT_FAN), .fan_pct = pf_outputs_get_fan_pct(),
 			.hist = pf_history_ctrl_view(),

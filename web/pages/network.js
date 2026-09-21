@@ -41,7 +41,7 @@ export function renderNetwork(view, { captive = false, hotspotExtra = null } = {
     if (s.signal) kv.append(el('div', {}, 'Signal'), el('div', {}, `${s.signal}% ${bars(s.signal)}`));
     kv.append(el('div', {}, 'Interface'), el('div', {}, s.iface));
     statusCard.append(kv);
-    if (s.last_error) statusCard.append(el('div', { class: 'banner', style: 'margin:10px 0 0' }, s.last_error));
+    if (s.last_error) statusCard.append(el('div', { class: 'notice', style: 'margin:10px 0 0' }, s.last_error));
     if (s.ssid && s.state === 'online') statusCard.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog(`Forget ${s.ssid}?`, 'The grill will disconnect and may start its setup hotspot.', 'Forget', true)) { await api('/network/forget', { body: { ssid: s.ssid } }); status(); } } }, 'Forget network')));
 
     hotspotCard.innerHTML = '';

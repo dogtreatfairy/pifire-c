@@ -120,8 +120,12 @@ static void test_lid_open_pauses_feed(void)
 	printf("lid test: mode %d pit %.1f C target_reached %d lid_open %d tuning [%s]\n", ctrl.mode, ctrl.pit_c, ctrl.target_reached, ctrl.lid_open, ctrl.dbg.note);
 	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
 	TEST_ASSERT_TRUE(ctrl.target_reached);
+	/* Open the lid and wait for the drop to be noticed. How long that takes depends on how fast
+	 * the barrel sheds heat, so poll for it rather than assume a fixed delay. */
 	pf_sim_model()->lid_open = true;
-	tick(180);
+	int waited = 0;
+	while (!ctrl.lid_open && waited < 300) { tick(5); waited += 5; }
+	printf("lid detected after %d s at pit %.1f C\n", waited, ctrl.pit_c);
 	TEST_ASSERT_TRUE(ctrl.lid_open);
 	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_AUGER));
 	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_FAN));

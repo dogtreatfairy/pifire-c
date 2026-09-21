@@ -12,6 +12,7 @@
 #include "features/mqtt.h"
 #include "features/pellets.h"
 #include "features/rules.h"
+#include "features/tuner.h"
 #include "features/update.h"
 #include "platform/sim.h"
 #include "probes/probes.h"
@@ -83,6 +84,10 @@ static void *services_thread(void *arg)
 		{
 			cJSON *j = pf_status_to_json(&st, pf_settings_units());
 			pf_rules_tick(j, now);
+			/* The tuner measures the grill, so it runs on the control loop's clock. In an
+			 * accelerated simulation that clock moves faster than the wall clock, and the run
+			 * has to accelerate with the grill rather than sit out real minutes. */
+			pf_tuner_tick(j, st.t);
 			char *txt = cJSON_PrintUnformatted(j);
 			cJSON_Delete(j);
 			if (txt) { pf_display_tick(txt); free(txt); }

@@ -9,16 +9,19 @@
 #define TAG "sim"
 
 /* Model constants (rough numbers for a mid-size pellet grill) */
-#define AUGER_GPS        0.30    /* grams/s while auger runs */
-#define BURN_MAX_GPS     0.45    /* firepot can burn at most this fast */
+/* Feed and burn are sized so the grill behaves like a real one: roughly a pound of pellets an hour
+ * holding 225 F, two and a half at 450 F, and a top end around 500 F with the auger near its limit. */
+#define AUGER_GPS        0.55    /* grams/s while auger runs */
+#define BURN_MAX_GPS     0.75    /* firepot can burn at most this fast */
 #define POT_TAU_S        60.0    /* pellets in the pot burn down with this time constant */
-#define GAIN_C_PER_GPS   680.0   /* steady ΔT above ambient per g/s burned, still air */
+#define GAIN_C_PER_GPS   900.0   /* convective ΔT above ambient per g/s burned, still air */
+#define RAD_COEFF        2.5     /* weight of the radiative term against the convective one */
 #define PIT_TAU_S        240.0   /* first-order pit response (thermal mass of the barrel) */
 #define DEAD_TIME_S      45.0
 #define IGNITE_AFTER_S   60.0    /* igniter needs this long with pellets to light */
 #define STARVE_OUT_S     45.0    /* empty pot this long -> fire out */
 #define IGNITER_HEAT_C   6.0
-#define LID_LOSS_FACTOR  0.55
+#define LID_LOSS_FACTOR  0.35    /* an open barrel sheds most of its heat, whatever the fire does */
 #define FOOD_TAU_S       2400.0
 
 static pf_sim_state *g_model;
@@ -37,6 +40,23 @@ void pf_sim_reset(double ambient_c)
 	for (int i = 0; i < 3; i++) m->food_c[i] = ambient_c;
 	for (int i = 0; i < 8; i++) m->delay[i] = ambient_c;
 	pthread_mutex_unlock(&g_mu);
+}
+
+/* Rise above ambient at which losses match `power`, expressed in the degrees of rise that power
+ * would buy if convection were the only loss. Solved by bisection: cheap, and monotonic so it
+ * always converges. */
+static double equilibrium_rise(double power, double amb_c)
+{
+	if (power <= 0) return 0;
+	double lo = 0, hi = power;              /* radiation only ever reduces the rise */
+	double tb = amb_c + 273.15, tb4 = tb * tb * tb * tb;
+	for (int i = 0; i < 28; i++) {
+		double mid = 0.5 * (lo + hi);
+		double ta = amb_c + mid + 273.15, ta4 = ta * ta * ta * ta;
+		double loss = mid + RAD_COEFF * (ta4 - tb4) / 1e9;
+		if (loss < power) lo = mid; else hi = mid;
+	}
+	return 0.5 * (lo + hi);
 }
 
 void pf_sim_step(double dt)
@@ -64,9 +84,12 @@ void pf_sim_step(double dt)
 	if (m->fire_lit && m->pot_pellets_g < 0.5) m->starved_time_s += dt; else m->starved_time_s = 0;
 	if (m->fire_lit && m->starved_time_s > STARVE_OUT_S && !m->out[PF_OUT_IGNITER]) { m->fire_lit = false; LOGD(TAG, "fire out at t=%.0f", m->sim_time_s); }
 
-	/* equilibrium pit temperature for this instant */
+	/* Equilibrium pit temperature for this instant: the fire's power equals what the grill loses.
+	 * Convection is proportional to the temperature difference, radiation to the fourth power of
+	 * absolute temperature. That second term is why a pellet grill needs far more fuel per degree
+	 * at 450 F than at 180 F, and why one proportional band cannot suit the whole range. */
 	double gain = GAIN_C_PER_GPS * (1.0 - 0.35 * m->wind) * (m->lid_open ? LID_LOSS_FACTOR : 1.0);
-	double t_eq = m->ambient_c + gain * burn + (m->out[PF_OUT_IGNITER] ? IGNITER_HEAT_C : 0);
+	double t_eq = m->ambient_c + equilibrium_rise(gain * burn, m->ambient_c) + (m->out[PF_OUT_IGNITER] ? IGNITER_HEAT_C : 0);
 
 	/* dead time: push t_eq through a short delay line, then first-order lag */
 	double slot = DEAD_TIME_S / 8.0;

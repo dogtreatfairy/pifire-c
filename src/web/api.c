@@ -20,6 +20,7 @@
 #include "net/tailscale.h"
 #include "features/push.h"
 #include "features/rules.h"
+#include "features/tuner.h"
 #include "features/weather.h"
 #include "net/wifi.h"
 #include "probes/ble/bluez.h"
@@ -401,6 +402,20 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		reply_ok(resp);
 		return;
 	}
+	if (get && !strcmp(p, "/tune")) { reply(resp, 200, pf_tuner_json()); return; }
+	if (post && !strcmp(p, "/tune/start")) {
+		pf_status st;
+		pf_status_get(&st);
+		if (st.mode != PF_MODE_STOP && st.mode != PF_MODE_MONITOR) { reply_err(resp, 409, "stop the grill first"); return; }
+		cJSON *body = req->body ? cJSON_Parse(req->body) : NULL;
+		char err[160];
+		int rc = pf_tuner_start(body ? cJSON_GetObjectItem(body, "setpoints") : NULL, err, sizeof err);
+		cJSON_Delete(body);
+		if (rc) { reply_err(resp, 409, err); return; }
+		reply_ok(resp);
+		return;
+	}
+	if (post && !strcmp(p, "/tune/stop")) { pf_tuner_stop("Stopped from the app."); reply_ok(resp); return; }
 	if (get && !strcmp(p, "/rules/entities")) {
 		pf_status st;
 		pf_status_get(&st);

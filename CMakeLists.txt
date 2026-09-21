@@ -146,6 +146,7 @@ add_library(pfcore STATIC
   src/features/webhook.c
   src/features/push.c
   src/features/rules.c
+  src/features/tuner.c
   src/features/weather.c
   src/features/update.c
   src/features/cooklog.c
@@ -221,4 +222,5 @@ if(PF_BUILD_TESTS)
   pf_test(test_rules)
   pf_test(test_adaptive)
   pf_test(test_chefiq)
+  pf_test(test_tuner)
 endif()

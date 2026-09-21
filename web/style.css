@@ -63,6 +63,13 @@ small, .muted { color: var(--muted); }
 .banner.warn { background: color-mix(in oklab, var(--warn) 18%, var(--surface)); border-color: var(--warn); }
 .banner button { margin-left: auto; }
 
+/* The same look for a status strip that lives inside a card. It has to be its own class because
+   .banner is the app-level alert and is positioned absolutely under the top bar, so reusing it
+   in a card lifts the strip out of the flow and over whatever is above it. */
+.notice { margin: 0 0 10px; padding: 12px 14px; border-radius: var(--radius-s); background: color-mix(in oklab, var(--danger) 18%, var(--surface)); border: 1px solid var(--danger); display: flex; gap: 10px; align-items: center; }
+.notice.warn { background: color-mix(in oklab, var(--warn) 18%, var(--surface)); border-color: var(--warn); }
+.notice button { margin-left: auto; }
+
 /* ---- components ---- */
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px; }
 .card.tight { padding: 10px 12px; }

@@ -38,6 +38,8 @@ typedef struct {
 	double cfg_PB_c, cfg_Ti, cfg_Td, ff_gain;
 	/* learned gains, used when valid and auto_tune */
 	double l_PB_c, l_Ti, l_Td, scale; bool l_valid; double l_ts; char l_src[8];
+	/* tuning the guided run measured at this set point, handed over fresh each cycle */
+	double sch_PB_c, sch_Ti, sch_Td; bool sch_valid;
 	/* effective */
 	double PB_c, Ti, Td, kp, ki, kd;
 	double inter, last_err, last_t, last_pit;
@@ -63,10 +65,14 @@ static double clampd(double v, double lo, double hi) { return v < lo ? lo : v > 
 
 static void recompute(ad_t *s)
 {
+	/* Order of preference: what the guided run measured at this very set point, then what the
+	 * grill taught us over ordinary cooks, then the configured numbers. The schedule wins because
+	 * it is the only one of the three that knows which set point we are holding. */
+	bool use_sched = s->auto_tune && s->sch_valid;
 	bool use_learned = s->auto_tune && s->l_valid;
-	s->PB_c = use_learned ? s->l_PB_c : s->cfg_PB_c;
-	s->Ti = use_learned ? s->l_Ti : s->cfg_Ti;
-	s->Td = use_learned ? s->l_Td : s->cfg_Td;
+	s->PB_c = use_sched ? s->sch_PB_c : use_learned ? s->l_PB_c : s->cfg_PB_c;
+	s->Ti = use_sched ? s->sch_Ti : use_learned ? s->l_Ti : s->cfg_Ti;
+	s->Td = use_sched ? s->sch_Td : use_learned ? s->l_Td : s->cfg_Td;
 	double sc = s->auto_tune ? s->scale : 1.0;
 	s->kp = s->PB_c > 0 ? -sc / s->PB_c : 0;
 	s->ki = s->Ti > 0 ? s->kp / s->Ti : 0;
@@ -220,6 +226,16 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 {
 	ad_t *s = self;
 	if (!s->have_last || s->setpoint_c != in->setpoint_c) reset(self, in);
+	/* The daemon interpolates the guided run's anchors for whatever set point is being held, so
+	 * these change as the set point moves. Take them whenever they differ from what we are using. */
+	bool sch = in->sched_PB_c > 0 && in->sched_Ti > 0;
+	if (sch != s->sch_valid || (sch && (in->sched_PB_c != s->sch_PB_c || in->sched_Ti != s->sch_Ti || in->sched_Td != s->sch_Td))) {
+		s->sch_valid = sch;
+		s->sch_PB_c = in->sched_PB_c;
+		s->sch_Ti = in->sched_Ti;
+		s->sch_Td = in->sched_Td;
+		recompute(s);
+	}
 	double dt = in->now_s - s->last_t;
 	if (dt <= 0) dt = in->cycle_time_s > 0 ? in->cycle_time_s : 1;
 	double e = in->pit_c - in->setpoint_c;
@@ -263,7 +279,7 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 	monitor(s, in, e);
 	if (dbg) {
 		dbg->p = s->p; dbg->i = s->i; dbg->d = s->d; dbg->ff = s->ff; dbg->error = e; dbg->derivative = derv; dbg->integral = s->inter;
-		snprintf(dbg->note, sizeof dbg->note, "ff %.2f · PB %.0f Ti %.0f Td %.0f ×%.2f%s%s", s->ff, pf_delta_from_c(s->PB_c, s->units), s->Ti, s->Td, s->auto_tune ? s->scale : 1.0, s->auto_tune && s->l_valid ? " learned" : "", s->coasting ? " · coasting" : "");
+		snprintf(dbg->note, sizeof dbg->note, "ff %.2f · PB %.0f Ti %.0f Td %.0f ×%.2f%s%s", s->ff, pf_delta_from_c(s->PB_c, s->units), s->Ti, s->Td, s->auto_tune ? s->scale : 1.0, s->auto_tune && s->sch_valid ? " tuned" : s->auto_tune && s->l_valid ? " learned" : "", s->coasting ? " · coasting" : "");
 	}
 	return s->u;
 }
