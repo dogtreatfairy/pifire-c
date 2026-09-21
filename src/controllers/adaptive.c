@@ -351,21 +351,18 @@ static void apply_tuning(void *self, double Ku, double Pu, double K, double tau,
 	ad_t *s = self;
 	double PB, Ti, Td;
 	const char *src;
-	if (Ku > 0 && Pu > 0) {
-		/* The same rule the daemon files in the tuning library. It used to be detuned by a further
-		 * 1.5x here, so one relay run meant two different tunings and which one the grill ran
-		 * depended on whether the library happened to cover the set point being held. */
-		pf_tuning_from_relay(Ku, Pu, &PB, &Ti, &Td);
-		src = "relay";
-	} else if (K > 0 && tau > 0 && theta > 0) {
-		s->theta = clampd(theta, THETA_MIN, THETA_MAX);
-		double tc = theta;                                 /* SIMC with tau_c = theta */
-		double kc = tau / (K * (tc + theta));
-		PB = 1.0 / kc; Ti = fmin(tau, 4.0 * (tc + theta)); Td = theta / 3.0; src = "model";
-	} else return;
+	/* One path. Whatever measured the grill, what arrives here is the grill's model, and the same
+	 * rule turns it into a tuning. Ku and Pu say only which measurement it came from, and so how
+	 * far the result is trusted: a relay test drives the plant deliberately, a startup rise is
+	 * whatever the cook happened to do. */
+	if (!(K > 0) || !(tau > 0) || !(theta > 0)) return;
+	bool relay = Ku > 0 && Pu > 0;
+	src = relay ? "relay" : "model";
+	s->theta = clampd(theta, THETA_MIN, THETA_MAX);
+	pf_tuning_from_plant(K, tau, theta, &PB, &Ti, &Td);
+	if (!(PB > 0) || !(Ti > 0)) return;
 	/* the model fixes the *shape* of the tuning; its absolute gain is only trusted within a band around
 	 * the configured baseline (the passive plant fit is crude), and the monitor refines it from there */
-	bool relay = strcmp(src, "relay") == 0;
 	double lo = relay ? 0.33 : 0.5, hi = relay ? 3.0 : 1.5;
 	PB = clampd(PB, s->cfg_PB_c * lo, s->cfg_PB_c * hi);
 	/* A relay test measures the period directly, so the integral time it implies is a measurement

@@ -35,19 +35,39 @@ into a limit cycle at the frequency where the grill's own phase lag reaches 180�
   are the approach. If it has not settled by twelve crossings the result is taken anyway and the
   event says it was still drifting.
 
-`Ku` and `Pu` become PB and Ti by **Tyreus-Luyben PI** (`Kc = Ku/3.2`, `Ti = 2.2·Pu`, no derivative).
-Tyreus-Luyben is the conservative counterpart to Ziegler-Nichols and suits a process whose dead time
-is around half its time constant, where derivative action buys little and mostly amplifies noise.
-The rule lives in exactly one place, `pf_tuning_from_relay` in `pifire/common.h`, because the daemon
-files the result in the library while the controller is handed `Ku` and `Pu` directly: these once
-used different formulas, so one measurement meant two tunings and which one the grill ran depended
-on whether the library happened to cover the set point being held.
+### One model, one rule
 
-One adjustment on top: Tyreus-Luyben sets the integral time from the period alone, which on a grill
-with this much dead time lands at several times the plant's own time constant, so an offset would
-take the best part of an hour to clear on a barrel that responds in seven minutes. Where the passive
-startup fit knows the time constant, the integral time is capped at it, which is what SIMC does and
-what keeps a conservative tuning from becoming a sluggish one.
+`Ku` and `Pu` do not become a tuning directly. They become the grill's **model**, and the tuning
+comes out of that, so the two ways of measuring a grill meet before they reach the controller
+rather than after.
+
+A relay test fixes one point on the frequency response: at the frequency of the limit cycle the
+grill's phase lag is 180° and its gain is `1/Ku`. That is two equations against three unknowns, so
+the static gain has to come from elsewhere, and the feed-forward already measures it: the steady
+feed this grill needs per degree is `b`, so `K = 1/b`. With `K` known the rest follows exactly,
+
+    tau   = √((K·Ku)² − 1) / ω,     theta = (π − atan(ω·tau)) / ω,     ω = 2π/Pu
+
+and the result is filed as the plant model like any startup rise. If the feed-forward has not
+learned yet the last fitted `K` is used, and if the numbers cannot describe such a plant at all
+(`K·Ku ≤ 1`, which would mean more gain at the oscillation frequency than standing still) the run
+says so rather than inventing a tuning.
+
+The model becomes PB, Ti and Td by **SIMC** (Skogestad), closed-loop time constant equal to the
+dead time, in `pf_tuning_from_plant`:
+
+    Kc = tau / (K·(tc + theta)),   Ti = min(tau, 4(tc + theta)),   Td = theta/3,   tc = theta
+
+SIMC is a PI rule for a plant that really is first order and a PID rule for one with a second lag.
+A grill is the second kind, since firepot, barrel and probe each lag, but fitting three numbers to
+it lumps those together and calls most of them dead time; a derivative of about a third of that
+recovers what the lumping hid, and without it the pit overshoots and sits there.
+
+This replaced two rules that disagreed. The relay path used Tyreus-Luyben and the model path used
+SIMC, the controller applied a further 1.5× detune to one of them and clamped its integral time to
+a band around a configured guess, and the two results were then averaged together. One measurement
+meant two tunings, and which one the grill ran depended on whether the library happened to cover
+the set point being held.
 
 Rules written against how far the grill is from its target stay quiet while a measurement runs. The relay is deliberately driving the pit either side of the set point, so "running hot" would be reporting the tuner's own doing several times per set point. The pit temperature itself is still a fact and still testable. It drives the grill only through the ordinary command queue and reads only the published status, so it can do nothing a patient person with the web app could not do, and Stop always wins. The grill should be empty, and a run will not start while one is cooking.
 

@@ -1,4 +1,5 @@
 #pragma once
+#include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -19,22 +20,56 @@ static inline double pf_f_to_c(double f) { return (f - 32.0) * 5.0 / 9.0; }
 static inline double pf_to_c(double v, pf_units u) { return u == PF_UNITS_C ? v : pf_f_to_c(v); }
 static inline double pf_from_c(double c, pf_units u) { return u == PF_UNITS_C ? c : pf_c_to_f(c); }
 /* temperature *differences* (no 32 offset) */
-/* Tyreus-Luyben PI from a relay test, the one place the rule lives.
+/* There is one model of the grill and one rule for turning it into a tuning.
  *
- * Tyreus-Luyben is the conservative cousin of Ziegler-Nichols and is what a process with this much
- * dead time wants: a pellet grill's dead time is roughly half its time constant, where derivative
- * action buys little and mostly amplifies noise, so this is the PI form and Td is zero. The gain
- * Ku/3.2 and integral time 2.2*Pu are the published PI numbers; taking the gain from the PI rule
- * while keeping the derivative from the PID rule, as this once did, is neither rule.
+ * The model is first order plus dead time: a static gain K in degrees per unit of feed, a time
+ * constant tau, and a dead time theta. Two quite different measurements produce it. The rise of
+ * every startup is fitted directly. A relay test measures a single point on the frequency
+ * response, which is turned into the same three numbers below. Whichever arrives, the grill is
+ * described the same way and designed for the same way, instead of one measurement meaning
+ * Tyreus-Luyben and the other meaning SIMC and the two being averaged together.
  *
- * Both the daemon, which files the result in the tuning library, and the controller, which is
- * handed Ku and Pu directly, call this, so one measurement can only ever mean one tuning. */
-static inline void pf_tuning_from_relay(double Ku, double Pu, double *PB_c, double *Ti, double *Td)
+ * The rule is SIMC (Skogestad), with the closed-loop time constant set equal to the dead time,
+ * which is his recommended "tight but robust" choice. SIMC is a PI rule for a plant that is truly
+ * first order, and a PID rule for one with a second lag. A grill is the second kind -- firepot,
+ * barrel and probe each lag -- but fitting three numbers to it lumps those together and calls most
+ * of them dead time, so a derivative of about a third of that recovers what the lumping hid.
+ * Without it the pit overshoots its target and sits there. */
+static inline void pf_tuning_from_plant(double K, double tau, double theta,
+                                        double *PB_c, double *Ti, double *Td)
 {
-	double kc = Ku / 3.2;
-	if (PB_c) *PB_c = kc > 0 ? 1.0 / kc : 0;
-	if (Ti) *Ti = 2.2 * Pu;
-	if (Td) *Td = 0.0;
+	if (PB_c) *PB_c = 0;
+	if (Ti) *Ti = 0;
+	if (Td) *Td = 0;
+	if (!(K > 0) || !(tau > 0) || !(theta > 0)) return;
+	double tc = theta;
+	double kc = tau / (K * (tc + theta));
+	if (!(kc > 0)) return;
+	if (PB_c) *PB_c = 1.0 / kc;
+	if (Ti) *Ti = fmin(tau, 4.0 * (tc + theta));
+	if (Td) *Td = theta / 3.0;
+}
+
+/* A relay test fixes one point on the frequency response: at the frequency of the limit cycle the
+ * grill's phase lag is 180 degrees and its gain is 1/Ku. That is two equations, and a first order
+ * plus dead time model has three unknowns, so the static gain has to come from elsewhere: the
+ * steady feed the grill needs per degree, which the feed-forward measures across cooks, or the
+ * last fit of a startup rise. With K known the rest follows exactly.
+ *
+ * Returns false when the numbers cannot describe such a plant, which happens if K*Ku <= 1: the
+ * grill would have to have more gain at the oscillation frequency than it has standing still. */
+static inline bool pf_plant_from_relay(double Ku, double Pu, double K, double *tau, double *theta)
+{
+	if (!(Ku > 0) || !(Pu > 0) || !(K > 0)) return false;
+	double w = 2.0 * 3.14159265358979323846 / Pu;
+	double kku = K * Ku;
+	if (kku <= 1.0001) return false;                       /* |G| = K/sqrt(1+(w*tau)^2) = 1/Ku */
+	double t = sqrt(kku * kku - 1.0) / w;
+	double th = (3.14159265358979323846 - atan(w * t)) / w; /* -w*theta - atan(w*tau) = -pi */
+	if (!(t > 0) || !(th > 0)) return false;
+	if (tau) *tau = t;
+	if (theta) *theta = th;
+	return true;
 }
 
 static inline double pf_delta_to_c(double d, pf_units u) { return u == PF_UNITS_C ? d : d * 5.0 / 9.0; }

@@ -400,12 +400,16 @@ static void test_relay_agrees_with_the_plant_it_measured(void)
 	cJSON *one = cJSON_Parse("[225]");
 	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(one, false, err, sizeof err));
 	cJSON_Delete(one);
+
+	/* Take the model as the startup rise left it, before the relay has had a chance to replace it.
+	 * Comparing the relay against a model the relay itself wrote would prove nothing. */
+	pf_fopdt plant = { 0 };
+	for (int i = 0; i < 4 * 60 * 60 && !plant.valid; i += 30) { tick(30); plant = pf_learning_fopdt(); }
+	TEST_ASSERT_TRUE_MESSAGE(plant.valid, "the startup rise should have produced a plant estimate");
 	run_to_completion();
 
 	pf_autotune_result r = pf_learning_autotune();
-	pf_fopdt plant = pf_learning_fopdt();
 	TEST_ASSERT_TRUE_MESSAGE(r.valid && r.Ku > 0, "the run should have measured something");
-	TEST_ASSERT_TRUE_MESSAGE(plant.valid, "the startup rise should have produced a plant estimate");
 
 	/* the ultimate point of a first-order-plus-dead-time plant, found where its phase reaches -pi */
 	double lo = 1e-5, hi = 1.0;
@@ -416,7 +420,7 @@ static void test_relay_agrees_with_the_plant_it_measured(void)
 	double w = 0.5 * (lo + hi);
 	double Ku_theory = sqrt(1 + w * plant.tau * w * plant.tau) / plant.K;
 	double Pu_theory = 2 * M_PI / w;
-	printf("relay: Ku %.4f, Pu %.0f s | plant implies Ku %.4f, Pu %.0f s | ratio %.2f\n",
+	printf("relay: Ku %.4f, Pu %.0f s | the startup rise implied Ku %.4f, Pu %.0f s | ratio %.2f\n",
 	       r.Ku, r.Pu, Ku_theory, Pu_theory, r.Ku / Ku_theory);
 
 	/* The two are measured quite differently, one by oscillation and one from a startup rise, so

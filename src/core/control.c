@@ -773,17 +773,39 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 	double denom = sqrt(A * A - eps * eps);
 	double Ku = 4.0 * h_eff / (M_PI * (denom > 0.1 ? denom : A));
 	pf_autotune_result r = { .Ku = Ku, .Pu = Pu, .amplitude_c = A };
-	pf_tuning_from_relay(Ku, Pu, &r.PB_c, &r.Ti, &r.Td);
-	/* Tyreus-Luyben sets the integral time from the oscillation period alone, and on a grill with
-	 * this much dead time that lands at several times the plant's own time constant: an offset
-	 * would then take the best part of an hour to clear on a barrel that responds in seven
-	 * minutes. Where the passive startup fit knows the time constant, cap the integral time at it,
-	 * which is what SIMC does and what keeps a conservative tuning from becoming a sluggish one. */
+
+	/* Turn the measurement into the grill's model rather than straight into a tuning. The static
+	 * gain is the one thing a relay test cannot see, so it comes from the feed-forward fit, which
+	 * measures the steady feed this grill needs per degree across cooks, and failing that from the
+	 * last startup rise. The model is then filed like any other, and the tuning comes out of it by
+	 * the same rule a passively fitted model does. */
+	pf_ff_fit ff = pf_learning_fit();
 	pf_fopdt plant = pf_learning_fopdt();
-	if (plant.valid && plant.tau > 30 && r.Ti > plant.tau) r.Ti = plant.tau;
+	double K = ff.n >= 3 && ff.b > 1e-5 ? 1.0 / ff.b : plant.valid ? plant.K : 0;
+	double tau = 0, theta = 0;
+	const char *K_src = ff.n >= 3 && ff.b > 1e-5 ? "feed-forward" : "startup rise";
+	if (K > 0 && pf_plant_from_relay(Ku, Pu, K, &tau, &theta)) {
+		pf_learning_store_fopdt(K, tau, theta);
+		pf_tuning_from_plant(K, tau, theta, &r.PB_c, &r.Ti, &r.Td);
+		LOGI(TAG, "relay -> plant: K %.0f C per unit feed (%s), tau %.0f s, theta %.0f s", K, K_src, tau, theta);
+	} else if (plant.valid) {
+		/* the relay and the static gain cannot describe a plant together; keep what is known */
+		pf_tuning_from_plant(plant.K, plant.tau, plant.theta, &r.PB_c, &r.Ti, &r.Td);
+		LOGW(TAG, "relay result does not describe a first-order plant with K %.0f; keeping the fitted model", K);
+	}
+	if (!(r.PB_c > 0) || !(r.Ti > 0)) {
+		pf_events_emit("Autotune_Failed", "Autotune stopped",
+		               "The oscillation could not be turned into a model of the grill. Let it run an ordinary cook or two first, so the feed it needs per degree is known.");
+		return;
+	}
 	pf_learning_store_autotune(&r);
 	bool applied = false;
-	if (pf_set_bool("learning.auto_tune", true) && c->cinst && c->cops->apply_tuning) { c->cops->apply_tuning(c->cinst, Ku, Pu, 0, 0, 0); applied = true; }
+	if (pf_set_bool("learning.auto_tune", true) && c->cinst && c->cops->apply_tuning) {
+		/* hand over the model, not the raw oscillation: the controller designs from the same three
+		 * numbers whichever measurement produced them */
+		pf_fopdt m = pf_learning_fopdt();
+		if (m.valid) { c->cops->apply_tuning(c->cinst, Ku, Pu, m.K, m.tau, m.theta); applied = true; }
+	}
 	pf_events_emit("Autotune_Done", "Autotune complete",
 	               "Ku %.3f (swing ±%.2f duty), period %.0f s over %d cycle%s%s, amplitude ±%.1f. PB %.0f (%s), Ti %.0f s%s.",
 	               Ku, h_eff, Pu, k, k == 1 ? "" : "s", settled ? "" : " (still drifting)",
