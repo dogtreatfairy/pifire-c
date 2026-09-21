@@ -334,7 +334,9 @@ static void test_relay_recovers_from_a_badly_centred_swing(void)
 	ctrl.autotune.u_center = forced > 0.7 ? 0.7 : forced;
 	printf("centre forced from %.2f to %.2f\n", sane, ctrl.autotune.u_center);
 
-	for (int i = 0; i < 90 * 60 && ctrl.autotune.active; i += 30) tick(30);
+	/* room for the walk back plus the measurement itself: the relay is patient once it is
+	 * crossing, because a real grill's cooling half runs to ten minutes */
+	for (int i = 0; i < 150 * 60 && ctrl.autotune.active; i += 30) tick(30);
 
 	printf("re-centred %d time(s), finished on %.2f, crossings %d\n",
 	       ctrl.autotune.recentres, ctrl.autotune.u_center, ctrl.autotune.crossings);
@@ -346,11 +348,51 @@ static void test_relay_recovers_from_a_badly_centred_swing(void)
 	stop_and_wait_cold();
 }
 
+/* The relay must not mistake a slow cooling half for a stall. On the real grill the down-swing at
+ * 180 F runs to ten minutes, and a stall threshold shorter than that re-centred the swing on every
+ * single down-swing, resetting the crossing count each time so the measurement could never finish.
+ * Once the relay has crossed at all, the centre is evidently workable and it has to be patient. */
+static void test_a_slow_cooling_half_is_not_a_stall(void)
+{
+	pf_cmd c = { .type = PF_CMD_MODE, .mode = PF_MODE_HOLD, .num = 225 };
+	pf_cmdq_push(&c);
+	tick(60 * 60);
+	TEST_ASSERT_TRUE(ctrl.target_reached);
+
+	pf_cmd a = { .type = PF_CMD_AUTOTUNE_START };
+	pf_cmdq_push(&a);
+	tick(30);
+	TEST_ASSERT_TRUE(ctrl.autotune.active);
+
+	/* it has been oscillating happily, and this half-cycle is a long one */
+	ctrl.autotune.crossings = 3;
+	ctrl.autotune.recentres = 0;
+	ctrl.autotune.last_cross_t = now - 800;
+	double centre = ctrl.autotune.u_center;
+	tick(60);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, ctrl.autotune.recentres, "a long cooling half is not a stall once the relay is crossing");
+	TEST_ASSERT_EQUAL_INT_MESSAGE(3, ctrl.autotune.crossings, "the crossing count must survive a slow half-cycle");
+	TEST_ASSERT_EQUAL_DOUBLE(centre, ctrl.autotune.u_center);
+
+	/* But a relay that has never crossed at this centre is genuinely stuck and must be moved. Park
+	 * the pit above the set point while the swing drives down, so no crossing can rescue it. */
+	pf_sim_model()->pit_c = ctrl.setpoint_c + 10.0;
+	tick(20);
+	ctrl.autotune.phase = -1;
+	ctrl.autotune.crossings = 0;
+	ctrl.autotune.recentres = 0;
+	ctrl.autotune.last_cross_t = now - 800;
+	tick(60);
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.autotune.recentres > 0, "a swing that has never crossed should be re-centred");
+	stop_and_wait_cold();
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
 	RUN_TEST(test_simulator_gain_falls_with_temperature);
 	RUN_TEST(test_gain_schedule_interpolates);
+	RUN_TEST(test_a_slow_cooling_half_is_not_a_stall);
 	RUN_TEST(test_relay_recovers_from_a_badly_centred_swing);
 	RUN_TEST(test_single_adds_and_full_profile_replaces);
 	RUN_TEST(test_guided_tune_improves_holding);

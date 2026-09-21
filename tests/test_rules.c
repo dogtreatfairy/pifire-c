@@ -288,6 +288,41 @@ static void test_grill_stability_rules(void)
 	cJSON_Delete(st);
 }
 
+/* While a tuning measurement runs, the relay deliberately drives the pit either side of the set
+ * point. A rule about the grill running hot would then be reporting the tuner's own doing, several
+ * times per set point, so the distance from the target stops being testable for the duration. The
+ * pit temperature itself is still a fact and still fires. */
+static void test_deviation_rules_are_quiet_during_a_measurement(void)
+{
+	only_rule("{\"id\":\"hot\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":[{\"entity\":\"grill\",\"trait\":\"over\",\"op\":\">\",\"value\":20}]},"
+	          "\"title\":\"running hot\",\"body\":\"\",\"level\":\"high\",\"cooldown_s\":600}");
+	cJSON *st = status();
+	cJSON *probes = cJSON_GetObjectItem(st, "probes");
+	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(probes, 0), "temp", cJSON_CreateNumber(255));   /* 30 over */
+
+	pf_rules_tick(st, 1000);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_ncap, "ordinarily 30 degrees over should be reported");
+
+	cJSON *at = cJSON_GetObjectItem(st, "autotune");
+	if (at) cJSON_ReplaceItemInObject(at, "active", cJSON_CreateBool(true));
+	else { at = cJSON_AddObjectToObject(st, "autotune"); cJSON_AddBoolToObject(at, "active", true); }
+	g_ncap = 0;
+	pf_rules_tick(st, 5000);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_ncap, "the tuner's own swing must not raise a running-hot alert");
+
+	/* the pit temperature is untouched: a rule written against it still works */
+	only_rule("{\"id\":\"temp\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":[{\"entity\":\"grill\",\"trait\":\"temp\",\"op\":\">\",\"value\":250}]},"
+	          "\"title\":\"very hot\",\"body\":\"\",\"level\":\"high\",\"cooldown_s\":600}");
+	g_ncap = 0;
+	pf_rules_tick(st, 9000);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_ncap, "the pit temperature is still a fact during a measurement");
+	cJSON_Delete(st);
+}
+
 /* the hopper thresholds, including the critical one that keeps reminding */
 static void test_hopper_rules(void)
 {
@@ -329,6 +364,7 @@ int main(void)
 	RUN_TEST(test_eta_rule_and_tokens);
 	RUN_TEST(test_only_while_cooking);
 	RUN_TEST(test_grill_stability_rules);
+	RUN_TEST(test_deviation_rules_are_quiet_during_a_measurement);
 	RUN_TEST(test_hopper_rules);
 	RUN_TEST(test_builtin_rules_and_catalogue);
 	return UNITY_END();

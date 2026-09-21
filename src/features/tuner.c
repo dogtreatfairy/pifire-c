@@ -29,7 +29,7 @@
  * point is the slow one; the relay test bounds itself at seven crossings. */
 #define T_START_S   1800.0
 #define T_SETTLE_S  3600.0
-#define T_TEST_S    3600.0
+#define T_TEST_S    5400.0   /* a slow grill needs seven crossings plus room to re-centre */
 #define STABLE_S      90.0   /* inside the band this long before the test begins */
 
 typedef enum { PH_IDLE = 0, PH_STARTING, PH_SETTLING, PH_TESTING, PH_NEXT, PH_FINISHING, PH_DONE, PH_FAILED } phase;

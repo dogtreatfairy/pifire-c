@@ -102,9 +102,15 @@ static val trait_of(const cJSON *status, const inst *in, const char *entity, con
 	};
 	if (!strcmp(domain, "grill") && (!strcmp(trait, "temp") || !strcmp(trait, "over"))) {
 		/* "over" is how far the pit sits from its set point: positive is hot, negative is cold.
-		 * It is what "stabilised", "running hot" and "running cold" are all written against. */
+		 * It is what "stabilised", "running hot" and "running cold" are all written against.
+		 *
+		 * It has no meaning while a tuning measurement is running. The relay is deliberately
+		 * driving the pit either side of the target to see how the grill answers, so a rule about
+		 * the grill running hot would be reporting the tuner's own doing, several times per set
+		 * point. The pit temperature itself is still a fact and still testable; only the distance
+		 * from a target the grill is not currently trying to hold goes away. */
 		double sp = pf_json_num((cJSON *)status, "setpoint", 0);
-		if (!strcmp(trait, "over") && sp <= 0) return v_none();
+		if (!strcmp(trait, "over") && (sp <= 0 || pf_json_bool((cJSON *)status, "autotune.active", false))) return v_none();
 		const cJSON *p;
 		cJSON_ArrayForEach(p, jget(status, "probes"))
 			if (!strcmp(pf_json_str((cJSON *)p, "role", ""), "Primary")) {

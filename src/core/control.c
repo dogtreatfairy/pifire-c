@@ -746,7 +746,15 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 	if (k < 2) { pf_events_emit("Autotune_Failed", "Autotune stopped", "Not enough oscillations were captured."); return; }
 	Pu /= k; A /= k;
 	if (A < 0.5) { pf_events_emit("Autotune_Failed", "Autotune stopped", "Oscillation too small to measure."); return; }
-	double Ku = 4.0 * c->autotune.h / (M_PI * A);
+	/* Half the swing the grill really saw. Where nothing was clamped this is the h it was asked
+	 * for; where the low half hit the minimum feed it is smaller, and using the requested h there
+	 * would overstate the ultimate gain and hand back a proportional band that is too narrow. */
+	double h_eff = c->autotune.h;
+	if (c->autotune.hi_n > 0 && c->autotune.lo_n > 0) {
+		double hi = c->autotune.hi_sum / c->autotune.hi_n, lo = c->autotune.lo_sum / c->autotune.lo_n;
+		if (hi - lo > 0.01) h_eff = (hi - lo) / 2.0;
+	}
+	double Ku = 4.0 * h_eff / (M_PI * A);
 	pf_autotune_result r = { .Ku = Ku, .Pu = Pu, .amplitude_c = A };
 	double kc = Ku / 3.2;                 /* Tyreus-Luyben PI(D) */
 	r.PB_c = 1.0 / kc;
@@ -755,8 +763,8 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 	pf_learning_store_autotune(&r);
 	bool applied = false;
 	if (pf_set_bool("learning.auto_tune", true) && c->cinst && c->cops->apply_tuning) { c->cops->apply_tuning(c->cinst, Ku, Pu, 0, 0, 0); applied = true; }
-	pf_events_emit("Autotune_Done", "Autotune complete", "Ku %.3f, period %.0f s, amplitude ±%.1f. PB %.0f (%s), Ti %.0f s, Td %.0f s%s.",
-	               Ku, Pu, pf_delta_from_c(A, c->cfg.units), pf_delta_from_c(r.PB_c, c->cfg.units), c->cfg.units == PF_UNITS_C ? "C" : "F", r.Ti, r.Td,
+	pf_events_emit("Autotune_Done", "Autotune complete", "Ku %.3f (swing ±%.2f duty), period %.0f s, amplitude ±%.1f. PB %.0f (%s), Ti %.0f s, Td %.0f s%s.",
+	               Ku, h_eff, Pu, pf_delta_from_c(A, c->cfg.units), pf_delta_from_c(r.PB_c, c->cfg.units), c->cfg.units == PF_UNITS_C ? "C" : "F", r.Ti, r.Td,
 	               applied ? " - applied to the controller" : " - review under More > Learning");
 }
 
@@ -790,8 +798,19 @@ static void autotune_start(pf_control *c, double now)
 	 * nothing: that is exactly what an unlearned feed-forward did on a real grill at 225 F. */
 	double measured = recent_hold_duty(c, now, 600);
 	c->autotune.u_center = pf_clamp(!isnan(measured) ? measured : c->learn.u_ff > 0 ? c->learn.u_ff : c->u_applied,
-	                                c->cfg.u_min + 0.05, c->cfg.u_max - 0.2);
-	c->autotune.h = 0.15;
+	                                c->cfg.u_min + 0.05, c->cfg.u_max - 0.05);
+
+	/* Size the swing to fit between the minimum and maximum feed. The relay's maths assumes a
+	 * symmetric square wave about the centre, and a grill that holds a low set point on very
+	 * little fuel has almost no room below it: asking for a swing that gets clamped on one side
+	 * gives a lopsided input and an ultimate gain that is too high. Shrink the swing instead, and
+	 * only if that leaves too little to measure, move the centre up to make room. */
+	double h = fmin(0.15, fmin(c->autotune.u_center - c->cfg.u_min, c->cfg.u_max - c->autotune.u_center));
+	if (h < 0.05) {
+		c->autotune.u_center = pf_clamp(c->cfg.u_min + 0.05, c->cfg.u_min + 0.05, c->cfg.u_max - 0.05);
+		h = fmin(0.05, fmin(c->autotune.u_center - c->cfg.u_min, c->cfg.u_max - c->autotune.u_center));
+	}
+	c->autotune.h = h;
 	c->autotune.hyst_c = 1.0;
 	c->autotune.start_t = now;
 	c->autotune.last_cross_t = now;
@@ -829,25 +848,47 @@ static double autotune_step(pf_control *c, double now)
 	 * move the centre towards the side it is failing on and start the measurement over, so every
 	 * recorded cycle comes from one centre. */
 	bool ran_away = fabs(e) > pf_delta_to_c(50, PF_UNITS_F);
-	bool stalled = now - c->autotune.last_cross_t > 300;
-	if ((ran_away || stalled) && c->autotune.recentres < 8) {
+	/* A swing that has never crossed at this centre is stuck and worth moving early. Once it has
+	 * crossed even once the centre is evidently workable, so be patient: a pellet grill's cooling
+	 * half is genuinely slow, ten minutes on a real one at 180 F, and treating that as a stall
+	 * resets the count on every down-swing and the test can never finish. */
+	double patience = c->autotune.crossings == 0 ? 600.0 : 1200.0;
+	bool stalled = now - c->autotune.last_cross_t > patience;
+	/* Give the grill time to answer the last move before judging it again, or a runaway fires on
+	 * consecutive cycles and spends the whole budget in seconds without the pit having moved. */
+	bool settled_since_move = now - c->autotune.last_recentre_t > 300;
+	if ((ran_away || stalled) && settled_since_move && c->autotune.recentres < 8) {
 		/* A runaway says the centre is a long way out, so move further than a mere stall does.
 		 * The budget has to be big enough to walk in from a bad starting guess and still leave
 		 * room to measure; the overall time limits are what stop a hopeless case. */
 		double step = ran_away ? 0.15 : 0.05;
-		c->autotune.u_center = pf_clamp(c->autotune.u_center + (e > 0 ? -step : step),
-		                                c->cfg.u_min + 0.05, c->cfg.u_max - 0.2);
+		double moved = pf_clamp(c->autotune.u_center + (e > 0 ? -step : step),
+		                        c->cfg.u_min + 0.05, c->cfg.u_max - 0.05);
+		if (fabs(moved - c->autotune.u_center) < 1e-6) {
+			/* already as far over as the feed limits allow: there is nothing to move, so wait for
+			 * the pit to come back rather than spending the budget on a centre that cannot change */
+			c->autotune.last_recentre_t = now;
+			return c->autotune.u_center + c->autotune.h * c->autotune.phase;
+		}
+		c->autotune.u_center = moved;
+		c->autotune.h = fmin(0.15, fmin(c->autotune.u_center - c->cfg.u_min, c->cfg.u_max - c->autotune.u_center));
+		if (c->autotune.h < 0.05) c->autotune.h = 0.05;
 		c->autotune.recentres++;
+		c->autotune.last_recentre_t = now;
 		c->autotune.crossings = 0;
+		c->autotune.hi_sum = c->autotune.lo_sum = 0; c->autotune.hi_n = c->autotune.lo_n = 0;
 		c->autotune.last_cross_t = now;
 		c->autotune.phase = c->pit_c > c->setpoint_c ? -1 : +1;
 		c->autotune.peak_max = c->autotune.peak_min = c->pit_c;
-		LOGW(TAG, "autotune: %s, re-centring the swing on %.2f duty (%d)",
-		     ran_away ? "pit ran away from the set point" : "no crossing in 5 minutes", c->autotune.u_center, c->autotune.recentres);
+		LOGW(TAG, "autotune: %s after %.0f s, re-centring the swing on %.2f duty (%d)",
+		     ran_away ? "pit ran away from the set point" : "no crossing", now - c->autotune.last_cross_t,
+		     c->autotune.u_center, c->autotune.recentres);
 		return c->autotune.u_center + c->autotune.h * c->autotune.phase;
 	}
-	if (ran_away) { autotune_finish(c, false, "The pit would not stay near the set point."); return c->cfg.u_min; }
-	if (now - c->autotune.last_cross_t > 900) { autotune_finish(c, false, "The grill would not oscillate around the set point."); return c->autotune.u_center; }
+	/* Only give up on a runaway once there is nothing left to try. Falling out of the block above
+	 * merely because the grill has not had time to answer the last move is not a failure. */
+	if (ran_away && c->autotune.recentres >= 8) { autotune_finish(c, false, "The pit would not stay near the set point."); return c->cfg.u_min; }
+	if (now - c->autotune.last_cross_t > 1800) { autotune_finish(c, false, "The grill would not oscillate around the set point."); return c->autotune.u_center; }
 	return c->autotune.u_center + c->autotune.h * c->autotune.phase;
 }
 
@@ -889,6 +930,10 @@ static void run_hold_cycle(pf_control *c, double now)
 	pf_cycle_begin(&c->cycle, &c->ccfg, now, u);
 	c->u_applied = c->cycle.u_applied;
 	c->saturated = c->cycle.saturated;
+	if (c->autotune.active) {
+		if (c->autotune.phase > 0) { c->autotune.hi_sum += c->u_applied; c->autotune.hi_n++; }
+		else { c->autotune.lo_sum += c->u_applied; c->autotune.lo_n++; }
+	}
 	learn_track_steady(c, now);
 	if (c->learn.rise_active) { c->learn.rise_u_sum += c->u_applied; c->learn.rise_n++; }
 	/* fan-PID: below u_min on a non-PWM fan, modulate the fan instead (control.py:923) */

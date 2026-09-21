@@ -109,6 +109,13 @@ typedef struct {
 		 * than it cools, so its limit cycle is lopsided. */
 		double peak_max, peak_min; int crossings; double halves[8]; double amps[8];
 		int recentres;          /* times the swing has been re-centred after a stalled half-cycle */
+		double last_recentre_t; /* the grill needs time to answer a new centre before it is judged again */
+		/* The duty actually delivered on each half of the swing. The cycle engine clamps to
+		 * [u_min, u_max], so on a grill that holds a low set point on very little fuel the low
+		 * half arrives at the minimum feed rather than where it was aimed. The ultimate gain is
+		 * computed from the size of the swing, so it has to be the delivered size, not the
+		 * requested one. */
+		double hi_sum, lo_sum; int hi_n, lo_n;
 		char note[64];
 	} autotune;
 	/* sensors */
