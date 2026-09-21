@@ -14,6 +14,7 @@
 #include "features/recipe.h"
 #include "features/webhook.h"
 #include "features/push.h"
+#include "features/rules.h"
 #include "features/weather.h"
 #include "core/log.h"
 #include "core/outputs.h"
@@ -175,6 +176,7 @@ int main(int argc, char **argv)
 	pf_mqtt_init();
 	pf_webhook_init();
 	pf_push_init();
+	pf_rules_init();
 	pf_weather_init(sim);
 
 	pf_sd_notify("READY=1\nSTATUS=running");
@@ -188,6 +190,7 @@ int main(int argc, char **argv)
 	pf_sd_notify("STOPPING=1");
 	LOGI(TAG, "shutting down");
 	pf_weather_shutdown();
+	pf_rules_shutdown();
 	pf_push_shutdown();
 	pf_webhook_shutdown();
 	pf_mqtt_shutdown();

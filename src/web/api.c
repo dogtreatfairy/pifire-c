@@ -19,6 +19,7 @@
 #include "net/sysinfo.h"
 #include "net/tailscale.h"
 #include "features/push.h"
+#include "features/rules.h"
 #include "features/weather.h"
 #include "net/wifi.h"
 #include "probes/ble/bluez.h"
@@ -397,6 +398,36 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 	if (post && !strncmp(p, "/notify/test/", 13)) {
 		char err[160];
 		if (pf_push_test(p + 13, err, sizeof err)) { reply_err(resp, 502, err); return; }
+		reply_ok(resp);
+		return;
+	}
+	if (get && !strcmp(p, "/rules/entities")) {
+		pf_status st;
+		pf_status_get(&st);
+		cJSON *j = pf_status_to_json(&st, pf_settings_units());
+		cJSON *cat = pf_rules_catalogue_json(j);
+		cJSON_Delete(j);
+		reply(resp, 200, cat);
+		return;
+	}
+	if (get && !strcmp(p, "/rules")) {
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddItemToObject(o, "rules", pf_set_dup("notify.rules"));
+		cJSON_AddItemToObject(o, "state", pf_rules_state_json());
+		reply(resp, 200, o);
+		return;
+	}
+	if (post && !strcmp(p, "/rules/test")) {
+		cJSON *body = req->body ? cJSON_Parse(req->body) : NULL;
+		if (!body) { reply_err(resp, 400, "expected a rule"); return; }
+		pf_status st;
+		pf_status_get(&st);
+		cJSON *j = pf_status_to_json(&st, pf_settings_units());
+		char err[160];
+		int rc = pf_rules_test(body, j, err, sizeof err);
+		cJSON_Delete(j);
+		cJSON_Delete(body);
+		if (rc) { reply_err(resp, 400, err); return; }
 		reply_ok(resp);
 		return;
 	}

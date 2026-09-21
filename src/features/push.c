@@ -22,7 +22,7 @@
 #include <stdatomic.h>
 
 #define QLEN 24
-typedef struct { char sink[12], code[40], title[96], body[256]; bool force; } item_t;
+typedef struct { char sink[12], code[40], title[96], body[256]; int crit; bool force; } item_t;
 static item_t g_q[QLEN];
 static int g_head, g_len;
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
@@ -51,7 +51,7 @@ static bool wanted(const char *sink, const char *code)
 	return pf_set_bool(key, strcmp(cat, "system") != 0);
 }
 
-static void enqueue(const char *sink, const char *code, const char *title, const char *body, bool force)
+static void enqueue(const char *sink, const char *code, const char *title, const char *body, int crit, bool force)
 {
 	pthread_mutex_lock(&g_mu);
 	if (g_len < QLEN) {
@@ -60,6 +60,7 @@ static void enqueue(const char *sink, const char *code, const char *title, const
 		pf_strlcpy(it->code, code, sizeof it->code);
 		pf_strlcpy(it->title, title, sizeof it->title);
 		pf_strlcpy(it->body, body, sizeof it->body);
+		it->crit = crit;
 		it->force = force;
 		g_len++;
 		pthread_cond_signal(&g_cv);
@@ -67,11 +68,11 @@ static void enqueue(const char *sink, const char *code, const char *title, const
 	pthread_mutex_unlock(&g_mu);
 }
 
-static void sink(const char *code, const char *title, const char *body, void *ctx)
+static void sink(const pf_event *e, void *ctx)
 {
 	(void)ctx;
-	if (wanted("pushover", code)) enqueue("pushover", code, title, body, false);
-	if (wanted("ntfy", code)) enqueue("ntfy", code, title, body, false);
+	if ((e->sinks & PF_SINK_PUSHOVER) && wanted("pushover", e->code)) enqueue("pushover", e->code, e->title, e->body, e->crit, false);
+	if ((e->sinks & PF_SINK_NTFY) && wanted("ntfy", e->code)) enqueue("ntfy", e->code, e->title, e->body, e->crit, false);
 }
 
 static size_t discard(char *p, size_t s, size_t n, void *ud) { (void)p; (void)ud; return s * n; }
@@ -91,8 +92,11 @@ static int deliver_pushover(const item_t *it, char *err, size_t errn)
 	pf_set_str("notify.pushover.user_key", user, sizeof user, "");
 	pf_set_str("notify.pushover.sound", sound, sizeof sound, "");
 	if (!token[0] || !user[0]) { snprintf(err, errn, "Pushover: app token and user key are required"); return -1; }
+	/* the event's criticality decides the priority; the configured values are the floor */
 	int prio = pf_set_int("notify.pushover.priority", 0);
-	if (!strcmp(category(it->code), "alarms")) prio = pf_set_int("notify.pushover.alarm_priority", 1);
+	if (it->crit >= PF_CRIT_CRITICAL) prio = 2;
+	else if (it->crit >= PF_CRIT_HIGH) prio = pf_set_int("notify.pushover.alarm_priority", 1);
+	else if (it->crit <= PF_CRIT_INFO) prio = -1;
 	if (prio < -2) prio = -2;
 	if (prio > 2) prio = 2;
 	CURL *c = curl_easy_init();
@@ -130,11 +134,12 @@ static int deliver_ntfy(const item_t *it, char *err, size_t errn)
 	if (!topic[0]) { snprintf(err, errn, "ntfy: a topic is required"); return -1; }
 	size_t sl = strlen(server);
 	while (sl > 0 && server[sl - 1] == '/') server[--sl] = 0;
-	const char *cat = category(it->code);
-	int prio = !strcmp(cat, "alarms") ? pf_set_int("notify.ntfy.alarm_priority", 5) : pf_set_int("notify.ntfy.priority", 3);
+	int prio = it->crit >= PF_CRIT_CRITICAL ? pf_set_int("notify.ntfy.alarm_priority", 5)
+	         : it->crit >= PF_CRIT_HIGH ? 4 : it->crit <= PF_CRIT_INFO ? 2 : pf_set_int("notify.ntfy.priority", 3);
 	if (prio < 1) prio = 1;
 	if (prio > 5) prio = 5;
-	const char *tags = !strcmp(cat, "alarms") ? "rotating_light" : !strcmp(cat, "pellets") ? "package" : !strcmp(cat, "targets") ? "meat_on_bone" : "gear";
+	const char *cat = category(it->code);
+	const char *tags = it->crit >= PF_CRIT_HIGH ? "rotating_light" : !strcmp(cat, "pellets") ? "package" : !strcmp(cat, "targets") ? "meat_on_bone" : "gear";
 	CURL *c = curl_easy_init();
 	if (!c) { snprintf(err, errn, "curl init failed"); return -1; }
 	char url[320], h1[200], h2[32], h3[64], h4[160], title[160];
@@ -215,7 +220,7 @@ void pf_push_shutdown(void)
 int pf_push_test(const char *sink_name, char *err, size_t n)
 {
 	if (strcmp(sink_name, "pushover") && strcmp(sink_name, "ntfy")) { snprintf(err, n, "unknown sink"); return -1; }
-	item_t it = { .force = true };
+	item_t it = { .crit = PF_CRIT_NORMAL, .force = true };
 	pf_strlcpy(it.sink, sink_name, sizeof it.sink);
 	pf_strlcpy(it.code, "Test_Notify", sizeof it.code);
 	pf_strlcpy(it.title, "Test notification", sizeof it.title);

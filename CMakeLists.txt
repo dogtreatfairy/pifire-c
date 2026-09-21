@@ -145,6 +145,7 @@ add_library(pfcore STATIC
   src/features/mqtt.c
   src/features/webhook.c
   src/features/push.c
+  src/features/rules.c
   src/features/weather.c
   src/features/update.c
   src/features/cooklog.c
@@ -217,6 +218,7 @@ if(PF_BUILD_TESTS)
   pf_test(test_learning)
   pf_test(test_gfx)
   pf_test(test_qr)
+  pf_test(test_rules)
   pf_test(test_adaptive)
   pf_test(test_chefiq)
 endif()

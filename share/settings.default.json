@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -422,7 +422,177 @@
       "pellets": true,
       "system": false
     },
-    "eta_warn_min": 15
+    "eta_warn_min": 15,
+    "rules": [
+      {
+        "id": "probe-target",
+        "name": "Probe Reached Target",
+        "enabled": true,
+        "select": {
+          "domain": "probe",
+          "role": "Food",
+          "link": "any",
+          "match": "any",
+          "include": [],
+          "exclude": []
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "trait": "target",
+              "op": ">",
+              "value": 0
+            },
+            {
+              "trait": "temp",
+              "op": ">=",
+              "value": {
+                "trait": "target"
+              }
+            }
+          ]
+        },
+        "title": "{probe} reached {target}",
+        "body": "{probe} is at {temp} after {cook_time}.",
+        "level": "high",
+        "sinks": [
+          "app",
+          "pushover",
+          "ntfy"
+        ],
+        "cooldown_s": 600,
+        "repeat_s": 0,
+        "for_s": 0,
+        "only_while_cooking": true
+      },
+      {
+        "id": "probe-eta",
+        "name": "Almost There",
+        "enabled": true,
+        "select": {
+          "domain": "probe",
+          "role": "Food",
+          "link": "any",
+          "match": "any",
+          "include": [],
+          "exclude": []
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "trait": "target",
+              "op": ">",
+              "value": 0
+            },
+            {
+              "trait": "temp",
+              "op": "<",
+              "value": {
+                "trait": "target"
+              }
+            },
+            {
+              "trait": "eta",
+              "op": ">",
+              "value": 0
+            },
+            {
+              "trait": "eta",
+              "op": "<=",
+              "value": 900,
+              "_note": "seconds"
+            }
+          ]
+        },
+        "title": "{probe} is {eta} from {target}",
+        "body": "{probe} is at {temp}, climbing towards {target}.",
+        "level": "normal",
+        "sinks": [
+          "app",
+          "pushover",
+          "ntfy"
+        ],
+        "cooldown_s": 1800,
+        "repeat_s": 0,
+        "for_s": 40,
+        "only_while_cooking": true
+      },
+      {
+        "id": "probe-offline",
+        "name": "Probe Went Offline",
+        "enabled": true,
+        "select": {
+          "domain": "probe",
+          "role": "any",
+          "link": "bluetooth",
+          "match": "any",
+          "include": [],
+          "exclude": []
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "trait": "connected",
+              "op": "is_off"
+            }
+          ]
+        },
+        "title": "{probe} went offline",
+        "body": "No readings from {probe}. Check the battery, the range, or whether it went back in its charger.",
+        "level": "high",
+        "sinks": [
+          "app",
+          "pushover",
+          "ntfy"
+        ],
+        "cooldown_s": 900,
+        "repeat_s": 0,
+        "for_s": 60,
+        "only_while_cooking": true
+      },
+      {
+        "id": "probe-battery",
+        "name": "Probe Battery Low",
+        "enabled": true,
+        "select": {
+          "domain": "probe",
+          "role": "any",
+          "link": "bluetooth",
+          "match": "any",
+          "include": [],
+          "exclude": []
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "trait": "battery",
+              "op": ">",
+              "value": 0
+            },
+            {
+              "trait": "battery",
+              "op": "<",
+              "value": 20
+            }
+          ]
+        },
+        "title": "{probe} battery at {battery}",
+        "body": "{probe} will need charging before the next cook.",
+        "level": "info",
+        "sinks": [
+          "app",
+          "pushover"
+        ],
+        "cooldown_s": 21600,
+        "repeat_s": 0,
+        "for_s": 10,
+        "only_while_cooking": false
+      }
+    ]
   },
   "weather": {
     "enabled": false,

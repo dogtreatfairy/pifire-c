@@ -11,6 +11,7 @@
 #include "display/registry.h"
 #include "features/mqtt.h"
 #include "features/pellets.h"
+#include "features/rules.h"
 #include "features/update.h"
 #include "platform/sim.h"
 #include "probes/probes.h"
@@ -81,6 +82,7 @@ static void *services_thread(void *arg)
 		pf_update_tick(now);
 		{
 			cJSON *j = pf_status_to_json(&st, pf_settings_units());
+			pf_rules_tick(j, now);
 			char *txt = cJSON_PrintUnformatted(j);
 			cJSON_Delete(j);
 			if (txt) { pf_display_tick(txt); free(txt); }

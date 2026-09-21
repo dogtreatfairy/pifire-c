@@ -39,10 +39,11 @@ static bool wanted(const char *code)
 	return ok;
 }
 
-static void sink(const char *code, const char *title, const char *body, void *ctx)
+static void sink(const pf_event *e, void *ctx)
 {
 	(void)ctx;
-	if (!wanted(code)) return;
+	const char *code = e->code, *title = e->title, *body = e->body;
+	if (!(e->sinks & PF_SINK_WEBHOOK) || !wanted(code)) return;
 	pthread_mutex_lock(&g_mu);
 	if (g_len < QLEN) {
 		item_t *it = &g_q[(g_head + g_len) % QLEN];

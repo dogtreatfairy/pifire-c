@@ -8,7 +8,9 @@ Today's notifications are hard-coded in C (`Probe_Temp_Achieved`, `Probe_ETA`, `
 the `E0x` errors). This design keeps every one of them working by shipping them as built-in rules,
 so what was fixed behaviour becomes something you can read, edit and switch off.
 
-Status: **planned, not implemented.** Nothing below is in the build yet.
+Status: **the engine is built** (`src/features/rules.c`, `tests/test_rules.c`), with the built-in
+rules shipping in the defaults and a schema-5 migration. The editor described in section 8 is the
+remaining piece; until it lands, rules are edited through `PUT /api/v1/settings/notify`.
 
 ---
 
@@ -250,12 +252,19 @@ Shipped as ordinary, editable rules so the current behaviour is visible rather t
 | Rule | Condition | Level |
 |---|---|---|
 | Probe Reached Target | any food probe, `temp >= target` | High |
-| Almost There | any food probe, `eta <= 15 min` | Normal |
-| Probe Went Offline | any wireless probe, `connected is off for 60 s` | High |
-| Probe Battery Low | any probe, `battery < 20 % for 10 s` | Info |
-| Pellets Low | `hopper.level < 25 %` | Normal |
-| Grill Error | `grill.error is not empty` | Critical |
-| Flame-Out | `grill.error is E02_FLAMEOUT` | Critical |
+| Almost There | any food probe, `eta <= 15 min`, held 40 s | Normal |
+| Probe Went Offline | any Bluetooth probe, `connected is off` for 60 s | High |
+| Probe Battery Low | any Bluetooth probe, `battery < 20 %` for 10 s | Info |
+
+Grill errors and the low-pellet warning stay native for now: the `E0x` events already carry
+critical urgency and reach every sink, and the hopper warning has its own repeat interval in
+settings, so turning either into a rule would double up rather than migrate. They move once the
+editor exists and the settings can move with them.
+
+For "Probe Reached Target" to be a rule at all, the notify engine had to stop clearing a probe's
+target the moment it is met: a rule compares `temp` against `target`, so both have to stay visible.
+A `reached` latch now does that job, the after-action (keep warm, shutdown) still fires exactly
+once, and the probe card keeps showing what it was aiming at.
 
 The schema migration converts the existing `notify.eta_warn_min` into the "Almost There" rule's
 threshold, so nobody loses a setting they had configured.

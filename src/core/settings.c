@@ -241,6 +241,27 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 4 (%d stale Bluetooth device%s removed)", removed, removed == 1 ? "" : "s");
 			added = 1;
 		}
+		if (ver < 5) {
+			/* conditional notifications: the fixed alerts become editable rules. fill_defaults() has
+			 * already put the built-in set in place, so all that is left is to carry the one setting
+			 * the old predictive warning had into the rule that replaces it. */
+			double warn = pf_json_num(g_root, "notify.eta_warn_min", 15);
+			cJSON *rules = pf_json_path(g_root, "notify.rules"), *r;
+			cJSON_ArrayForEach(r, rules) {
+				if (strcmp(pf_json_str(r, "id", ""), "probe-eta")) continue;
+				cJSON *conds = pf_json_path(r, "when.conditions"), *c;
+				cJSON_ArrayForEach(c, conds)
+					if (!strcmp(pf_json_str(c, "trait", ""), "eta") && !strcmp(pf_json_str(c, "op", ""), "<=")) {
+						cJSON *v = cJSON_GetObjectItem(c, "value");
+						if (cJSON_IsNumber(v)) cJSON_SetNumberValue(v, warn * 60);
+					}
+				if (warn <= 0) cJSON_ReplaceItemInObject(r, "enabled", cJSON_CreateFalse());
+			}
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 5); else cJSON_AddNumberToObject(g_root, "schema_version", 5);
+			LOGI(TAG, "settings migrated to schema 5 (notification rules)");
+			added = 1;
+		}
 	} else {
 		g_root = defaults;
 		added = 1;

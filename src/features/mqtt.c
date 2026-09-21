@@ -149,10 +149,11 @@ static void on_message(struct mosquitto *m, void *ud, const struct mosquitto_mes
 	if (pf_api_command_json(body, err, sizeof err)) LOGW(TAG, "bad command on %s: %s", msg->topic, err);
 }
 
-static void event_sink(const char *code, const char *title, const char *body, void *ctx)
+static void event_sink(const pf_event *e, void *ctx)
 {
 	(void)ctx;
-	if (!atomic_load(&g_connected)) return;
+	const char *code = e->code, *title = e->title, *body = e->body;
+	if (!(e->sinks & PF_SINK_MQTT) || !atomic_load(&g_connected)) return;
 	cJSON *j = cJSON_CreateObject();
 	char msg[400];
 	snprintf(msg, sizeof msg, "%s: %s", title, body);
