@@ -760,12 +760,37 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 	               applied ? " - applied to the controller" : " - review under More > Learning");
 }
 
+/* The duty this grill actually ran while it was holding, averaged over the last few minutes of
+ * history. This is the number the relay has to swing around: an estimate from the feed-forward
+ * model is a guess about grills in general, whereas this is a measurement of the one in front of
+ * us. NAN when there is not enough steady history to say. */
+static double recent_hold_duty(const pf_control *c, double now, double window_s)
+{
+	const pf_history *h = pf_history_ctrl_view();
+	if (!h) return NAN;
+	double sum = 0; int n = 0;
+	for (int i = h->len - 1; i >= 0; i--) {
+		const pf_hist_pt *pt = pf_history_at(h, i);
+		if (!pt || now - pt->t > window_s) break;
+		if (isnan(pt->u_applied) || pt->u_applied <= 0) continue;
+		sum += pt->u_applied;
+		n++;
+	}
+	return n >= 30 ? sum / n : NAN;
+}
+
 static void autotune_start(pf_control *c, double now)
 {
 	if (c->mode != PF_MODE_HOLD || !c->target_reached) { pf_events_emit("Autotune_Failed", "Autotune not started", "Hold at the set point first (the pit must have reached it)."); return; }
 	memset(&c->autotune, 0, sizeof c->autotune);
 	c->autotune.active = true;
-	c->autotune.u_center = pf_clamp(c->learn.u_ff > 0 ? c->learn.u_ff : c->u_applied, c->cfg.u_min + 0.05, c->cfg.u_max - 0.2);
+	/* Centre the swing on what the grill has been doing, falling back to the model and then to the
+	 * last duty. Centring on a figure that is too high means the low half of the relay still heats,
+	 * the pit never comes back down through the set point, and the test times out having learned
+	 * nothing: that is exactly what an unlearned feed-forward did on a real grill at 225 F. */
+	double measured = recent_hold_duty(c, now, 600);
+	c->autotune.u_center = pf_clamp(!isnan(measured) ? measured : c->learn.u_ff > 0 ? c->learn.u_ff : c->u_applied,
+	                                c->cfg.u_min + 0.05, c->cfg.u_max - 0.2);
 	c->autotune.h = 0.15;
 	c->autotune.hyst_c = 1.0;
 	c->autotune.start_t = now;
@@ -798,8 +823,31 @@ static double autotune_step(pf_control *c, double now)
 		c->autotune.peak_max = c->autotune.peak_min = c->pit_c;
 		if (c->autotune.crossings >= 7) { autotune_finish(c, true, ""); return c->autotune.u_center; }
 	}
-	if (e > pf_delta_to_c(50, PF_UNITS_F)) { autotune_finish(c, false, "Pit ran too far above the set point."); return c->cfg.u_min; }
-	if (now - c->autotune.last_cross_t > 900) { autotune_finish(c, false, "No oscillation within 15 minutes."); return c->autotune.u_center; }
+	/* Two ways the swing can be centred wrong, and both say the same thing. The pit runs far past
+	 * the set point because even the low half of the relay is still feeding the fire, or a
+	 * half-cycle simply never ends because the pit is parked on one side. Rather than give up,
+	 * move the centre towards the side it is failing on and start the measurement over, so every
+	 * recorded cycle comes from one centre. */
+	bool ran_away = fabs(e) > pf_delta_to_c(50, PF_UNITS_F);
+	bool stalled = now - c->autotune.last_cross_t > 300;
+	if ((ran_away || stalled) && c->autotune.recentres < 8) {
+		/* A runaway says the centre is a long way out, so move further than a mere stall does.
+		 * The budget has to be big enough to walk in from a bad starting guess and still leave
+		 * room to measure; the overall time limits are what stop a hopeless case. */
+		double step = ran_away ? 0.15 : 0.05;
+		c->autotune.u_center = pf_clamp(c->autotune.u_center + (e > 0 ? -step : step),
+		                                c->cfg.u_min + 0.05, c->cfg.u_max - 0.2);
+		c->autotune.recentres++;
+		c->autotune.crossings = 0;
+		c->autotune.last_cross_t = now;
+		c->autotune.phase = c->pit_c > c->setpoint_c ? -1 : +1;
+		c->autotune.peak_max = c->autotune.peak_min = c->pit_c;
+		LOGW(TAG, "autotune: %s, re-centring the swing on %.2f duty (%d)",
+		     ran_away ? "pit ran away from the set point" : "no crossing in 5 minutes", c->autotune.u_center, c->autotune.recentres);
+		return c->autotune.u_center + c->autotune.h * c->autotune.phase;
+	}
+	if (ran_away) { autotune_finish(c, false, "The pit would not stay near the set point."); return c->cfg.u_min; }
+	if (now - c->autotune.last_cross_t > 900) { autotune_finish(c, false, "The grill would not oscillate around the set point."); return c->autotune.u_center; }
 	return c->autotune.u_center + c->autotune.h * c->autotune.phase;
 }
 

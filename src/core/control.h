@@ -108,6 +108,7 @@ typedef struct {
 		 * plus the next, which is not the same as twice either one: a grill heats far faster
 		 * than it cools, so its limit cycle is lopsided. */
 		double peak_max, peak_min; int crossings; double halves[8]; double amps[8];
+		int recentres;          /* times the swing has been re-centred after a stalled half-cycle */
 		char note[64];
 	} autotune;
 	/* sensors */

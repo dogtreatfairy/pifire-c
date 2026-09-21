@@ -307,11 +307,51 @@ static void test_single_adds_and_full_profile_replaces(void)
 	stop_and_cool();
 }
 
+/* The relay has to swing around the duty the grill really uses. On the real grill the feed-forward
+ * had learned nothing yet and its built-in prior put the centre at roughly twice what the grill
+ * needed, so the low half of the swing still fed the fire, the pit never came back down through
+ * the set point, and the measurement ran out the clock having learned nothing. The test must
+ * notice that and move the centre rather than wait. */
+static void test_relay_recovers_from_a_badly_centred_swing(void)
+{
+	pf_learning_clear_anchors();
+
+	pf_cmd c = { .type = PF_CMD_MODE, .mode = PF_MODE_HOLD, .num = 225 };
+	pf_cmdq_push(&c);
+	tick(60 * 60);                                  /* reach it and hold */
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	TEST_ASSERT_TRUE(ctrl.target_reached);
+
+	unsigned gen = pf_learning_autotune_gen();
+	pf_cmd a = { .type = PF_CMD_AUTOTUNE_START };
+	pf_cmdq_push(&a);
+	tick(30);
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.autotune.active, "the relay test should have started");
+
+	/* shove the centre far too high, as an unlearned feed-forward did on the real grill */
+	double sane = ctrl.autotune.u_center;
+	double forced = sane * 2.5;
+	ctrl.autotune.u_center = forced > 0.7 ? 0.7 : forced;
+	printf("centre forced from %.2f to %.2f\n", sane, ctrl.autotune.u_center);
+
+	for (int i = 0; i < 90 * 60 && ctrl.autotune.active; i += 30) tick(30);
+
+	printf("re-centred %d time(s), finished on %.2f, crossings %d\n",
+	       ctrl.autotune.recentres, ctrl.autotune.u_center, ctrl.autotune.crossings);
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.autotune.recentres > 0, "a stalled half-cycle should move the centre");
+	TEST_ASSERT_TRUE_MESSAGE(pf_learning_autotune_gen() != gen, "it should still produce a measurement");
+	pf_autotune_result r = pf_learning_autotune();
+	printf("measured Ku %.4f, Pu %.0f s, PB %.0f F\n", r.Ku, r.Pu, pf_delta_from_c(r.PB_c, PF_UNITS_F));
+	TEST_ASSERT_TRUE(r.PB_c > 0 && r.Ti > 0);
+	stop_and_wait_cold();
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
 	RUN_TEST(test_simulator_gain_falls_with_temperature);
 	RUN_TEST(test_gain_schedule_interpolates);
+	RUN_TEST(test_relay_recovers_from_a_badly_centred_swing);
 	RUN_TEST(test_single_adds_and_full_profile_replaces);
 	RUN_TEST(test_guided_tune_improves_holding);
 	return UNITY_END();
