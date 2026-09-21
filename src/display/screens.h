@@ -24,7 +24,10 @@ typedef enum {
 	PF_LIST_STARTUP,   /* Startup To Hold / Startup To Smoke */
 	PF_LIST_POWER,     /* Restart / Shut Down */
 	PF_LIST_PROBE,     /* pick a probe to give a target */
+	PF_LIST_BT,        /* Bluetooth probes: connect, edit, delete */
 	PF_LIST_BTKIND,    /* pick a make of Bluetooth probe */
+	PF_LIST_BTEDIT,    /* paired probes: switch one on or off */
+	PF_LIST_BTDEL,     /* paired probes: remove one */
 } pf_list_id;
 
 /* What a row does when it is pressed. */
@@ -46,6 +49,8 @@ typedef enum {
 	PF_ACT_PROBE_TARGET,  /* arg = index into the status probe array */
 	PF_ACT_BT_SCAN,       /* arg = index into BT_KINDS */
 	PF_ACT_BT_ADD,        /* arg = index into ui->bt[] */
+	PF_ACT_BT_TOGGLE,     /* arg = index into the paired device list */
+	PF_ACT_BT_DELETE,     /* arg = index into the paired device list */
 	PF_ACT_NETINFO,
 	PF_ACT_RESTART,
 	PF_ACT_POWEROFF,
@@ -69,6 +74,11 @@ extern const pf_bt_kind PF_BT_KINDS[];
 extern const int PF_BT_KIND_COUNT;
 
 typedef struct { char name[24], addr[20]; int bars; bool mine; } pf_bt_found;
+
+#define PF_BT_DEV_MAX 8
+typedef struct { char device[32], name[32]; bool enabled; } pf_bt_device;
+/* The paired Bluetooth probes, read out of the status (one row per physical probe). */
+int pf_bt_devices(const cJSON *status, pf_bt_device *out, int max);
 
 typedef struct { pf_screen screen; int list; int index; } pf_nav;
 

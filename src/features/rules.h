@@ -21,3 +21,7 @@ cJSON *pf_rules_catalogue_json(const cJSON *status);
 cJSON *pf_rules_state_json(void);
 /* Render one rule's message against the current status and send it. 0 on success. */
 int pf_rules_test(const cJSON *rule, const cJSON *status, char *err, size_t n);
+/* Render a rule's title and body without sending anything, for the editor's live preview.
+ * Reports how many entities the rule currently selects and how many of them match right now. */
+void pf_rules_preview(const cJSON *rule, const cJSON *status, char *title, size_t tn, char *body, size_t bn,
+                      int *selected, int *matching);

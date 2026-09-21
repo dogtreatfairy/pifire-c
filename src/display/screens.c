@@ -74,6 +74,29 @@ pf_nav *pf_nav_top(pf_ui_state *ui) { return ui->depth > 0 ? &ui->stack[ui->dept
 
 /* --------------------------------------------------------------- menus */
 
+/* The Bluetooth probes that are paired, one row per physical probe (its ambient sibling rides
+ * along). Built from the status so the panel needs no settings access to show the list. */
+int pf_bt_devices(const cJSON *status, pf_bt_device *out, int max)
+{
+	int n = 0;
+	const cJSON *p;
+	cJSON_ArrayForEach(p, cJSON_GetObjectItem((cJSON *)status, "probes")) {
+		if (n >= max) break;
+		if (!pf_json_bool((cJSON *)p, "wireless", false)) continue;
+		if (pf_json_bool((cJSON *)p, "companion", false)) continue;
+		const char *dev = pf_json_str((cJSON *)p, "device", "");
+		if (!dev[0]) continue;
+		bool seen = false;
+		for (int i = 0; i < n; i++) if (!strcmp(out[i].device, dev)) seen = true;
+		if (seen) continue;
+		snprintf(out[n].device, sizeof out[n].device, "%s", dev);
+		snprintf(out[n].name, sizeof out[n].name, "%s", pf_json_str((cJSON *)p, "name", dev));
+		out[n].enabled = pf_json_bool((cJSON *)p, "enabled", true);
+		n++;
+	}
+	return n;
+}
+
 int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out, int max)
 {
 	const char *mode = pf_json_str((cJSON *)status, "mode", "Stop");
@@ -118,10 +141,38 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 		break;
 	}
 
+	case PF_LIST_BT: {
+		pf_bt_device devs[PF_BT_DEV_MAX];
+		int nd = pf_bt_devices(status, devs, PF_BT_DEV_MAX);
+		ADD(PF_ACT_LIST, PF_LIST_BTKIND, "Connect");
+		if (nd > 0) {
+			ADD(PF_ACT_LIST, PF_LIST_BTEDIT, "Edit");
+			ADD(PF_ACT_LIST, PF_LIST_BTDEL, "Delete"); DANGER();
+		}
+		ADD(PF_ACT_BACK, 0, "Back");
+		break;
+	}
+
 	case PF_LIST_BTKIND:
 		for (int i = 0; i < PF_BT_KIND_COUNT; i++) ADD(PF_ACT_BT_SCAN, i, PF_BT_KINDS[i].label);
 		ADD(PF_ACT_BACK, 0, "Back");
 		break;
+
+	case PF_LIST_BTEDIT: case PF_LIST_BTDEL: {
+		pf_bt_device devs[PF_BT_DEV_MAX];
+		int nd = pf_bt_devices(status, devs, PF_BT_DEV_MAX);
+		bool del = list == PF_LIST_BTDEL;
+		for (int i = 0; i < nd; i++) {
+			ADD(del ? PF_ACT_BT_DELETE : PF_ACT_BT_TOGGLE, i, devs[i].name);
+			if (n > 0) {
+				if (del) out[n - 1].danger = true;
+				else snprintf(out[n - 1].right, sizeof out[n - 1].right, "%s", devs[i].enabled ? "On" : "Off");
+			}
+		}
+		if (nd == 0) ADD(PF_ACT_NONE, 0, "None paired");
+		ADD(PF_ACT_BACK, 0, "Back");
+		break;
+	}
 
 	default:   /* PF_LIST_ROOT: the mode decides which menu this is */
 		if (!strcmp(mode, "Error")) {
@@ -132,7 +183,7 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 			ADD(PF_ACT_MANUAL, 0, "Control");
 			ADD(PF_ACT_LIST, PF_LIST_STARTUP, "Startup");
 			ADD(PF_ACT_STOP, 0, "Stop"); DANGER();
-			ADD(PF_ACT_LIST, PF_LIST_BTKIND, "Connect Bluetooth Probe");
+			ADD(PF_ACT_LIST, PF_LIST_BT, "Bluetooth Probes");
 			ADD(PF_ACT_NETINFO, 0, "Network Info");
 			ADD(PF_ACT_BACK, 0, "Back");
 		} else if (!strcmp(mode, "Stop") || !strcmp(mode, "Prime")) {
@@ -146,7 +197,7 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 			else ADD(PF_ACT_HOLD, 0, "Hold Mode");
 			ADD(PF_ACT_END_COOK, 0, "End Cook");
 			ADD(PF_ACT_LIST, PF_LIST_PROBE, "Probe Target");
-			ADD(PF_ACT_LIST, PF_LIST_BTKIND, "Connect Bluetooth Probe");
+			ADD(PF_ACT_LIST, PF_LIST_BT, "Bluetooth Probes");
 			ADD(PF_ACT_NETINFO, 0, "Network Info");
 			ADD(PF_ACT_ESTOP, 0, "Emergency Stop"); DANGER();
 			ADD(PF_ACT_BACK, 0, "Back");

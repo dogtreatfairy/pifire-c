@@ -312,6 +312,47 @@ static void bt_add(tft_t *t, int idx)
 	show_message(t, msg, 3);
 }
 
+/* Switch every probe of one Bluetooth device on or off. The ambient sibling follows its probe,
+ * because the two are one piece of hardware. */
+static void bt_set_enabled(tft_t *t, const char *device, bool on)
+{
+	cJSON *root = pf_settings_lock();
+	cJSON *infos = pf_json_path(root, "probe_settings.probe_map.probe_info"), *pi;
+	int changed = 0;
+	cJSON_ArrayForEach(pi, infos) {
+		if (strcmp(pf_json_str(pi, "device", ""), device)) continue;
+		cJSON *e = cJSON_GetObjectItem(pi, "enabled");
+		if (e) cJSON_ReplaceItemInObject(pi, "enabled", on ? cJSON_CreateTrue() : cJSON_CreateFalse());
+		else cJSON_AddBoolToObject(pi, "enabled", on);
+		changed++;
+	}
+	pf_settings_unlock();
+	if (!changed) return;
+	pf_settings_save();
+	pf_cmd c = { .type = PF_CMD_PROBES_CHANGED };
+	pf_cmdq_push(&c);
+	LOGI(TAG, "%s %s from the panel", device, on ? "enabled" : "disabled");
+}
+
+static void bt_remove(tft_t *t, const char *device)
+{
+	cJSON *root = pf_settings_lock();
+	cJSON *map = pf_json_path(root, "probe_settings.probe_map");
+	cJSON *devs = cJSON_GetObjectItem(map, "probe_devices");
+	cJSON *infos = cJSON_GetObjectItem(map, "probe_info");
+	for (int i = cJSON_GetArraySize(infos) - 1; i >= 0; i--)
+		if (!strcmp(pf_json_str(cJSON_GetArrayItem(infos, i), "device", ""), device)) cJSON_DeleteItemFromArray(infos, i);
+	for (int i = cJSON_GetArraySize(devs) - 1; i >= 0; i--)
+		if (!strcmp(pf_json_str(cJSON_GetArrayItem(devs, i), "device", ""), device)) cJSON_DeleteItemFromArray(devs, i);
+	pf_settings_unlock();
+	pf_settings_save();
+	pf_cmd c = { .type = PF_CMD_PROBES_CHANGED };
+	pf_cmdq_push(&c);
+	char msg[64];
+	snprintf(msg, sizeof msg, "%.24s removed", device);
+	show_message(t, msg, 3);
+}
+
 /* ---------------- acting on a menu row ---------------- */
 
 static void do_action(tft_t *t, pf_action act, int arg)
@@ -372,6 +413,23 @@ static void do_action(tft_t *t, pf_action act, int arg)
 	case PF_ACT_BT_SCAN:
 		bt_begin_scan(t, arg);
 		return;
+	case PF_ACT_BT_TOGGLE: {
+		pf_bt_device devs[PF_BT_DEV_MAX];
+		int nd = pf_bt_devices(t->status, devs, PF_BT_DEV_MAX);
+		if (arg < 0 || arg >= nd) return;
+		bt_set_enabled(t, devs[arg].device, !devs[arg].enabled);
+		return;   /* stay on the list so several can be switched in a row */
+	}
+	case PF_ACT_BT_DELETE: {
+		pf_bt_device devs[PF_BT_DEV_MAX];
+		int nd = pf_bt_devices(t->status, devs, PF_BT_DEV_MAX);
+		if (arg < 0 || arg >= nd) return;
+		pf_strlcpy(t->ui.bt_label, devs[arg].device, sizeof t->ui.bt_label);
+		char q[44];
+		snprintf(q, sizeof q, "Remove %.22s?", devs[arg].name);
+		open_confirm(t, PF_ACT_BT_DELETE, q, "Remove", true);
+		return;
+	}
 	case PF_ACT_BT_ADD: {
 		if (arg < 0 || arg >= t->ui.bt_n) return;
 		char q[44];
@@ -432,6 +490,7 @@ static void confirm_yes(tft_t *t)
 		return;
 	}
 	if (act == PF_ACT_BT_ADD) { int i = pf_nav_top(&t->ui) ? pf_nav_top(&t->ui)->index : 0; pf_nav_pop(&t->ui); bt_add(t, i); return; }
+	if (act == PF_ACT_BT_DELETE) { pf_nav_pop(&t->ui); bt_remove(t, t->ui.bt_label); return; }
 	pf_nav_pop(&t->ui);
 	do_action(t, act, 0);
 }

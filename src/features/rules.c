@@ -467,6 +467,34 @@ void pf_rules_tick(const cJSON *status, double now)
 	cJSON_Delete(rules);
 }
 
+void pf_rules_preview(const cJSON *rule, const cJSON *status, char *title, size_t tn, char *body, size_t bn,
+                      int *selected, int *matching)
+{
+	if (title && tn) title[0] = 0;
+	if (body && bn) body[0] = 0;
+	if (selected) *selected = 0;
+	if (matching) *matching = 0;
+	if (!rule || !status) return;
+	inst instances[MAX_INST];
+	int ni = select_instances(status, rule, instances, MAX_INST);
+	if (selected) *selected = ni;
+	const cJSON *when = jget(rule, "when");
+
+	/* prefer an instance that actually matches, so the preview shows what would really be sent */
+	int show = ni > 0 ? 0 : -1;
+	val matched = v_none();
+	for (int i = 0; i < ni; i++) {
+		val m = v_none();
+		if (when && eval_node(status, &instances[i], when, &m)) {
+			if (matching) (*matching)++;
+			if (show <= 0 || matched.t == VT_NONE) { show = i; matched = m; }
+		}
+	}
+	const inst *in = show >= 0 ? &instances[show] : NULL;
+	if (title && tn) render(title, tn, pf_json_str((cJSON *)rule, "title", ""), status, in, &matched);
+	if (body && bn) render(body, bn, pf_json_str((cJSON *)rule, "body", ""), status, in, &matched);
+}
+
 int pf_rules_test(const cJSON *rule, const cJSON *status, char *err, size_t n)
 {
 	if (!rule || !status) { snprintf(err, n, "no rule"); return -1; }

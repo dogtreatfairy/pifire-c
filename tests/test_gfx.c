@@ -16,7 +16,7 @@ static const char *status_json =
 "\"safety\":{\"error_code\":\"\",\"error_msg\":\"\"},"
 "\"net\":{\"ip\":\"10.0.0.5\",\"ssid\":\"Kitchen\",\"signal\":72,\"port\":80},"
 "\"probes\":[{\"label\":\"Grill\",\"name\":\"Grill\",\"role\":\"Primary\",\"enabled\":true,\"valid\":true,\"temp\":227,\"target\":0},"
-"{\"label\":\"Probe1\",\"name\":\"Probe 1\",\"role\":\"Food\",\"enabled\":true,\"valid\":true,\"temp\":164,\"target\":203,\"eta_s\":4920,\"wireless\":true,\"rssi\":-67,\"signal\":3,\"battery\":80,\"ambient\":221,\"ambient_label\":\"Chef1Amb\"},"
+"{\"label\":\"Probe1\",\"name\":\"Probe 1\",\"role\":\"Food\",\"enabled\":true,\"valid\":true,\"temp\":164,\"target\":203,\"eta_s\":4920,\"device\":\"chefiq1\",\"wireless\":true,\"rssi\":-67,\"signal\":3,\"battery\":80,\"ambient\":221,\"ambient_label\":\"Chef1Amb\"},"
 "{\"label\":\"Chef1Amb\",\"name\":\"Chef iQ 1 Ambient\",\"role\":\"Food\",\"enabled\":true,\"valid\":true,\"temp\":221,\"target\":0,\"wireless\":true,\"companion\":true},"
 "{\"label\":\"Probe2\",\"name\":\"Probe 2\",\"role\":\"Food\",\"enabled\":true,\"valid\":true,\"temp\":195,\"target\":195},"
 "{\"label\":\"Probe3\",\"name\":\"Probe 3\",\"role\":\"Food\",\"enabled\":true,\"valid\":false,\"temp\":null,\"target\":0}]}";
@@ -86,6 +86,9 @@ static void test_render_screens(void)
 	ui.manual_focus = 1;
 	pf_nav_push(&ui, PF_SCR_MANUAL, 0);
 	render_to(&g, st, &ui, "manual");
+	pf_nav_reset(&ui);
+	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_BT);
+	render_to(&g, st, &ui, "menu_bt");
 	pf_nav_reset(&ui);
 	snprintf(ui.bt_label, sizeof ui.bt_label, "%s", "Chef iQ");
 	ui.bt_n = 2;
@@ -163,6 +166,28 @@ static void test_menus_by_mode(void)
 	TEST_ASSERT_EQUAL_STRING("Control", items[0].label);
 	TEST_ASSERT_EQUAL_STRING("Startup", items[1].label);
 	TEST_ASSERT_EQUAL_STRING("Stop", items[2].label);
+	cJSON_Delete(st);
+
+	/* the Bluetooth submenu only offers Edit and Delete once something is paired */
+	pf_nav_reset(&ui);
+	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_BT);
+	st = cJSON_Parse("{\"mode\":\"Hold\",\"probes\":[]}");
+	n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
+	TEST_ASSERT_EQUAL_INT(2, n);
+	TEST_ASSERT_EQUAL_STRING("Connect", items[0].label);
+	cJSON_Delete(st);
+	st = cJSON_Parse("{\"mode\":\"Hold\",\"probes\":[{\"label\":\"BT1\",\"name\":\"BT1\",\"role\":\"Food\","
+	                 "\"enabled\":true,\"wireless\":true,\"device\":\"chefiq1\"}]}");
+	n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
+	TEST_ASSERT_EQUAL_INT(4, n);
+	TEST_ASSERT_EQUAL_STRING("Edit", items[1].label);
+	TEST_ASSERT_EQUAL_STRING("Delete", items[2].label);
+	/* the edit list shows each paired probe with its state */
+	pf_nav_top(&ui)->list = PF_LIST_BTEDIT;
+	n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
+	TEST_ASSERT_EQUAL_STRING("BT1", items[0].label);
+	TEST_ASSERT_EQUAL_STRING("On", items[0].right);
+	TEST_ASSERT_EQUAL_INT(PF_ACT_BT_TOGGLE, items[0].act);
 	cJSON_Delete(st);
 
 	/* the startup menu picks the mode startup runs into */

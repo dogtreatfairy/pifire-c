@@ -417,6 +417,25 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		reply(resp, 200, o);
 		return;
 	}
+	if (post && !strcmp(p, "/rules/preview")) {
+		cJSON *body = req->body ? cJSON_Parse(req->body) : NULL;
+		if (!body) { reply_err(resp, 400, "expected a rule"); return; }
+		pf_status st;
+		pf_status_get(&st);
+		cJSON *j = pf_status_to_json(&st, pf_settings_units());
+		char title[200], text[400];
+		int sel = 0, match = 0;
+		pf_rules_preview(body, j, title, sizeof title, text, sizeof text, &sel, &match);
+		cJSON_Delete(j);
+		cJSON_Delete(body);
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddStringToObject(o, "title", title);
+		cJSON_AddStringToObject(o, "body", text);
+		cJSON_AddNumberToObject(o, "selected", sel);
+		cJSON_AddNumberToObject(o, "matching", match);
+		reply(resp, 200, o);
+		return;
+	}
 	if (post && !strcmp(p, "/rules/test")) {
 		cJSON *body = req->body ? cJSON_Parse(req->body) : NULL;
 		if (!body) { reply_err(resp, 400, "expected a rule"); return; }
