@@ -10,6 +10,45 @@ Either kind of run is hands off. The grill starts itself, waits until the set po
 
 The relay swings around the duty the grill **actually ran** while it settled, averaged over the last ten minutes, not around a modelled figure. That distinction decides whether the test works at all: the low half of the swing has to be below the duty the grill needs, or the pit never comes back down through the set point and there is nothing to measure. The swing is also sized to fit between the minimum and maximum feed, shrinking rather than being clamped on one side, because the ultimate gain is computed from the size of the swing and a clamped one would overstate it. If the pit still will not cross, or runs far past the set point, the centre moves that way and the measurement starts over, up to eight times. Once it has crossed even once the centre is evidently workable and the test becomes patient, because a pellet grill's cooling half genuinely runs to ten minutes at a low set point.
 
+### What the measurement computes
+
+The relay test is the Åström-Hägglund method. The feed is switched between two levels either side
+of the operating duty whenever the error passes a hysteresis band of 1 °C, which drives the loop
+into a limit cycle at the frequency where the grill's own phase lag reaches 180°. From that cycle:
+
+* **Period.** One full oscillation is a rise half-cycle plus the fall half-cycle beside it. Doubling
+  either one on its own, which is only correct for a symmetric cycle, overstated the period by half
+  again on a real grill, whose halves ran 336, 114, 483, 126 and 756 seconds.
+* **Amplitude.** Also measured over a full oscillation, because dead time puts the high peak in one
+  half and the low peak in the other. Measuring within a single half saw only part of the swing and
+  overstated the ultimate gain roughly two-fold; against the grill's independently identified plant
+  model the old figure was 2.7× too high, which is a proportional band less than half as wide as it
+  should be, and a loop that hunts.
+* **Ultimate gain.** `Ku = 4h / (π√(A² − ε²))`, where `h` is half the swing in duty *actually
+  delivered* after the minimum and maximum feed limits, and `ε` is the hysteresis. The square root
+  projects onto the −180° crossing that the tuning rules are written against; taking `4h/(πA)`
+  alone gives the point the relay identifies, which the hysteresis leaves a little short. The
+  correction is about 2% on a healthy swing and 25% on a marginal one.
+* **When to stop.** Seven crossings at the earliest, and then only once two consecutive oscillations
+  agree within 25% in period and 30% in amplitude. A limit cycle that is still growing describes the
+  transient, not the grill. Only the last three complete oscillations are averaged; the earlier ones
+  are the approach. If it has not settled by twelve crossings the result is taken anyway and the
+  event says it was still drifting.
+
+`Ku` and `Pu` become PB and Ti by **Tyreus-Luyben PI** (`Kc = Ku/3.2`, `Ti = 2.2·Pu`, no derivative).
+Tyreus-Luyben is the conservative counterpart to Ziegler-Nichols and suits a process whose dead time
+is around half its time constant, where derivative action buys little and mostly amplifies noise.
+The rule lives in exactly one place, `pf_tuning_from_relay` in `pifire/common.h`, because the daemon
+files the result in the library while the controller is handed `Ku` and `Pu` directly: these once
+used different formulas, so one measurement meant two tunings and which one the grill ran depended
+on whether the library happened to cover the set point being held.
+
+One adjustment on top: Tyreus-Luyben sets the integral time from the period alone, which on a grill
+with this much dead time lands at several times the plant's own time constant, so an offset would
+take the best part of an hour to clear on a barrel that responds in seven minutes. Where the passive
+startup fit knows the time constant, the integral time is capped at it, which is what SIMC does and
+what keeps a conservative tuning from becoming a sluggish one.
+
 Rules written against how far the grill is from its target stay quiet while a measurement runs. The relay is deliberately driving the pit either side of the set point, so "running hot" would be reporting the tuner's own doing several times per set point. The pit temperature itself is still a fact and still testable. It drives the grill only through the ordinary command queue and reads only the published status, so it can do nothing a patient person with the web app could not do, and Stop always wins. The grill should be empty, and a run will not start while one is cooking.
 
 *Settings → Cooking → Temperature Control & Learning → Autotune* offers two:

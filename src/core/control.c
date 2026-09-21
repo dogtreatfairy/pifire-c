@@ -29,6 +29,8 @@ static void learn_reset_window(pf_control *c, double now);
 static void learn_rise_begin(pf_control *c, double now);
 static void autotune_start(pf_control *c, double now);
 static void autotune_finish(pf_control *c, bool ok, const char *why);
+static void autotune_cycle(const pf_control *c, int i, double *period, double *amp);
+static bool autotune_settled(const pf_control *c);
 
 /* ------------------------------------------------------------------ settings -> cfg */
 
@@ -736,16 +738,24 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 {
 	c->autotune.active = false;
 	if (!ok) { pf_events_emit("Autotune_Failed", "Autotune stopped", "%s", why); return; }
-	int n = c->autotune.crossings > 8 ? 8 : c->autotune.crossings;
-	/* One full period is a rise half plus the fall half beside it. Doubling either one on its own
-	 * overstates the period whenever the cycle is lopsided, and a pellet grill's always is: the
-	 * fire brings the pit up in a couple of minutes and the barrel takes many to come back down.
-	 * The first half is skipped because the test starts part way through a swing. */
+	int n = c->autotune.crossings < PF_AT_MAX ? c->autotune.crossings : PF_AT_MAX;
+	/* Average the last few complete oscillations. The early ones are the transient on the way into
+	 * the limit cycle and describe the starting conditions rather than the plant, so they are left
+	 * out; the first half-cycle is not a cycle at all, since the test begins part way through a
+	 * swing. */
 	double Pu = 0, A = 0; int k = 0;
-	for (int i = 2; i < n; i++) { Pu += c->autotune.halves[i] + c->autotune.halves[i - 1]; A += c->autotune.amps[i]; k++; }
+	for (int i = n - 1; i >= 2 && k < 3; i--) {
+		double p, a;
+		autotune_cycle(c, i, &p, &a);
+		Pu += p; A += a; k++;
+	}
 	if (k < 2) { pf_events_emit("Autotune_Failed", "Autotune stopped", "Not enough oscillations were captured."); return; }
 	Pu /= k; A /= k;
-	if (A < 0.5) { pf_events_emit("Autotune_Failed", "Autotune stopped", "Oscillation too small to measure."); return; }
+	/* The relay only switches once the error passes the hysteresis band, so the oscillation can
+	 * never be smaller than that band. An amplitude at or under it means the readings are not
+	 * describing a real swing. */
+	if (A <= c->autotune.hyst_c * 1.05) { pf_events_emit("Autotune_Failed", "Autotune stopped", "Oscillation too small to measure."); return; }
+	bool settled = autotune_settled(c);
 	/* Half the swing the grill really saw. Where nothing was clamped this is the h it was asked
 	 * for; where the low half hit the minimum feed it is smaller, and using the requested h there
 	 * would overstate the ultimate gain and hand back a proportional band that is too narrow. */
@@ -754,17 +764,31 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 		double hi = c->autotune.hi_sum / c->autotune.hi_n, lo = c->autotune.lo_sum / c->autotune.lo_n;
 		if (hi - lo > 0.01) h_eff = (hi - lo) / 2.0;
 	}
-	double Ku = 4.0 * h_eff / (M_PI * A);
+	/* Ultimate gain from the describing function of a relay with hysteresis. Taking 4h/(pi*A)
+	 * alone gives the gain at the point the relay actually identifies, which sits a little short
+	 * of the -180 degree crossing because the hysteresis adds phase lag. Projecting onto the real
+	 * axis with sqrt(A^2 - eps^2) is the ultimate gain the tuning rules are written against; the
+	 * difference is a couple of percent on a healthy swing and a quarter on a marginal one. */
+	double eps = c->autotune.hyst_c;
+	double denom = sqrt(A * A - eps * eps);
+	double Ku = 4.0 * h_eff / (M_PI * (denom > 0.1 ? denom : A));
 	pf_autotune_result r = { .Ku = Ku, .Pu = Pu, .amplitude_c = A };
-	double kc = Ku / 3.2;                 /* Tyreus-Luyben PI(D) */
-	r.PB_c = 1.0 / kc;
-	r.Ti = 2.2 * Pu;
-	r.Td = Pu / 6.3;
+	pf_tuning_from_relay(Ku, Pu, &r.PB_c, &r.Ti, &r.Td);
+	/* Tyreus-Luyben sets the integral time from the oscillation period alone, and on a grill with
+	 * this much dead time that lands at several times the plant's own time constant: an offset
+	 * would then take the best part of an hour to clear on a barrel that responds in seven
+	 * minutes. Where the passive startup fit knows the time constant, cap the integral time at it,
+	 * which is what SIMC does and what keeps a conservative tuning from becoming a sluggish one. */
+	pf_fopdt plant = pf_learning_fopdt();
+	if (plant.valid && plant.tau > 30 && r.Ti > plant.tau) r.Ti = plant.tau;
 	pf_learning_store_autotune(&r);
 	bool applied = false;
 	if (pf_set_bool("learning.auto_tune", true) && c->cinst && c->cops->apply_tuning) { c->cops->apply_tuning(c->cinst, Ku, Pu, 0, 0, 0); applied = true; }
-	pf_events_emit("Autotune_Done", "Autotune complete", "Ku %.3f (swing ±%.2f duty), period %.0f s, amplitude ±%.1f. PB %.0f (%s), Ti %.0f s, Td %.0f s%s.",
-	               Ku, h_eff, Pu, pf_delta_from_c(A, c->cfg.units), pf_delta_from_c(r.PB_c, c->cfg.units), c->cfg.units == PF_UNITS_C ? "C" : "F", r.Ti, r.Td,
+	pf_events_emit("Autotune_Done", "Autotune complete",
+	               "Ku %.3f (swing ±%.2f duty), period %.0f s over %d cycle%s%s, amplitude ±%.1f. PB %.0f (%s), Ti %.0f s%s.",
+	               Ku, h_eff, Pu, k, k == 1 ? "" : "s", settled ? "" : " (still drifting)",
+	               pf_delta_from_c(A, c->cfg.units), pf_delta_from_c(r.PB_c, c->cfg.units),
+	               c->cfg.units == PF_UNITS_C ? "C" : "F", r.Ti,
 	               applied ? " - applied to the controller" : " - review under More > Learning");
 }
 
@@ -821,6 +845,30 @@ static void autotune_start(pf_control *c, double now)
 	c->u_raw = c->u_applied = c->cycle.u_applied;
 }
 
+/* One full oscillation, numbered by its closing half-cycle: its period is the two halves together
+ * and its amplitude spans both, because the pit's high and low peaks fall in different halves. */
+static void autotune_cycle(const pf_control *c, int i, double *period, double *amp)
+{
+	double hi = fmax(c->autotune.hi_peak[i], c->autotune.hi_peak[i - 1]);
+	double lo = fmin(c->autotune.lo_peak[i], c->autotune.lo_peak[i - 1]);
+	if (period) *period = c->autotune.halves[i] + c->autotune.halves[i - 1];
+	if (amp) *amp = (hi - lo) / 2.0;
+}
+
+/* Has the limit cycle settled? Two consecutive oscillations that agree in period and amplitude are
+ * the standard evidence that what is being measured is the plant rather than the transient. */
+static bool autotune_settled(const pf_control *c)
+{
+	int n = c->autotune.crossings < PF_AT_MAX ? c->autotune.crossings : PF_AT_MAX;
+	if (n < 4) return false;
+	double p1, a1, p2, a2;
+	autotune_cycle(c, n - 2, &p1, &a1);
+	autotune_cycle(c, n - 1, &p2, &a2);
+	double pmax = fmax(p1, p2), amax = fmax(a1, a2);
+	if (pmax <= 0 || amax <= 0) return false;
+	return fabs(p1 - p2) <= 0.25 * pmax && fabs(a1 - a2) <= 0.30 * amax;
+}
+
 /* returns the relay output for this cycle */
 static double autotune_step(pf_control *c, double now)
 {
@@ -833,14 +881,23 @@ static double autotune_step(pf_control *c, double now)
 	if (want != c->autotune.phase) {
 		c->autotune.phase = want;
 		int k = c->autotune.crossings;
-		if (k < 8) {
+		if (k < PF_AT_MAX) {
 			c->autotune.halves[k] = now - c->autotune.last_cross_t;
-			c->autotune.amps[k] = (c->autotune.peak_max - c->autotune.peak_min) / 2.0;
+			c->autotune.hi_peak[k] = c->autotune.peak_max;
+			c->autotune.lo_peak[k] = c->autotune.peak_min;
 		}
 		c->autotune.crossings++;
 		c->autotune.last_cross_t = now;
 		c->autotune.peak_max = c->autotune.peak_min = c->pit_c;
-		if (c->autotune.crossings >= 7) { autotune_finish(c, true, ""); return c->autotune.u_center; }
+		/* Stop once the oscillation has settled, not merely once enough of it has gone by. A limit
+		 * cycle that is still growing describes the transient, not the plant, and averaging it
+		 * yields a period that belongs to no real oscillation. Give it room to settle, and take
+		 * what it has at the cap either way. */
+		if (c->autotune.crossings >= PF_AT_MIN_CROSS &&
+		    (autotune_settled(c) || c->autotune.crossings >= PF_AT_MAX)) {
+			autotune_finish(c, true, "");
+			return c->autotune.u_center;
+		}
 	}
 	/* Two ways the swing can be centred wrong, and both say the same thing. The pit runs far past
 	 * the set point because even the low half of the relay is still feeding the fire, or a

@@ -102,12 +102,18 @@ typedef struct {
 		double rise_t0, rise_T0_c, rise_u_sum; int rise_n; double rise_t28, rise_t63; bool rise_active;
 	} learn;
 	/* relay autotune (core-owned; controller update() is bypassed while active) */
+#define PF_AT_MAX 12        /* half-cycles kept: seven crossings normally, more if it has not settled */
+#define PF_AT_MIN_CROSS 7   /* the fewest crossings that can produce a result */
 	struct {
 		bool active; int phase; double u_center, h, hyst_c, start_t, last_cross_t;
 		/* `halves` holds the time between successive crossings. A full oscillation is one half
 		 * plus the next, which is not the same as twice either one: a grill heats far faster
 		 * than it cools, so its limit cycle is lopsided. */
-		double peak_max, peak_min; int crossings; double halves[8]; double amps[8];
+		/* Per half-cycle: how long it lasted and the highest and lowest the pit reached in it.
+		 * A full oscillation is two halves, and its amplitude spans both, so the peaks are kept
+		 * separately rather than collapsed into one span. */
+		double peak_max, peak_min; int crossings;
+		double halves[PF_AT_MAX]; double hi_peak[PF_AT_MAX]; double lo_peak[PF_AT_MAX];
 		int recentres;          /* times the swing has been re-centred after a stalled half-cycle */
 		double last_recentre_t; /* the grill needs time to answer a new centre before it is judged again */
 		/* The duty actually delivered on each half of the swing. The cycle engine clamps to

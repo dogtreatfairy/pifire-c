@@ -352,8 +352,11 @@ static void apply_tuning(void *self, double Ku, double Pu, double K, double tau,
 	double PB, Ti, Td;
 	const char *src;
 	if (Ku > 0 && Pu > 0) {
-		double kc = Ku / 3.2;
-		PB = 1.5 / kc; Ti = 2.2 * Pu; Td = Pu / 6.3; src = "relay";
+		/* The same rule the daemon files in the tuning library. It used to be detuned by a further
+		 * 1.5x here, so one relay run meant two different tunings and which one the grill ran
+		 * depended on whether the library happened to cover the set point being held. */
+		pf_tuning_from_relay(Ku, Pu, &PB, &Ti, &Td);
+		src = "relay";
 	} else if (K > 0 && tau > 0 && theta > 0) {
 		s->theta = clampd(theta, THETA_MIN, THETA_MAX);
 		double tc = theta;                                 /* SIMC with tau_c = theta */
@@ -362,9 +365,13 @@ static void apply_tuning(void *self, double Ku, double Pu, double K, double tau,
 	} else return;
 	/* the model fixes the *shape* of the tuning; its absolute gain is only trusted within a band around
 	 * the configured baseline (the passive plant fit is crude), and the monitor refines it from there */
-	double lo = !strcmp(src, "relay") ? 0.33 : 0.5, hi = !strcmp(src, "relay") ? 3.0 : 1.5;
+	bool relay = strcmp(src, "relay") == 0;
+	double lo = relay ? 0.33 : 0.5, hi = relay ? 3.0 : 1.5;
 	PB = clampd(PB, s->cfg_PB_c * lo, s->cfg_PB_c * hi);
-	Ti = clampd(Ti, s->cfg_Ti * 0.5, s->cfg_Ti * 2.0);
+	/* A relay test measures the period directly, so the integral time it implies is a measurement
+	 * and not an inference: pinning it to a band around the configured value would throw away the
+	 * very thing that was measured. Only the crude passive fit is kept near the baseline. */
+	if (!relay) Ti = clampd(Ti, s->cfg_Ti * 0.5, s->cfg_Ti * 2.0);
 	Td = clampd(Td, 0, s->cfg_Td * 2.0);
 	PB = clampd(PB, 15, 300); Ti = clampd(Ti, 60, 3600); Td = clampd(Td, 0, 120);
 	if (s->l_valid) { PB = 0.5 * (PB + s->l_PB_c); Ti = 0.5 * (Ti + s->l_Ti); Td = 0.5 * (Td + s->l_Td); }

@@ -19,6 +19,24 @@ static inline double pf_f_to_c(double f) { return (f - 32.0) * 5.0 / 9.0; }
 static inline double pf_to_c(double v, pf_units u) { return u == PF_UNITS_C ? v : pf_f_to_c(v); }
 static inline double pf_from_c(double c, pf_units u) { return u == PF_UNITS_C ? c : pf_c_to_f(c); }
 /* temperature *differences* (no 32 offset) */
+/* Tyreus-Luyben PI from a relay test, the one place the rule lives.
+ *
+ * Tyreus-Luyben is the conservative cousin of Ziegler-Nichols and is what a process with this much
+ * dead time wants: a pellet grill's dead time is roughly half its time constant, where derivative
+ * action buys little and mostly amplifies noise, so this is the PI form and Td is zero. The gain
+ * Ku/3.2 and integral time 2.2*Pu are the published PI numbers; taking the gain from the PI rule
+ * while keeping the derivative from the PID rule, as this once did, is neither rule.
+ *
+ * Both the daemon, which files the result in the tuning library, and the controller, which is
+ * handed Ku and Pu directly, call this, so one measurement can only ever mean one tuning. */
+static inline void pf_tuning_from_relay(double Ku, double Pu, double *PB_c, double *Ti, double *Td)
+{
+	double kc = Ku / 3.2;
+	if (PB_c) *PB_c = kc > 0 ? 1.0 / kc : 0;
+	if (Ti) *Ti = 2.2 * Pu;
+	if (Td) *Td = 0.0;
+}
+
 static inline double pf_delta_to_c(double d, pf_units u) { return u == PF_UNITS_C ? d : d * 5.0 / 9.0; }
 static inline double pf_delta_from_c(double d, pf_units u) { return u == PF_UNITS_C ? d : d * 9.0 / 5.0; }
 

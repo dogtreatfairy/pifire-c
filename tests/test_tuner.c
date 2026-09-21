@@ -371,7 +371,9 @@ static void test_a_slow_cooling_half_is_not_a_stall(void)
 	double centre = ctrl.autotune.u_center;
 	tick(60);
 	TEST_ASSERT_EQUAL_INT_MESSAGE(0, ctrl.autotune.recentres, "a long cooling half is not a stall once the relay is crossing");
-	TEST_ASSERT_EQUAL_INT_MESSAGE(3, ctrl.autotune.crossings, "the crossing count must survive a slow half-cycle");
+	/* a genuine crossing may land in this window and legitimately increment the count; what must
+	 * not happen is the count being thrown away and started again */
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.autotune.crossings >= 3, "the crossing count must survive a slow half-cycle");
 	TEST_ASSERT_EQUAL_DOUBLE(centre, ctrl.autotune.u_center);
 
 	/* But a relay that has never crossed at this centre is genuinely stuck and must be moved. Park
@@ -387,11 +389,50 @@ static void test_a_slow_cooling_half_is_not_a_stall(void)
 	stop_and_wait_cold();
 }
 
+/* The relay's estimate of the ultimate gain has to agree with the plant the simulator actually
+ * is. Measuring the amplitude within a single half-cycle, as this once did, saw only part of the
+ * swing and overstated the gain roughly two-fold, which is a proportional band half as wide as it
+ * should be and a loop that hunts. */
+static void test_relay_agrees_with_the_plant_it_measured(void)
+{
+	pf_learning_clear_anchors();
+	char err[160];
+	cJSON *one = cJSON_Parse("[225]");
+	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(one, false, err, sizeof err));
+	cJSON_Delete(one);
+	run_to_completion();
+
+	pf_autotune_result r = pf_learning_autotune();
+	pf_fopdt plant = pf_learning_fopdt();
+	TEST_ASSERT_TRUE_MESSAGE(r.valid && r.Ku > 0, "the run should have measured something");
+	TEST_ASSERT_TRUE_MESSAGE(plant.valid, "the startup rise should have produced a plant estimate");
+
+	/* the ultimate point of a first-order-plus-dead-time plant, found where its phase reaches -pi */
+	double lo = 1e-5, hi = 1.0;
+	for (int i = 0; i < 200; i++) {
+		double w = 0.5 * (lo + hi);
+		if (-w * plant.theta - atan(w * plant.tau) > -M_PI) lo = w; else hi = w;
+	}
+	double w = 0.5 * (lo + hi);
+	double Ku_theory = sqrt(1 + w * plant.tau * w * plant.tau) / plant.K;
+	double Pu_theory = 2 * M_PI / w;
+	printf("relay: Ku %.4f, Pu %.0f s | plant implies Ku %.4f, Pu %.0f s | ratio %.2f\n",
+	       r.Ku, r.Pu, Ku_theory, Pu_theory, r.Ku / Ku_theory);
+
+	/* The two are measured quite differently, one by oscillation and one from a startup rise, so
+	 * they will not match exactly. They must at least be the same size: a factor of two apart is
+	 * the error the half-cycle amplitude used to make. */
+	TEST_ASSERT_TRUE_MESSAGE(r.Ku < Ku_theory * 1.8, "the relay must not overstate the ultimate gain");
+	TEST_ASSERT_TRUE_MESSAGE(r.Ku > Ku_theory * 0.4, "nor understate it");
+	stop_and_wait_cold();
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
 	RUN_TEST(test_simulator_gain_falls_with_temperature);
 	RUN_TEST(test_gain_schedule_interpolates);
+	RUN_TEST(test_relay_agrees_with_the_plant_it_measured);
 	RUN_TEST(test_a_slow_cooling_half_is_not_a_stall);
 	RUN_TEST(test_relay_recovers_from_a_badly_centred_swing);
 	RUN_TEST(test_single_adds_and_full_profile_replaces);
