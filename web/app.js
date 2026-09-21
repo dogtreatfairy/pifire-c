@@ -44,19 +44,55 @@ export const fmtDur = (s) => {
 export const fmtTime = (ts) => new Date(ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 // ---------- live status ----------
-let ws, wsTimer;
+// The socket is treated as suspect, never trusted: iOS suspends timers and quietly kills sockets when
+// the app is in the background, so a returning app may hold a socket that is CONNECTING forever or
+// OPEN-but-dead. A 2 s watchdog reconnects on any of those, every resume reconnects at once, and
+// while the socket is down the status is polled over plain HTTP so the page never goes stale.
+let ws, wsTimer, lastMsgAt = 0, connectingAt = 0, pollTimer = null;
 function connect() {
+  if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onopen = () => { PF.everConnected = true; PF.wsRetry = 0; setConnected(true); };
-  ws.onclose = () => { setConnected(false); clearTimeout(wsTimer); const wait = Math.min(5000, 500 * 2 ** Math.min(4, PF.wsRetry++ || 0)); wsTimer = setTimeout(connect, wait); };
-  ws.onerror = () => ws.close();
-  ws.onmessage = (ev) => {
+  let sock;
+  try { sock = new WebSocket(`${proto}://${location.host}/ws`); } catch { scheduleReconnect(); return; }
+  ws = sock;
+  connectingAt = Date.now();
+  sock.onopen = () => { if (sock !== ws) return; PF.everConnected = true; PF.wsRetry = 0; lastMsgAt = Date.now(); setConnected(true); };
+  sock.onclose = () => { if (sock !== ws) return; ws = null; setConnected(false); scheduleReconnect(); };
+  sock.onerror = () => { try { sock.close(); } catch {} };
+  sock.onmessage = (ev) => {
+    if (sock !== ws) return;
+    lastMsgAt = Date.now();
     const m = JSON.parse(ev.data);
     if (m.type === 'status') { PF.status = m; PF.units = m.units; emit(); }
     else if (m.type === 'error') toast(m.msg, true);
     else if (m.type === 'event') { PF.alertGen = (PF.alertGen || 0) + 1; alert(m); emit(); }
   };
+}
+function scheduleReconnect() {
+  clearTimeout(wsTimer);
+  const wait = Math.min(5000, 500 * 2 ** Math.min(4, PF.wsRetry++ || 0));
+  wsTimer = setTimeout(connect, wait);
+}
+function reconnectNow() {
+  clearTimeout(wsTimer);
+  PF.wsRetry = 0;
+  const old = ws; ws = null;
+  try { old?.close(); } catch {}
+  connect();
+}
+setInterval(() => {
+  if (document.hidden) return;
+  const now = Date.now();
+  if (!ws) { connect(); return; }
+  if (ws.readyState === WebSocket.CONNECTING && now - connectingAt > 6000) reconnectNow();
+  else if (ws.readyState === WebSocket.OPEN && now - lastMsgAt > 8000) reconnectNow();   /* the daemon pushes at least every 5 s */
+  else if (ws.readyState === WebSocket.CLOSED) reconnectNow();
+}, 2000);
+for (const ev of ['online', 'pageshow', 'focus']) window.addEventListener(ev, () => setTimeout(reconnectNow, 150));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(reconnectNow, 150); });
+async function pollStatus() {
+  if (PF.connected || document.hidden) return;
+  try { const st = await api('/status'); PF.status = st; PF.units = st.units; if (PF.lost) { /* reachable again: the socket will follow */ } emit(); } catch { /* still down */ }
 }
 let lostTimer = null;
 function setConnected(on) {
@@ -64,8 +100,9 @@ function setConnected(on) {
   document.getElementById('conn-dot').classList.toggle('on', on);
   // the banner only appears after the link has been down for a while (a reconnect takes < 1 s and must not flash)
   clearTimeout(lostTimer);
+  clearInterval(pollTimer); pollTimer = null;
   if (on) { PF.lost = false; emit(); }
-  else lostTimer = setTimeout(() => { PF.lost = true; emit(); }, 4000);
+  else { lostTimer = setTimeout(() => { PF.lost = true; emit(); }, 4000); pollTimer = setInterval(pollStatus, 3000); }
 }
 function emit() { for (const fn of PF.listeners) fn(PF.status); }
 export function onStatus(fn) { PF.listeners.add(fn); return () => PF.listeners.delete(fn); }
@@ -83,25 +120,104 @@ export function el(tag, attrs = {}, ...children) {
   for (const c of children.flat()) if (c != null) e.append(c.nodeType ? c : document.createTextNode(String(c)));
   return e;
 }
-// Alert: in-page banner-toast plus a system notification when the page is in the background.
+// ---------- notifications ----------
+// Two layers: iOS-style banners that slide in under the header (auto-dismiss, errors stay until
+// tapped), and a notification centre behind the bell in the header that keeps everything that
+// matters (grill events, alarms, errors, failed actions) until the user clears it. The centre is
+// persisted per device; events that happened while the app was closed are pulled from the daemon's
+// event log on boot so nothing is missed.
+const NOTIF_KEY = 'pf.notifs', SEEN_KEY = 'pf.lastEventTs';
+const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+PF.notifs = load(NOTIF_KEY, []);
+const KIND_ICON = { error: 'circle-x', warn: 'triangle-alert', ok: 'circle-check', info: 'info' };
+function kindOf(code = '', level = 1) {
+  if (/^E\d/.test(code) || level >= 3) return 'error';
+  if (/Limit_Alarm|Pellet_Level_Low|Autotune_Failed|W\d\d/.test(code) || level === 2) return 'warn';
+  if (/Achieved|Timer_Expired|Probe_ETA|Recipe_|Autotune_Done|Tuning_Applied/.test(code)) return 'ok';
+  return 'info';
+}
+function updateBadge() {
+  const b = document.getElementById('bell-badge');
+  if (!b) return;
+  const n = PF.notifs.length;
+  b.hidden = n === 0; b.textContent = n > 99 ? '99+' : String(n);
+  const bell = document.getElementById('bell');
+  if (bell) bell.classList.toggle('has-error', PF.notifs.some((x) => x.kind === 'error'));
+}
+export function notify({ kind = 'info', title = '', body = '', code = '', ts = Date.now() / 1000 }, { banner = true, keep = true } = {}) {
+  const n = { id: `${Math.round(ts * 1000)}-${Math.random().toString(36).slice(2, 6)}`, kind, title, body, code, ts };
+  if (keep) { PF.notifs.unshift(n); PF.notifs = PF.notifs.slice(0, 100); store(NOTIF_KEY, PF.notifs); updateBadge(); }
+  if (banner) showBanner(n);
+  return n;
+}
+function showBanner(n) {
+  const stack = document.getElementById('toasts');
+  if (!stack) return;
+  const iconSvg = () => { const w = el('span', { class: `ic-wrap ${n.kind}` }); import('./icons.js').then((m) => w.append(m.icon(KIND_ICON[n.kind] || 'info'))); return w; };
+  const t = el('div', { class: `ntoast ${n.kind}`, role: 'status' }, iconSvg(),
+    el('div', { class: 'nt-body' }, n.title ? el('div', { class: 'nt-title' }, n.title) : null, n.body ? el('div', { class: 'nt-text' }, n.body) : null),
+    el('button', { class: 'nt-close', 'aria-label': 'Dismiss', onclick: (e) => { e.stopPropagation(); dismiss(); } }, '×'));
+  const dismiss = () => { t.classList.add('out'); setTimeout(() => t.remove(), 220); };
+  t.onclick = dismiss;
+  stack.append(t);
+  while (stack.children.length > 3) stack.firstElementChild.remove();
+  if (n.kind !== 'error') setTimeout(dismiss, n.kind === 'warn' ? 7000 : 4000);
+}
+// grill event pushed over the socket
 function alert(m) {
-  const t = document.getElementById('toast');
-  t.innerHTML = '';
-  t.append(el('strong', {}, m.title), ' ', el('span', { class: 'muted' }, m.body));
-  t.hidden = false; t.classList.toggle('err', /^E\d/.test(m.code));
-  clearTimeout(t._h); t._h = setTimeout(() => (t.hidden = true), 8000);
+  const kind = kindOf(m.code, m.level);
+  notify({ kind, title: m.title, body: m.body, code: m.code, ts: m.ts || Date.now() / 1000 });
+  if (m.ts) store(SEEN_KEY, Math.max(load(SEEN_KEY, 0), m.ts));
   try {
     if (document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') new Notification(m.title, { body: m.body, tag: m.code });
-    if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
+    if (navigator.vibrate && kind !== 'info') navigator.vibrate([120, 60, 120]);
   } catch {}
+}
+// events that happened while the app was closed
+async function catchUpEvents() {
+  try {
+    const evs = await api('/events?limit=40');
+    const seen = load(SEEN_KEY, 0);
+    let newest = seen;
+    if (!seen) { if (evs.length) store(SEEN_KEY, Math.max(...evs.map((e) => e.ts))); return; }   /* first run on this device: start from now */
+    for (const e of evs.slice().reverse()) {
+      if (e.ts <= seen) continue;
+      newest = Math.max(newest, e.ts);
+      const kind = kindOf(e.code, e.level);
+      if (kind === 'info' && !/Achieved|Timer|ETA|Recipe/.test(e.code)) continue;   /* mode changes and housekeeping stay in the log */
+      if (e.code === 'MODE' || e.code.startsWith('SYS_') || e.code.startsWith('UPDATE_')) continue;
+      notify({ kind, title: e.code.replace(/_/g, ' '), body: e.message, code: e.code, ts: e.ts }, { banner: false });
+    }
+    store(SEEN_KEY, newest);
+  } catch { /* offline */ }
 }
 export function requestAlertPermission() {
   if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
 }
+// Short confirmations ("Saved") are banners only; errors also land in the centre.
 export function toast(msg, err = false) {
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.hidden = false; t.classList.toggle('err', err);
-  clearTimeout(t._h); t._h = setTimeout(() => (t.hidden = true), err ? 4000 : 2000);
+  notify({ kind: err ? 'error' : 'ok', title: err ? 'Something went wrong' : '', body: msg }, { keep: err });
+}
+export function openNotifications() {
+  return dialog((close) => {
+    const wrap = el('div', { class: 'ncenter' });
+    const render = () => {
+      wrap.innerHTML = '';
+      wrap.append(el('div', { class: 'row between' }, el('h3', {}, 'Notifications'), el('button', { class: 'btn sm ghost', type: 'button', disabled: !PF.notifs.length, onclick: () => { PF.notifs = []; store(NOTIF_KEY, []); updateBadge(); render(); } }, 'Clear all')));
+      if (!PF.notifs.length) wrap.append(el('div', { class: 'muted', style: 'padding:14px 0' }, 'Nothing to review.'));
+      const list = el('div', { class: 'nlist' });
+      for (const n of PF.notifs) {
+        const w = el('span', { class: `ic-wrap ${n.kind}` }); import('./icons.js').then((m) => w.append(m.icon(KIND_ICON[n.kind] || 'info')));
+        list.append(el('div', { class: `nitem ${n.kind}` }, w,
+          el('div', { class: 'nt-body' }, n.title ? el('div', { class: 'nt-title' }, n.title) : null, el('div', { class: 'nt-text' }, n.body), el('div', { class: 'meta' }, new Date(n.ts * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))),
+          el('button', { class: 'nt-close', 'aria-label': 'Clear', onclick: () => { PF.notifs = PF.notifs.filter((x) => x.id !== n.id); store(NOTIF_KEY, PF.notifs); updateBadge(); render(); } }, '×')));
+      }
+      wrap.append(list, el('button', { class: 'btn ghost block', type: 'button', style: 'margin-top:10px', onclick: () => close() }, 'Close'));
+    };
+    render();
+    return wrap;
+  });
 }
 export function dialog(build) {
   const d = document.getElementById('dlg');
@@ -232,7 +348,10 @@ function fitViewport() {
 fitViewport();
 for (const ev of ['resize', 'orientationchange', 'pageshow']) window.addEventListener(ev, fitViewport);
 window.visualViewport?.addEventListener('resize', fitViewport);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { fitViewport(); setTimeout(fitViewport, 300); } });
+function repaintHeader() { const h = document.querySelector('.topbar'); if (!h) return; h.style.display = 'none'; void h.offsetHeight; h.style.display = ''; }
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { fitViewport(); setTimeout(fitViewport, 300); setTimeout(repaintHeader, 350); } });
+window.addEventListener('pageshow', () => setTimeout(repaintHeader, 350));
+setTimeout(repaintHeader, 1200);
 setTimeout(fitViewport, 500);
 
 // ---------- boot ----------
@@ -242,6 +361,9 @@ setTimeout(fitViewport, 500);
   route();
   emit();
   connect();
+  updateBadge();
+  document.getElementById('bell')?.addEventListener('click', openNotifications);
+  catchUpEvents();
   document.addEventListener('click', requestAlertPermission, { once: true });
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('/sw.js').catch(() => {});
   // after a daemon upgrade the cached shell may be older than the server: reload once so modules match
