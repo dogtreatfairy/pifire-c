@@ -103,6 +103,44 @@ static int fill_defaults(cJSON *dst, const cJSON *src)
 
 /* ---------------- validation ---------------- */
 
+/* Built-in notification rules are adopted once each, by id. A rule a new release introduces appears
+ * for people who already have a settings file, and one the user deleted stays deleted, because the
+ * ids that have ever been offered are remembered alongside the rules. */
+static int adopt_builtin_rules(cJSON *root, cJSON *defaults)
+{
+	cJSON *drules = pf_json_path(defaults, "notify.rules");
+	cJSON *notify = pf_json_path(root, "notify");
+	if (!cJSON_IsArray(drules) || !notify) return 0;
+	cJSON *rules = cJSON_GetObjectItem(notify, "rules");
+	if (!cJSON_IsArray(rules)) rules = cJSON_AddArrayToObject(notify, "rules");
+	cJSON *seen = cJSON_GetObjectItem(notify, "builtins");
+	if (!cJSON_IsArray(seen)) seen = cJSON_AddArrayToObject(notify, "builtins");
+	int added = 0, offered = 0;
+	cJSON *d;
+	cJSON_ArrayForEach(d, drules) {
+		const char *id = pf_json_str(d, "id", "");
+		if (!id[0]) continue;
+		bool known = false, have = false;
+		cJSON *it;
+		cJSON_ArrayForEach(it, seen) if (cJSON_IsString(it) && !strcmp(it->valuestring, id)) known = true;
+		if (known) continue;
+		offered++;
+		cJSON_ArrayForEach(it, rules) if (!strcmp(pf_json_str(it, "id", ""), id)) have = true;
+		if (!have && rules != drules) { cJSON_AddItemToArray(rules, cJSON_Duplicate(d, 1)); added++; }
+	}
+	/* record the ids only after the walk, so appending to `seen` cannot disturb it */
+	cJSON_ArrayForEach(d, drules) {
+		const char *id = pf_json_str(d, "id", "");
+		if (!id[0]) continue;
+		bool known = false;
+		cJSON *it;
+		cJSON_ArrayForEach(it, seen) if (cJSON_IsString(it) && !strcmp(it->valuestring, id)) known = true;
+		if (!known) cJSON_AddItemToArray(seen, cJSON_CreateString(id));
+	}
+	if (added) LOGI(TAG, "%d new built-in notification rule(s) added", added);
+	return offered;
+}
+
 static int validate(cJSON *root, char *err, size_t errn)
 {
 #define CHECK(cond, ...) do { if (!(cond)) { snprintf(err, errn, __VA_ARGS__); return -1; } } while (0)
@@ -170,7 +208,6 @@ int pf_settings_init(const char *path)
 	int added = 0;
 	if (loaded) {
 		added = fill_defaults(loaded, defaults);
-		cJSON_Delete(defaults);
 		g_root = loaded;
 		/* schema migrations for settings written by older builds */
 		int ver = (int)pf_json_num(g_root, "schema_version", 1);
@@ -272,8 +309,12 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 6 (grill and hopper rules)");
 			added = 1;
 		}
+		/* after the migrations so a new release's built-in rules reach an existing settings file */
+		if (adopt_builtin_rules(g_root, defaults)) added = 1;
+		cJSON_Delete(defaults);
 	} else {
 		g_root = defaults;
+		adopt_builtin_rules(g_root, g_root);   /* record what shipped, so none is offered twice */
 		added = 1;
 	}
 
