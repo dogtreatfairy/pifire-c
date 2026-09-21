@@ -192,6 +192,17 @@ async function catchUpEvents() {
     store(SEEN_KEY, newest);
   } catch { /* offline */ }
 }
+// iOS draws Safari's address bar and toolbar when the page is opened in a tab rather than launched
+// from the Home Screen icon. Say so once, with the taps that fix it, instead of leaving it a mystery.
+function installHint() {
+  const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+  if (!iOS || standalone) return;
+  try { if (localStorage.getItem('pf.installHint') === '1') return; localStorage.setItem('pf.installHint', '1'); } catch { /* private window */ }
+  notify({ kind: 'info', title: 'Add PiFire to your Home Screen',
+    body: 'Tap Share, then "Add to Home Screen". Launched from there it runs full screen, without Safari\'s bars.' });
+}
+
 export function requestAlertPermission() {
   if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
 }
@@ -394,6 +405,7 @@ setTimeout(fitViewport, 500);
   connect();
   updateBadge();
   document.getElementById('bell')?.addEventListener('click', openNotifications);
+  setTimeout(installHint, 2500);
   catchUpEvents();
   document.addEventListener('click', requestAlertPermission, { once: true });
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('/sw.js').catch(() => {});

@@ -41,8 +41,11 @@ function summarise(r) {
     if (Array.isArray(node.conditions)) { node.conditions.forEach(walk); return; }
     if (!node.trait) return;
     const v = node.value;
-    const vs = v && typeof v === 'object' && v.trait ? ` its ${titleCase(v.trait)}` : v === undefined ? '' : ` ${v}`;
-    parts.push(`${titleCase(node.trait)} ${OP_LABEL[node.op] || node.op}${vs}`);
+    const vs = v && typeof v === 'object' && v.trait
+      ? (v.entity ? ` ${titleCase(v.entity)} ${titleCase(v.trait)}` : ` its ${titleCase(v.trait)}`)
+      : v === undefined ? '' : ` ${v}`;
+    const lhs = node.entity && node.entity !== 'this' ? `${titleCase(node.entity)} ${titleCase(node.trait)}` : titleCase(node.trait);
+    parts.push(`${lhs} ${OP_LABEL[node.op] || node.op}${vs}${node.value2 !== undefined ? ` ± ${node.value2}` : ''}`);
   };
   walk(r.when);
   const join = r.when?.op === 'any' ? ' or ' : ' and ';
@@ -63,16 +66,31 @@ function conditionRow(cond, domain, onChange, onRemove) {
   const row = el('div', { class: 'cond' });
   const draw = () => {
     row.innerHTML = '';
-    const def = traitDef(domain, cond.trait) || traitsOf(domain)[0];
-    if (def && cond.trait !== def.id && !traitDef(domain, cond.trait)) cond.trait = def.id;
+    const from = cond.entity && cond.entity !== 'this' ? cond.entity : domain;
+    const def = traitDef(from, cond.trait) || traitsOf(from)[0];
+    if (def && !traitDef(from, cond.trait)) cond.trait = def.id;
     const ops = def?.operators || ['=='];
     if (!ops.includes(cond.op)) cond.op = ops[0];
     const needsValue = !['is_on', 'is_off', 'empty', 'not_empty'].includes(cond.op);
     const asTrait = cond.value && typeof cond.value === 'object';
 
+    // the reading being tested: one of the watched entity's own, or any single-instance entity's,
+    // which is how "only while the grill is in Hold" is added to a probe rule
+    const cur = `${cond.entity && cond.entity !== 'this' ? cond.entity : 'this'}:${cond.trait}`;
+    const groups = [el('optgroup', { label: `This ${titleCase(domain)}` },
+      traitsOf(domain).map((t) => el('option', { value: `this:${t.id}`, selected: cur === `this:${t.id}` }, titleCase(t.id))))];
+    for (const d of CAT.domains) {
+      if (d.multi || d.id === domain) continue;
+      groups.push(el('optgroup', { label: titleCase(d.id) },
+        d.traits.map((t) => el('option', { value: `${d.id}:${t.id}`, selected: cur === `${d.id}:${t.id}` }, `${titleCase(d.id)} ${titleCase(t.id)}`))));
+    }
     row.append(
-      el('select', { class: 'c-trait', onchange: (e) => { cond.trait = e.target.value; draw(); onChange(); } },
-        traitsOf(domain).map((t) => el('option', { value: t.id, selected: t.id === cond.trait }, titleCase(t.id)))),
+      el('select', { class: 'c-trait', onchange: (e) => {
+        const [ent, tr] = e.target.value.split(':');
+        if (ent === 'this') delete cond.entity; else cond.entity = ent;
+        cond.trait = tr;
+        draw(); onChange();
+      } }, groups),
       el('select', { class: 'c-op', onchange: (e) => { cond.op = e.target.value; draw(); onChange(); } },
         ops.map((o) => el('option', { value: o, selected: o === cond.op }, OP_LABEL[o] || o))),
       el('button', { class: 'btn xs ghost c-del', type: 'button', 'aria-label': 'Remove this condition', onclick: onRemove }, '×'));
@@ -81,8 +99,25 @@ function conditionRow(cond, domain, onChange, onRemove) {
       const pair = cond.op === 'between' || cond.op === 'within';
       let valueField;
       if (asTrait) {
-        valueField = el('select', { class: 'c-val', onchange: (e) => { cond.value = { trait: e.target.value }; onChange(); } },
-          traitsOf(domain).map((t) => el('option', { value: t.id, selected: t.id === cond.value.trait }, `its ${titleCase(t.id)}`)));
+        // "its own target" for the probe being watched, or any reading of a single-instance entity
+        // such as the grill's set point, which is how "pit reached its set point" is written
+        const cur = `${cond.value.entity || 'this'}:${cond.value.trait}`;
+        const opts = [el('optgroup', { label: 'This ' + titleCase(domain) },
+          traitsOf(domain).map((t) => el('option', { value: `this:${t.id}`, selected: cur === `this:${t.id}` }, `its ${titleCase(t.id)}`)))];
+        for (const d of CAT.domains) {
+          if (d.multi || d.id === domain) continue;
+          opts.push(el('optgroup', { label: titleCase(d.id) },
+            d.traits.map((t) => el('option', { value: `${d.id}:${t.id}`, selected: cur === `${d.id}:${t.id}` }, `${titleCase(d.id)} ${titleCase(t.id)}`))));
+        }
+        valueField = el('select', { class: 'c-val', onchange: (e) => {
+          const [ent, tr] = e.target.value.split(':');
+          cond.value = ent === 'this' ? { trait: tr } : { entity: ent, trait: tr };
+          onChange();
+        } }, opts);
+      } else if (def?.type === 'enum') {
+        const MODES = ['Stop', 'Monitor', 'Startup', 'Reignite', 'Smoke', 'Hold', 'Shutdown', 'Manual', 'Error'];
+        valueField = el('select', { class: 'c-val', onchange: (e) => { cond.value = e.target.value; onChange(); } },
+          MODES.map((m) => el('option', { value: m, selected: m === cond.value }, m)));
       } else {
         const unit = def?.type === 'temperature' ? degUnit() : def?.type === 'duration' ? 'seconds' : def?.unit === '%' ? '%' : 'value';
         valueField = el('input', {
@@ -255,7 +290,10 @@ function ruleEditor(rule, isNew) {
         el('button', { class: 'btn primary', type: 'button', onclick: () => close(r) }, 'Save')),
       el('div', { class: 'btnrow', style: 'margin-top:8px' },
         isNew ? null : el('button', { class: 'btn ghost', type: 'button', onclick: () => close('delete') }, 'Delete'),
-        el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel')));
+        el('button', { class: 'btn ghost', type: 'button', onclick: async () => {
+          if (JSON.stringify(r) !== JSON.stringify(rule) && !await confirmDialog('Discard changes?', r.name || '', 'Discard', true)) return;
+          close(undefined);
+        } }, 'Cancel')));
     return wrap;
   });
 }
@@ -269,8 +307,13 @@ export async function renderRules(view) {
 
   const list = el('div', { class: 'list' });
   const save = async () => {
-    try { await patchSettings('notify', { rules }); toast('Saved'); draw(); }
-    catch (e) { toast(e.message, true); }
+    try {
+      await patchSettings('notify', { rules });
+      // read back what was actually stored, so the table can never show something that was not saved
+      rules = (await api('/rules')).rules || [];
+      toast('Saved');
+      draw();
+    } catch (e) { toast(e.message, true); draw(); }
   };
   const edit = async (rule, isNew) => {
     const r = await ruleEditor(rule, isNew);

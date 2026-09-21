@@ -1,5 +1,5 @@
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -248,7 +248,7 @@
     ]
   },
   "pelletlevel": {
-    "warning_enabled": true,
+    "warning_enabled": false,
     "warning_level": 25,
     "warning_time": 20,
     "empty": 22,
@@ -591,6 +591,183 @@
         "repeat_s": 0,
         "for_s": 10,
         "only_while_cooking": false
+      },
+      {
+        "id": "grill-at-temp",
+        "name": "Grill Reached Temp",
+        "enabled": true,
+        "select": {
+          "domain": "grill",
+          "match": "any"
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "entity": "grill",
+              "trait": "mode",
+              "op": "is",
+              "value": "Hold"
+            },
+            {
+              "entity": "grill",
+              "trait": "over",
+              "op": "within",
+              "value": 0,
+              "value2": 15
+            }
+          ]
+        },
+        "title": "{grill} is up to temperature",
+        "body": "Holding {grill_temp} against a {setpoint} target.",
+        "level": "normal",
+        "sinks": [
+          "app",
+          "pushover",
+          "ntfy"
+        ],
+        "for_s": 180,
+        "cooldown_s": 1800,
+        "repeat_s": 0,
+        "only_while_cooking": true
+      },
+      {
+        "id": "grill-hot",
+        "name": "Grill Running Hot",
+        "enabled": true,
+        "select": {
+          "domain": "grill",
+          "match": "any"
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "entity": "grill",
+              "trait": "mode",
+              "op": "is",
+              "value": "Hold"
+            },
+            {
+              "entity": "grill",
+              "trait": "over",
+              "op": ">",
+              "value": 20
+            }
+          ]
+        },
+        "title": "{grill} is running hot",
+        "body": "{grill_temp} against a {setpoint} target.",
+        "level": "high",
+        "sinks": [
+          "app",
+          "pushover",
+          "ntfy"
+        ],
+        "for_s": 60,
+        "cooldown_s": 900,
+        "repeat_s": 0,
+        "only_while_cooking": true
+      },
+      {
+        "id": "grill-cold",
+        "name": "Grill Running Cold",
+        "enabled": true,
+        "select": {
+          "domain": "grill",
+          "match": "any"
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "entity": "grill",
+              "trait": "mode",
+              "op": "is",
+              "value": "Hold"
+            },
+            {
+              "entity": "grill",
+              "trait": "over",
+              "op": "<",
+              "value": -20
+            }
+          ]
+        },
+        "title": "{grill} is running cold",
+        "body": "{grill_temp} against a {setpoint} target. Check the fire and the hopper.",
+        "level": "high",
+        "sinks": [
+          "app",
+          "pushover",
+          "ntfy"
+        ],
+        "for_s": 60,
+        "cooldown_s": 900,
+        "repeat_s": 0,
+        "only_while_cooking": true
+      },
+      {
+        "id": "hopper-low",
+        "name": "Hopper Low",
+        "enabled": true,
+        "select": {
+          "domain": "hopper",
+          "match": "any"
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "trait": "level",
+              "op": "<",
+              "value": 20
+            }
+          ]
+        },
+        "title": "Pellets are low",
+        "body": "The hopper is at {hopper}. Top it up before it runs out.",
+        "level": "normal",
+        "sinks": [
+          "app",
+          "pushover",
+          "ntfy"
+        ],
+        "for_s": 30,
+        "cooldown_s": 1800,
+        "repeat_s": 0,
+        "only_while_cooking": true
+      },
+      {
+        "id": "hopper-critical",
+        "name": "Hopper Critical",
+        "enabled": true,
+        "select": {
+          "domain": "hopper",
+          "match": "any"
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "trait": "level",
+              "op": "<",
+              "value": 10
+            }
+          ]
+        },
+        "title": "Pellets about to run out",
+        "body": "The hopper is at {hopper}. The fire will go out if it is not filled now.",
+        "level": "critical",
+        "sinks": [
+          "app",
+          "pushover",
+          "ntfy"
+        ],
+        "for_s": 30,
+        "cooldown_s": 600,
+        "repeat_s": 900,
+        "only_while_cooking": true
       }
     ]
   },

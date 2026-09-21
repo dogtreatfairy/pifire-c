@@ -172,7 +172,9 @@ static void open_temp(tft_t *t, pf_action act, const char *title, const char *bu
 	t->ui.temp_value = round(value);
 	t->ui.temp_action = act;
 	t->ui.temp_focus = 0;
-	t->ui.temp_editing = false;
+	/* open ready to edit: the knob changes the temperature straight away, one press accepts it and
+	 * moves to the action button, so a double press starts at whatever is on screen */
+	t->ui.temp_editing = true;
 	pf_strlcpy(t->ui.temp_title, title, sizeof t->ui.temp_title);
 	pf_strlcpy(t->ui.temp_button, button, sizeof t->ui.temp_button);
 	pf_nav_push(&t->ui, PF_SCR_TEMP, 0);
@@ -534,7 +536,6 @@ static void handle_key(tft_t *t, pf_key k, double now)
 		if (k == PF_KEY_ENTER) open_menu(t);
 		else if (dir && !strcmp(mode, "Hold")) {
 			open_temp(t, PF_ACT_HOLD, "HOLD", "Start", pf_json_num(t->status, "setpoint", 0));
-			t->ui.temp_editing = true;
 			spin_temp(t, dir, now);
 		}
 		break;
@@ -552,7 +553,7 @@ static void handle_key(tft_t *t, pf_key k, double now)
 	case PF_SCR_TEMP:
 		if (t->ui.temp_editing) {
 			if (dir) spin_temp(t, dir, now);
-			else if (k == PF_KEY_ENTER) t->ui.temp_editing = false;
+			else if (k == PF_KEY_ENTER) { t->ui.temp_editing = false; t->ui.temp_focus = 1; }
 		} else if (dir) {
 			/* three stops that clamp: the value sits between Back and the action button */
 			int f = t->ui.temp_focus + (dir > 0 ? 1 : -1);

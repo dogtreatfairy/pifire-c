@@ -88,7 +88,7 @@ static val trait_of(const cJSON *status, const inst *in, const char *entity, con
 
 	/* everything else lives at a fixed path in the status */
 	static const struct { const char *domain, *trait, *path; } MAP[] = {
-		{ "grill", "mode", "mode" }, { "grill", "temp", NULL }, { "grill", "setpoint", "setpoint" },
+		{ "grill", "mode", "mode" }, { "grill", "temp", NULL }, { "grill", "over", NULL }, { "grill", "setpoint", "setpoint" },
 		{ "grill", "error", "safety.error_code" }, { "grill", "cook_elapsed", "cook_elapsed" },
 		{ "grill", "mode_remaining", "timers.mode_remaining" }, { "grill", "lid_open", "lid_open" },
 		{ "grill", "hopper", "hopper_pct" },
@@ -100,12 +100,17 @@ static val trait_of(const cJSON *status, const inst *in, const char *entity, con
 		{ "system", "wifi_signal", "net.signal" }, { "system", "tailscale_online", "net.tailscale.online" },
 		{ "timer", "remaining", "timer.remaining" }, { "timer", "running", "timer.running" },
 	};
-	if (!strcmp(domain, "grill") && !strcmp(trait, "temp")) {
+	if (!strcmp(domain, "grill") && (!strcmp(trait, "temp") || !strcmp(trait, "over"))) {
+		/* "over" is how far the pit sits from its set point: positive is hot, negative is cold.
+		 * It is what "stabilised", "running hot" and "running cold" are all written against. */
+		double sp = pf_json_num((cJSON *)status, "setpoint", 0);
+		if (!strcmp(trait, "over") && sp <= 0) return v_none();
 		const cJSON *p;
 		cJSON_ArrayForEach(p, jget(status, "probes"))
 			if (!strcmp(pf_json_str((cJSON *)p, "role", ""), "Primary")) {
 				const cJSON *t = jget(p, "temp");
-				return cJSON_IsNumber(t) ? v_num(t->valuedouble) : v_none();
+				if (!cJSON_IsNumber(t)) return v_none();
+				return v_num(strcmp(trait, "over") ? t->valuedouble : t->valuedouble - sp);
 			}
 		return v_none();
 	}
@@ -517,6 +522,7 @@ cJSON *pf_rules_catalogue_json(const cJSON *status)
 		{ "probe", "rssi", "number", "dBm" }, { "probe", "connected", "bool", "" },
 		{ "probe", "wireless", "bool", "" }, { "probe", "name", "string", "" },
 		{ "grill", "mode", "enum", "" }, { "grill", "temp", "temperature", "deg" },
+		{ "grill", "over", "temperature", "deg" },
 		{ "grill", "setpoint", "temperature", "deg" }, { "grill", "error", "string", "" },
 		{ "grill", "cook_elapsed", "duration", "s" }, { "grill", "mode_remaining", "duration", "s" },
 		{ "grill", "lid_open", "bool", "" },

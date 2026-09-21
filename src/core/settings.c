@@ -262,6 +262,16 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 5 (notification rules)");
 			added = 1;
 		}
+		if (ver < 6) {
+			/* the hopper now has its own low and critical rules, which say more than the single
+			 * built-in warning did, so the old one steps aside rather than doubling up */
+			cJSON *we = pf_json_path(g_root, "pelletlevel.warning_enabled");
+			if (cJSON_IsBool(we)) cJSON_ReplaceItemInObject(pf_json_path(g_root, "pelletlevel"), "warning_enabled", cJSON_CreateFalse());
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 6); else cJSON_AddNumberToObject(g_root, "schema_version", 6);
+			LOGI(TAG, "settings migrated to schema 6 (grill and hopper rules)");
+			added = 1;
+		}
 	} else {
 		g_root = defaults;
 		added = 1;

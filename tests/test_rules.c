@@ -205,7 +205,7 @@ static void test_builtin_rules_and_catalogue(void)
 {
 	cJSON *rules = pf_set_dup("notify.rules");
 	TEST_ASSERT_TRUE(cJSON_IsArray(rules));
-	TEST_ASSERT_TRUE(cJSON_GetArraySize(rules) >= 4);
+	TEST_ASSERT_TRUE(cJSON_GetArraySize(rules) >= 9);
 	bool saw_target = false, saw_offline = false;
 	cJSON *r;
 	cJSON_ArrayForEach(r, rules) {
@@ -241,6 +241,84 @@ static void test_builtin_rules_and_catalogue(void)
 	cJSON_Delete(st);
 }
 
+/* the grill's distance from its set point, the tolerance operator, and a mode condition */
+static void test_grill_stability_rules(void)
+{
+	/* stabilised: within 15 of the set point, and only while holding */
+	only_rule("{\"id\":\"t\",\"enabled\":true,\"only_while_cooking\":true,\"for_s\":0,"
+	          "\"select\":{\"domain\":\"grill\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":["
+	            "{\"entity\":\"grill\",\"trait\":\"mode\",\"op\":\"is\",\"value\":\"Hold\"},"
+	            "{\"entity\":\"grill\",\"trait\":\"over\",\"op\":\"within\",\"value\":0,\"value2\":15}]},"
+	          "\"title\":\"up to temperature\",\"body\":\"{grill_temp} against {setpoint}\","
+	          "\"level\":\"normal\",\"cooldown_s\":600}");
+	cJSON *st = status();   /* pit 227, set point 225: two degrees over */
+	pf_rules_tick(st, 1000);
+	TEST_ASSERT_EQUAL_INT(1, g_ncap);
+	TEST_ASSERT_EQUAL_STRING("227\xC2\xB0""F against 225\xC2\xB0""F", g_cap[0].body);
+
+	/* 30 over is outside the band, so it says nothing */
+	only_rule("{\"id\":\"t2\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":[{\"entity\":\"grill\",\"trait\":\"over\",\"op\":\"within\",\"value\":0,\"value2\":15}]},"
+	          "\"title\":\"x\",\"body\":\"\",\"level\":\"normal\",\"cooldown_s\":600}");
+	cJSON *probes = cJSON_GetObjectItem(st, "probes");
+	cJSON_ReplaceItemInObject(cJSON_GetArrayItem(probes, 0), "temp", cJSON_CreateNumber(255));
+	pf_rules_tick(st, 2000);
+	TEST_ASSERT_EQUAL_INT(0, g_ncap);
+
+	/* running hot is the same reading past a threshold */
+	only_rule("{\"id\":\"t3\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":[{\"entity\":\"grill\",\"trait\":\"over\",\"op\":\">\",\"value\":20}]},"
+	          "\"title\":\"running hot\",\"body\":\"\",\"level\":\"high\",\"cooldown_s\":600}");
+	pf_rules_tick(st, 3000);
+	TEST_ASSERT_EQUAL_INT(1, g_ncap);
+	TEST_ASSERT_EQUAL_INT(PF_CRIT_HIGH, g_cap[0].crit);
+
+	/* a mode condition keeps it quiet outside Hold */
+	only_rule("{\"id\":\"t4\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":["
+	            "{\"entity\":\"grill\",\"trait\":\"mode\",\"op\":\"is\",\"value\":\"Smoke\"},"
+	            "{\"entity\":\"grill\",\"trait\":\"over\",\"op\":\">\",\"value\":20}]},"
+	          "\"title\":\"x\",\"body\":\"\",\"level\":\"high\",\"cooldown_s\":600}");
+	pf_rules_tick(st, 4000);
+	TEST_ASSERT_EQUAL_INT(0, g_ncap);   /* the grill is in Hold, not Smoke */
+	cJSON_Delete(st);
+}
+
+/* the hopper thresholds, including the critical one that keeps reminding */
+static void test_hopper_rules(void)
+{
+	only_rule("{\"id\":\"t\",\"enabled\":true,\"only_while_cooking\":true,\"for_s\":0,"
+	          "\"select\":{\"domain\":\"hopper\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":[{\"trait\":\"level\",\"op\":\"<\",\"value\":20}]},"
+	          "\"title\":\"Pellets are low\",\"body\":\"at {hopper}\",\"level\":\"normal\",\"cooldown_s\":600}");
+	cJSON *st = status();   /* the fixture sits at 40 % */
+	pf_rules_tick(st, 1000);
+	TEST_ASSERT_EQUAL_INT(0, g_ncap);
+	cJSON_ReplaceItemInObject(st, "hopper_pct", cJSON_CreateNumber(12));
+	pf_rules_tick(st, 1001);
+	TEST_ASSERT_EQUAL_INT(1, g_ncap);
+	TEST_ASSERT_EQUAL_STRING("at 12%", g_cap[0].body);
+
+	/* the critical one repeats while it stays true */
+	only_rule("{\"id\":\"t2\",\"enabled\":true,\"only_while_cooking\":true,\"for_s\":0,"
+	          "\"select\":{\"domain\":\"hopper\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":[{\"trait\":\"level\",\"op\":\"<\",\"value\":10}]},"
+	          "\"title\":\"x\",\"body\":\"\",\"level\":\"critical\",\"cooldown_s\":60,\"repeat_s\":120}");
+	cJSON_ReplaceItemInObject(st, "hopper_pct", cJSON_CreateNumber(5));
+	pf_rules_tick(st, 2000);
+	TEST_ASSERT_EQUAL_INT(1, g_ncap);
+	TEST_ASSERT_EQUAL_INT(PF_CRIT_CRITICAL, g_cap[0].crit);
+	pf_rules_tick(st, 2060);
+	TEST_ASSERT_EQUAL_INT(1, g_ncap);          /* inside the repeat interval */
+	pf_rules_tick(st, 2130);
+	TEST_ASSERT_EQUAL_INT(2, g_ncap);          /* and again once it has passed */
+	cJSON_Delete(st);
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -250,6 +328,8 @@ int main(void)
 	RUN_TEST(test_condition_groups);
 	RUN_TEST(test_eta_rule_and_tokens);
 	RUN_TEST(test_only_while_cooking);
+	RUN_TEST(test_grill_stability_rules);
+	RUN_TEST(test_hopper_rules);
 	RUN_TEST(test_builtin_rules_and_catalogue);
 	return UNITY_END();
 }
