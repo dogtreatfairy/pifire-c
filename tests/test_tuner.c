@@ -297,16 +297,29 @@ static void test_single_adds_and_full_profile_replaces(void)
 	TEST_ASSERT_FALSE(isnan(a[0].ambient_c));
 
 	stop_and_wait_cold();
-	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(NULL, true, err, sizeof err));
-	/* the old library is gone the moment a full profile begins */
+	/* A profile replaces the library whatever is in it, so the behaviour is tested with several
+	   set points rather than with whatever the shipped default happens to be -- that is a
+	   configuration choice, and it is asserted separately below. */
+	cJSON *many = cJSON_Parse("[250,180,350]");
+	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(many, true, err, sizeof err));
+	cJSON_Delete(many);
+	/* the old library is gone the moment a profile begins */
 	TEST_ASSERT_EQUAL_INT(0, pf_learning_anchor_list(a, PF_TUNE_ANCHORS));
 	run_to_completion();
 
 	n = pf_learning_anchor_list(a, PF_TUNE_ANCHORS);
 	printf("after a full profile: %d entries\n", n);
-	TEST_ASSERT_TRUE_MESSAGE(n >= 3, "a full profile should measure the whole range");
+	TEST_ASSERT_TRUE_MESSAGE(n >= 2, "a profile should measure the range it was given");
 	for (int i = 0; i < n; i++)
 		TEST_ASSERT_TRUE_MESSAGE(fabs(pf_from_c(a[i].setpoint_c, PF_UNITS_F) - 300) > 5, "the 300 F entry should have been replaced");
+
+	/* And what ships: one honest anchor at the baseline, because a four point profile is most of a
+	   day of the grill's time and most of that is spent walking between temperatures rather than
+	   measuring. The schedule clamps outside its anchors, so one governs the whole range. */
+	cJSON *prof = pf_set_dup("learning.tune_setpoints");
+	TEST_ASSERT_EQUAL_INT_MESSAGE(1, cJSON_GetArraySize(prof), "a normal autotune is the baseline alone");
+	TEST_ASSERT_EQUAL_DOUBLE(250, cJSON_GetArrayItem(prof, 0)->valuedouble);
+	cJSON_Delete(prof);
 	stop_and_cool();
 }
 

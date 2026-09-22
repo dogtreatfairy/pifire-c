@@ -82,13 +82,17 @@ export function renderLearning(view) {
       if (mode === 'full') {
         tuneCard.append(
           el('p', { class: 'muted', style: 'font-size:.85rem;margin-top:10px' },
-            `Measures ${(tune.profile || []).map((v) => `${v}${degUnit()}`).join(', ') || 'the whole range'} in that order, and records the weather it measured them in. The first one is the baseline: it is measured where the grill has the most room to swing either side of its centre, which makes it the most trustworthy of the four, and everything after it is measured with that tuning already in hand. This replaces everything in the tuning library and takes a few hours.`),
+            ((p) => p.length > 1
+              ? `Measures ${p.map((v) => `${v}${degUnit()}`).join(', ')} in that order, and records the weather it measured them in. The first is the baseline, measured where the grill has the most room to swing either side of its centre, and everything after it is measured with that tuning already in hand. This replaces the tuning library and takes a few hours.`
+              : `Measures ${p.map((v) => `${v}${degUnit()}`).join('') || 'the baseline'} and records the weather it measured it in. This is where the grill has the most room to swing either side of its centre, which makes it the measurement worth trusting, and the schedule holds outside it — so one honest anchor governs the whole range. It replaces the tuning library and takes about an hour. Add other temperatures one at a time below, when a cook calls for them.`)(tune.profile || [])),
           el('button', {
             class: 'btn primary block',
             disabled: busy,
             onclick: () => start({ full_profile: true }, {
               title: 'Run a full profile tune?',
-              text: 'The grill starts itself, measures every temperature in turn and shuts down when it is finished. This replaces the tuning library with a new baseline. It takes a few hours, so do not cook during the run.',
+              text: (tune.profile || []).length > 1
+                ? 'The grill starts itself, measures every temperature in turn and shuts down when it is finished. This replaces the tuning library with a new baseline. It takes a few hours, so do not cook during the run.'
+                : 'The grill starts itself, measures the loop and shuts down when it is finished. This replaces the tuning library with a new baseline. Do not cook during the run.',
             }),
           }, busy ? 'Stop the grill to start a run' : 'Run Full Profile'));
       } else {

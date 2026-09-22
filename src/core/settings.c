@@ -471,6 +471,34 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 11 (%d at-temperature rule%s now separate Hold from Smoke)", fixed, fixed == 1 ? "" : "s");
 			added = 1;
 		}
+		if (ver < 12) {
+			/* A profile of four set points is most of a day of the grill's time and a good part of a
+			 * hopper, and most of that is spent walking between temperatures rather than measuring.
+			 * The baseline near 250 F is the measurement worth having -- it is where the relay has
+			 * the most room to swing either side of its centre -- and the gain schedule clamps
+			 * outside its range, so one honest anchor governs the whole range sensibly. The other
+			 * temperatures are worth adding one at a time, when a cook actually calls for them.
+			 * A list the user has edited to something other than the shipped four is left alone. */
+			cJSON *ln = pf_json_path(g_root, "learning");
+			cJSON *sp = ln ? cJSON_GetObjectItem(ln, "tune_setpoints") : NULL;
+			bool stock = cJSON_IsArray(sp) && cJSON_GetArraySize(sp) == 4;
+			if (stock) {
+				static const double was[4] = { 250, 180, 350, 450 };
+				for (int i = 0; i < 4; i++) {
+					cJSON *it = cJSON_GetArrayItem(sp, i);
+					if (!cJSON_IsNumber(it) || fabs(it->valuedouble - was[i]) > 0.5) stock = false;
+				}
+			}
+			if (ln && stock) {
+				cJSON *fresh = cJSON_CreateArray();
+				cJSON_AddItemToArray(fresh, cJSON_CreateNumber(250));
+				cJSON_ReplaceItemInObject(ln, "tune_setpoints", fresh);
+			}
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 12); else cJSON_AddNumberToObject(g_root, "schema_version", 12);
+			LOGI(TAG, "settings migrated to schema 12 (%s)", stock ? "a profile is now the 250 F baseline alone" : "tuning set points left as edited");
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);

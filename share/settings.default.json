@@ -1,5 +1,5 @@
 {
-  "schema_version": 11,
+  "schema_version": 12,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -852,10 +852,7 @@
     "half_life_obs": 60,
     "auto_tune": true,
     "tune_setpoints": [
-      250,
-      180,
-      350,
-      450
+      250
     ],
     "tune_baseline": 250
   },

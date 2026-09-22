@@ -73,7 +73,7 @@ Rules written against how far the grill is from its target stay quiet while a me
 
 *Settings → Cooking → Temperature Control & Learning → Autotune* offers two:
 
-* **Full Profile** visits every temperature in `learning.tune_setpoints` (250, 180, 350 and 450 °F by default). It is the grill's new baseline, so it **clears the library** before it starts. A few hours.
+* **Full Profile** visits every temperature in `learning.tune_setpoints` (250 °F alone by default). It is the grill's new baseline, so it **clears the library** before it starts. A few hours.
 
   **The baseline is measured first, and it is not the bottom of the range.** A grill holds 180 °F on
   very little fuel — close enough to the minimum feed that the relay has almost no room to swing
@@ -90,6 +90,13 @@ Rules written against how far the grill is from its target stay quiet while a me
   This costs exactly one downward step, the shortest in the run. Cooling is passive, so the settle
   allowance follows how far the grill must travel and which way: roughly five degrees a minute
   climbing, one and a half cooling, plus an hour to settle once it arrives.
+
+  **What ships is the baseline on its own.** Four set points is most of a day of the grill's time
+  and a good part of a hopper, and most of that is spent walking between temperatures rather than
+  measuring. The gain schedule clamps outside its anchors, so a single honest anchor at 250 °F
+  governs the whole range sensibly, and the temperatures that matter for a particular cook are
+  worth adding one at a time with **One Temperature** when that cook comes up. Adding more to
+  `learning.tune_setpoints` restores the multi-point walk for anyone who wants it.
 * **One Temperature** tunes a single temperature you pick between 180 and 450 °F and **adds** it to the library beside what is already there. About an hour. Use it for a temperature the profile does not cover, or one that has drifted.
 
 Every entry records the outdoor temperature and wind it was measured in, from the ambient probe or the local weather, and the app shows them: the same grill behaves differently on a still summer afternoon than in a winter wind, and an entry means little without the conditions behind it.
