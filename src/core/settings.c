@@ -434,6 +434,40 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 10 (%s)", stock ? "profile now measures its baseline first" : "profile set points left as edited");
 			added = 1;
 		}
+		if (ver < 11) {
+			/* "Grill Reached Temp" compared the pit with the set point in both Hold and Smoke. Only
+			 * Hold has a set point. Smoke is driven by the P-mode rather than the controller, so
+			 * there is no target to be near -- the rule was measuring the distance to zero, which
+			 * is how it came to announce that the grill had reached 0 degrees. Smoke gets the range
+			 * it actually runs in instead, and the message stops quoting a set point that may not
+			 * exist. A rule the user has rewritten is left alone. */
+			int fixed = 0;
+			cJSON *rules = pf_json_path(g_root, "notify.rules"), *r;
+			cJSON_ArrayForEach(r, rules) {
+				if (strcmp(pf_json_str(r, "id", ""), "grill-at-temp")) continue;
+				cJSON *conds = pf_json_path(r, "when.conditions");
+				if (!cJSON_IsArray(conds) || cJSON_GetArraySize(conds) != 2) continue;
+				cJSON *mode = cJSON_GetArrayItem(conds, 0);
+				const char *op = pf_json_str(mode, "op", "");
+				if (strcmp(pf_json_str(mode, "trait", ""), "mode") || (strcmp(op, "is_one_of") && strcmp(op, "is"))) continue;
+				cJSON *when = cJSON_Parse(
+					"{\"op\":\"any\",\"conditions\":["
+					  "{\"op\":\"all\",\"conditions\":["
+					    "{\"entity\":\"grill\",\"trait\":\"mode\",\"op\":\"is\",\"value\":\"Hold\"},"
+					    "{\"entity\":\"grill\",\"trait\":\"over\",\"op\":\"within\",\"value\":0,\"value2\":15}]},"
+					  "{\"op\":\"all\",\"conditions\":["
+					    "{\"entity\":\"grill\",\"trait\":\"mode\",\"op\":\"is\",\"value\":\"Smoke\"},"
+					    "{\"entity\":\"grill\",\"trait\":\"temp\",\"op\":\"between\",\"value\":180,\"value2\":230}]}]}");
+				if (!when) continue;
+				cJSON_ReplaceItemInObject(r, "when", when);
+				cJSON_ReplaceItemInObject(r, "body", cJSON_CreateString("The pit is at {grill_temp}."));
+				fixed++;
+			}
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 11); else cJSON_AddNumberToObject(g_root, "schema_version", 11);
+			LOGI(TAG, "settings migrated to schema 11 (%d at-temperature rule%s now separate Hold from Smoke)", fixed, fixed == 1 ? "" : "s");
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);

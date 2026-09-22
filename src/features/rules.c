@@ -57,7 +57,15 @@ static val trait_of(const cJSON *status, const inst *in, const char *entity, con
 
 	if (!strcmp(domain, "probe") && o) {
 		const cJSON *t = jget(o, trait);
-		if (!strcmp(trait, "temp") || !strcmp(trait, "target") || !strcmp(trait, "battery") ||
+		/* A target of zero is not a target of zero degrees, it is no target: the pit probe never
+		 * has one, and food probes only get one when somebody sets it. Reporting it as a number
+		 * makes "reached its target" true for every probe nobody is watching. "over" has always
+		 * treated it this way; now the trait itself agrees. */
+		if (!strcmp(trait, "target")) {
+			const cJSON *tg = jget(o, "target");
+			return (cJSON_IsNumber(tg) && tg->valuedouble > 0) ? v_num(tg->valuedouble) : v_none();
+		}
+		if (!strcmp(trait, "temp") || !strcmp(trait, "battery") ||
 		    !strcmp(trait, "signal") || !strcmp(trait, "rssi") || !strcmp(trait, "eta") ||
 		    !strcmp(trait, "limit_high") || !strcmp(trait, "limit_low") || !strcmp(trait, "ambient")) {
 			if (!strcmp(trait, "eta")) t = jget(o, "eta_s");
@@ -244,6 +252,11 @@ static bool compare(const val *a, const char *op, const val *b, const val *b2)
 		if (!strcmp(op, "is_not") || !strcmp(op, "!=")) return av != bv;
 		return false;
 	}
+	/* Nothing is not zero. A reading the grill cannot give -- a trait this entity does not have,
+	 * or one that is not set -- used to arrive here as a plain 0 and make "temperature is at or
+	 * above its target" true the moment the probe read anything at all. There is no number to
+	 * compare against, so the comparison is simply not satisfied. */
+	if (b->t == VT_NONE) return false;
 	double x = a->num, y = b->num;
 	if (!strcmp(op, ">")) return x > y;
 	if (!strcmp(op, ">=")) return x >= y;

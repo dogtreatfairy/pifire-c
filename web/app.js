@@ -29,7 +29,7 @@ export async function api(path, opts = {}) {
   const ms = opts.timeout ?? 8000;
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), ms);
-  let r;
+  let r, j;
   try {
     r = await fetch('/api/v1' + path, {
       method: opts.method || (opts.body ? 'POST' : 'GET'),
@@ -38,10 +38,13 @@ export async function api(path, opts = {}) {
       signal: ac.signal,
       cache: 'no-store',
     });
+    /* The body is read inside the timeout, not after it. Headers arriving is not the same as the
+       answer arriving: a tunnel that stalls mid-body leaves this await hanging for ever, and the
+       timer that was meant to prevent exactly that had already been cleared. */
+    j = await r.json().catch(() => ({}));
   } catch (e) {
     throw new Error(e.name === 'AbortError' ? 'The grill did not answer in time' : 'Could not reach the grill');
   } finally { clearTimeout(t); }
-  const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.message || `HTTP ${r.status}`);
   return j;
 }

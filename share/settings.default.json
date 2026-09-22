@@ -1,5 +1,5 @@
 {
-  "schema_version": 10,
+  "schema_version": 11,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -626,28 +626,48 @@
           "match": "any"
         },
         "when": {
-          "op": "all",
+          "op": "any",
           "conditions": [
             {
-              "entity": "grill",
-              "trait": "mode",
-              "op": "is_one_of",
-              "value": [
-                "Hold",
-                "Smoke"
+              "op": "all",
+              "conditions": [
+                {
+                  "entity": "grill",
+                  "trait": "mode",
+                  "op": "is",
+                  "value": "Hold"
+                },
+                {
+                  "entity": "grill",
+                  "trait": "over",
+                  "op": "within",
+                  "value": 0,
+                  "value2": 15
+                }
               ]
             },
             {
-              "entity": "grill",
-              "trait": "over",
-              "op": "within",
-              "value": 0,
-              "value2": 15
+              "op": "all",
+              "conditions": [
+                {
+                  "entity": "grill",
+                  "trait": "mode",
+                  "op": "is",
+                  "value": "Smoke"
+                },
+                {
+                  "entity": "grill",
+                  "trait": "temp",
+                  "op": "between",
+                  "value": 180,
+                  "value2": 230
+                }
+              ]
             }
           ]
         },
         "title": "{grill} is up to temperature",
-        "body": "Holding {grill_temp} against a {setpoint} target.",
+        "body": "The pit is at {grill_temp}.",
         "level": "normal",
         "sinks": [
           "app",

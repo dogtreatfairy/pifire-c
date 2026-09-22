@@ -606,6 +606,70 @@ static void test_a_chattering_condition_is_silenced(void)
 	cJSON_Delete(st);
 }
 
+/* Only Hold has a set point. Smoke is driven by the P-mode rather than the controller, so there is
+   no target to be near: comparing the pit with a set point of zero is how the grill came to
+   announce that it had reached 0 degrees. Smoke gets the range it actually runs in. */
+static void test_at_temperature_separates_hold_from_smoke(void)
+{
+	only_rule("{\"id\":\"at\",\"enabled\":true,\"only_while_cooking\":true,\"for_s\":0,"
+	          "\"select\":{\"domain\":\"grill\"},"
+	          "\"when\":{\"op\":\"any\",\"conditions\":["
+	            "{\"op\":\"all\",\"conditions\":["
+	              "{\"entity\":\"grill\",\"trait\":\"mode\",\"op\":\"is\",\"value\":\"Hold\"},"
+	              "{\"entity\":\"grill\",\"trait\":\"over\",\"op\":\"within\",\"value\":0,\"value2\":15}]},"
+	            "{\"op\":\"all\",\"conditions\":["
+	              "{\"entity\":\"grill\",\"trait\":\"mode\",\"op\":\"is\",\"value\":\"Smoke\"},"
+	              "{\"entity\":\"grill\",\"trait\":\"temp\",\"op\":\"between\",\"value\":180,\"value2\":230}]}]},"
+	          "\"title\":\"up to temperature\",\"body\":\"The pit is at {grill_temp}.\","
+	          "\"level\":\"normal\",\"sinks\":[\"app\"],\"cooldown_s\":600}");
+	cJSON *st = status();                       /* Hold, set point 225, pit 227 */
+	cJSON *pit = cJSON_GetArrayItem(cJSON_GetObjectItem(st, "probes"), 0);
+	pf_rules_tick(st, 1000);
+	TEST_ASSERT_EQUAL_INT(1, g_ncap);
+	TEST_ASSERT_EQUAL_STRING("The pit is at 227\xC2\xB0""F.", g_cap[0].body);
+
+	/* Smoke with no set point at all: the old rule measured the distance to zero and fired. */
+	cJSON_ReplaceItemInObject(st, "mode", cJSON_CreateString("Smoke"));
+	cJSON_ReplaceItemInObject(st, "setpoint", cJSON_CreateNumber(0));
+	cJSON_ReplaceItemInObject(pit, "temp", cJSON_CreateNumber(120));
+	g_ncap = 0;
+	pf_rules_tick(st, 2000);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_ncap, "120 F in Smoke is not up to temperature");
+
+	/* inside the range the P-mode actually holds */
+	cJSON_ReplaceItemInObject(pit, "temp", cJSON_CreateNumber(205));
+	pf_rules_tick(st, 3000);
+	TEST_ASSERT_EQUAL_INT(1, g_ncap);
+	TEST_ASSERT_EQUAL_STRING("The pit is at 205\xC2\xB0""F.", g_cap[0].body);
+
+	/* and above it is not "up to temperature" either */
+	cJSON_ReplaceItemInObject(pit, "temp", cJSON_CreateNumber(260));
+	g_ncap = 0;
+	pf_rules_tick(st, 4000);
+	pf_rules_tick(st, 5000);
+	TEST_ASSERT_EQUAL_INT(0, g_ncap);
+	cJSON_Delete(st);
+}
+
+/* A probe with no target has no target, not a target of zero. Comparing against it used to be a
+   comparison against 0, which made "reached its target" true for every probe nobody was watching
+   -- including the pit probe, which never has one. */
+static void test_an_unset_target_is_not_zero(void)
+{
+	only_rule("{\"id\":\"tgt\",\"enabled\":true,\"only_while_cooking\":true,\"for_s\":0,"
+	          "\"select\":{\"domain\":\"probe\",\"role\":\"Primary\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":["
+	            "{\"trait\":\"temp\",\"op\":\">=\",\"value\":0},"
+	            "{\"trait\":\"temp\",\"op\":\">=\",\"value\":{\"trait\":\"target\"}}]},"
+	          "\"title\":\"Grill reached {target}\",\"body\":\"\","
+	          "\"level\":\"high\",\"sinks\":[\"app\"],\"cooldown_s\":600}");
+	cJSON *st = status();
+	pf_rules_tick(st, 1000);
+	pf_rules_tick(st, 2000);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_ncap, "the pit probe has no target, so it cannot have reached one");
+	cJSON_Delete(st);
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -627,5 +691,7 @@ int main(void)
 	RUN_TEST(test_acknowledgement_is_shared_and_respects_what_is_still_true);
 	RUN_TEST(test_a_rule_that_stops_applying_retires_what_it_raised);
 	RUN_TEST(test_a_chattering_condition_is_silenced);
+	RUN_TEST(test_at_temperature_separates_hold_from_smoke);
+	RUN_TEST(test_an_unset_target_is_not_zero);
 	return UNITY_END();
 }
