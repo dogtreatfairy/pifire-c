@@ -14,6 +14,7 @@
 #include "probes/probes.h"
 #include "probes/registry.h"
 #include "unity.h"
+#include <sqlite3.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -154,6 +155,44 @@ static void test_overtemp_errors(void)
 	pf_cmd_simple(PF_CMD_STOP);
 	tick(1);
 	TEST_ASSERT_EQUAL(PF_MODE_STOP, ctrl.mode);
+}
+
+/* Stop is off with the power still on: nothing is cooking, nothing is being controlled, and the
+   app shows the pit as zero. Logging a row every few seconds through the days between cooks is SD
+   card wear spent recording room temperature, and it fills the history with a flat line that means
+   nothing. Monitor is the mode for watching without running, and it still logs. */
+static int history_rows(void)
+{
+	pf_history_flush();
+	sqlite3_stmt *st;
+	int n = 0;
+	if (sqlite3_prepare_v2(pf_db_handle(), "SELECT COUNT(*) FROM history_probe", -1, &st, NULL) == SQLITE_OK) {
+		if (sqlite3_step(st) == SQLITE_ROW) n = sqlite3_column_int(st, 0);
+		sqlite3_finalize(st);
+	}
+	return n;
+}
+
+static void test_stop_records_nothing(void)
+{
+	pf_cmd_simple(PF_CMD_STOP);
+	tick(30);
+	TEST_ASSERT_EQUAL(PF_MODE_STOP, ctrl.mode);
+
+	int before = history_rows();
+	tick(10 * 60);
+	int after = history_rows();
+	printf("stopped: %d history rows before, %d after ten minutes\n", before, after);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(before, after, "a stopped grill should not be writing rows");
+
+	/* Monitor is the watch-without-running mode, and it does log */
+	pf_cmd_mode(PF_MODE_MONITOR, 0);
+	tick(5 * 60);
+	int monitored = history_rows();
+	printf("monitoring: %d rows\n", monitored);
+	TEST_ASSERT_TRUE_MESSAGE(monitored > after, "Monitor is for watching, so it should record");
+	pf_cmd_simple(PF_CMD_STOP);
+	tick(10);
 }
 
 /* The pit falling away from a set point it was holding is a fire that is failing. The igniter is
@@ -388,6 +427,7 @@ int main(void)
 	RUN_TEST(test_full_cook);
 	RUN_TEST(test_lid_open_pauses_feed);
 	RUN_TEST(test_overtemp_errors);
+	RUN_TEST(test_stop_records_nothing);
 	RUN_TEST(test_flameout_protection_lights_the_igniter_and_recovers);
 	RUN_TEST(test_a_big_step_down_lights_the_igniter_at_the_crossing);
 	RUN_TEST(test_flameout_reignites_then_errors);

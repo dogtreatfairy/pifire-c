@@ -29,6 +29,11 @@ void pf_history_init(void)
 
 void pf_history_record(const pf_status *s, double now, double sample_s)
 {
+	/* Stop is off. There is nothing to plot and nothing being controlled, and on an SD card a row
+	 * every few seconds for the days between cooks is wear spent recording that the grill is at
+	 * room temperature. Monitor is the mode for watching without running, and it still logs. */
+	if (s->mode == PF_MODE_STOP) return;
+
 	/* controller view at 1 Hz (control thread only; no lock needed for the ring itself) */
 	if (now - g_last_ctrl_t >= 1.0) {
 		g_last_ctrl_t = now;

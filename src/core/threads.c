@@ -58,12 +58,27 @@ static void *control_thread(void *arg)
 	return NULL;
 }
 
+/* Stop is off with the power still on. Nothing is being controlled, nothing is cooking, and the
+ * app and the panel both show the pit as zero while stopped, so there is nobody to read a number
+ * that is being taken twenty times a second. The ADS1115 converts on demand and returns to its
+ * low-power state between conversions, so not asking it is what powering it down amounts to.
+ *
+ * It is a slow heartbeat rather than silence because two things still need a reading with the
+ * grill off: an unclean restart with a hot pit has to run a cooldown rather than sit there, and
+ * the probe pages have to show something while somebody is setting them up. The loop itself keeps
+ * running at its normal rate, so the first poll after leaving Stop happens within 50 ms rather
+ * than up to half a minute later. */
+#define IDLE_POLL_S 30.0
+
 static void *sensor_thread(void *arg)
 {
 	(void)arg;
 	pthread_setname_np(pthread_self(), "pf-sensors");
+	double last_poll = 0;
 	while (atomic_load(&g_run)) {
-		pf_probes_poll(pf_now());
+		double now = pf_now();
+		double every = pf_status_mode() == PF_MODE_STOP ? IDLE_POLL_S : 0;
+		if (now - last_poll >= every) { last_poll = now; pf_probes_poll(now); }
 		pf_sleep_ms(50);
 	}
 	return NULL;

@@ -47,5 +47,7 @@ typedef struct {
 void pf_status_publish(const pf_status *s);
 void pf_status_get(pf_status *out);
 unsigned pf_status_generation(void);
+/* Just the mode, without copying the whole status. */
+pf_mode  pf_status_mode(void);
 /* Full JSON for /api/v1/status and the WebSocket stream (caller frees). */
 cJSON *pf_status_to_json(const pf_status *s, pf_units units);

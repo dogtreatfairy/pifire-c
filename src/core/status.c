@@ -12,6 +12,9 @@
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 static pf_status g_status;
 static unsigned g_gen;
+/* The mode on its own, for readers that only want to know whether the grill is doing anything and
+ * should not pay for a copy of the whole status to find out. */
+static _Atomic int g_mode;
 
 void pf_status_publish(const pf_status *s)
 {
@@ -19,7 +22,10 @@ void pf_status_publish(const pf_status *s)
 	g_status = *s;
 	g_gen++;
 	pthread_mutex_unlock(&g_mu);
+	__atomic_store_n(&g_mode, (int)s->mode, __ATOMIC_RELAXED);
 }
+
+pf_mode pf_status_mode(void) { return (pf_mode)__atomic_load_n(&g_mode, __ATOMIC_RELAXED); }
 
 void pf_status_get(pf_status *out)
 {
