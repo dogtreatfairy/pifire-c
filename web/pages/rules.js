@@ -12,6 +12,7 @@ const LINKS = [['any', 'Wired & Bluetooth'], ['bluetooth', 'Bluetooth Only'], ['
 const OP_LABEL = {
   '>': 'is above', '>=': 'is at or above', '<': 'is below', '<=': 'is at or below',
   '==': 'is', '!=': 'is not', between: 'is between', within: 'is within',
+  is_one_of: 'is one of', is_none_of: 'is none of',
   is_on: 'is on', is_off: 'is off', is: 'is', is_not: 'is not',
   contains: 'contains', empty: 'is empty', not_empty: 'is not empty',
 };
@@ -22,6 +23,10 @@ const catalogue = async () => (CAT ||= await api('/rules/entities'));
 const domainOf = (id) => CAT?.domains.find((d) => d.id === id) || CAT?.domains[0];
 const traitsOf = (id) => domainOf(id)?.traits || [];
 const traitDef = (domain, trait) => traitsOf(domain).find((t) => t.id === trait);
+// the daemon names its own traits; titleCase is only the fallback for one it has not labelled
+const traitLabel = (domain, trait) => traitDef(domain, trait)?.label || titleCase(trait);
+const isGroup = (n) => Array.isArray(n?.conditions);
+const listOp = (op) => op === 'is_one_of' || op === 'is_none_of';
 
 /** a one-line plain-English description of what a rule watches */
 function summarise(r) {
@@ -35,21 +40,28 @@ function summarise(r) {
     if (sel.include?.length) who = sel.include.join(', ');
     if (sel.exclude?.length) who += ` (not ${sel.exclude.join(', ')})`;
   }
-  const parts = [];
-  const walk = (node) => {
-    if (!node) return;
-    if (Array.isArray(node.conditions)) { node.conditions.forEach(walk); return; }
-    if (!node.trait) return;
+  const describe = (node, top) => {
+    if (isGroup(node)) {
+      const inner = node.conditions.map((k) => describe(k, false)).filter(Boolean);
+      if (!inner.length) return '';
+      const join = node.op === 'any' ? ' or ' : ' and ';
+      // only a nested group needs brackets; the outermost one reads better without them
+      return top || inner.length < 2 ? inner.join(join) : `(${inner.join(join)})`;
+    }
+    if (!node?.trait) return '';
+    const from = node.entity && node.entity !== 'this' ? node.entity : (r.select?.domain || 'grill');
+    const lhs = node.entity && node.entity !== 'this'
+      ? `${titleCase(node.entity)} ${traitLabel(from, node.trait)}` : traitLabel(from, node.trait);
     const v = node.value;
-    const vs = v && typeof v === 'object' && v.trait
-      ? (v.entity ? ` ${titleCase(v.entity)} ${titleCase(v.trait)}` : ` its ${titleCase(v.trait)}`)
-      : v === undefined ? '' : ` ${v}`;
-    const lhs = node.entity && node.entity !== 'this' ? `${titleCase(node.entity)} ${titleCase(node.trait)}` : titleCase(node.trait);
-    parts.push(`${lhs} ${OP_LABEL[node.op] || node.op}${vs}${node.value2 !== undefined ? ` ± ${node.value2}` : ''}`);
+    const vs = Array.isArray(v) ? ` ${v.join(' or ')}`
+      : v && typeof v === 'object' && v.trait
+        ? (v.entity ? ` ${titleCase(v.entity)} ${traitLabel(v.entity, v.trait)}` : ` its ${traitLabel(from, v.trait)}`)
+        : v === undefined ? '' : ` ${v}`;
+    return `${lhs} ${OP_LABEL[node.op] || node.op}${vs}${node.value2 !== undefined ? ` \u00b1 ${node.value2}` : ''}`;
   };
-  walk(r.when);
-  const join = r.when?.op === 'any' ? ' or ' : ' and ';
-  return `${who} · ${parts.join(join) || 'always'}${r.for_s ? ` for ${r.for_s}s` : ''}`;
+  const what = describe(r.when, true);
+  const held = r.for_s ? ` for ${r.for_s >= 60 ? `${Math.round(r.for_s / 60)} min` : `${r.for_s}s`}` : '';
+  return `${who} · ${what || 'nothing yet'}${held}`;
 }
 
 const blankRule = () => ({
@@ -72,17 +84,20 @@ function conditionRow(cond, domain, onChange, onRemove) {
     const ops = def?.operators || ['=='];
     if (!ops.includes(cond.op)) cond.op = ops[0];
     const needsValue = !['is_on', 'is_off', 'empty', 'not_empty'].includes(cond.op);
-    const asTrait = cond.value && typeof cond.value === 'object';
+    const isList = listOp(cond.op);
+    if (isList && !Array.isArray(cond.value)) cond.value = [];
+    if (!isList && Array.isArray(cond.value)) cond.value = cond.value[0] ?? 0;
+    const asTrait = !isList && cond.value && typeof cond.value === 'object';
 
     // the reading being tested: one of the watched entity's own, or any single-instance entity's,
     // which is how "only while the grill is in Hold" is added to a probe rule
     const cur = `${cond.entity && cond.entity !== 'this' ? cond.entity : 'this'}:${cond.trait}`;
     const groups = [el('optgroup', { label: `This ${titleCase(domain)}` },
-      traitsOf(domain).map((t) => el('option', { value: `this:${t.id}`, selected: cur === `this:${t.id}` }, titleCase(t.id))))];
+      traitsOf(domain).map((t) => el('option', { value: `this:${t.id}`, selected: cur === `this:${t.id}` }, t.label || titleCase(t.id))))];
     for (const d of CAT.domains) {
       if (d.multi || d.id === domain) continue;
       groups.push(el('optgroup', { label: titleCase(d.id) },
-        d.traits.map((t) => el('option', { value: `${d.id}:${t.id}`, selected: cur === `${d.id}:${t.id}` }, `${titleCase(d.id)} ${titleCase(t.id)}`))));
+        d.traits.map((t) => el('option', { value: `${d.id}:${t.id}`, selected: cur === `${d.id}:${t.id}` }, `${titleCase(d.id)} ${t.label || titleCase(t.id)}`))));
     }
     row.append(
       el('select', { class: 'c-trait', onchange: (e) => {
@@ -114,10 +129,25 @@ function conditionRow(cond, domain, onChange, onRemove) {
           cond.value = ent === 'this' ? { trait: tr } : { entity: ent, trait: tr };
           onChange();
         } }, opts);
+      } else if (isList) {
+        // several accepted values as chips: "the mode is Hold or Smoke" stays one row
+        const opts = def?.type === 'enum' ? (CAT.modes || []) : [];
+        if (opts.length) {
+          valueField = el('div', { class: 'c-val chips tight' }, opts.map((m) => {
+            const on = cond.value.includes(m);
+            return el('button', { class: `chip ${on ? 'on' : ''}`, type: 'button', onclick: () => {
+              cond.value = on ? cond.value.filter((x) => x !== m) : [...cond.value, m];
+              draw(); onChange();
+            } }, m);
+          }));
+        } else {
+          valueField = el('input', { class: 'c-val', type: 'text', value: cond.value.join(', '), placeholder: 'value, value',
+            onchange: (e) => { cond.value = e.target.value.split(',').map((x) => x.trim()).filter(Boolean); onChange(); } });
+        }
+        valueField.style.gridColumn = '1 / -1';
       } else if (def?.type === 'enum') {
-        const MODES = ['Stop', 'Monitor', 'Startup', 'Reignite', 'Smoke', 'Hold', 'Shutdown', 'Manual', 'Error'];
         valueField = el('select', { class: 'c-val', onchange: (e) => { cond.value = e.target.value; onChange(); } },
-          MODES.map((m) => el('option', { value: m, selected: m === cond.value }, m)));
+          (CAT.modes || []).map((m) => el('option', { value: m, selected: m === cond.value }, m)));
       } else {
         const unit = def?.type === 'temperature' ? degUnit() : def?.type === 'duration' ? 'seconds' : def?.unit === '%' ? '%' : 'value';
         valueField = el('input', {
@@ -130,7 +160,7 @@ function conditionRow(cond, domain, onChange, onRemove) {
       if (pair) row.append(el('input', { class: 'c-val2', type: 'text', inputmode: 'decimal', value: cond.value2 ?? '',
         placeholder: 'and', onchange: (e) => { cond.value2 = parseFloat(e.target.value) || 0; onChange(); } }));
       // comparing against another reading is what lets one rule cover every probe
-      row.append(el('button', {
+      if (!isList) row.append(el('button', {
         class: `btn xs c-kind ${asTrait ? 'primary' : 'ghost'}`, type: 'button', title: 'Compare with another reading',
         onclick: () => { cond.value = asTrait ? 0 : { trait: 'target' }; draw(); onChange(); },
       }, asTrait ? 'trait' : '123'));
@@ -138,6 +168,35 @@ function conditionRow(cond, domain, onChange, onRemove) {
   };
   draw();
   return row;
+}
+
+/* A condition is either a comparison or a group of them with its own all/any. Nesting is what lets
+   one rule say "the mode is Hold or Smoke, and the pit is within 15 of the set point": the or has
+   to bind tighter than the and, and a single flat list cannot express that. */
+function condNode(node, domain, onChange, onRemove, depth) {
+  if (!isGroup(node)) return conditionRow(node, domain, onChange, onRemove);
+  const box = el('div', { class: `cond-group d${Math.min(depth, 3)}` });
+  const draw = () => {
+    box.innerHTML = '';
+    box.append(el('div', { class: 'cg-head' },
+      el('select', { class: 'cg-op', onchange: (e) => { node.op = e.target.value; onChange(); } },
+        [['all', 'All Of These'], ['any', 'Any Of These']].map(([v, l]) => el('option', { value: v, selected: v === node.op }, l))),
+      onRemove ? el('button', { class: 'btn xs ghost c-del', type: 'button', 'aria-label': 'Remove this group', onclick: onRemove }, '×') : null));
+    node.conditions.forEach((k, i) => box.append(condNode(k, domain, onChange,
+      () => { node.conditions.splice(i, 1); draw(); onChange(); }, depth + 1)));
+    const t = traitsOf(domain)[0];
+    box.append(el('div', { class: 'cg-add' },
+      el('button', { class: 'btn xs ghost', type: 'button', onclick: () => {
+        node.conditions.push({ trait: t?.id || 'temp', op: t?.operators?.[0] || '>=', value: 0 });
+        draw(); onChange();
+      } }, '+ Condition'),
+      depth < 3 ? el('button', { class: 'btn xs ghost', type: 'button', onclick: () => {
+        node.conditions.push({ op: 'any', conditions: [] });
+        draw(); onChange();
+      } }, '+ Group') : null));
+  };
+  draw();
+  return box;
 }
 
 function ruleEditor(rule, isNew) {
@@ -206,18 +265,13 @@ function ruleEditor(rule, isNew) {
 
       // ---- the condition
       const conds = el('div', { class: 'card tight' },
-        el('div', { class: 'field inline' }, el('label', {}, 'When'),
-          el('select', { onchange: (e) => { r.when.op = e.target.value; refreshPreview(); } },
-            [['all', 'All Of These'], ['any', 'Any Of These']].map(([v, l]) => el('option', { value: v, selected: v === r.when.op }, l)))));
-      r.when.conditions.forEach((c, i) => conds.append(conditionRow(c, sel.domain, refreshPreview,
-        () => { r.when.conditions.splice(i, 1); draw(); refreshPreview(); })));
-      conds.append(el('button', { class: 'btn sm ghost block', type: 'button', onclick: () => {
-        const t = traitsOf(sel.domain)[0];
-        r.when.conditions.push({ trait: t?.id || 'temp', op: t?.operators?.[0] || '>=', value: 0 });
-        draw(); refreshPreview();
-      } }, '+ Add Condition'),
-        el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'Hold For'), el('div', { class: 'help' }, 'Seconds it must stay true before sending')),
-          el('input', { type: 'text', inputmode: 'numeric', value: r.for_s ?? 0, onchange: (e) => { r.for_s = parseInt(e.target.value, 10) || 0; refreshPreview(); } })));
+        el('div', { class: 'field' }, el('label', {}, 'When'),
+          condNode(r.when, sel.domain, refreshPreview, null, 0)),
+        el('div', { class: 'field inline' },
+          el('div', {}, el('label', {}, 'Hold For'),
+            el('div', { class: 'help' }, 'Seconds it must stay true before sending. 180 is three minutes.')),
+          el('input', { type: 'text', inputmode: 'numeric', value: r.for_s ?? 0,
+            onchange: (e) => { r.for_s = parseInt(e.target.value, 10) || 0; refreshPreview(); } })));
 
       // ---- the message
       const tokenChips = el('div', { class: 'chips' });

@@ -1,5 +1,5 @@
 {
-  "schema_version": 8,
+  "schema_version": 9,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -626,8 +626,11 @@
             {
               "entity": "grill",
               "trait": "mode",
-              "op": "is",
-              "value": "Hold"
+              "op": "is_one_of",
+              "value": [
+                "Hold",
+                "Smoke"
+              ]
             },
             {
               "entity": "grill",

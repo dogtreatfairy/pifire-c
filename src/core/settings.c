@@ -375,6 +375,35 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 8 (%d probe rule%s now need the probe to be in the cook)", fixed, fixed == 1 ? "" : "s");
 			added = 1;
 		}
+		if (ver < 9) {
+			/* "Grill Reached Temp" only ever covered Hold, because a single condition could not say
+			 * "Hold or Smoke" -- the rule language could nest groups but the editor could not build
+			 * one, so the shipped rule took the narrower reading. Now that a condition can carry a
+			 * list, the rule says what it always meant. Only a copy still holding the original
+			 * single condition is widened; one the user has rewritten is left alone. */
+			int fixed = 0;
+			cJSON *rules = pf_json_path(g_root, "notify.rules"), *r;
+			cJSON_ArrayForEach(r, rules) {
+				if (strcmp(pf_json_str(r, "id", ""), "grill-at-temp")) continue;
+				cJSON *conds = pf_json_path(r, "when.conditions"), *cd;
+				if (!cJSON_IsArray(conds)) continue;
+				cJSON_ArrayForEach(cd, conds) {
+					if (strcmp(pf_json_str(cd, "trait", ""), "mode")) continue;
+					if (strcmp(pf_json_str(cd, "op", ""), "is")) continue;
+					if (strcmp(pf_json_str(cd, "value", ""), "Hold")) continue;
+					cJSON *list = cJSON_CreateArray();
+					cJSON_AddItemToArray(list, cJSON_CreateString("Hold"));
+					cJSON_AddItemToArray(list, cJSON_CreateString("Smoke"));
+					cJSON_ReplaceItemInObject(cd, "op", cJSON_CreateString("is_one_of"));
+					cJSON_ReplaceItemInObject(cd, "value", list);
+					fixed++;
+				}
+			}
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 9); else cJSON_AddNumberToObject(g_root, "schema_version", 9);
+			LOGI(TAG, "settings migrated to schema 9 (%d at-temperature rule%s now cover Smoke too)", fixed, fixed == 1 ? "" : "s");
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);

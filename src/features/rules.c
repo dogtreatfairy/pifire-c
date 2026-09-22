@@ -260,6 +260,10 @@ static bool eval_node(const cJSON *status, const inst *in, const cJSON *node, va
 {
 	const cJSON *kids = jget(node, "conditions");
 	if (cJSON_IsArray(kids)) {
+		/* A group with nothing in it describes nothing, so it cannot be true. It used to return
+		 * true, which meant a rule still being written matched every instance it watched and
+		 * started sending the moment it was saved. */
+		if (cJSON_GetArraySize((cJSON *)kids) == 0) return false;
 		bool any = !strcasecmp(pf_json_str((cJSON *)node, "op", "all"), "any");
 		bool result = !any;   /* all: start true; any: start false */
 		const cJSON *k;
@@ -267,15 +271,32 @@ static bool eval_node(const cJSON *status, const inst *in, const cJSON *node, va
 			bool r = eval_node(status, in, k, matched);
 			if (any) result = result || r; else result = result && r;
 		}
-		if (cJSON_GetArraySize((cJSON *)kids) == 0) return true;
 		return result;
 	}
 	const cJSON *tr = jget(node, "trait");
 	if (!cJSON_IsString(tr)) return true;
 	val a = trait_of(status, in, pf_json_str((cJSON *)node, "entity", "this"), tr->valuestring);
+	const char *op = pf_json_str((cJSON *)node, "op", "==");
+
+	/* Membership. "The mode is Hold or Smoke" is one thought and reads badly as a nested group of
+	 * two comparisons, so it is one row with a list on the right. */
+	if (!strcmp(op, "is_one_of") || !strcmp(op, "is_none_of")) {
+		if (a.t == VT_NONE) return false;
+		val none = v_none();
+		bool found = false;
+		const cJSON *it;
+		cJSON_ArrayForEach(it, jget(node, "value")) {
+			val b = resolve_operand(status, in, it);
+			if (compare(&a, "is", &b, &none)) { found = true; break; }
+		}
+		bool r = !strcmp(op, "is_one_of") ? found : !found;
+		if (r && matched && matched->t == VT_NONE) *matched = a;
+		return r;
+	}
+
 	val b = resolve_operand(status, in, jget(node, "value"));
 	val b2 = resolve_operand(status, in, jget(node, "value2"));
-	bool r = compare(&a, pf_json_str((cJSON *)node, "op", "=="), &b, &b2);
+	bool r = compare(&a, op, &b, &b2);
 	if (r && matched && matched->t == VT_NONE) *matched = a;
 	return r;
 }
@@ -527,28 +548,32 @@ int pf_rules_test(const cJSON *rule, const cJSON *status, char *err, size_t n)
 cJSON *pf_rules_catalogue_json(const cJSON *status)
 {
 	/* type drives the editor: which operators to offer and how to render the value box */
-	static const struct { const char *domain, *trait, *type, *unit; } TRAITS[] = {
-		{ "probe", "temp", "temperature", "deg" }, { "probe", "target", "temperature", "deg" },
-		{ "probe", "over", "temperature", "deg" }, { "probe", "eta", "duration", "s" },
-		{ "probe", "battery", "percent", "%" }, { "probe", "signal", "number", "bars" },
-		{ "probe", "rssi", "number", "dBm" }, { "probe", "connected", "bool", "" },
-		{ "probe", "wireless", "bool", "" }, { "probe", "name", "string", "" },
-		{ "grill", "mode", "enum", "" }, { "grill", "temp", "temperature", "deg" },
-		{ "grill", "over", "temperature", "deg" },
-		{ "grill", "setpoint", "temperature", "deg" }, { "grill", "error", "string", "" },
-		{ "grill", "cook_elapsed", "duration", "s" }, { "grill", "mode_remaining", "duration", "s" },
-		{ "grill", "lid_open", "bool", "" },
-		{ "output", "state", "bool", "" }, { "output", "percent", "percent", "%" },
-		{ "hopper", "level", "percent", "%" },
-		{ "controller", "duty", "number", "" }, { "controller", "feedforward", "number", "" },
-		{ "weather", "temp", "temperature", "deg" }, { "weather", "wind", "number", "km/h" },
-		{ "weather", "humidity", "percent", "%" },
-		{ "system", "wifi_signal", "percent", "%" }, { "system", "tailscale_online", "bool", "" },
-		{ "timer", "remaining", "duration", "s" }, { "timer", "running", "bool", "" },
+	static const struct { const char *domain, *trait, *type, *unit, *label; } TRAITS[] = {
+		{ "probe", "temp", "temperature", "deg", "Temperature" }, { "probe", "target", "temperature", "deg", "Target" },
+		{ "probe", "over", "temperature", "deg", "Degrees Past Target" }, { "probe", "eta", "duration", "s", "Time To Target" },
+		{ "probe", "battery", "percent", "%", "Battery" }, { "probe", "signal", "number", "bars", "Signal Bars" },
+		{ "probe", "rssi", "number", "dBm", "Signal Strength" }, { "probe", "connected", "bool", "", "Connected" },
+		{ "probe", "wireless", "bool", "", "Is Bluetooth" }, { "probe", "name", "string", "", "Name" },
+		{ "probe", "in_use", "bool", "", "In This Cook" },
+		{ "grill", "mode", "enum", "", "Mode" }, { "grill", "temp", "temperature", "deg", "Pit Temperature" },
+		{ "grill", "over", "temperature", "deg", "Degrees From Set Point" },
+		{ "grill", "setpoint", "temperature", "deg", "Set Point" }, { "grill", "error", "string", "", "Error Code" },
+		{ "grill", "cook_elapsed", "duration", "s", "Cook Time" }, { "grill", "mode_remaining", "duration", "s", "Time Left In Mode" },
+		/* How long the grill has been aiming at the target it has now. A pit short of its set point
+		 * is ordinary while it climbs; this is what separates climbing from not getting there. */
+		{ "grill", "aiming_s", "duration", "s", "Time Since Mode Or Target Changed" },
+		{ "grill", "lid_open", "bool", "", "Lid Open" },
+		{ "output", "state", "bool", "", "State" }, { "output", "percent", "percent", "%", "Fan Percent" },
+		{ "hopper", "level", "percent", "%", "Hopper Level" },
+		{ "controller", "duty", "number", "", "Auger Duty" }, { "controller", "feedforward", "number", "", "Feed Forward" },
+		{ "weather", "temp", "temperature", "deg", "Outdoor Temperature" }, { "weather", "wind", "number", "km/h", "Wind" },
+		{ "weather", "humidity", "percent", "%", "Humidity" },
+		{ "system", "wifi_signal", "percent", "%", "Wi-Fi Signal" }, { "system", "tailscale_online", "bool", "", "Tailscale Online" },
+		{ "timer", "remaining", "duration", "s", "Time Remaining" }, { "timer", "running", "bool", "", "Timer Running" },
 	};
 	static const char *const NUM_OPS[] = { ">", ">=", "<", "<=", "==", "!=", "between", "within", NULL };
 	static const char *const BOOL_OPS[] = { "is_on", "is_off", NULL };
-	static const char *const STR_OPS[] = { "is", "is_not", "contains", "empty", "not_empty", NULL };
+	static const char *const STR_OPS[] = { "is", "is_not", "is_one_of", "is_none_of", "contains", "empty", "not_empty", NULL };
 
 	cJSON *o = cJSON_CreateObject();
 	cJSON *domains = cJSON_AddArrayToObject(o, "domains");
@@ -564,6 +589,7 @@ cJSON *pf_rules_catalogue_json(const cJSON *status)
 			cJSON_AddStringToObject(t, "id", TRAITS[i].trait);
 			cJSON_AddStringToObject(t, "type", TRAITS[i].type);
 			cJSON_AddStringToObject(t, "unit", TRAITS[i].unit);
+			cJSON_AddStringToObject(t, "label", TRAITS[i].label);
 			const char *const *ops = !strcmp(TRAITS[i].type, "bool") ? BOOL_OPS
 			                       : (!strcmp(TRAITS[i].type, "string") || !strcmp(TRAITS[i].type, "enum")) ? STR_OPS : NUM_OPS;
 			cJSON *oj = cJSON_AddArrayToObject(t, "operators");
@@ -599,6 +625,10 @@ cJSON *pf_rules_catalogue_json(const cJSON *status)
 		"signal", "grill", "grill_temp", "setpoint", "mode", "hopper", "outdoor_temp", "cook_time", "value", "time", NULL };
 	cJSON *tk = cJSON_AddArrayToObject(o, "tokens");
 	for (int i = 0; TOKENS[i]; i++) cJSON_AddItemToArray(tk, cJSON_CreateString(TOKENS[i]));
+	cJSON *md = cJSON_AddArrayToObject(o, "modes");
+	for (const char *const *m = (const char *const[]){ "Stop", "Monitor", "Startup", "Reignite", "Smoke",
+	     "Hold", "Shutdown", "Manual", "Error", NULL }; *m; m++)
+		cJSON_AddItemToArray(md, cJSON_CreateString(*m));
 	cJSON *lv = cJSON_AddArrayToObject(o, "levels");
 	for (const char *const *l = (const char *const[]){ "info", "normal", "high", "critical", NULL }; *l; l++)
 		cJSON_AddItemToArray(lv, cJSON_CreateString(*l));

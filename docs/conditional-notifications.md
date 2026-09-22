@@ -50,8 +50,34 @@ Class rules keep their state per instance, so BT1 firing does not arm or silence
 
 ## 2. Conditions
 
-A rule holds a list of conditions joined by AND, and optionally one group joined by OR. Each
-condition reads:
+A rule holds a tree of conditions. Every node is either a comparison or a **group** with its own
+`all` / `any` and its own children, nested as deep as the thought requires (the editor offers three
+levels, which is more than anything so far has needed). Nesting is what lets an OR bind tighter than
+an AND:
+
+```
+all
+├── any
+│   ├── grill.mode is Hold
+│   └── grill.mode is Smoke
+└── grill.temp is within grill.setpoint ± 15      for 180 s
+```
+
+That is "the grill is holding or smoking, and the pit has been within fifteen degrees of the set
+point for three minutes" — which a single flat list cannot express, because a flat list has one
+joiner for everything in it. The same thought fits on one row with a list operator:
+
+```
+all
+├── grill.mode is one of [Hold, Smoke]
+└── grill.temp is within grill.setpoint ± 15      for 180 s
+```
+
+Prefer the list form when the alternatives are values of one trait; reach for a group when they are
+different traits. **A group with nothing in it is false**, so a rule still being written stays
+silent instead of matching everything.
+
+Each comparison reads:
 
 ```
 <entity>.<trait>  <operator>  <value>  [for <duration>]
@@ -63,10 +89,11 @@ Operators, by trait type:
 |---|---|
 | number / temperature / percent / duration | `>`, `>=`, `<`, `<=`, `between`, `rises above`, `drops below`, `is within ± of` |
 | bool | `is on`, `is off`, `turns on`, `turns off` |
-| enum (mode) | `is`, `is not`, `changes to` |
+| enum (mode) | `is`, `is not`, `is one of`, `is none of`, `changes to` |
 | any | `is unavailable`, `becomes available` |
 
-`value` is a literal **or another trait of the same entity**. That is what lets one class rule say
+`is one of` / `is none of` take a list on the right; everywhere else `value` is a literal **or
+another trait of the same entity**. That is what lets one class rule say
 "temp is at or above its own target" — `probe.temp >= probe.target` — without naming a number.
 
 **`for <duration>`** requires the condition to hold continuously before the rule fires, which is the

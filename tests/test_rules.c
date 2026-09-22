@@ -383,6 +383,114 @@ static void test_tuning_events_are_their_own_category(void)
 	                          "the daemon's own system chatter still respects the switch");
 }
 
+
+/* The shape Ryan asked for: the mode is one of two, AND the pit is within a band of the set point,
+   AND it has held there. The "or" has to bind tighter than the "and", which is only expressible
+   with a group inside a group. */
+static void test_nested_groups_bind_or_tighter_than_and(void)
+{
+	only_rule("{\"id\":\"atsp\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":["
+	            "{\"op\":\"any\",\"conditions\":["
+	              "{\"trait\":\"mode\",\"op\":\"is\",\"value\":\"Hold\"},"
+	              "{\"trait\":\"mode\",\"op\":\"is\",\"value\":\"Smoke\"}]},"
+	            "{\"trait\":\"temp\",\"op\":\"within\",\"value\":{\"trait\":\"setpoint\"},\"value2\":15}]},"
+	          "\"title\":\"Grill is at set temp of {setpoint}\",\"body\":\"\","
+	          "\"level\":\"normal\",\"sinks\":[\"app\"],\"for_s\":180,\"cooldown_s\":600}");
+	cJSON *st = status();                       /* Hold, set point 225, pit 227: inside the band */
+
+	pf_rules_tick(st, 1000);
+	TEST_ASSERT_EQUAL_INT(0, g_ncap);           /* true, but it has not held for three minutes */
+	pf_rules_tick(st, 1179);
+	TEST_ASSERT_EQUAL_INT(0, g_ncap);
+	pf_rules_tick(st, 1180);
+	TEST_ASSERT_EQUAL_INT(1, g_ncap);
+	TEST_ASSERT_EQUAL_STRING("Grill is at set temp of 225\xC2\xB0""F", g_cap[0].title);
+
+	/* Smoke satisfies the same rule: the inner group is an or. The rule is edge triggered, so it
+	   has to go false in between before it can say anything again. */
+	cJSON_ReplaceItemInObject(st, "mode", cJSON_CreateString("Startup"));
+	pf_rules_tick(st, 1500);
+	cJSON_ReplaceItemInObject(st, "mode", cJSON_CreateString("Smoke"));
+	g_ncap = 0;
+	pf_rules_tick(st, 2000);
+	pf_rules_tick(st, 2179);
+	TEST_ASSERT_EQUAL_INT(0, g_ncap);
+	pf_rules_tick(st, 2180);
+	TEST_ASSERT_EQUAL_INT(1, g_ncap);
+
+	/* Startup does not, even though the pit is still sitting on the set point */
+	cJSON_ReplaceItemInObject(st, "mode", cJSON_CreateString("Startup"));
+	g_ncap = 0;
+	pf_rules_tick(st, 3000);
+	pf_rules_tick(st, 3180);
+	TEST_ASSERT_EQUAL_INT(0, g_ncap);
+
+	/* and neither does drifting out of the band while still in Hold */
+	cJSON_ReplaceItemInObject(st, "mode", cJSON_CreateString("Hold"));
+	cJSON *p = cJSON_GetArrayItem(cJSON_GetObjectItem(st, "probes"), 0);
+	cJSON_ReplaceItemInObject(p, "temp", cJSON_CreateNumber(250));
+	g_ncap = 0;
+	pf_rules_tick(st, 4000);
+	pf_rules_tick(st, 4180);
+	TEST_ASSERT_EQUAL_INT(0, g_ncap);
+	cJSON_Delete(st);
+}
+
+/* the same thought written as one row with a list, which is how the editor offers it */
+static void test_is_one_of(void)
+{
+	only_rule("{\"id\":\"m\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":["
+	            "{\"trait\":\"mode\",\"op\":\"is_one_of\",\"value\":[\"Hold\",\"Smoke\"]}]},"
+	          "\"title\":\"{mode}\",\"body\":\"\",\"level\":\"info\",\"sinks\":[\"app\"],\"cooldown_s\":600}");
+	cJSON *st = status();
+	pf_rules_tick(st, 1000);
+	TEST_ASSERT_EQUAL_INT(1, g_ncap);
+	TEST_ASSERT_EQUAL_STRING("Hold", g_cap[0].title);
+
+	cJSON_ReplaceItemInObject(st, "mode", cJSON_CreateString("Shutdown"));
+	g_ncap = 0;
+	pf_rules_tick(st, 2000);
+	TEST_ASSERT_EQUAL_INT(0, g_ncap);
+
+	/* is_none_of is its mirror */
+	only_rule("{\"id\":\"m2\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":["
+	            "{\"trait\":\"mode\",\"op\":\"is_none_of\",\"value\":[\"Hold\",\"Smoke\"]}]},"
+	          "\"title\":\"{mode}\",\"body\":\"\",\"level\":\"info\",\"sinks\":[\"app\"],\"cooldown_s\":600}");
+	pf_rules_tick(st, 3000);
+	TEST_ASSERT_EQUAL_INT(1, g_ncap);
+	cJSON_Delete(st);
+}
+
+/* A rule still being written describes nothing and must not fire. */
+static void test_an_empty_group_never_fires(void)
+{
+	only_rule("{\"id\":\"e\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":[]},"
+	          "\"title\":\"nope\",\"body\":\"\",\"level\":\"info\",\"sinks\":[\"app\"],\"cooldown_s\":600}");
+	cJSON *st = status();
+	pf_rules_tick(st, 1000);
+	pf_rules_tick(st, 2000);
+	TEST_ASSERT_EQUAL_INT(0, g_ncap);
+
+	/* nor does an empty group nested inside a real one */
+	only_rule("{\"id\":\"e2\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":["
+	            "{\"trait\":\"mode\",\"op\":\"is\",\"value\":\"Hold\"},"
+	            "{\"op\":\"any\",\"conditions\":[]}]},"
+	          "\"title\":\"nope\",\"body\":\"\",\"level\":\"info\",\"sinks\":[\"app\"],\"cooldown_s\":600}");
+	pf_rules_tick(st, 3000);
+	TEST_ASSERT_EQUAL_INT(0, g_ncap);
+	cJSON_Delete(st);
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -390,6 +498,9 @@ int main(void)
 	RUN_TEST(test_selectors);
 	RUN_TEST(test_hold_time);
 	RUN_TEST(test_condition_groups);
+	RUN_TEST(test_nested_groups_bind_or_tighter_than_and);
+	RUN_TEST(test_is_one_of);
+	RUN_TEST(test_an_empty_group_never_fires);
 	RUN_TEST(test_eta_rule_and_tokens);
 	RUN_TEST(test_only_while_cooking);
 	RUN_TEST(test_tuning_events_are_their_own_category);

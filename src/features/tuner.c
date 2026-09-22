@@ -49,8 +49,32 @@ static struct {
 	int tries;                 /* attempts at the current set point */
 	bool full;                 /* a full profile, which replaces the library, or a single set point */
 	double amb_c, wind_kmh;    /* conditions this run is being measured in */
+	double run_start_wall;     /* wall clock, to tell this run's anchors from older ones */
+	char skipped[64];          /* set points that gave nothing usable, for the finishing message */
 	char message[120];
 } g;
+
+/* The tuning each set point produced. A run takes hours and nobody is standing over it, so the
+ * message that says it finished should carry the numbers it found, both because they are the point
+ * of the exercise and because they can be typed back in by hand if a later run goes wrong. */
+static int fmt_results(char *out, size_t n, double since_wall)
+{
+	pf_units u = pf_settings_units();
+	const char *deg = u == PF_UNITS_C ? "\xC2\xB0" "C" : "\xC2\xB0" "F";
+	pf_tune_anchor a[PF_TUNE_ANCHORS];
+	int na = pf_learning_anchor_list(a, PF_TUNE_ANCHORS), written = 0;
+	size_t o = 0;
+	for (int i = 0; i < na && o + 1 < n; i++) {
+		if (!a[i].valid || a[i].ts < since_wall - 1) continue;
+		int k = snprintf(out + o, n - o, "%s%.0f%s PB %.0f Ti %.0f Td %.0f", written ? " \xC2\xB7 " : "",
+		                 pf_from_c(a[i].setpoint_c, u), deg, pf_delta_from_c(a[i].PB_c, u), a[i].Ti, a[i].Td);
+		if (k < 0 || (size_t)k >= n - o) break;
+		o += (size_t)k;
+		written++;
+	}
+	out[o < n ? o : n - 1] = 0;
+	return written;
+}
 
 static void set_phase(phase p, double now, const char *msg)
 {
@@ -75,15 +99,19 @@ static void finish(bool ok, const char *why, double now)
 	set_phase(ok ? PH_DONE : PH_FAILED, now, why);
 	if (was) mark_inflight(false);
 	if (!was) return;
+	char vals[200];
+	int nv = fmt_results(vals, sizeof vals, g.run_start_wall);
 	if (ok && g.full)
 		pf_events_emit("Tune_Done", "Full profile tune finished",
-		               "Measured %d of %d set points. That is the grill's new baseline, and the controller now follows the tuning it found at each one.", g.measured, g.n);
+		               "%d of %d set points measured%s%s. This is the grill's new baseline.%s%s",
+		               g.measured, g.n, g.skipped[0] ? ", nothing usable at " : "", g.skipped[0] ? g.skipped : "",
+		               nv ? " " : "", nv ? vals : "");
 	else if (ok)
-		pf_events_emit("Tune_Done", "Tuning finished",
-		               "Measured %d set point and added it to the tuning library.", g.measured);
+		pf_events_emit("Tune_Done", "Tuning finished", "Added to the tuning library. %s",
+		               nv ? vals : "The run produced no usable measurement.");
 	else
-		pf_events_emit("Tune_Failed", "Tuning stopped", "%s%s", why,
-		               g.measured > 0 ? " The set points already measured were kept." : "");
+		pf_events_emit("Tune_Failed", "Tuning stopped", "%s%s%s", why,
+		               nv ? " Measured so far: " : " Nothing was measured before it stopped.", nv ? vals : "");
 }
 
 void pf_tuner_init(void)
@@ -186,7 +214,7 @@ void pf_tuner_tick(const cJSON *status, double now)
 	/* The first tick sets both clocks: the run is timed on the control loop's clock, not on the
 	 * wall clock of whichever thread pressed the button. */
 	if (g.phase_start == 0) g.phase_start = now;
-	if (g.run_start == 0) g.run_start = now;
+	if (g.run_start == 0) { g.run_start = now; g.run_start_wall = pf_wall(); }
 	g.last_now = now;
 
 	/* the conditions this measurement is being taken in, kept with the anchor */
@@ -200,19 +228,38 @@ void pf_tuner_tick(const cJSON *status, double now)
 	double elapsed = now - g.phase_start;
 
 	/* the grill going to Error, or anyone pressing Stop, ends the run wherever it is */
-	if (!strcmp(mode, "Error")) { finish(false, "The grill went into Error.", now); pthread_mutex_unlock(&g_mu); return; }
+	pf_units tu = pf_settings_units();
+	double at_sp = g.n > 0 ? pf_from_c(g.points_c[g.step < g.n ? g.step : g.n - 1], tu) : 0;
+	const char *tdeg = tu == PF_UNITS_C ? "\xC2\xB0" "C" : "\xC2\xB0" "F";
+	char why[180];
+	if (!strcmp(mode, "Error")) {
+		snprintf(why, sizeof why, "The grill went into Error (%s) while working on %.0f%s.",
+		         pf_json_str((cJSON *)status, "safety.error_code", "no code"), at_sp, tdeg);
+		finish(false, why, now);
+		pthread_mutex_unlock(&g_mu);
+		return;
+	}
 	/* Anyone pressing Stop ends the run. The exceptions are the first seconds, before the start
 	 * command has been picked up, and the shutdown at the end, which is the run's own doing. */
 	if (!strcmp(mode, "Stop") || !strcmp(mode, "Monitor")) {
 		bool starting_up = g.ph == PH_STARTING && elapsed < 30.0;
-		if (g.ph != PH_FINISHING && !starting_up) { finish(false, "The grill was stopped.", now); pthread_mutex_unlock(&g_mu); return; }
+		if (g.ph != PH_FINISHING && !starting_up) {
+			snprintf(why, sizeof why, "The grill was stopped while working on %.0f%s.", at_sp, tdeg);
+			finish(false, why, now);
+			pthread_mutex_unlock(&g_mu);
+			return;
+		}
 	}
 
 	switch (g.ph) {
 	case PH_STARTING:
 		/* the mode request routes through Startup on its own; wait for it to land in Hold */
 		if (!strcmp(mode, "Hold")) { set_phase(PH_SETTLING, now, "Waiting for the grill to settle"); break; }
-		if (elapsed > T_START_S) finish(false, "The grill did not reach Hold in time.", now);
+		if (elapsed > T_START_S) {
+			snprintf(why, sizeof why, "The grill never reached Hold; it was still in %s %.0f minutes after the run asked it to start.",
+			         mode, T_START_S / 60);
+			finish(false, why, now);
+		}
 		break;
 
 	case PH_SETTLING: {
@@ -241,13 +288,24 @@ void pf_tuner_tick(const cJSON *status, double now)
 			pf_cmdq_push(&c);
 			return;
 		}
-		if (elapsed > T_SETTLE_S) finish(false, "The grill never settled at a set point.", now);
+		if (elapsed > T_SETTLE_S) {
+			if (!isnan(pit) && sp > 0)
+				snprintf(why, sizeof why, "The grill never settled at %.0f%s: after %.0f minutes it was %.0f%s away and still moving.",
+				         at_sp, tdeg, T_SETTLE_S / 60, fabs(pf_delta_from_c(pit - sp, tu)), tdeg);
+			else
+				snprintf(why, sizeof why, "The grill never settled at %.0f%s and the pit probe was not reading.", at_sp, tdeg);
+			finish(false, why, now);
+		}
 		break;
 	}
 
 	case PH_TESTING: {
 		if (at_active) {
-			if (elapsed > T_TEST_S) finish(false, "A measurement ran too long.", now);
+			if (elapsed > T_TEST_S) {
+				snprintf(why, sizeof why, "The measurement at %.0f%s ran past %.0f minutes without completing its swings.",
+				         at_sp, tdeg, T_TEST_S / 60);
+				finish(false, why, now);
+			}
 			break;
 		}
 		/* the test is over: a fresh result means it succeeded */
@@ -269,6 +327,10 @@ void pf_tuner_tick(const cJSON *status, double now)
 		} else {
 			/* one set point failing should not waste the rest of the run */
 			LOGW(TAG, "set point %.0f C produced no usable measurement, moving on", g.points_c[g.step]);
+			/* Named in the finishing message: a run that quietly measured two of four and called
+			 * itself done would leave the gap to be discovered during a cook. */
+			snprintf(g.skipped + strlen(g.skipped), sizeof g.skipped - strlen(g.skipped), "%s%.0f%s",
+			         g.skipped[0] ? ", " : "", at_sp, tdeg);
 			set_phase(PH_NEXT, now, "That set point gave nothing usable; moving on");
 		}
 		break;
