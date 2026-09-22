@@ -21,8 +21,10 @@ void pf_cycle_begin(pf_cycle *c, const pf_cycle_cfg *cfg, double now, double u_r
 
 void pf_cycle_begin_fixed(pf_cycle *c, const pf_cycle_cfg *cfg, double now, double on_s, double off_s)
 {
-	pf_cycle_cfg fixed = { .cycle_s = on_s + off_s, .u_min = 0, .u_max = 1, .max_on_s = cfg->max_on_s };
-	pf_cycle_begin(c, &fixed, now, on_s / (on_s + off_s));
+	double total = on_s + off_s;
+	if (!(total > 0)) { pf_cycle_stop(c); return; }   /* no cycle to run, and nothing to divide by */
+	pf_cycle_cfg fixed = { .cycle_s = total, .u_min = 0, .u_max = 1, .max_on_s = cfg->max_on_s };
+	pf_cycle_begin(c, &fixed, now, on_s / total);
 }
 
 bool pf_cycle_auger_on(const pf_cycle *c, double now)

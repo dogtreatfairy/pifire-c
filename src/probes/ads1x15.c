@@ -25,6 +25,7 @@ static void *create(const char *device_json, const pf_env *env)
 {
 	cJSON *d = cJSON_Parse(device_json);
 	ads_t *s = calloc(1, sizeof *s);
+	if (!s) { cJSON_Delete(d); return NULL; }
 	s->env = env;
 	const char *a = pf_json_str(d, "config.i2c_bus_addr", "0x48");
 	s->addr = (uint8_t)strtoul(a, NULL, 0);

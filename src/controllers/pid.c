@@ -61,6 +61,7 @@ static void apply_config(pid_t_ *s, const char *json)
 static void *create(const char *config_json, const pf_env *env)
 {
 	pid_t_ *s = calloc(1, sizeof *s);
+	if (!s) return NULL;
 	s->env = env;
 	apply_config(s, config_json);
 	return s;

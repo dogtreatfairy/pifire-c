@@ -65,7 +65,8 @@ int pf_tailscale_action(const char *verb, char *err, size_t n)
 	pthread_attr_init(&at);
 	pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
 	char *arg = strdup(verb);
-	if (pthread_create(&t, &at, runner, arg)) { free(arg); atomic_store(&g_busy, false); snprintf(err, n, "cannot start worker"); return -1; }
+	if (!arg) { pthread_attr_destroy(&at); atomic_store(&g_busy, false); snprintf(err, n, "out of memory"); return -1; }
+	if (pthread_create(&t, &at, runner, arg)) { free(arg); pthread_attr_destroy(&at); atomic_store(&g_busy, false); snprintf(err, n, "cannot start worker"); return -1; }
 	pthread_attr_destroy(&at);
 	return 0;
 }

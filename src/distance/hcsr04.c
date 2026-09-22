@@ -17,6 +17,7 @@ static void *create(const char *cfg_json, const pf_env *env)
 	int trig = pf_json_int(c, "trig", 23), echo = pf_json_int(c, "echo", 27);
 	const char *chip = pf_json_str(c, "gpiochip", "/dev/gpiochip0");
 	hc_t *h = calloc(1, sizeof *h);
+	if (!h) return NULL;
 	h->env = env;
 	h->chipfd = pf_gpio_open_chip(chip);
 	cJSON_Delete(c);

@@ -90,6 +90,7 @@ cJSON *pf_wifi_scan(bool rescan)
 		return arr;
 	}
 	char *out = malloc(65536);
+	if (!out) return arr;   /* no memory for the scan: an empty list, not a crash */
 	const char *argv[] = { "nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL,SECURITY", "dev", "wifi", "list", "--rescan", rescan ? "yes" : "auto", NULL };
 	int rc = pf_run_capture(argv, out, 65536, rescan ? 25 : 10);
 	if (rc != 0) { LOGW(TAG, "nmcli wifi list failed (%d): %.120s", rc, out); free(out); return arr; }

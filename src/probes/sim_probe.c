@@ -14,6 +14,7 @@ static void *create(const char *device_json, const pf_env *env)
 {
 	(void)device_json; (void)env;
 	simp_t *s = calloc(1, sizeof *s);
+	if (!s) return NULL;
 	s->noise = 0.15;
 	s->seed = 12345;
 	return s;

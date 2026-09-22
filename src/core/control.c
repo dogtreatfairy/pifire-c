@@ -1167,6 +1167,10 @@ static void run_mode(pf_control *c, double now)
 	/* absolute auger cap regardless of source (manual included) */
 	if (pf_outputs_get(PF_OUT_AUGER) && now - c->auger_on_since > g->auger_max_on_s) {
 		pf_outputs_set(PF_OUT_AUGER, false);
+		/* The pellets it fed while it ran still went in the pot. Every other path that switches the
+		 * auger off adds its run to the total; this one did not, so a capped run was fuel the
+		 * hopper estimate never saw. */
+		c->auger_total_on_s += now - c->auger_on_since;
 		c->manual_until[PF_OUT_AUGER] = 0;
 		LOGW(TAG, "auger on for %.0f s: forced off (safety cap)", g->auger_max_on_s);
 		event(PF_LVL_WARN, "W08_AUGER_CAP", "Auger exceeded maximum continuous on time and was switched off");

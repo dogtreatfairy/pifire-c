@@ -106,6 +106,7 @@ static void *create(const char *device_json, const pf_env *env)
 {
 	cJSON *d = cJSON_Parse(device_json);
 	cq_t *s = calloc(1, sizeof *s);
+	if (!s) { cJSON_Delete(d); return NULL; }
 	s->env = env;
 	pthread_mutex_init(&s->mu, NULL);
 	s->battery = -1;

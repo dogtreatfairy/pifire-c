@@ -157,6 +157,7 @@ static void apply_config(ad_t *s, const char *json)
 static void *create(const char *json, const pf_env *env)
 {
 	ad_t *s = calloc(1, sizeof *s);
+	if (!s) return NULL;
 	s->env = env;
 	s->theta = THETA_DEFAULT;
 	load_learned(s);

@@ -37,6 +37,7 @@ static void *create(const char *device_json, const pf_env *env)
 {
 	cJSON *d = cJSON_Parse(device_json);
 	max_t *s = calloc(1, sizeof *s);
+	if (!s) { cJSON_Delete(d); return NULL; }
 	s->env = env;
 	int cs = pf_json_int(d, "config.cs", 1);
 	int wires = pf_json_int(d, "config.wires", 2);

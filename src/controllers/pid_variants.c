@@ -73,6 +73,7 @@ static void apply_config(pv_t *s, const char *json)
 static void *create_v(variant_t v, const char *json, const pf_env *env)
 {
 	pv_t *s = calloc(1, sizeof *s);
+	if (!s) return NULL;
 	s->v = v;
 	s->env = env;
 	s->center = 0.5;

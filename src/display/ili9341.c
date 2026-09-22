@@ -766,6 +766,7 @@ static void *create(const char *cfg_json, const pf_env *env)
 {
 	cJSON *c = cJSON_Parse(cfg_json);
 	tft_t *t = calloc(1, sizeof *t);
+	if (!t) return NULL;
 	t->env = env;
 	pthread_mutex_init(&t->mu, NULL);
 	t->rotation = pf_json_int(c, "rotation", 0);

@@ -560,7 +560,13 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		const char *keys[] = { "platform.outputs.auger", "platform.outputs.igniter", "platform.outputs.power", "platform.outputs.fan", "platform.outputs.dc_fan" };
 		for (size_t i = 0; i < sizeof keys / sizeof keys[0]; i++) {
 			int pin = pf_set_int(keys[i], -1);
-			if (pin >= 0) n += snprintf(pins + n, sizeof pins - (size_t)n, "%s%d", n ? "," : "", pin);
+			if (pin < 0 || pin > 63) continue;   /* a GPIO number, not whatever the settings file says */
+			/* snprintf returns what it *would* have written, so accumulating it blindly walks the
+			 * offset past the end of the buffer and turns the remaining size into a huge unsigned
+			 * value. Stop at the point where it no longer fits. */
+			int k = snprintf(pins + n, sizeof pins - (size_t)n, "%s%d", n ? "," : "", pin);
+			if (k < 0 || (size_t)k >= sizeof pins - (size_t)n) break;
+			n += k;
 		}
 		pf_set_str("platform.triggerlevel", level, sizeof level, "LOW");
 		int pwm_pin = pf_set_bool("platform.dc_fan", false) ? pf_set_int("platform.outputs.pwm", -1) : -1;

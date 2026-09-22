@@ -113,6 +113,7 @@ static void *create(const char *cfg_json, const pf_env *env)
 {
 	cJSON *c = cJSON_Parse(cfg_json);
 	vl_t *v = calloc(1, sizeof *v);
+	if (!v) return NULL;
 	v->env = env;
 	v->addr = (uint8_t)strtoul(pf_json_str(c, "i2c_bus_addr", "0x29"), NULL, 0);
 	int bus = pf_json_int(c, "i2c_bus", 1);

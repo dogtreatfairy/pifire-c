@@ -16,6 +16,7 @@ static void *create(const char *device_json, const pf_env *env)
 	(void)env;
 	cJSON *d = cJSON_Parse(device_json);
 	virt_t *v = calloc(1, sizeof *v);
+	if (!v) { cJSON_Delete(d); return NULL; }
 	pf_strlcpy(v->mode, pf_json_str(d, "config.mode", "average"), sizeof v->mode);
 	cJSON *list = pf_json_path(d, "config.probes_list"), *it;
 	cJSON_ArrayForEach(it, list) if (cJSON_IsString(it) && v->n < 8) pf_strlcpy(v->labels[v->n++], it->valuestring, PF_LABEL_LEN);

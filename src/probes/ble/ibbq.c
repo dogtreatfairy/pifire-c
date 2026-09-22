@@ -83,6 +83,7 @@ static void *create(const char *device_json, const pf_env *env)
 {
 	cJSON *d = cJSON_Parse(device_json);
 	ibbq_t *s = calloc(1, sizeof *s);
+	if (!s) { cJSON_Delete(d); return NULL; }
 	s->env = env;
 	s->nprobes = pf_json_int(d, "config.num_probes", 4);
 	if (s->nprobes < 1 || s->nprobes > 6) s->nprobes = 4;

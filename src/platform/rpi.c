@@ -35,6 +35,7 @@ static void *create(const char *platform_json, const pf_env *env)
 	cJSON *cfg = cJSON_Parse(platform_json);
 	if (!cfg) { LOGE(TAG, "bad platform config"); return NULL; }
 	rpi_t *r = calloc(1, sizeof *r);
+	if (!r) return NULL;
 	const char *chip = pf_json_str(cfg, "gpiochip", "/dev/gpiochip0");
 	r->chipfd = pf_gpio_open_chip(chip);
 	if (r->chipfd < 0) { free(r); cJSON_Delete(cfg); return NULL; }

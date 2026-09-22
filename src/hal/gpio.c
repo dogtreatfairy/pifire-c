@@ -50,6 +50,7 @@ static pf_gpio_line *request(int chipfd, unsigned offset, uint64_t flags, int in
 		return NULL;
 	}
 	pf_gpio_line *l = calloc(1, sizeof *l);
+	if (!l) return NULL;
 	l->fd = req.fd;
 	l->offset = offset;
 	return l;

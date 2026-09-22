@@ -93,7 +93,11 @@ void pf_learning_observe(const char *controller, double setpoint_c, double ambie
 /* weighted ridge regression of u on dT with a prior, newest observations weigh most */
 static void refit(void)
 {
+	/* The recency half-life divides, so a zero or a negative from a hand-edited settings file does
+	 * not merely give a poor fit: it makes every weight NaN or makes older observations count for
+	 * more than new ones, and the model then silently falls back to its prior for good. */
 	double half = pf_set_num("learning.half_life_obs", 60);
+	if (!(half >= 1)) half = 60;
 	if (half < 5) half = 5;
 	double sw = RIDGE, sx = 0, sy = RIDGE * PRIOR_A, sxx = 0, sxy = 0;
 	/* prior: RIDGE virtual points at dT = 0 (a) plus RIDGE points expressing slope b */

@@ -29,7 +29,9 @@ static long meminfo(const char *key)
 	long v = 0;
 	size_t kl = strlen(key);
 	while (fgets(line, sizeof line, f))
-		if (!strncmp(line, key, kl)) { v = atol(line + kl + 1) * 1024; break; }
+		/* The key matched the first kl characters, which says nothing about there being anything
+		 * after them: stepping to kl + 1 on a line that ended at the key reads past the string. */
+		if (!strncmp(line, key, kl) && line[kl]) { v = atol(line + kl + 1) * 1024; break; }
 	fclose(f);
 	return v;
 }

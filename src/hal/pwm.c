@@ -38,6 +38,7 @@ pf_pwm *pf_pwm_open(const char *chip_path, int channel)
 		return NULL;
 	}
 	pf_pwm *p = calloc(1, sizeof *p);
+	if (!p) return NULL;
 	snprintf(p->dir, sizeof p->dir, "%s/pwm%d", chip_path, channel);
 	/* udev may take a moment to apply group permissions to the new node */
 	for (int i = 0; i < 20; i++) {

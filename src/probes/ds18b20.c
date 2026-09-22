@@ -64,6 +64,7 @@ static void *create(const char *device_json, const pf_env *env)
 {
 	cJSON *d = cJSON_Parse(device_json);
 	ds_t *s = calloc(1, sizeof *s);
+	if (!s) { cJSON_Delete(d); return NULL; }
 	s->env = env;
 	pf_strlcpy(s->id, pf_json_str(d, "config.hardware_id", ""), sizeof s->id);
 	cJSON_Delete(d);

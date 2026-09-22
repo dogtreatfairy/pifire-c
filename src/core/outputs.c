@@ -40,6 +40,10 @@ void pf_outputs_shutdown(void)
 
 int pf_outputs_set(pf_output o, bool on)
 {
+	/* Every caller reaches this through a bounded lookup, so an out-of-range output would be a
+	 * bug rather than input. This is the one place that actually energises the grill, so it
+	 * checks anyway rather than indexing the state array on trust. */
+	if ((unsigned)o >= PF_OUT_COUNT) return -EINVAL;
 	if (atomic_load(&g_latched)) return -EPERM;
 	pthread_mutex_lock(&g_mu);
 	int rc = -ENODEV;
