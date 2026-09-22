@@ -16,6 +16,7 @@ typedef enum {
 	PF_SCR_MESSAGE,    /* transient notice */
 	PF_SCR_MANUAL,     /* Monitor control: switch the outputs by hand */
 	PF_SCR_BTSCAN,     /* Bluetooth probes a scan found */
+	PF_SCR_MARGINS,    /* screen margins, adjusted while looking at the screen */
 } pf_screen;
 
 /* Which list a PF_SCR_LIST screen is showing. */
@@ -28,6 +29,7 @@ typedef enum {
 	PF_LIST_BTKIND,    /* pick a make of Bluetooth probe */
 	PF_LIST_BTEDIT,    /* paired probes: switch one on or off */
 	PF_LIST_BTDEL,     /* paired probes: remove one */
+	PF_LIST_SETTINGS,  /* panel settings: what can sensibly be changed at the grill */
 } pf_list_id;
 
 /* What a row does when it is pressed. */
@@ -54,6 +56,8 @@ typedef enum {
 	PF_ACT_NETINFO,
 	PF_ACT_RESTART,
 	PF_ACT_POWEROFF,
+	PF_ACT_MARGINS,       /* open the margin editor */
+	PF_ACT_THEME,         /* switch the panel between dark and light */
 } pf_action;
 
 typedef struct {
@@ -63,6 +67,12 @@ typedef struct {
 	char right[12];    /* optional right-hand column, e.g. a probe's current reading */
 	bool danger;
 } pf_menu_item;
+
+/* how far a margin may be pushed in: enough to clear any bezel, not enough to lose the screen */
+#define PF_MARGIN_MAX 60
+
+/* the four edges, in the order the editor walks them */
+enum { PF_EDGE_TOP = 0, PF_EDGE_RIGHT, PF_EDGE_BOTTOM, PF_EDGE_LEFT };
 
 #define PF_MENU_MAX 10
 #define PF_NAV_MAX 5
@@ -100,6 +110,13 @@ typedef struct {
 	bool confirm_danger;
 
 	int manual_focus;          /* Monitor control: 0 auger, 1 fan, 2 igniter, 3 exit */
+
+	/* Margin editor. The values are the live ones, so turning the knob moves the picture under the
+	 * bezel straight away and the setting is judged by eye rather than by number. */
+	int margin[4];             /* top, right, bottom, left, matching PF_EDGE_* */
+	int margin_focus;          /* 0..3 an edge, 4 = Save, 5 = Back */
+	bool margin_editing;       /* a press on an edge toggles this */
+	bool margin_dirty;
 
 	/* Bluetooth pairing */
 	char bt_kind[16], bt_label[24];

@@ -69,7 +69,9 @@
     "theme": "dark",
     "bgr": true,
     "margin_right": 16,
-    "margin_bottom": 0
+    "margin_left": 0,
+    "margin_bottom": 0,
+    "margin_top": 0
   },
   "distance": {
     "i2c_bus_addr": "0x29"

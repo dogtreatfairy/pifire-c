@@ -14,6 +14,7 @@ typedef struct {
 
 typedef struct {
 	int w, h;        /* framebuffer */
+	int ox, oy;      /* origin: everything drawn is shifted by this, so a bezel can hide the left/top */
 	int vw, vh;      /* visible area used for layout (panels hide a few px under the bezel) */
 	uint16_t *px;    /* w*h, big-endian RGB565 as the ILI9341 expects (byte-swapped on little-endian hosts) */
 	pf_gfx_theme th;

@@ -40,7 +40,7 @@ typedef struct {
 	int chipfd, spi;
 	pf_gpio_line *dc, *rst, *led;
 	pf_gpio_line *clk, *dt, *sw;
-	int rotation, margin_right, margin_bottom;
+	int rotation, margin_right, margin_bottom, margin_left, margin_top;
 	bool bgr, encoder;
 	unsigned cfg_gen;        /* settings generation the panel was last configured from */
 	pf_gfx fb;
@@ -127,6 +127,12 @@ static unsigned hash_fb(const pf_gfx *g)
 }
 
 /* caller holds t->mu */
+static void apply_margins(tft_t *t);
+static void margins_open(tft_t *t);
+static void margins_live(tft_t *t);
+static void margins_save(tft_t *t);
+static void margins_revert(tft_t *t);
+
 static void redraw(tft_t *t)
 {
 	apply_theme(t);
@@ -373,6 +379,22 @@ static void do_action(tft_t *t, pf_action act, int arg)
 	case PF_ACT_NETINFO:
 		pf_nav_push(&t->ui, PF_SCR_NETINFO, 0);
 		return;
+	case PF_ACT_MARGINS:
+		margins_open(t);
+		return;
+	case PF_ACT_THEME: {
+		char th[16];
+		pf_set_str("display.theme", th, sizeof th, "dark");
+		bool light = th[0] == 'l';
+		char patch[48], err[120];
+		snprintf(patch, sizeof patch, "{\"theme\":\"%s\"}", light ? "dark" : "light");
+		if (pf_settings_patch("display", patch, err, sizeof err) == 0) {
+			pf_strlcpy(t->theme, light ? "dark" : "light", sizeof t->theme);
+			t->cfg_gen = pf_settings_generation();
+			t->last_hash = 0;
+		}
+		return;
+	}
 	case PF_ACT_MANUAL:
 		t->ui.manual_focus = 0;
 		pf_nav_push(&t->ui, PF_SCR_MANUAL, 0);
@@ -521,6 +543,62 @@ static void manual_press(tft_t *t)
 
 /* ---------------- keys ---------------- */
 
+/* Push the edited margins into the framebuffer so the next redraw shows them. Nothing is written to
+ * settings here: the knob is for looking, Save is for keeping. */
+static void margins_live(tft_t *t)
+{
+	t->margin_top = t->ui.margin[PF_EDGE_TOP];
+	t->margin_right = t->ui.margin[PF_EDGE_RIGHT];
+	t->margin_bottom = t->ui.margin[PF_EDGE_BOTTOM];
+	t->margin_left = t->ui.margin[PF_EDGE_LEFT];
+	apply_margins(t);
+	t->last_hash = 0;
+}
+
+static void margins_open(tft_t *t)
+{
+	t->ui.margin[PF_EDGE_TOP] = t->margin_top;
+	t->ui.margin[PF_EDGE_RIGHT] = t->margin_right;
+	t->ui.margin[PF_EDGE_BOTTOM] = t->margin_bottom;
+	t->ui.margin[PF_EDGE_LEFT] = t->margin_left;
+	t->ui.margin_focus = 0;
+	t->ui.margin_editing = false;
+	t->ui.margin_dirty = false;
+	pf_nav_push(&t->ui, PF_SCR_MARGINS, 0);
+}
+
+/* Leaving without saving puts the screen back the way it was, so an experiment costs nothing. */
+static void margins_revert(tft_t *t)
+{
+	if (!t->ui.margin_dirty) return;
+	cJSON *d = pf_set_dup("display");
+	if (d) {
+		t->ui.margin[PF_EDGE_TOP] = pf_json_int(d, "margin_top", 0);
+		t->ui.margin[PF_EDGE_RIGHT] = pf_json_int(d, "margin_right", 16);
+		t->ui.margin[PF_EDGE_BOTTOM] = pf_json_int(d, "margin_bottom", 0);
+		t->ui.margin[PF_EDGE_LEFT] = pf_json_int(d, "margin_left", 0);
+		cJSON_Delete(d);
+		margins_live(t);
+	}
+	t->ui.margin_dirty = false;
+}
+
+static void margins_save(tft_t *t)
+{
+	char patch[160], err[120];
+	snprintf(patch, sizeof patch, "{\"margin_top\":%d,\"margin_right\":%d,\"margin_bottom\":%d,\"margin_left\":%d}",
+	         t->ui.margin[PF_EDGE_TOP], t->ui.margin[PF_EDGE_RIGHT], t->ui.margin[PF_EDGE_BOTTOM], t->ui.margin[PF_EDGE_LEFT]);
+	if (pf_settings_patch("display", patch, err, sizeof err) == 0) {
+		/* the reconfigure hook will see its own values and do nothing, which is what we want */
+		t->cfg_gen = pf_settings_generation();
+		t->ui.margin_dirty = false;
+		show_message(t, "Margins saved", 2);
+	} else {
+		LOGW(TAG, "could not save margins: %s", err);
+		show_message(t, "Could not save", 3);
+	}
+}
+
 static void handle_key(tft_t *t, pf_key k, double now)
 {
 	t->last_activity = now;
@@ -595,6 +673,23 @@ static void handle_key(tft_t *t, pf_key k, double now)
 	case PF_SCR_MANUAL:
 		if (dir) t->ui.manual_focus = ((t->ui.manual_focus + dir) % 4 + 4) % 4;
 		else if (k == PF_KEY_ENTER) manual_press(t);
+		break;
+
+	case PF_SCR_MARGINS:
+		if (dir && t->ui.margin_editing) {
+			/* editing one edge: the knob moves it, and the picture moves with it */
+			int e = t->ui.margin_focus;
+			int v = t->ui.margin[e] + dir;
+			if (v < 0) v = 0;
+			if (v > PF_MARGIN_MAX) v = PF_MARGIN_MAX;
+			if (v != t->ui.margin[e]) { t->ui.margin[e] = v; t->ui.margin_dirty = true; margins_live(t); }
+		} else if (dir) {
+			t->ui.margin_focus = ((t->ui.margin_focus + dir) % 6 + 6) % 6;
+		} else if (k == PF_KEY_ENTER) {
+			if (t->ui.margin_focus < 4) t->ui.margin_editing = !t->ui.margin_editing;
+			else if (t->ui.margin_focus == 4) margins_save(t);
+			else { margins_revert(t); pf_nav_pop(&t->ui); }
+		}
 		break;
 
 	case PF_SCR_NETINFO:
@@ -677,8 +772,12 @@ static void *create(const char *cfg_json, const pf_env *env)
 	t->bgr = pf_json_bool(c, "bgr", false);
 	t->margin_right = pf_json_int(c, "margin_right", 16);
 	t->margin_bottom = pf_json_int(c, "margin_bottom", 0);
-	if (t->margin_right < 0 || t->margin_right > 60) t->margin_right = 16;
-	if (t->margin_bottom < 0 || t->margin_bottom > 60) t->margin_bottom = 0;
+	t->margin_left = pf_json_int(c, "margin_left", 0);
+	t->margin_top = pf_json_int(c, "margin_top", 0);
+	if (t->margin_right < 0 || t->margin_right > PF_MARGIN_MAX) t->margin_right = 16;
+	if (t->margin_bottom < 0 || t->margin_bottom > PF_MARGIN_MAX) t->margin_bottom = 0;
+	if (t->margin_left < 0 || t->margin_left > PF_MARGIN_MAX) t->margin_left = 0;
+	if (t->margin_top < 0 || t->margin_top > PF_MARGIN_MAX) t->margin_top = 0;
 	t->backlight_timeout = pf_json_num(c, "backlight_timeout_s", 5);
 	int spi_dev = pf_json_int(c, "spi_device", 0), hz = pf_json_int(c, "spi_hz", 32000000);
 	t->encoder = pf_json_bool(c, "encoder", true);
@@ -698,7 +797,7 @@ static void *create(const char *cfg_json, const pf_env *env)
 	if (!t->dc) { env->log(PF_LVL_ERROR, TAG, "cannot claim DC GPIO%d", dc); free(t); return NULL; }
 	bool landscape = t->rotation == 90 || t->rotation == 270;
 	pf_gfx_init(&t->fb, landscape ? 320 : 240, landscape ? 240 : 320);
-	t->fb.vw = t->fb.w - t->margin_right; t->fb.vh = t->fb.h - t->margin_bottom;   /* bezel hides the edge */
+	apply_margins(t);
 	init_panel(t);
 	backlight(t, true);
 	pf_nav_reset(&t->ui);
@@ -734,6 +833,16 @@ static void destroy(void *self)
 }
 
 /* display tick (2 Hz): new status, timeouts, sleep while stopped */
+/* The bezel hides a few pixels on each edge, so the drawable area is the panel less the margins and
+ * everything is drawn from inside them. */
+static void apply_margins(tft_t *t)
+{
+	t->fb.ox = t->margin_left;
+	t->fb.oy = t->margin_top;
+	t->fb.vw = t->fb.w - t->margin_left - t->margin_right;
+	t->fb.vh = t->fb.h - t->margin_top - t->margin_bottom;
+}
+
 /* Re-read the handful of display settings that can change while the grill is running, and put the
  * panel straight without a restart. Colour order is the one that matters: panels differ in whether
  * they are wired RGB or BGR, the symptom is orange coming out blue and red coming out purple, and
@@ -751,24 +860,32 @@ static void reconfigure(tft_t *t)
 	int rot = pf_json_int(d, "rotation", t->rotation);
 	int mr = pf_json_int(d, "margin_right", t->margin_right);
 	int mb = pf_json_int(d, "margin_bottom", t->margin_bottom);
+	int ml = pf_json_int(d, "margin_left", t->margin_left);
+	int mt = pf_json_int(d, "margin_top", t->margin_top);
 	char theme[16];
 	pf_strlcpy(theme, pf_json_str(d, "theme", t->theme), sizeof theme);
 	double bl = pf_json_num(d, "backlight_timeout_s", t->backlight_timeout);
 	cJSON_Delete(d);
 
-	if (mr < 0 || mr > 60) mr = t->margin_right;
-	if (mb < 0 || mb > 60) mb = t->margin_bottom;
+	if (mr < 0 || mr > PF_MARGIN_MAX) mr = t->margin_right;
+	if (mb < 0 || mb > PF_MARGIN_MAX) mb = t->margin_bottom;
+	if (ml < 0 || ml > PF_MARGIN_MAX) ml = t->margin_left;
+	if (mt < 0 || mt > PF_MARGIN_MAX) mt = t->margin_top;
 	bool orient = bgr != t->bgr || rot != t->rotation;
-	if (!orient && mr == t->margin_right && mb == t->margin_bottom && bl == t->backlight_timeout && !strcmp(theme, t->theme)) return;
+	bool margins = mr != t->margin_right || mb != t->margin_bottom || ml != t->margin_left || mt != t->margin_top;
+	if (!orient && !margins && bl == t->backlight_timeout && !strcmp(theme, t->theme)) return;
 
-	t->bgr = bgr; t->rotation = rot; t->margin_right = mr; t->margin_bottom = mb; t->backlight_timeout = bl;
+	t->bgr = bgr; t->rotation = rot; t->backlight_timeout = bl;
+	t->margin_right = mr; t->margin_bottom = mb; t->margin_left = ml; t->margin_top = mt;
+	if (margins) apply_margins(t);
 	pf_strlcpy(t->theme, theme, sizeof t->theme);
 	if (orient) {
 		static const uint8_t madctl[4] = { 0x40, 0x20, 0x80, 0xE0 };
 		cmd1(t, 0x36, (uint8_t)(madctl[(t->rotation / 90) & 3] | (t->bgr ? 0x08 : 0x00)));
 	}
 	t->last_hash = 0;   /* the frame may be identical but the panel is not: redraw it regardless */
-	LOGI(TAG, "display reconfigured: %s, %d degrees, margins %d/%d, %s theme", t->bgr ? "BGR" : "RGB", t->rotation, t->margin_right, t->margin_bottom, t->theme);
+	LOGI(TAG, "display reconfigured: %s, %d degrees, margins t%d r%d b%d l%d, %s theme",
+	     t->bgr ? "BGR" : "RGB", t->rotation, t->margin_top, t->margin_right, t->margin_bottom, t->margin_left, t->theme);
 }
 
 static void status(void *self, const char *json)

@@ -112,6 +112,17 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 		ADD(PF_ACT_BACK, 0, "Back");
 		break;
 
+	case PF_LIST_SETTINGS: {
+		/* only what is worth changing with the screen in front of you */
+		ADD(PF_ACT_MARGINS, 0, "Screen Margins");
+		char th[16];
+		pf_set_str("display.theme", th, sizeof th, "dark");
+		ADD(PF_ACT_THEME, 0, "Theme");
+		snprintf(out[n - 1].right, sizeof out[n - 1].right, "%s", th[0] == 'l' ? "Light" : "Dark");
+		ADD(PF_ACT_BACK, 0, "Back");
+		break;
+	}
+
 	case PF_LIST_POWER:
 		ADD(PF_ACT_RESTART, 0, "Restart"); DANGER();
 		ADD(PF_ACT_POWEROFF, 0, "Shut Down"); DANGER();
@@ -190,6 +201,7 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 			ADD(PF_ACT_LIST, PF_LIST_STARTUP, "Startup");
 			ADD(PF_ACT_MONITOR, 0, "Monitor");
 			ADD(PF_ACT_NETINFO, 0, "Network Info");
+			ADD(PF_ACT_LIST, PF_LIST_SETTINGS, "Settings");
 			ADD(PF_ACT_LIST, PF_LIST_POWER, "Power");
 			ADD(PF_ACT_BACK, 0, "Back");
 		} else {   /* the active menu: Startup, Reignite, Smoke, Hold, Shutdown, Manual */
@@ -199,6 +211,7 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 			ADD(PF_ACT_LIST, PF_LIST_PROBE, "Probe Target");
 			ADD(PF_ACT_LIST, PF_LIST_BT, "Bluetooth Probes");
 			ADD(PF_ACT_NETINFO, 0, "Network Info");
+			ADD(PF_ACT_LIST, PF_LIST_SETTINGS, "Settings");
 			ADD(PF_ACT_ESTOP, 0, "Emergency Stop"); DANGER();
 			ADD(PF_ACT_BACK, 0, "Back");
 		}
@@ -647,6 +660,49 @@ static void render_manual(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 	pf_gfx_text_center(g, B, px, W / 2, y + (rowh - pf_gfx_line_height(B, px)) / 2, "Exit", is_exit ? g->th.accent_text : g->th.text);
 }
 
+/* The margin editor.
+ *
+ * Margins exist because a bezel hides the edge of the panel, and how much it hides is something you
+ * can only see by looking at it. So the whole drawable area is outlined: turn the knob and the
+ * outline moves under the bezel until it sits just inside it. The numbers are there, but they are
+ * not the point; the frame is. */
+static void render_margins(pf_gfx *g, const pf_ui_state *ui)
+{
+	static const char *const EDGE[4] = { "Top", "Right", "Bottom", "Left" };
+	int W = g->vw, H = g->vh;
+
+	/* the outline of what can be drawn: this is the thing being adjusted */
+	pf_gfx_frame(g, 0, 0, W, H, g->th.accent);
+	pf_gfx_frame(g, 1, 1, W - 2, H - 2, g->th.accent);
+
+	pf_gfx_text_center(g, B, 17, W / 2, 8, "SCREEN MARGINS", g->th.muted);
+	pf_gfx_text_center(g, R, 13, W / 2, 28, "Frame just inside the bezel", g->th.muted);
+
+	/* each edge's number sits against the edge it controls, so there is nothing to decode */
+	struct { int x, y; } at[4] = { { W / 2, 46 }, { W - 34, H / 2 - 8 }, { W / 2, H - 46 }, { 22, H / 2 - 8 } };
+	for (int e = 0; e < 4; e++) {
+		bool sel = ui->margin_focus == e;
+		char v[8];
+		snprintf(v, sizeof v, "%d", ui->margin[e]);
+		int bw = 40, bh = 26, bx = at[e].x - bw / 2, by = at[e].y - 4;
+		if (sel) pf_gfx_rrect(g, bx, by, bw, bh, 6, ui->margin_editing ? g->th.accent : g->th.card2);
+		uint16_t tc = sel && ui->margin_editing ? g->th.accent_text : sel ? g->th.text : g->th.muted;
+		pf_gfx_text_center(g, B, 18, at[e].x, by + 4, v, tc);
+		pf_gfx_text_center(g, R, 11, at[e].x, by + bh, EDGE[e], sel ? g->th.text : g->th.muted);
+	}
+
+	/* Save and Back, focused after the four edges */
+	static const char *const BTN[2] = { "Save", "Back" };
+	for (int b2 = 0; b2 < 2; b2++) {
+		bool sel = ui->margin_focus == 4 + b2;
+		int bw = 62, bh = 26, bx = W / 2 - 66 + b2 * 70, by = H / 2 - 6;
+		pf_gfx_rrect(g, bx, by, bw, bh, 6, sel ? g->th.accent : g->th.card2);
+		pf_gfx_text_center(g, B, 14, bx + bw / 2, by + (bh - pf_gfx_line_height(B, 14)) / 2,
+		                   BTN[b2], sel ? g->th.accent_text : g->th.text);
+	}
+	if (ui->margin_dirty) pf_gfx_text_center(g, R, 11, W / 2, H / 2 + 24, "unsaved", g->th.warn);
+}
+
 void pf_screens_render(pf_gfx *g, const cJSON *status, const pf_ui_state *ui)
 {
 	pf_gfx_clear(g, g->th.bg);
@@ -660,6 +716,7 @@ void pf_screens_render(pf_gfx *g, const cJSON *status, const pf_ui_state *ui)
 	}
 	if (scr == PF_SCR_CONFIRM) { render_confirm(g, ui); return; }
 	if (scr == PF_SCR_BTSCAN) { render_btscan(g, ui); return; }
+	if (scr == PF_SCR_MARGINS) { render_margins(g, ui); return; }
 	if (status) {
 		if (scr == PF_SCR_LIST) { render_list(g, status, ui); return; }
 		if (scr == PF_SCR_TEMP) { render_temp(g, status, ui); return; }

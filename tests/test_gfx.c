@@ -166,12 +166,13 @@ static void test_menus_by_mode(void)
 
 	cJSON *st = cJSON_Parse("{\"mode\":\"Stop\"}");
 	int n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
-	TEST_ASSERT_EQUAL_INT(5, n);
+	TEST_ASSERT_EQUAL_INT(6, n);
 	TEST_ASSERT_EQUAL_STRING("Startup", items[0].label);
 	TEST_ASSERT_EQUAL_STRING("Monitor", items[1].label);
 	TEST_ASSERT_EQUAL_STRING("Network Info", items[2].label);
-	TEST_ASSERT_EQUAL_STRING("Power", items[3].label);
-	TEST_ASSERT_EQUAL_STRING("Back", items[4].label);
+	TEST_ASSERT_EQUAL_STRING("Settings", items[3].label);
+	TEST_ASSERT_EQUAL_STRING("Power", items[4].label);
+	TEST_ASSERT_EQUAL_STRING("Back", items[5].label);
 	cJSON_Delete(st);
 
 	/* the active menu offers the opposite mode, ending the cook and an emergency stop */
@@ -262,12 +263,42 @@ static void test_text_metrics(void)
 	pf_gfx_free(&g);
 }
 
+/* The margins exist because a bezel hides the edge of the panel, which is something you can only
+ * judge by looking at it, so they have to be reachable from the panel itself. */
+static void test_settings_menu_offers_the_margin_editor(void)
+{
+	pf_menu_item items[PF_MENU_MAX];
+	pf_ui_state ui = { 0 };
+	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_SETTINGS);
+	cJSON *st = cJSON_Parse("{\"mode\":\"Stop\"}");
+	int n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
+	TEST_ASSERT_EQUAL_INT(3, n);
+	TEST_ASSERT_EQUAL_STRING("Screen Margins", items[0].label);
+	TEST_ASSERT_EQUAL(PF_ACT_MARGINS, items[0].act);
+	TEST_ASSERT_EQUAL_STRING("Theme", items[1].label);
+	TEST_ASSERT_EQUAL_STRING("Back", items[2].label);
+	cJSON_Delete(st);
+
+	/* the editor draws the drawable area, so a left or top margin has to move the picture, not
+	 * merely shrink it: with an origin set, the corner pixel must be background */
+	pf_gfx g;
+	TEST_ASSERT_EQUAL_INT(0, pf_gfx_init(&g, 320, 240));
+	pf_gfx_set_theme(&g, "dark");
+	pf_gfx_clear(&g, g.th.bg);
+	g.ox = 12; g.oy = 8; g.vw = 320 - 12 - 16; g.vh = 240 - 8;
+	pf_gfx_rect(&g, 0, 0, g.vw, g.vh, g.th.accent);
+	TEST_ASSERT_EQUAL_UINT16_MESSAGE(g.px[0], g.px[1], "the hidden edge must stay background");
+	TEST_ASSERT_TRUE_MESSAGE(g.px[8 * g.w + 12] != g.px[0], "drawing must start inside the margin");
+	pf_gfx_free(&g);
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
 	RUN_TEST(test_render_screens);
 	RUN_TEST(test_banner_names_a_tuning_run);
 	RUN_TEST(test_menus_by_mode);
+	RUN_TEST(test_settings_menu_offers_the_margin_editor);
 	RUN_TEST(test_navigation_stack);
 	RUN_TEST(test_text_metrics);
 	return UNITY_END();

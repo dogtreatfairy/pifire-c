@@ -16,7 +16,7 @@ static inline uint16_t swap16(uint16_t v) { return (uint16_t)((v << 8) | (v >> 8
 
 int pf_gfx_init(pf_gfx *g, int w, int h)
 {
-	g->w = w; g->h = h; g->vw = w; g->vh = h;
+	g->w = w; g->h = h; g->ox = 0; g->oy = 0; g->vw = w; g->vh = h;
 	g->px = calloc((size_t)w * h, sizeof(uint16_t));
 	pf_gfx_set_theme(g, "dark");
 	return g->px ? 0 : -1;
@@ -54,6 +54,7 @@ void pf_gfx_clear(pf_gfx *g, uint16_t c)
 void pf_gfx_rect(pf_gfx *g, int x, int y, int w, int h, uint16_t c)
 {
 	uint16_t v = swap16(c);
+	x += g->ox; y += g->oy;   /* the origin is where the bezel stops hiding the panel */
 	int x0 = x < 0 ? 0 : x, y0 = y < 0 ? 0 : y, x1 = x + w > g->w ? g->w : x + w, y1 = y + h > g->h ? g->h : y + h;
 	for (int yy = y0; yy < y1; yy++)
 		for (int xx = x0; xx < x1; xx++) g->px[yy * g->w + xx] = v;
@@ -61,6 +62,7 @@ void pf_gfx_rect(pf_gfx *g, int x, int y, int w, int h, uint16_t c)
 
 static inline void blend_px(pf_gfx *g, int x, int y, uint16_t c, double cov)
 {
+	x += g->ox; y += g->oy;
 	if (x < 0 || y < 0 || x >= g->w || y >= g->h || cov <= 0) return;
 	uint16_t *p = &g->px[y * g->w + x];
 	if (cov >= 1) { *p = swap16(c); return; }

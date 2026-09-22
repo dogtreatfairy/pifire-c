@@ -3408,6 +3408,28 @@
             "max": 60,
             "step": 1,
             "hidden": false
+          },
+          {
+            "label": "margin_left",
+            "friendly_name": "Left margin",
+            "description": "Pixels hidden by the bezel on the left. Easiest set from the panel itself: Settings, Screen Margins.",
+            "type": "int",
+            "default": 0,
+            "min": 0,
+            "max": 60,
+            "step": 1,
+            "hidden": false
+          },
+          {
+            "label": "margin_top",
+            "friendly_name": "Top margin",
+            "description": "Pixels hidden by the bezel at the top. Easiest set from the panel itself: Settings, Screen Margins.",
+            "type": "int",
+            "default": 0,
+            "min": 0,
+            "max": 60,
+            "step": 1,
+            "hidden": false
           }
         ]
       },
@@ -3513,6 +3535,28 @@
             "label": "margin_bottom",
             "friendly_name": "Bottom margin (px)",
             "description": "Pixels hidden under the bezel at the bottom.",
+            "type": "int",
+            "default": 0,
+            "min": 0,
+            "max": 60,
+            "step": 1,
+            "hidden": false
+          },
+          {
+            "label": "margin_left",
+            "friendly_name": "Left margin",
+            "description": "Pixels hidden by the bezel on the left. Easiest set from the panel itself: Settings, Screen Margins.",
+            "type": "int",
+            "default": 0,
+            "min": 0,
+            "max": 60,
+            "step": 1,
+            "hidden": false
+          },
+          {
+            "label": "margin_top",
+            "friendly_name": "Top margin",
+            "description": "Pixels hidden by the bezel at the top. Easiest set from the panel itself: Settings, Screen Margins.",
             "type": "int",
             "default": 0,
             "min": 0,
