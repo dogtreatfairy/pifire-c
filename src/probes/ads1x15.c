@@ -18,6 +18,7 @@ typedef struct {
 	uint8_t addr;
 	bool is1015;
 	int errors;
+	int timeouts;
 } ads_t;
 
 static void *create(const char *device_json, const pf_env *env)
@@ -53,7 +54,25 @@ static int read_channel(ads_t *s, int ch, double *mv)
 	uint16_t cfg = 0x8000 | (uint16_t)((4 + ch) << 12) | 0x0200 | 0x0100 | 0x0080 | 0x0003;
 	uint8_t w[3] = { REG_CONFIG, (uint8_t)(cfg >> 8), (uint8_t)cfg };
 	if (pf_i2c_write(s->fd, s->addr, w, 3)) return -1;
-	pf_sleep_ms(s->is1015 ? 2 : 9);
+
+	/* Wait for the conversion the chip says it has finished, not for a guess at how long it takes.
+	 *
+	 * A single-shot conversion at 128 SPS nominally takes 7.8 ms, but the ADS1115 clock is only
+	 * specified to 10%, so it can take 8.7 ms. Sleeping a flat 9 ms left 3% in hand, and reading
+	 * the conversion register early does not fail: it quietly returns the *previous* channel's
+	 * result. Reading four channels round-robin, that means the pit probe can hand back whatever
+	 * was on the last port, which on a grill with three empty jacks is not a temperature at all.
+	 * The OS bit reads 1 when the chip is idle, so poll it. */
+	pf_sleep_ms(s->is1015 ? 1 : 7);
+	uint8_t creg = REG_CONFIG, cr[2];
+	bool ready = false;
+	for (int i = 0; i < 12 && !ready; i++) {
+		if (pf_i2c_write_read(s->fd, s->addr, &creg, 1, cr, 2)) return -1;
+		ready = (cr[0] & 0x80) != 0;
+		if (!ready) pf_sleep_ms(1);
+	}
+	if (!ready) { s->timeouts++; return -1; }
+
 	uint8_t reg = REG_CONVERSION, r[2];
 	if (pf_i2c_write_read(s->fd, s->addr, &reg, 1, r, 2)) return -1;
 	int16_t raw = (int16_t)((r[0] << 8) | r[1]);
@@ -68,9 +87,19 @@ static int read_(void *self, pf_probe_sample *out, int nports)
 	ads_t *s = self;
 	int ok = 0;
 	for (int i = 0; i < nports && i < 4; i++) {
+		/* A port with no enabled probe on it is an open jack sitting at the rail. Converting it
+		 * costs nine milliseconds and leaves the mux holding a voltage a long way from the one the
+		 * pit probe is about to be measured at, which is the worst possible neighbour for the one
+		 * reading that matters. Leave it alone. */
+		if (out[i].kind == PF_SAMPLE_SKIP) continue;
 		double mv;
 		if (read_channel(s, i, &mv) == 0) { out[i].kind = PF_SAMPLE_MV; out[i].value = mv; ok++; }
 		else out[i].kind = PF_SAMPLE_INVALID;
+	}
+	if (!ok) {
+		/* nothing was asked for is not the same as nothing answered */
+		for (int i = 0; i < nports && i < 4; i++) if (out[i].kind != PF_SAMPLE_SKIP) return -1;
+		return 0;
 	}
 	if (!ok) { if (++s->errors == 5) s->env->log(PF_LVL_ERROR, "ads1x15", "no response from 0x%02x", s->addr); return -1; }
 	s->errors = 0;
@@ -80,7 +109,8 @@ static int read_(void *self, pf_probe_sample *out, int nports)
 static int status_json(void *self, char *out, size_t n)
 {
 	ads_t *s = self;
-	return snprintf(out, n, "{\"connected\":%s,\"address\":\"0x%02x\"}", s->errors < 5 ? "true" : "false", s->addr);
+	return snprintf(out, n, "{\"connected\":%s,\"address\":\"0x%02x\",\"timeouts\":%d}",
+	                s->errors < 5 ? "true" : "false", s->addr, s->timeouts);
 }
 
 static const pf_probe_ops ops = {

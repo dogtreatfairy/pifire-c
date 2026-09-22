@@ -199,6 +199,11 @@ void pf_probes_poll(double now)
 		if (!dev->inst) continue;
 		if (now < dev->next_poll) continue;
 		dev->next_poll = now + (dev->ops->poll_ms > 0 ? dev->ops->poll_ms : 250) / 1000.0;
+		/* tell the driver which ports are worth reading: one with no enabled probe on it is not */
+		for (int p = 0; p < dev->nports && p < PF_MAX_PORTS; p++) samples[i][p].kind = PF_SAMPLE_SKIP;
+		for (int k = 0; k < g_snap.n; k++)
+			if (g_snap.p[k].enabled && g_priv[k].dev == i && g_priv[k].port >= 0 && g_priv[k].port < dev->nports)
+				samples[i][g_priv[k].port].kind = PF_SAMPLE_INVALID;
 		int rc = dev->ops->read(dev->inst, samples[i], dev->nports);
 		if (rc < 0) { for (int p = 0; p < dev->nports; p++) samples[i][p].kind = PF_SAMPLE_INVALID; }
 		if (dev->ops->link) {

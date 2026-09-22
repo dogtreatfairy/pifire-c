@@ -23,6 +23,8 @@ typedef struct {
 	char label[PF_LABEL_LEN];
 	double temp;    /* NAN when invalid */
 	double target;  /* 0 = none */
+	double raw;     /* the reading before the filter, NAN when invalid */
+	double ohms;    /* the resistance it was computed from, 0 when not a resistive probe */
 } pf_hist_probe;
 typedef struct {
 	double ts;      /* wall clock seconds */

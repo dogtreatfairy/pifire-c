@@ -17,7 +17,10 @@ static const char *schema_v1 =
 	"CREATE INDEX IF NOT EXISTS events_ts ON events(ts);"
 	"CREATE TABLE IF NOT EXISTS history(ts REAL NOT NULL, mode INTEGER, setpoint REAL, u_raw REAL, u_applied REAL, fan_pct INTEGER, outputs INTEGER);"
 	"CREATE INDEX IF NOT EXISTS history_ts ON history(ts);"
-	"CREATE TABLE IF NOT EXISTS history_probe(ts REAL NOT NULL, label TEXT NOT NULL, temp REAL, target REAL);"
+	/* `raw` and `ohms` are what the probe actually measured, before the filter. Keeping them is how
+	   a real flare at ignition can be told from an electrical artifact after the fact, instead of
+	   guessing from a smoothed curve. */
+	"CREATE TABLE IF NOT EXISTS history_probe(ts REAL NOT NULL, label TEXT NOT NULL, temp REAL, target REAL, raw REAL, ohms REAL);"
 	"CREATE TABLE IF NOT EXISTS history_ctrl(ts REAL NOT NULL, u_ff REAL, p REAL, i REAL, d REAL, ff REAL, ambient REAL, flags INTEGER, pmode INTEGER, cycle_s REAL);"
 	"CREATE INDEX IF NOT EXISTS history_ctrl_ts ON history_ctrl(ts);"
 	"CREATE INDEX IF NOT EXISTS history_probe_ts ON history_probe(ts, label);"
@@ -73,7 +76,11 @@ int pf_db_open(const char *path)
 	if (pf_db_exec(schema_v1)) return -1;
 	int ver = meta_get_int("schema_version", 0);
 	if (ver == 0) { meta_set_int("schema_version", SCHEMA_VERSION); ver = SCHEMA_VERSION; }
-	/* future migrations: if (ver < 2) { ...; meta_set_int("schema_version", 2); } */
+	/* A database written before the probe's unfiltered reading was kept: add the two columns. They
+	 * already exist on a database created from the schema above, and the failure that produces is
+	 * the intended answer, so it is ignored rather than prevented. */
+	sqlite3_exec(g_db, "ALTER TABLE history_probe ADD COLUMN raw REAL", NULL, NULL, NULL);
+	sqlite3_exec(g_db, "ALTER TABLE history_probe ADD COLUMN ohms REAL", NULL, NULL, NULL);
 	LOGI(TAG, "opened %s (schema v%d)", path, ver);
 	return 0;
 }
@@ -166,7 +173,7 @@ int pf_db_history_write(const pf_hist_sample *samples, int n)
 	if (n <= 0) return 0;
 	sqlite3_stmt *s1 = NULL, *s2 = NULL, *s3 = NULL;
 	if (sqlite3_prepare_v2(g_db, "INSERT INTO history(ts,mode,setpoint,u_raw,u_applied,fan_pct,outputs) VALUES(?,?,?,?,?,?,?)", -1, &s1, NULL) != SQLITE_OK ||
-	    sqlite3_prepare_v2(g_db, "INSERT INTO history_probe(ts,label,temp,target) VALUES(?,?,?,?)", -1, &s2, NULL) != SQLITE_OK ||
+	    sqlite3_prepare_v2(g_db, "INSERT INTO history_probe(ts,label,temp,target,raw,ohms) VALUES(?,?,?,?,?,?)", -1, &s2, NULL) != SQLITE_OK ||
 	    sqlite3_prepare_v2(g_db, "INSERT INTO history_ctrl(ts,u_ff,p,i,d,ff,ambient,flags,pmode,cycle_s) VALUES(?,?,?,?,?,?,?,?,?,?)", -1, &s3, NULL) != SQLITE_OK) {
 		sqlite3_finalize(s1); sqlite3_finalize(s2); sqlite3_finalize(s3);
 		return -1;
@@ -196,6 +203,9 @@ int pf_db_history_write(const pf_hist_sample *samples, int n)
 			if (isnan(s->probes[p].temp)) sqlite3_bind_null(s2, 3);
 			else sqlite3_bind_double(s2, 3, s->probes[p].temp);
 			sqlite3_bind_double(s2, 4, s->probes[p].target);
+			if (isnan(s->probes[p].raw)) sqlite3_bind_null(s2, 5);
+			else sqlite3_bind_double(s2, 5, s->probes[p].raw);
+			sqlite3_bind_double(s2, 6, s->probes[p].ohms);
 			sqlite3_step(s2);
 		}
 	}

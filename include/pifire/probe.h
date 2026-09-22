@@ -10,7 +10,12 @@
 #define PF_PROBE_ABI 1
 #define PF_MAX_PORTS 8
 
-typedef enum { PF_SAMPLE_INVALID = 0, PF_SAMPLE_MV, PF_SAMPLE_CELSIUS, PF_SAMPLE_OHMS } pf_sample_kind;
+/* PF_SAMPLE_SKIP is set by the daemon *before* a read, on ports no enabled probe is mapped to. A
+ * driver that can save work or avoid disturbing its other ports should leave those alone; one that
+ * ignores it is still correct, since the daemon discards those samples anyway. It matters on a
+ * multiplexed ADC, where converting a port with nothing plugged into it is both wasted time and a
+ * source of error on the port next in line. */
+typedef enum { PF_SAMPLE_INVALID = 0, PF_SAMPLE_MV, PF_SAMPLE_CELSIUS, PF_SAMPLE_OHMS, PF_SAMPLE_SKIP } pf_sample_kind;
 
 typedef struct {
 	pf_sample_kind kind;

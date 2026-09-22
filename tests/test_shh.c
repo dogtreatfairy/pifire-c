@@ -105,11 +105,50 @@ static void test_tempq_tracks_a_fast_ramp(void)
 	TEST_ASSERT_TRUE(v < truth);
 }
 
+/* The conversion chain, checked end to end against the grill's own configuration: a PT-1000 on a
+ * 1 k divider from 3.28 V, read by an ADS1115 at +/-4.096 V. Every step of this was verified
+ * against a live reading of 1335 ohm showing 168.3 F. */
+static void test_the_whole_chain_at_the_real_operating_point(void)
+{
+	const pf_shh pt1000_oem = { 0.04136906456, -0.00677987613, 2.760294589e-05 };
+	const double Rd = 1000.0, Vs = 3.28;
+
+	/* resistance to temperature */
+	double c = pf_shh_ohms_to_c(1335.0, &pt1000_oem);
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.5, 75.9, c, "1335 ohm on this probe is about 168 F");
+
+	/* and back out through the divider to what the ADC actually sees */
+	double vo = Vs * 1335.0 / (Rd + 1335.0);
+	TEST_ASSERT_DOUBLE_WITHIN(0.002, 1.8767, vo);
+	TEST_ASSERT_DOUBLE_WITHIN(0.6, 1335.0, pf_shh_mv_to_ohms(vo * 1000.0, Rd, Vs));
+
+	/* one ADC count is 125 uV; at this operating point that has to be a small fraction of a degree,
+	 * or the readings would be stepping rather than moving */
+	double per_count = pf_shh_mv_to_ohms((vo + 0.000125) * 1000.0, Rd, Vs) - 1335.0;
+	double c2 = pf_shh_ohms_to_c(1335.0 + per_count, &pt1000_oem);
+	TEST_ASSERT_TRUE_MESSAGE((c2 - c) * 9 / 5 < 0.2, "one ADC count must be well under a fifth of a degree");
+
+	/* The curve has to rise with resistance across every reading the conversion accepts, or a
+	 * hotter pit could read colder. Outside that band it returns NAN by design, and where the band
+	 * ends is worth knowing: it is the highest temperature this probe can report at all. */
+	double last = -999, hottest = 0;
+	int inband = 0;
+	for (double r = 950; r <= 3400; r += 5) {
+		double t = pf_shh_ohms_to_c(r, &pt1000_oem);
+		if (isnan(t)) continue;
+		TEST_ASSERT_TRUE_MESSAGE(t > last, "the probe curve must rise with resistance");
+		last = t; hottest = t; inband++;
+	}
+	printf("PT-1000-OEM: %d readings in band, top of range %.0f F\n", inband, hottest * 9 / 5 + 32);
+	TEST_ASSERT_TRUE_MESSAGE(hottest * 9 / 5 + 32 > 550, "the probe must cover the whole grill range");
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
 	RUN_TEST(test_roundtrip);
 	RUN_TEST(test_divider);
+	RUN_TEST(test_the_whole_chain_at_the_real_operating_point);
 	RUN_TEST(test_sanity_clamp);
 	RUN_TEST(test_solve);
 	RUN_TEST(test_tempq_rejects_spike);

@@ -71,6 +71,8 @@ void pf_history_record(const pf_status *s, double now, double sample_s)
 		memcpy(hp->label, p->label, sizeof hp->label);
 		hp->temp = p->valid ? p->temp_c : NAN;
 		hp->target = p->target_c;
+		hp->raw = p->valid ? p->raw_c : NAN;
+		hp->ohms = p->ohms;
 	}
 	pthread_mutex_unlock(&g_mu);
 }
