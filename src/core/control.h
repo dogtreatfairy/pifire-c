@@ -119,6 +119,7 @@ typedef struct {
 		double peak_max, peak_min; int crossings;
 		double halves[PF_AT_MAX]; double hi_peak[PF_AT_MAX]; double lo_peak[PF_AT_MAX];
 		int recentres;          /* times the swing has been re-centred after a stalled half-cycle */
+		double err_at_move;     /* pit error when the centre last moved, to notice the pit walking away */
 		double last_recentre_t; /* the grill needs time to answer a new centre before it is judged again */
 		/* The duty actually delivered on each half of the swing. The cycle engine clamps to
 		 * [u_min, u_max], so on a grill that holds a low set point on very little fuel the low

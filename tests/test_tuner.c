@@ -315,6 +315,55 @@ static void test_single_adds_and_full_profile_replaces(void)
  * needed, so the low half of the swing still fed the fire, the pit never came back down through
  * the set point, and the measurement ran out the clock having learned nothing. The test must
  * notice that and move the centre rather than wait. */
+/* The relay has to centre on the duty that *holds* the set point, not the duty that got there.
+ * On the real grill a full profile starts cold and climbs to 180 F, so the ten minutes before the
+ * test began were mostly climb at high feed. Averaging that window gave a centre far above what
+ * 180 F needs, the low half of the relay went on feeding the fire, and the pit walked twenty
+ * degrees past the target in five minutes without ever crossing back. */
+static void test_the_relay_centres_on_holding_not_climbing(void)
+{
+	pf_learning_clear_anchors();
+	stop_and_wait_cold();
+
+	pf_cmd c = { .type = PF_CMD_MODE, .mode = PF_MODE_HOLD, .num = 180 };
+	pf_cmdq_push(&c);
+	/* long enough to climb from cold and settle, which is the state a profile run starts in */
+	for (int i = 0; i < 90 * 60 && !ctrl.target_reached; i += 10) tick(10);
+	tick(5 * 60);
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.target_reached, "the grill should have reached 180 F");
+	double holding = ctrl.u_applied;
+
+	unsigned gen = pf_learning_autotune_gen();
+	pf_cmd a = { .type = PF_CMD_AUTOTUNE_START };
+	pf_cmdq_push(&a);
+	tick(30);
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.autotune.active, "the relay test should have started");
+	printf("centre %.3f, holding duty about %.3f, low half %.3f\n",
+	       ctrl.autotune.u_center, holding, ctrl.autotune.u_center - ctrl.autotune.h);
+
+	/* The low half of the swing has to be able to cool the grill, or there is no oscillation to
+	 * measure. That is the property the climb-contaminated average destroyed. */
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.autotune.u_center - ctrl.autotune.h < holding,
+	                         "the low half of the relay must feed less than holding needs");
+
+	/* and it must actually come back through the set point rather than running away */
+	double worst = 0;
+	for (int i = 0; i < 60 * 60 && ctrl.autotune.active && ctrl.autotune.crossings == 0; i += 15) {
+		tick(15);
+		double over = pf_from_c(ctrl.pit_c, PF_UNITS_F) - 180;
+		if (over > worst) worst = over;
+	}
+	printf("first crossing after running %.0f F past the set point\n", worst);
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.autotune.crossings > 0, "the relay should have crossed the set point");
+	TEST_ASSERT_TRUE_MESSAGE(worst < 30, "it should not run far past the set point before crossing");
+
+	pf_cmd st = { .type = PF_CMD_AUTOTUNE_STOP };
+	pf_cmdq_push(&st);
+	tick(5);
+	(void)gen;
+	stop_and_wait_cold();
+}
+
 static void test_relay_recovers_from_a_badly_centred_swing(void)
 {
 	pf_learning_clear_anchors();
@@ -464,6 +513,7 @@ int main(void)
 	RUN_TEST(test_gain_schedule_interpolates);
 	RUN_TEST(test_relay_agrees_with_the_plant_it_measured);
 	RUN_TEST(test_a_slow_cooling_half_is_not_a_stall);
+	RUN_TEST(test_the_relay_centres_on_holding_not_climbing);
 	RUN_TEST(test_relay_recovers_from_a_badly_centred_swing);
 	RUN_TEST(test_single_adds_and_full_profile_replaces);
 	RUN_TEST(test_guided_tune_improves_holding);

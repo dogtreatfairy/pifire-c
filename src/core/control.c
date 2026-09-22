@@ -831,18 +831,29 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
  * history. This is the number the relay has to swing around: an estimate from the feed-forward
  * model is a guess about grills in general, whereas this is a measurement of the one in front of
  * us. NAN when there is not enough steady history to say. */
+/* The duty this grill actually holds this set point on. Only samples taken while the pit was at
+ * the set point say anything about that: averaging the window regardless of where the pit was took
+ * in the climb, and on a cold start to the lowest set point the climb is nearly all of it. The
+ * centre then came out far higher than the grill needs, so even the low half of the relay kept
+ * feeding the fire and the pit walked away from the set point without ever crossing it. */
 static double recent_hold_duty(const pf_control *c, double now, double window_s)
 {
 	const pf_history *h = pf_history_ctrl_view();
 	if (!h) return NAN;
+	/* Wide enough to admit a grill that is holding but still swinging -- which is every grill this
+	 * test has not run on yet -- and narrow enough to exclude the climb that precedes it. */
+	double band = pf_delta_to_c(10, PF_UNITS_F);
 	double sum = 0; int n = 0;
 	for (int i = h->len - 1; i >= 0; i--) {
 		const pf_hist_pt *pt = pf_history_at(h, i);
 		if (!pt || now - pt->t > window_s) break;
 		if (isnan(pt->u_applied) || pt->u_applied <= 0) continue;
+		if (isnan(pt->pit_c) || pt->setpoint_c <= 0) continue;
+		if (fabs(pt->pit_c - pt->setpoint_c) > band) continue;
 		sum += pt->u_applied;
 		n++;
 	}
+	(void)c;
 	return n >= 30 ? sum / n : NAN;
 }
 
@@ -855,7 +866,9 @@ static void autotune_start(pf_control *c, double now)
 	 * last duty. Centring on a figure that is too high means the low half of the relay still heats,
 	 * the pit never comes back down through the set point, and the test times out having learned
 	 * nothing: that is exactly what an unlearned feed-forward did on a real grill at 225 F. */
-	double measured = recent_hold_duty(c, now, 600);
+	/* Half an hour, because only the samples taken at the set point count and a grill that has
+	 * just arrived there has not yet produced many. */
+	double measured = recent_hold_duty(c, now, 1800);
 	c->autotune.u_center = pf_clamp(!isnan(measured) ? measured : c->learn.u_ff > 0 ? c->learn.u_ff : c->u_applied,
 	                                c->cfg.u_min + 0.05, c->cfg.u_max - 0.05);
 
@@ -874,6 +887,7 @@ static void autotune_start(pf_control *c, double now)
 	c->autotune.start_t = now;
 	c->autotune.last_cross_t = now;
 	c->autotune.phase = c->pit_c > c->setpoint_c ? -1 : +1;
+	c->autotune.err_at_move = c->pit_c - c->setpoint_c;
 	c->autotune.peak_max = c->autotune.peak_min = c->pit_c;
 	pf_events_emit("Autotune_Started", "Autotune running", "The grill will oscillate a few degrees around %.0f for 15-40 minutes. Do not cook food during the test.", pf_from_c(c->setpoint_c, c->cfg.units));
 	pf_cycle_begin(&c->cycle, &c->ccfg, now, c->autotune.u_center + c->autotune.h * c->autotune.phase);
@@ -946,26 +960,33 @@ static double autotune_step(pf_control *c, double now)
 	 * resets the count on every down-swing and the test can never finish. */
 	double patience = c->autotune.crossings == 0 ? 600.0 : 1200.0;
 	bool stalled = now - c->autotune.last_cross_t > patience;
+	/* Before the first crossing there is no evidence this centre works at all. A pit that is not
+	 * merely sitting off the set point but steadily walking further from it has already answered
+	 * the question, and waiting the full patience out just spends the budget climbing. */
+	bool drifting = c->autotune.crossings == 0 &&
+	                fabs(e) > fabs(c->autotune.err_at_move) + pf_delta_to_c(10, PF_UNITS_F);
 	/* Give the grill time to answer the last move before judging it again, or a runaway fires on
 	 * consecutive cycles and spends the whole budget in seconds without the pit having moved. */
 	bool settled_since_move = now - c->autotune.last_recentre_t > 300;
-	if ((ran_away || stalled) && settled_since_move && c->autotune.recentres < 8) {
+	if ((ran_away || stalled || drifting) && settled_since_move && c->autotune.recentres < 8) {
 		/* A runaway says the centre is a long way out, so move further than a mere stall does.
 		 * The budget has to be big enough to walk in from a bad starting guess and still leave
 		 * room to measure; the overall time limits are what stop a hopeless case. */
-		double step = ran_away ? 0.15 : 0.05;
+		double step = ran_away ? 0.15 : drifting ? 0.10 : 0.05;
 		double moved = pf_clamp(c->autotune.u_center + (e > 0 ? -step : step),
 		                        c->cfg.u_min + 0.05, c->cfg.u_max - 0.05);
 		if (fabs(moved - c->autotune.u_center) < 1e-6) {
 			/* already as far over as the feed limits allow: there is nothing to move, so wait for
 			 * the pit to come back rather than spending the budget on a centre that cannot change */
 			c->autotune.last_recentre_t = now;
+			c->autotune.err_at_move = e;
 			return c->autotune.u_center + c->autotune.h * c->autotune.phase;
 		}
 		c->autotune.u_center = moved;
 		c->autotune.h = fmin(0.15, fmin(c->autotune.u_center - c->cfg.u_min, c->cfg.u_max - c->autotune.u_center));
 		if (c->autotune.h < 0.05) c->autotune.h = 0.05;
 		c->autotune.recentres++;
+		c->autotune.err_at_move = e;
 		c->autotune.last_recentre_t = now;
 		c->autotune.crossings = 0;
 		c->autotune.hi_sum = c->autotune.lo_sum = 0; c->autotune.hi_n = c->autotune.lo_n = 0;
