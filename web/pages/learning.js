@@ -145,9 +145,11 @@ export function renderLearning(view) {
          Band, Integral Time and Derivative Time boxes, so a tune never has to be repeated just to
          get back to a known-good setting. */
       const tbl = el('div', { class: 'tunetable' },
-        el('div', { class: 'th' }, 'Set point'), el('div', { class: 'th' }, 'PB'), el('div', { class: 'th' }, 'Ti'), el('div', { class: 'th' }, 'Td'));
+        el('div', { class: 'th' }, 'Set point'), el('div', { class: 'th' }, 'PB'), el('div', { class: 'th' }, 'Ti'), el('div', { class: 'th' }, 'Td'), el('div', { class: 'th' }, 'Runs'));
       for (const a of anchors) {
-        tbl.append(el('div', {}, `${a.setpoint}${degUnit()}`), el('div', {}, `${a.PB}${degUnit()}`), el('div', {}, `${a.Ti} s`), el('div', {}, `${a.Td} s`));
+        /* The run count is what makes refinement visible: a number three runs agree on is worth
+           more than one measured on a single windy afternoon, and they look identical otherwise. */
+        tbl.append(el('div', {}, `${a.setpoint}${degUnit()}`), el('div', {}, `${a.PB}${degUnit()}`), el('div', {}, `${a.Ti} s`), el('div', {}, `${a.Td} s`), el('div', {}, `${a.runs || 1}`));
       }
       const lines = anchors.map((a) => `${a.setpoint}${degUnit()}: PB ${a.PB}${degUnit()}, Ti ${a.Ti} s, Td ${a.Td} s`
         + (a.ambient != null ? ` (measured at ${a.ambient}${degUnit()} out${a.wind_kmh ? `, ${a.wind_kmh} km/h` : ''})` : ''));

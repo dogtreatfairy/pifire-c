@@ -515,7 +515,7 @@ main.view { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scr
 }
 
 /* the tuning library, as a table you can read a row out of */
-.tunetable { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px 10px; font-size: .88rem; margin: 6px 0 10px; }
+.tunetable { display: grid; grid-template-columns: repeat(4, 1fr) auto; gap: 4px 10px; font-size: .88rem; margin: 6px 0 10px; }
 .tunetable .th { color: var(--muted); font-size: .76rem; text-transform: uppercase; letter-spacing: .04em; }
 
 /* probe groups: the pit, the food, then the air and the outside */

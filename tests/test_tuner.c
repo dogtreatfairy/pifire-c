@@ -589,6 +589,16 @@ static void test_the_tuning_library_can_be_backed_up_and_restored(void)
 	pf_learning_store_anchor(pf_f_to_c(350), &b, 12.5, 9.0);
 	pf_learning_store_fopdt(180, 240, 55);
 
+	/* the app is told how many runs are behind each entry, or the refinement is invisible */
+	{
+		cJSON *tj = pf_tuner_json();
+		cJSON *an = cJSON_GetObjectItem(tj, "anchors");
+		TEST_ASSERT_TRUE(cJSON_GetArraySize(an) >= 1);
+		TEST_ASSERT_EQUAL_INT_MESSAGE(1, (int)pf_json_num(cJSON_GetArrayItem(an, 0), "runs", 0),
+		                              "a freshly measured anchor reports one run");
+		cJSON_Delete(tj);
+	}
+
 	cJSON *doc = pf_learning_export();
 	TEST_ASSERT_NOT_NULL(doc);
 	TEST_ASSERT_EQUAL_STRING("pifire-tuning", pf_json_str(doc, "kind", ""));

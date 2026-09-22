@@ -483,6 +483,10 @@ cJSON *pf_tuner_json(void)
 		cJSON_AddNumberToObject(e, "Ti", round(a[i].Ti));
 		cJSON_AddNumberToObject(e, "Td", round(a[i].Td));
 		cJSON_AddNumberToObject(e, "ts", a[i].ts);
+		/* How many measurements are behind this entry. The app says how deep the library is, and
+		 * without it the refinement is invisible -- there is no way to tell a number that has been
+		 * measured once from one that three runs agree on. */
+		cJSON_AddNumberToObject(e, "runs", a[i].runs > 0 ? a[i].runs : 1);
 		if (!isnan(a[i].ambient_c)) cJSON_AddNumberToObject(e, "ambient", round(pf_from_c(a[i].ambient_c, u)));
 		if (a[i].wind > 0) cJSON_AddNumberToObject(e, "wind_kmh", round(a[i].wind));
 		cJSON_AddItemToArray(arr, e);
