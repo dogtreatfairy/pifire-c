@@ -192,11 +192,18 @@ int pf_safety_tick(pf_control *c, double now)
 	 *   pit crosses the new set point on the way down -- the point from which it should be
 	 *   recovering rather than still falling.
 	 *
-	 * Both end the same way: the igniter comes off once the pit has climbed `relight_recover`
-	 * above the lowest point it reached. Recovery from the bottom of the dip is the evidence that
-	 * the fire has taken; waiting for the whole way back to the set point would hold the igniter on
-	 * through the entire recovery. The lowest point keeps moving down while the pit is still
-	 * falling, so the test is always against the bottom of this dip and not the one before it.
+	 * Both end on the pit climbing back above the lowest point it reached -- recovery from the
+	 * bottom of the dip is the evidence the fire is winning, where waiting for the whole way back
+	 * to the set point would hold the igniter on through the entire recovery. The lowest point
+	 * keeps moving down while the pit is still falling, so the test is always against the bottom of
+	 * this dip and not where the igniter came on.
+	 *
+	 * How much of a climb counts depends on which trigger started it, because the two are asking
+	 * different questions. After a fire has fallen away from its target the question is whether
+	 * there is a fire at all, and only a substantial rise answers it: `relight_recover`, ten
+	 * degrees. On a coast down the fire was never in doubt, only starved, and the question is
+	 * merely whether the pit has stopped falling -- so a couple of degrees of turnaround is the
+	 * whole answer: `relight_recover_step`, three.
 	 *
 	 * An open lid is excluded from both: the pit falls because the heat walked out, not because
 	 * the fire went out, and the igniter has nothing to fix. The igniter's own continuous-on cap
@@ -258,6 +265,7 @@ int pf_safety_tick(pf_control *c, double now)
 			if ((holding || crossed) && !s->igniter_locked_out) {
 				s->relight_active = true;
 				s->relight_low_c = c->pit_c;
+				s->relight_from_step = crossed;
 				s->stepdown_armed = false;
 				pf_outputs_set(PF_OUT_IGNITER, true);
 				LOGW(TAG, "%s: igniter on to catch the fire (pit %.0f C, set point %.0f C)",
@@ -271,7 +279,8 @@ int pf_safety_tick(pf_control *c, double now)
 			}
 		} else {
 			if (c->pit_c < s->relight_low_c) s->relight_low_c = c->pit_c;
-			if (c->pit_c >= s->relight_low_c + cfg->relight_recover_c) {
+			double need = s->relight_from_step ? cfg->relight_recover_step_c : cfg->relight_recover_c;
+			if (c->pit_c >= s->relight_low_c + need) {
 				/* the fire has taken: stop feeding it electricity and let the grill work */
 				s->relight_active = false;
 				pf_outputs_set(PF_OUT_IGNITER, false);

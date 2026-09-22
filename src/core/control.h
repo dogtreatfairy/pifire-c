@@ -25,7 +25,7 @@ typedef struct {
 	/* Dynamic flame-out assist: how far below the set point counts as the fire failing, and how
 	 * much recovery from the lowest point counts as it having caught again. */
 	bool   relight_enabled;
-	double relight_drop_c, relight_recover_c, relight_timeout_s;
+	double relight_drop_c, relight_recover_c, relight_recover_step_c, relight_timeout_s;
 	bool coldstart; double coldstart_delta_c, coldstart_timeout_s, coldstart_window_s; bool coldstart_exit_on_rise;
 	/* startup / shutdown */
 	double startup_duration_s, prime_on_startup_g, startup_exit_c, startup_exit_rise_c;
@@ -52,6 +52,7 @@ typedef struct {
 	double relight_low_c;       /* the lowest the pit has been since that began */
 	double relight_below_since; /* when the pit first fell away, and did not come back */
 	bool   stepdown_armed;      /* the set point was lowered a long way; watch for the pit crossing it */
+	bool   relight_from_step;   /* this run began at a coast-down crossing, not at a fire falling away */
 	double last_sp_c;           /* the set point on the previous tick, to notice it being changed */
 	double baseline_c;          /* cold-start: running minimum during the baseline window */
 	double baseline_window_end;

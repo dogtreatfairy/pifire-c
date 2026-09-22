@@ -68,6 +68,7 @@ static void load_cfg(pf_cfg *g)
 	g->relight_enabled = B("safety.relight_enabled", true);
 	g->relight_drop_c = D("safety.relight_drop", 20);
 	g->relight_recover_c = D("safety.relight_recover", 10);
+	g->relight_recover_step_c = D("safety.relight_recover_step", 3);
 	g->relight_timeout_s = N("safety.relight_timeout_s", 300);
 	g->error_cooldown_fan_s = N("safety.error_cooldown_fan_s", 300);
 	g->coldstart = B("safety.coldstart.enabled", false);

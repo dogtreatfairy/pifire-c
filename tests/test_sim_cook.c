@@ -198,7 +198,7 @@ static void test_flameout_protection_lights_the_igniter_and_recovers(void)
    and comes off once the pit has stopped falling and climbed back. */
 static void test_a_big_step_down_lights_the_igniter_at_the_crossing(void)
 {
-	pf_settings_patch("safety", "{\"relight_enabled\":true,\"relight_drop\":20,\"relight_recover\":10}", NULL, 0);
+	pf_settings_patch("safety", "{\"relight_enabled\":true,\"relight_drop\":20,\"relight_recover\":10,\"relight_recover_step\":3}", NULL, 0);
 	pf_control_reload_settings(&ctrl);
 	pf_cmd_mode(PF_MODE_HOLD, 300);
 	tick(250 + 25 * 60);
@@ -233,7 +233,11 @@ static void test_a_big_step_down_lights_the_igniter_at_the_crossing(void)
 	printf("step-down: igniter off after %.0f s, pit %.1f F from a low of %.1f F (rise %.1f F)\n",
 	       t, now_f, low_f, now_f - low_f);
 	TEST_ASSERT_FALSE_MESSAGE(ctrl.safety.relight_active, "once the pit is climbing again the igniter is not needed");
-	TEST_ASSERT_TRUE_MESSAGE(now_f - low_f >= 9.5, "it should come off on the configured rise from the lowest point");
+	/* Coasting down the fire was starved rather than lost, so the question is only whether the pit
+	   has turned around. A few degrees answers it; demanding the full ten would hold the igniter on
+	   well past the point where the grill is plainly recovering. */
+	TEST_ASSERT_TRUE_MESSAGE(now_f - low_f >= 2.5, "it should wait for a real turnaround");
+	TEST_ASSERT_TRUE_MESSAGE(now_f - low_f < 8, "a level change should not need a full relight's worth of rise");
 	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
 }
 

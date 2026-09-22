@@ -57,11 +57,19 @@ waiting through the most dangerous part of the manoeuvre. So the trigger here is
 than still falling. It arms only when the pit is above the new target when the change is made, since
 a set point dropped to somewhere the grill has not reached yet involves no coast at all.
 
-Both end the same way. The igniter comes off once the pit has climbed `safety.relight_recover`
-(10 °F) **above the lowest point it reached** — recovery from the bottom of the dip is the evidence
-the fire has taken, and waiting for the whole way back to the set point would hold the igniter on
-through the entire recovery. The lowest point keeps moving down while the pit is still falling, so
-the test is always against the bottom of this dip and not where the igniter came on.
+Both end on the pit climbing back **above the lowest point it reached** — recovery from the bottom
+of the dip is the evidence the fire is winning, and waiting for the whole way back to the set point
+would hold the igniter on through the entire recovery. The lowest point keeps moving down while the
+pit is still falling, so the test is always against the bottom of this dip and not where the igniter
+came on.
+
+How much of a climb counts depends on which trigger started it, because the two are asking different
+questions:
+
+| Started by | Ends on | Why |
+|---|---|---|
+| A fire falling away from its target | `safety.relight_recover`, 10 °F | The question is whether there is a fire at all, and only a substantial rise answers it |
+| A coast down to a lower set point | `safety.relight_recover_step`, 3 °F | The fire was never in doubt, only starved. The question is merely whether the pit has stopped falling, and a couple of degrees of turnaround is the whole answer |
 
 Four things bound it:
 
