@@ -3374,7 +3374,7 @@
           {
             "label": "bgr",
             "friendly_name": "Swap red/blue",
-            "description": "Panels differ in colour order. Turn on if orange shows as blue.",
+            "description": "Panels differ in colour order. If orange shows as blue and red as purple, switch this. It takes effect straight away.",
             "type": "list",
             "list_values": [
               false,
@@ -3384,7 +3384,7 @@
               "RGB (as PiFire)",
               "BGR"
             ],
-            "default": false,
+            "default": true,
             "hidden": false
           },
           {
@@ -3485,7 +3485,7 @@
           {
             "label": "bgr",
             "friendly_name": "Swap red/blue",
-            "description": "Panels differ in colour order. Turn on if orange shows as blue.",
+            "description": "Panels differ in colour order. If orange shows as blue and red as purple, switch this. It takes effect straight away.",
             "type": "list",
             "list_values": [
               false,
@@ -3495,7 +3495,7 @@
               "RGB (as PiFire)",
               "BGR"
             ],
-            "default": false,
+            "default": true,
             "hidden": false
           },
           {

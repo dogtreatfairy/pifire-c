@@ -67,7 +67,7 @@
     "spi_hz": 32000000,
     "backlight_timeout_s": 5,
     "theme": "dark",
-    "bgr": false,
+    "bgr": true,
     "margin_right": 16,
     "margin_bottom": 0
   },

@@ -42,6 +42,7 @@ typedef struct {
 	pf_gpio_line *clk, *dt, *sw;
 	int rotation, margin_right, margin_bottom;
 	bool bgr, encoder;
+	unsigned cfg_gen;        /* settings generation the panel was last configured from */
 	pf_gfx fb;
 	pf_ui_state ui;
 	cJSON *status;
@@ -733,10 +734,48 @@ static void destroy(void *self)
 }
 
 /* display tick (2 Hz): new status, timeouts, sleep while stopped */
+/* Re-read the handful of display settings that can change while the grill is running, and put the
+ * panel straight without a restart. Colour order is the one that matters: panels differ in whether
+ * they are wired RGB or BGR, the symptom is orange coming out blue and red coming out purple, and
+ * a setting you have to reboot to test is a setting nobody finds. Rotation, margins and theme come
+ * along for the ride, since they are the others people adjust with the screen in front of them. */
+static void reconfigure(tft_t *t)
+{
+	unsigned gen = pf_settings_generation();
+	if (gen == t->cfg_gen) return;
+	t->cfg_gen = gen;
+
+	cJSON *d = pf_set_dup("display");
+	if (!d) return;
+	bool bgr = pf_json_bool(d, "bgr", false);
+	int rot = pf_json_int(d, "rotation", t->rotation);
+	int mr = pf_json_int(d, "margin_right", t->margin_right);
+	int mb = pf_json_int(d, "margin_bottom", t->margin_bottom);
+	char theme[16];
+	pf_strlcpy(theme, pf_json_str(d, "theme", t->theme), sizeof theme);
+	double bl = pf_json_num(d, "backlight_timeout_s", t->backlight_timeout);
+	cJSON_Delete(d);
+
+	if (mr < 0 || mr > 60) mr = t->margin_right;
+	if (mb < 0 || mb > 60) mb = t->margin_bottom;
+	bool orient = bgr != t->bgr || rot != t->rotation;
+	if (!orient && mr == t->margin_right && mb == t->margin_bottom && bl == t->backlight_timeout && !strcmp(theme, t->theme)) return;
+
+	t->bgr = bgr; t->rotation = rot; t->margin_right = mr; t->margin_bottom = mb; t->backlight_timeout = bl;
+	pf_strlcpy(t->theme, theme, sizeof t->theme);
+	if (orient) {
+		static const uint8_t madctl[4] = { 0x40, 0x20, 0x80, 0xE0 };
+		cmd1(t, 0x36, (uint8_t)(madctl[(t->rotation / 90) & 3] | (t->bgr ? 0x08 : 0x00)));
+	}
+	t->last_hash = 0;   /* the frame may be identical but the panel is not: redraw it regardless */
+	LOGI(TAG, "display reconfigured: %s, %d degrees, margins %d/%d, %s theme", t->bgr ? "BGR" : "RGB", t->rotation, t->margin_right, t->margin_bottom, t->theme);
+}
+
 static void status(void *self, const char *json)
 {
 	tft_t *t = self;
 	pthread_mutex_lock(&t->mu);
+	reconfigure(t);
 	cJSON_Delete(t->status);
 	t->status = cJSON_Parse(json);
 	double now = pf_now();
