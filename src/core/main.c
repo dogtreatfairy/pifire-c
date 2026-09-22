@@ -4,6 +4,7 @@
 #include "core/db.h"
 #include "core/env.h"
 #include "core/events.h"
+#include "features/alarms.h"
 #include "core/history.h"
 #include "display/registry.h"
 #include "features/cookfile.h"
@@ -146,6 +147,7 @@ int main(int argc, char **argv)
 
 	pf_cmdq_init();
 	pf_events_init();
+	pf_alarms_init();
 	pf_history_init();
 	pf_cookfile_init(data_dir);
 	pf_update_init(data_dir, sim);

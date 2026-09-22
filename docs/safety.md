@@ -34,3 +34,35 @@ The controller output is a ratio of the cycle; the daemon enforces `cycle_data.u
 ## Learning and autotune
 
 Learning only *observes* (steady-state feed vs. set point and ambient); it never bypasses the interlocks. Autotune oscillates the feed by ±0.15 around the learned feed-forward with a 1 °C hysteresis, aborts if the pit runs 50 °F over the set point or stops oscillating for 15 min, and any mode change cancels it. Its result is a suggestion until you press *Apply*.
+
+## Flame-out protection
+
+The classic flame-out check is a fixed floor: after startup the daemon computes a temperature the
+pit should never fall below, and dropping under it means the fire is out and the grill has to start
+again. That floor is the last word, and by the time it speaks there is usually nothing left in the
+pot to catch.
+
+Flame-out protection is the earlier, cheaper answer. While the grill is **holding** a set point it
+has already reached, a pit that falls `safety.relight_drop` (20 °F by default) below that set point
+is a fire that is failing, so the igniter comes on. It stays on until the pit has climbed
+`safety.relight_recover` (10 °F) **above the lowest point it reached** — recovery from the bottom of
+the dip is the evidence the fire has taken, and waiting for the whole way back to the set point
+would hold the igniter on through the entire recovery.
+
+Four things bound it:
+
+* **It only applies to a pit that had arrived.** A grill climbing to a set point, or to a new one
+  after a change, is far below it for ordinary reasons. `target_reached` is cleared when the set
+  point changes, so a step up re-arms it exactly as a fresh cook does.
+* **An open lid is excluded.** The pit falls twenty degrees because the heat walked out, not
+  because the fire went out, and the igniter has nothing to fix.
+* **The igniter's continuous-on cap still applies and still wins.** Protection never overrides it.
+* **It gives up.** If the pit has not climbed back to within half the trigger distance of the set
+  point within `safety.relight_timeout_s` (5 minutes), the fire is out rather than struggling and it
+  hands over to the flame-out path, which knows how to restart the grill and when to stop trying.
+  Without that deadline the assist would hold the igniter on until its own cap while keeping the pit
+  just warm enough that nothing else noticed.
+
+The escalation clock is deliberately *not* reset by the igniter switching off after a recovery: the
+igniter's own heat can lift the pit a few degrees with the fire still out, so the assist can cycle.
+Only the pit genuinely climbing back towards the set point resets it.

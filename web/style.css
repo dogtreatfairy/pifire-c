@@ -493,6 +493,13 @@ main.view { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scr
 .nitem { min-width: 0; } .nitem .nt-body { overflow-wrap: anywhere; }
 .nitem { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
 .nitem.error { border-color: var(--danger); } .nitem.warn { border-color: var(--warn); }
+/* A condition that is true right now reads differently from a record of one that has ended: the
+   live one is what the grill is doing, the other is only history that has not been read yet. */
+.nitem.live { background: color-mix(in oklab, var(--surface2) 70%, var(--surface)); }
+.nitem.live .nt-title::after { content: ''; display: inline-block; width: 7px; height: 7px; margin-left: 7px;
+  border-radius: 50%; background: var(--accent); vertical-align: middle; }
+.nitem:not(.live) .nt-title, .nitem:not(.live) .nt-text { opacity: .72; }
+.nitem .btn.xs { align-self: center; }
 @media (min-width: 900px) { .toasts { left: 132px; } }
 .tabbar::before, .cgroup::before, .dialog::before, .toast::before { background: var(--glass-strong); }
 /* specular edge moves to ::after */

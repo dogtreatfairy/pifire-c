@@ -4,6 +4,7 @@
 #include "core/settings.h"
 #include "core/util.h"
 #include "features/rules.h"
+#include "features/alarms.h"
 #include "features/push.h"
 #include "unity.h"
 #include <stdio.h>
@@ -491,6 +492,120 @@ static void test_an_empty_group_never_fires(void)
 	cJSON_Delete(st);
 }
 
+
+/* ---- the alarm table: conditions that end by themselves ---- */
+
+static cJSON *alarms(void) { return pf_alarms_json(); }
+static int alarm_count(void) { cJSON *j = alarms(); int n = cJSON_GetArraySize(cJSON_GetObjectItem(j, "alarms")); cJSON_Delete(j); return n; }
+static cJSON *alarm_at(cJSON *j, int i) { return cJSON_GetArrayItem(cJSON_GetObjectItem(j, "alarms"), i); }
+
+/* The complaint that started this: a probe that has gone quiet is a condition, not an event. When
+   it comes back, nobody should have to tell the grill that it is no longer missing. */
+static void test_a_condition_ends_when_it_stops_being_true(void)
+{
+	only_rule("{\"id\":\"off\",\"enabled\":true,\"only_while_cooking\":true,\"for_s\":0,"
+	          "\"select\":{\"domain\":\"probe\",\"role\":\"any\",\"link\":\"bluetooth\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":[{\"trait\":\"connected\",\"op\":\"is_off\"}]},"
+	          "\"title\":\"{probe} went offline\",\"body\":\"\",\"level\":\"normal\",\"sinks\":[\"app\"],\"cooldown_s\":600}");
+	cJSON *st = status();
+	cJSON *bt1 = cJSON_GetArrayItem(cJSON_GetObjectItem(st, "probes"), 1);
+
+	cJSON_ReplaceItemInObject(bt1, "valid", cJSON_CreateFalse());
+	pf_rules_tick(st, 1000);
+	TEST_ASSERT_EQUAL_INT(1, g_ncap);
+	TEST_ASSERT_EQUAL_INT(1, alarm_count());
+	cJSON *j = alarms();
+	TEST_ASSERT_TRUE_MESSAGE(cJSON_IsTrue(cJSON_GetObjectItem(alarm_at(j, 0), "active")), "it should be standing");
+	TEST_ASSERT_EQUAL_STRING("BT1 went offline", cJSON_GetStringValue(cJSON_GetObjectItem(alarm_at(j, 0), "title")));
+	cJSON_Delete(j);
+
+	/* plugged back in: the condition is false, so the alarm is over and goes on its own */
+	cJSON_ReplaceItemInObject(bt1, "valid", cJSON_CreateTrue());
+	pf_rules_tick(st, 1010);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, alarm_count(), "a reconnected probe should not still be reported missing");
+
+	/* and it can be reported again the next time it happens */
+	g_ncap = 0;
+	cJSON_ReplaceItemInObject(bt1, "valid", cJSON_CreateFalse());
+	pf_rules_tick(st, 2000);
+	TEST_ASSERT_EQUAL_INT(1, g_ncap);
+	TEST_ASSERT_EQUAL_INT(1, alarm_count());
+	cJSON_Delete(st);
+}
+
+/* Acknowledgement lives in the daemon, so clearing on one device clears on all of them. A
+   condition still true stays on the list after being read; one already over leaves. */
+static void test_acknowledgement_is_shared_and_respects_what_is_still_true(void)
+{
+	only_rule("{\"id\":\"hot\",\"enabled\":true,\"only_while_cooking\":true,\"for_s\":0,"
+	          "\"select\":{\"domain\":\"grill\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":[{\"entity\":\"grill\",\"trait\":\"temp\",\"op\":\">\",\"value\":100}]},"
+	          "\"title\":\"hot\",\"body\":\"\",\"level\":\"normal\",\"sinks\":[\"app\"],\"cooldown_s\":600}");
+	cJSON *st = status();
+	pf_rules_tick(st, 1000);
+	TEST_ASSERT_EQUAL_INT(1, alarm_count());
+
+	cJSON *j = alarms();
+	char key[96];
+	pf_strlcpy(key, cJSON_GetStringValue(cJSON_GetObjectItem(alarm_at(j, 0), "key")), sizeof key);
+	cJSON_Delete(j);
+
+	TEST_ASSERT_EQUAL_INT(0, pf_alarms_ack(key));
+	j = alarms();
+	TEST_ASSERT_EQUAL_INT_MESSAGE(1, cJSON_GetArraySize(cJSON_GetObjectItem(j, "alarms")),
+	                              "reading it does not make it untrue");
+	TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(alarm_at(j, 0), "acked")));
+	TEST_ASSERT_EQUAL_INT(0, (int)cJSON_GetNumberValue(cJSON_GetObjectItem(j, "unacked")));
+	cJSON_Delete(j);
+
+	/* now it is no longer true, and having been read there is nothing left to keep */
+	cJSON *p = cJSON_GetArrayItem(cJSON_GetObjectItem(st, "probes"), 0);
+	cJSON_ReplaceItemInObject(p, "temp", cJSON_CreateNumber(50));
+	pf_rules_tick(st, 1010);
+	TEST_ASSERT_EQUAL_INT(0, alarm_count());
+	cJSON_Delete(st);
+}
+
+/* A rule that stops applying cannot go on claiming its condition is true. */
+static void test_a_rule_that_stops_applying_retires_what_it_raised(void)
+{
+	only_rule("{\"id\":\"cook\",\"enabled\":true,\"only_while_cooking\":true,\"for_s\":0,"
+	          "\"select\":{\"domain\":\"grill\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":[{\"entity\":\"grill\",\"trait\":\"temp\",\"op\":\">\",\"value\":100}]},"
+	          "\"title\":\"hot\",\"body\":\"\",\"level\":\"normal\",\"sinks\":[\"app\"],\"cooldown_s\":600}");
+	cJSON *st = status();
+	pf_rules_tick(st, 1000);
+	TEST_ASSERT_EQUAL_INT(1, alarm_count());
+
+	/* the cook ends: a rule that only watches during a cook is no longer watching */
+	cJSON_ReplaceItemInObject(st, "mode", cJSON_CreateString("Stop"));
+	pf_rules_tick(st, 1010);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, alarm_count(), "a rule that is not being evaluated must not leave a standing claim");
+	cJSON_Delete(st);
+}
+
+/* A condition on the boundary of its threshold can come and go every few seconds. A phone that
+   buzzes twenty times in ten minutes teaches its owner to ignore it, so it gets silenced. */
+static void test_a_chattering_condition_is_silenced(void)
+{
+	only_rule("{\"id\":\"chat\",\"enabled\":true,\"only_while_cooking\":true,\"for_s\":0,"
+	          "\"select\":{\"domain\":\"grill\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":[{\"entity\":\"grill\",\"trait\":\"temp\",\"op\":\">\",\"value\":100}]},"
+	          "\"title\":\"hot\",\"body\":\"\",\"level\":\"normal\",\"sinks\":[\"app\"],\"cooldown_s\":0}");
+	cJSON *st = status();
+	cJSON *p = cJSON_GetArrayItem(cJSON_GetObjectItem(st, "probes"), 0);
+	double t = 1000;
+	for (int i = 0; i < 8; i++) {
+		cJSON_ReplaceItemInObject(p, "temp", cJSON_CreateNumber(227));
+		pf_rules_tick(st, t++);
+		cJSON_ReplaceItemInObject(p, "temp", cJSON_CreateNumber(50));
+		pf_rules_tick(st, t++);
+	}
+	printf("chattering condition announced %d time(s) in %d swings\n", g_ncap, 8);
+	TEST_ASSERT_TRUE_MESSAGE(g_ncap < 8, "it should stop announcing itself long before the eighth time");
+	cJSON_Delete(st);
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -508,5 +623,9 @@ int main(void)
 	RUN_TEST(test_deviation_rules_are_quiet_during_a_measurement);
 	RUN_TEST(test_hopper_rules);
 	RUN_TEST(test_builtin_rules_and_catalogue);
+	RUN_TEST(test_a_condition_ends_when_it_stops_being_true);
+	RUN_TEST(test_acknowledgement_is_shared_and_respects_what_is_still_true);
+	RUN_TEST(test_a_rule_that_stops_applying_retires_what_it_raised);
+	RUN_TEST(test_a_chattering_condition_is_silenced);
 	return UNITY_END();
 }

@@ -157,7 +157,11 @@
       "timeout_s": 0,
       "baseline_window_s": 60,
       "exit_on_rise": false
-    }
+    },
+    "relight_enabled": true,
+    "relight_drop": 20,
+    "relight_recover": 10,
+    "relight_timeout_s": 300
   },
   "startup": {
     "duration": 240,

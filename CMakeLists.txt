@@ -153,6 +153,7 @@ add_library(pfcore STATIC
   src/controllers/pid.c
   src/controllers/pid_variants.c
   src/controllers/adaptive.c
+  src/features/alarms.c
   src/features/learning.c
   src/features/mqtt.c
   src/features/webhook.c

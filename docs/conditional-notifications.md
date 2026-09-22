@@ -306,3 +306,47 @@ threshold, so nobody loses a setting they had configured.
 5. **Criticality plumbing** — per-rule sinks and levels through `push.c`.
 
 Steps 1 and 2 are the useful half; 3 to 5 refine it.
+
+---
+
+## 12. Alarms and notices: the state table
+
+Everything above decides *when* something is true. This section is about what happens to it
+afterwards, which is where the system used to fall apart: a rule fired, a line was added to a list
+kept in one browser's `localStorage`, and nothing ever took it back. A probe that reconnected was
+still reported missing. Clearing on a phone left the laptop untouched. Opening the app replayed the
+event log and called it news.
+
+The model is the one industrial alarm practice is built on (ISA-18.2, EEMUA 191), and it turns on a
+single distinction:
+
+* An **alarm** is a **condition**. It becomes true and later becomes false. Every notification rule
+  is one, by construction: a rule *is* a description of a state. An alarm therefore has a **return
+  to normal**, and when the condition goes false the entry goes away by itself.
+* A **notice** is a **moment**. A tuning run finished; a timer expired. It never becomes false
+  because it was never a state, so it waits to be acknowledged.
+
+Both live in one table in the daemon (`src/features/alarms.c`), which is the single source of truth.
+Clients render it; they do not keep their own copy. That is what makes clearing something on one
+device clear it everywhere, and what makes an old entry unable to reappear as news.
+
+### What the table guarantees
+
+| Behaviour | Why |
+|---|---|
+| A condition that goes false removes its own entry | Nobody should have to tell a controller that the probe they just plugged back in is no longer missing |
+| A rule that is disabled, or whose cooking window ends, retires what it raised | A condition nobody is evaluating cannot be claimed to be true |
+| A warning or worse that nobody acknowledged stays, marked as ended | Fixing something is not the same as having seen that it broke |
+| Acknowledgement lives in the daemon | One badge, one list, one "clear", across every device |
+| A standing condition is refreshed, not repeated | A condition that is *still* true is not news; `repeat_s` is the one deliberate exception |
+| Five activations in ten minutes silences it for thirty | A phone that buzzes twenty times teaches its owner to ignore it, which is the one failure an alarm system cannot recover from |
+| The table is not persisted | Conditions are re-evaluated from scratch after a restart, so anything still wrong comes straight back and anything fixed does not |
+
+### API
+
+`GET /alarms` returns `{alarms:[...], unacked, active, worst}`. `POST /alarms/ack` takes `{key}` or
+`{all:true}`; `POST /alarms/shelve` takes `{key, seconds}`. The WebSocket pushes
+`{type:"alarms", gen}` on every change, and clients refetch rather than being sent a delta, so a
+phone that was asleep gets the current state instead of a replay of what it missed.
+
+Rules may set `clear_after_s` to wait before declaring a condition over, the mirror of `for_s`.

@@ -1,10 +1,12 @@
 #include "core/events.h"
+#include "features/alarms.h"
 #include "core/db.h"
 #include "core/log.h"
 #include "core/util.h"
 #include "pifire/common.h"
 #include <pthread.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -34,6 +36,15 @@ int pf_events_add_sink(pf_event_sink_fn fn, void *ctx)
 	if (g_nsinks < MAX_SINKS) { g_sinks[g_nsinks].fn = fn; g_sinks[g_nsinks].ctx = ctx; g_nsinks++; rc = 0; }
 	pthread_mutex_unlock(&g_mu);
 	return rc;
+}
+
+/* Events the daemon raises to narrate itself. They are worth a log line and a row in the events
+ * table, and nothing more: a mode change is not news to the person who asked for it. */
+static bool housekeeping(const char *code)
+{
+	static const char *const EXACT[] = { "MODE", "SYS_START", "SYS_STOP", NULL };
+	for (int i = 0; EXACT[i]; i++) if (!strcmp(code, EXACT[i])) return true;
+	return !strncmp(code, "UPDATE_", 7) || !strncmp(code, "RULE_", 5);
 }
 
 static void emit_v(const char *code, int crit, unsigned sinks, const char *title, const char *fmt, va_list ap)
@@ -67,6 +78,13 @@ static void emit_v(const char *code, int crit, unsigned sinks, const char *title
 
 	pf_event ev = { .ts = e.ts, .code = e.code, .title = e.title, .body = e.body, .crit = e.crit, .sinks = e.sinks };
 	for (int i = 0; i < n; i++) sinks_copy[i].fn(&ev, sinks_copy[i].ctx);
+
+	/* Anything worth telling a person about also belongs in the one list they can see and clear.
+	 * Two kinds of event do not: the daemon's own bookkeeping, which belongs in the log, and a
+	 * notification rule, which keeps its own entry in the table because it is a condition and can
+	 * return to normal -- putting it here as well would leave a second copy behind after it did. */
+	if ((e.sinks & PF_SINK_APP) && !housekeeping(e.code))
+		pf_alarms_note(e.code, e.code, e.crit, e.sinks, e.title, e.body);
 }
 
 /* the historic codes carry their own urgency: E0x is a grill error, W0x a warning */

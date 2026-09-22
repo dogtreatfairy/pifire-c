@@ -156,8 +156,47 @@ static void test_overtemp_errors(void)
 	TEST_ASSERT_EQUAL(PF_MODE_STOP, ctrl.mode);
 }
 
+/* The pit falling away from a set point it was holding is a fire that is failing. The igniter is
+   the cheap answer, and it goes on long before the grill has cooled far enough for the old fixed
+   floor to call it a flame-out. It comes off again once the pit has climbed back from its lowest
+   point, which is the evidence the fire has taken rather than that the igniter is warming the pot. */
+static void test_flameout_protection_lights_the_igniter_and_recovers(void)
+{
+	pf_settings_patch("safety", "{\"relight_enabled\":true,\"relight_drop\":20,\"relight_recover\":10}", NULL, 0);
+	pf_control_reload_settings(&ctrl);
+	pf_cmd_mode(PF_MODE_HOLD, 225);
+	tick(250 + 20 * 60);
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	TEST_ASSERT_TRUE(ctrl.target_reached);
+	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_IGNITER));
+
+	/* the fire goes out with the grill sitting on its target */
+	pf_sim_model()->fire_lit = false;
+	pf_sim_model()->pot_pellets_g = 0;
+	double t = 0;
+	while (!ctrl.safety.relight_active && t < 30 * 60) { tick(5); t += 5; }
+	printf("relight after %.0f s at pit %.1f C (set point %.1f C)\n", t, ctrl.pit_c, ctrl.setpoint_c);
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.safety.relight_active, "a pit falling away from its target should light the igniter");
+	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_IGNITER));
+	TEST_ASSERT_EQUAL_MESSAGE(PF_MODE_HOLD, ctrl.mode, "it stays in Hold: this is a rescue, not a restart");
+	/* it triggered on the way down, so the drop should be about the configured twenty degrees */
+	TEST_ASSERT_TRUE(pf_delta_from_c(ctrl.setpoint_c - ctrl.pit_c, PF_UNITS_F) >= 19);
+
+	/* the fire catches: once the pit is back up from its low, the igniter is no longer needed */
+	double low = ctrl.safety.relight_low_c;
+	t = 0;
+	while (ctrl.safety.relight_active && t < 20 * 60) { tick(5); t += 5; }
+	printf("igniter off after %.0f s, pit %.1f C from a low of %.1f C\n", t, ctrl.pit_c, low);
+	TEST_ASSERT_FALSE_MESSAGE(ctrl.safety.relight_active, "the igniter should not stay on once the fire has taken");
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+}
+
+/* The hard floor is the last word, and it is what the assist hands over to. With the assist off,
+   this is the original path: the fire is out, the grill re-ignites, and a second failure errors. */
 static void test_flameout_reignites_then_errors(void)
 {
+	pf_settings_patch("safety", "{\"relight_enabled\":false}", NULL, 0);
+	pf_control_reload_settings(&ctrl);
 	pf_cmd_mode(PF_MODE_HOLD, 225);
 	tick(250 + 20 * 60);
 	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
@@ -299,6 +338,7 @@ int main(void)
 	RUN_TEST(test_full_cook);
 	RUN_TEST(test_lid_open_pauses_feed);
 	RUN_TEST(test_overtemp_errors);
+	RUN_TEST(test_flameout_protection_lights_the_igniter_and_recovers);
 	RUN_TEST(test_flameout_reignites_then_errors);
 	RUN_TEST(test_coldstart_winter);
 	RUN_TEST(test_coldstart_failure);

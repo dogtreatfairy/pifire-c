@@ -85,6 +85,7 @@ function connect() {
     if (m.type === 'status') { PF.status = m; PF.units = m.units; emit(); }
     else if (m.type === 'error') toast(m.msg, true);
     else if (m.type === 'event') { PF.alertGen = (PF.alertGen || 0) + 1; alert(m); emit(); }
+    else if (m.type === 'alarms') refreshAlarms();
   };
 }
 function scheduleReconnect() {
@@ -158,10 +159,20 @@ export function el(tag, attrs = {}, ...children) {
 // matters (grill events, alarms, errors, failed actions) until the user clears it. The centre is
 // persisted per device; events that happened while the app was closed are pulled from the daemon's
 // event log on boot so nothing is missed.
-const NOTIF_KEY = 'pf.notifs', SEEN_KEY = 'pf.lastEventTs';
 const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
-PF.notifs = load(NOTIF_KEY, []);
+/* The list behind the bell is the daemon's alarm table, not a pile kept in this browser. That is
+   what makes an alarm disappear by itself when the grill fixes it, and what makes clearing one on
+   a phone clear it on the laptop. Banners stay local: a banner is a moment on one screen. */
+PF.alarms = { alarms: [], unacked: 0, active: 0, worst: -1 };
+let centreRender = null;
+export async function refreshAlarms() {
+  try {
+    PF.alarms = await api('/alarms');
+    updateBadge();
+    centreRender?.();
+  } catch { /* offline: keep showing what we last knew */ }
+}
 const KIND_ICON = { error: 'circle-x', warn: 'triangle-alert', ok: 'circle-check', info: 'info' };
 function kindOf(code = '', level = 1) {
   if (/^E\d/.test(code) || level >= 3) return 'error';
@@ -172,14 +183,16 @@ function kindOf(code = '', level = 1) {
 function updateBadge() {
   const b = document.getElementById('bell-badge');
   if (!b) return;
-  const n = PF.notifs.length;
+  const n = PF.alarms.unacked || 0;
   b.hidden = n === 0; b.textContent = n > 99 ? '99+' : String(n);
   const bell = document.getElementById('bell');
-  if (bell) bell.classList.toggle('has-error', PF.notifs.some((x) => x.kind === 'error'));
+  if (bell) bell.classList.toggle('has-error', (PF.alarms.worst ?? -1) >= 3);
 }
-export function notify({ kind = 'info', title = '', body = '', code = '', ts = Date.now() / 1000 }, { banner = true, keep = true } = {}) {
+const critKind = (c) => (c >= 3 ? 'error' : c === 2 ? 'warn' : c === 0 ? 'ok' : 'info');
+/* Show something on this screen now. What is worth keeping is kept by the daemon, so this only
+   ever draws a banner -- there is no second, per-device copy of the list to drift out of step. */
+export function notify({ kind = 'info', title = '', body = '', code = '', ts = Date.now() / 1000 }, { banner = true } = {}) {
   const n = { id: `${Math.round(ts * 1000)}-${Math.random().toString(36).slice(2, 6)}`, kind, title, body, code, ts };
-  if (keep) { PF.notifs.unshift(n); PF.notifs = PF.notifs.slice(0, 100); store(NOTIF_KEY, PF.notifs); updateBadge(); }
   if (banner) showBanner(n);
   return n;
 }
@@ -200,30 +213,14 @@ function showBanner(n) {
 function alert(m) {
   const kind = kindOf(m.code, m.level);
   notify({ kind, title: m.title, body: m.body, code: m.code, ts: m.ts || Date.now() / 1000 });
-  if (m.ts) store(SEEN_KEY, Math.max(load(SEEN_KEY, 0), m.ts));
   try {
     if (document.visibilityState !== 'visible') showSystemNotification(m);
     if (navigator.vibrate && kind !== 'info') navigator.vibrate([120, 60, 120]);
   } catch {}
 }
-// events that happened while the app was closed
-async function catchUpEvents() {
-  try {
-    const evs = await api('/events?limit=40');
-    const seen = load(SEEN_KEY, 0);
-    let newest = seen;
-    if (!seen) { if (evs.length) store(SEEN_KEY, Math.max(...evs.map((e) => e.ts))); return; }   /* first run on this device: start from now */
-    for (const e of evs.slice().reverse()) {
-      if (e.ts <= seen) continue;
-      newest = Math.max(newest, e.ts);
-      const kind = kindOf(e.code, e.level);
-      if (kind === 'info' && !/Achieved|Timer|ETA|Recipe/.test(e.code)) continue;   /* mode changes and housekeeping stay in the log */
-      if (e.code === 'MODE' || e.code.startsWith('SYS_') || e.code.startsWith('UPDATE_')) continue;
-      notify({ kind, title: e.code.replace(/_/g, ' '), body: e.message, code: e.code, ts: e.ts }, { banner: false });
-    }
-    store(SEEN_KEY, newest);
-  } catch { /* offline */ }
-}
+// Nothing to catch up on: the daemon holds the list, so opening the app shows the state of the
+// grill rather than a replay of an event log. An old entry cannot reappear as news, and one that
+// was cleared on another device is already gone here.
 // iOS draws Safari's address bar and toolbar when the page is opened in a tab rather than launched
 // from the Home Screen icon. Say so once, with the taps that fix it, instead of leaving it a mystery.
 function installHint() {
@@ -277,19 +274,43 @@ export function openNotifications() {
   return dialog((close) => {
     const wrap = el('div', { class: 'ncenter' });
     const render = () => {
+      const list0 = PF.alarms.alarms || [];
+      /* Standing conditions first, worst first, then what is merely waiting to be read. */
+      const items = list0.slice().sort((a, b) =>
+        (b.active - a.active) || (b.crit - a.crit) || (b.ts - a.ts));
       wrap.innerHTML = '';
-      wrap.append(el('div', { class: 'row between' }, el('h3', {}, 'Notifications'), el('button', { class: 'btn sm ghost', type: 'button', disabled: !PF.notifs.length, onclick: () => { PF.notifs = []; store(NOTIF_KEY, []); updateBadge(); render(); } }, 'Clear all')));
-      if (!PF.notifs.length) wrap.append(el('div', { class: 'muted', style: 'padding:14px 0' }, 'Nothing to review.'));
+      wrap.append(el('div', { class: 'row between' }, el('h3', {}, 'Notifications'),
+        el('button', { class: 'btn sm ghost', type: 'button', disabled: !items.length,
+          onclick: async () => { try { await api('/alarms/ack', { body: { all: true } }); } catch {} await refreshAlarms(); } }, 'Clear all')));
+      if (!items.length) wrap.append(el('div', { class: 'muted', style: 'padding:14px 0' }, 'Nothing to review.'));
       const list = el('div', { class: 'nlist' });
-      for (const n of PF.notifs) {
-        const w = el('span', { class: `ic-wrap ${n.kind}` }); import('./icons.js').then((m) => w.append(m.icon(KIND_ICON[n.kind] || 'info')));
-        list.append(el('div', { class: `nitem ${n.kind}` }, w,
-          el('div', { class: 'nt-body' }, n.title ? el('div', { class: 'nt-title' }, n.title) : null, el('div', { class: 'nt-text' }, n.body), el('div', { class: 'meta' }, new Date(n.ts * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))),
-          el('button', { class: 'nt-close', 'aria-label': 'Clear', onclick: () => { PF.notifs = PF.notifs.filter((x) => x.id !== n.id); store(NOTIF_KEY, PF.notifs); updateBadge(); render(); } }, '×')));
+      for (const n of items) {
+        const kind = critKind(n.crit);
+        const w = el('span', { class: `ic-wrap ${kind}` }); import('./icons.js').then((m) => w.append(m.icon(KIND_ICON[kind] || 'info')));
+        const when = new Date((n.cleared_ts || n.ts) * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        /* An alarm says what it is doing now; one that has ended says so instead of vanishing
+           silently, because fixing something is not the same as having seen that it broke. */
+        const meta = [
+          n.active ? 'Happening now' : n.notice ? when : `Ended ${when}`,
+          n.raises > 1 ? `${n.raises}\u00d7` : null,
+          n.shelved_for ? `muted ${Math.round(n.shelved_for / 60)} min` : null,
+        ].filter(Boolean).join(' \u00b7 ');
+        list.append(el('div', { class: `nitem ${kind}${n.active ? ' live' : ''}` }, w,
+          el('div', { class: 'nt-body' },
+            n.title ? el('div', { class: 'nt-title' }, n.title) : null,
+            n.body ? el('div', { class: 'nt-text' }, n.body) : null,
+            el('div', { class: 'meta' }, meta)),
+          /* Mute is for the one that is right, keeps happening, and cannot be fixed this minute. */
+          n.active && !n.shelved_for ? el('button', { class: 'btn xs ghost', type: 'button', title: 'Silence for 30 minutes',
+            onclick: async () => { try { await api('/alarms/shelve', { body: { key: n.key, seconds: 1800 } }); } catch {} await refreshAlarms(); } }, 'Mute') : null,
+          el('button', { class: 'nt-close', 'aria-label': 'Clear',
+            onclick: async () => { try { await api('/alarms/ack', { body: { key: n.key } }); } catch {} await refreshAlarms(); } }, '\u00d7')));
       }
-      wrap.append(list, el('button', { class: 'btn ghost block', type: 'button', style: 'margin-top:10px', onclick: () => close() }, 'Close'));
+      wrap.append(list, el('button', { class: 'btn ghost block', type: 'button', style: 'margin-top:10px', onclick: () => { centreRender = null; close(); } }, 'Close'));
     };
+    centreRender = render;
     render();
+    refreshAlarms();
     return wrap;
   });
 }
@@ -473,7 +494,7 @@ setTimeout(fitViewport, 500);
   updateBadge();
   document.getElementById('bell')?.addEventListener('click', openNotifications);
   setTimeout(installHint, 2500);
-  catchUpEvents();
+  refreshAlarms();
   document.addEventListener('click', requestAlertPermission, { once: true });
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('/sw.js').catch(() => {});
   // after a daemon upgrade the cached shell may be older than the server: reload once so modules match

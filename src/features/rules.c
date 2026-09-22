@@ -10,6 +10,7 @@
  * cooldown and an optional repeat sit on top, and by default a rule only runs while the grill is
  * cooking so a probe charging on the bench cannot page anyone. */
 #include "features/rules.h"
+#include "features/alarms.h"
 #include "core/events.h"
 #include "core/log.h"
 #include "core/settings.h"
@@ -371,8 +372,10 @@ typedef struct {
 	bool used;
 	char rule[40], inst[40];
 	double held_since;    /* when the condition first became true, 0 = not true */
+	double false_since;   /* when it went false, for the delay before it is declared over */
 	double last_fired;
 	bool armed;           /* false once fired, until the condition goes false again */
+	bool raised;          /* there is an entry in the alarm table waiting to be cleared */
 } rstate;
 
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
@@ -393,6 +396,25 @@ static rstate *state_for(const char *rule, const char *instance)
 	pf_strlcpy(free_slot->rule, rule, sizeof free_slot->rule);
 	pf_strlcpy(free_slot->inst, instance, sizeof free_slot->inst);
 	return free_slot;
+}
+
+/* Everything this rule is still reporting is over, because the rule itself has stopped applying --
+ * it was switched off, or the cook it only watches during has ended. A condition nobody is
+ * evaluating any more cannot be true, and leaving its entry standing would be the system claiming
+ * to know something it has stopped looking at. Caller holds the lock. */
+static void retire_rule(const char *id)
+{
+	for (int i = 0; i < MAX_STATE; i++) {
+		rstate *st = &g_state[i];
+		if (!st->used || strcmp(st->rule, id) || !st->raised) continue;
+		char key[96];
+		snprintf(key, sizeof key, "RULE_%.32s:%.32s", id, st->inst);
+		pf_alarms_clear(key);
+		st->raised = false;
+		st->held_since = 0;
+		st->false_since = 0;
+		st->armed = true;
+	}
 }
 
 static unsigned sink_mask(const cJSON *rule)
@@ -421,13 +443,32 @@ static int crit_of(const cJSON *rule)
 	return PF_CRIT_NORMAL;
 }
 
-static void fire(const cJSON *rule, const cJSON *status, const inst *in, const val *matched)
+/* What this rule is about, for this instance: the identity the alarm table keys on. It must not
+ * contain the message, which carries a temperature that changes every tick. */
+static void rule_key(char *out, size_t n, const cJSON *rule, const inst *in)
+{
+	snprintf(out, n, "RULE_%.32s:%.32s", pf_json_str((cJSON *)rule, "id", "custom"),
+	         in && in->label ? in->label : "-");
+}
+
+/* `renotify` is a deliberate re-announcement of a condition that is still true -- the rule's own
+ * repeat interval, which exists so a critical standing alarm keeps asking to be dealt with. It is
+ * the one reason to speak again about something already on the list. */
+static void fire(const cJSON *rule, const cJSON *status, const inst *in, const val *matched, bool renotify)
 {
 	char title[160], body[320];
 	render(title, sizeof title, pf_json_str((cJSON *)rule, "title", "{grill}"), status, in, matched);
 	render(body, sizeof body, pf_json_str((cJSON *)rule, "body", ""), status, in, matched);
-	char code[40];
+	char code[40], key[96];
 	snprintf(code, sizeof code, "RULE_%.32s", pf_json_str((cJSON *)rule, "id", "custom"));
+	rule_key(key, sizeof key, rule, in);
+
+	/* A rule describes a condition, so it gets a standing entry rather than a fresh line every
+	 * time it is still true. The table answers whether this is a new activation; only a new one is
+	 * worth a phone buzzing, and only a new one counts as something to announce. */
+	const char *name = pf_json_str((cJSON *)rule, "name", code);
+	bool fresh = pf_alarms_raise(key, code, name, crit_of(rule), sink_mask(rule), title, body);
+	if (!fresh && !renotify) return;
 	pf_events_emit_ex(code, crit_of(rule), sink_mask(rule), title, "%s", body);
 	g_fired_total++;
 }
@@ -447,10 +488,10 @@ void pf_rules_tick(const cJSON *status, double now)
 	pthread_mutex_lock(&g_mu);
 	const cJSON *rule;
 	cJSON_ArrayForEach(rule, rules) {
-		if (!cJSON_IsTrue(jget(rule, "enabled"))) continue;
 		const char *id = pf_json_str((cJSON *)rule, "id", "");
 		if (!id[0]) continue;
-		if (pf_json_bool((cJSON *)rule, "only_while_cooking", true) && !cooking) continue;
+		if (!cJSON_IsTrue(jget(rule, "enabled"))) { retire_rule(id); continue; }
+		if (pf_json_bool((cJSON *)rule, "only_while_cooking", true) && !cooking) { retire_rule(id); continue; }
 
 		inst instances[MAX_INST];
 		int ni = select_instances(status, rule, instances, MAX_INST);
@@ -468,16 +509,38 @@ void pf_rules_tick(const cJSON *status, double now)
 
 			rstate *st = state_for(id, instances[i].label);
 			if (!st) continue;
-			if (!ok) { st->held_since = 0; st->armed = true; continue; }
+			if (!ok) {
+				st->held_since = 0;
+				st->armed = true;
+				/* The condition is false again, so the thing it was reporting is over. Saying so
+				 * is the whole difference between a notification system and a pile of receipts:
+				 * a probe that has been plugged back in should not still be reported missing, and
+				 * nobody should have to tell the grill that. */
+				if (st->raised) {
+					double off = pf_json_num((cJSON *)rule, "clear_after_s", 0);
+					if (st->false_since == 0) st->false_since = now;
+					if (now - st->false_since >= off) {
+						char key[96];
+						rule_key(key, sizeof key, rule, &instances[i]);
+						pf_alarms_clear(key);
+						st->raised = false;
+						st->false_since = 0;
+					}
+				}
+				continue;
+			}
+			st->false_since = 0;
 			if (st->held_since == 0) st->held_since = now;
 			if (now - st->held_since < hold) continue;
 			bool due = st->armed || (repeat > 0 && now - st->last_fired >= repeat);
 			if (!due) continue;
 			if (st->last_fired > 0 && now - st->last_fired < cooldown) continue;
+			bool renotify = !st->armed;   /* already reported; this is the repeat interval */
 			st->armed = false;
 			st->last_fired = now;
+			st->raised = true;
 			pthread_mutex_unlock(&g_mu);
-			fire(rule, status, &instances[i], &matched);
+			fire(rule, status, &instances[i], &matched, renotify);
 			pthread_mutex_lock(&g_mu);
 		}
 
@@ -485,16 +548,26 @@ void pf_rules_tick(const cJSON *status, double now)
 			rstate *st = state_for(id, "*");
 			bool ok = matches == ni;
 			if (st) {
-				if (!ok) { st->held_since = 0; st->armed = true; }
-				else {
+				if (!ok) {
+					st->held_since = 0;
+					st->armed = true;
+					if (st->raised) {
+						char key[96];
+						rule_key(key, sizeof key, rule, ni > 0 ? &instances[0] : NULL);
+						pf_alarms_clear(key);
+						st->raised = false;
+					}
+				} else {
 					if (st->held_since == 0) st->held_since = now;
 					bool due = st->armed || (repeat > 0 && now - st->last_fired >= repeat);
 					if (now - st->held_since >= hold && due && !(st->last_fired > 0 && now - st->last_fired < cooldown)) {
+						bool renotify = !st->armed;
 						st->armed = false;
 						st->last_fired = now;
+						st->raised = true;
 						val none = v_none();
 						pthread_mutex_unlock(&g_mu);
-						fire(rule, status, ni > 0 ? &instances[0] : NULL, &none);
+						fire(rule, status, ni > 0 ? &instances[0] : NULL, &none, renotify);
 						pthread_mutex_lock(&g_mu);
 					}
 				}
@@ -539,7 +612,7 @@ int pf_rules_test(const cJSON *rule, const cJSON *status, char *err, size_t n)
 	inst instances[MAX_INST];
 	int ni = select_instances(status, rule, instances, MAX_INST);
 	val none = v_none();
-	fire(rule, status, ni > 0 ? &instances[0] : NULL, &none);
+	fire(rule, status, ni > 0 ? &instances[0] : NULL, &none, true);   /* a test always speaks */
 	return 0;
 }
 
@@ -658,6 +731,9 @@ void pf_rules_init(void)
 	pthread_mutex_lock(&g_mu);
 	memset(g_state, 0, sizeof g_state);
 	pthread_mutex_unlock(&g_mu);
+	/* Rules are being reloaded, so nothing in the table is being tracked any more. Whatever is
+	 * still true will raise itself again on the next tick. */
+	pf_alarms_init();
 	cJSON *rules = pf_set_dup("notify.rules");
 	LOGI(TAG, "%d notification rule(s)", cJSON_IsArray(rules) ? cJSON_GetArraySize(rules) : 0);
 	cJSON_Delete(rules);

@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "web/server.h"
+#include "features/alarms.h"
 #include "core/cmdq.h"
 #include "core/db.h"
 #include "core/embedded.h"
@@ -193,7 +194,7 @@ static void *push_thread(void *arg)
 {
 	(void)arg;
 	pthread_setname_np(pthread_self(), "pf-wspush");
-	unsigned last_gen = 0, last_ev = pf_events_generation();
+	unsigned last_gen = 0, last_ev = pf_events_generation(), last_alm = pf_alarms_generation();
 	double last_push = 0;
 	while (atomic_load(&g_run)) {
 		double now = pf_now();
@@ -218,6 +219,17 @@ static void *push_thread(void *arg)
 					free(txt);
 				}
 			}
+		}
+		/* The alarm table is shared state, so every client is told the moment it changes -- that is
+		 * what makes clearing something on one device clear it on the others. Only the generation
+		 * goes over the wire; the client fetches the list, so a phone that was asleep gets the
+		 * current state rather than a replay of what it missed. */
+		unsigned alm = pf_alarms_generation();
+		if (alm != last_alm) {
+			last_alm = alm;
+			char msg[64];
+			int len = snprintf(msg, sizeof msg, "{\"type\":\"alarms\",\"gen\":%u}", alm);
+			if (len > 0) ws_broadcast(msg, (size_t)len);
 		}
 		pf_sleep_ms(100);
 	}

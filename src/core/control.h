@@ -22,6 +22,10 @@ typedef struct {
 	int reignite_retries;
 	bool startup_check, allow_manual;
 	double manual_override_s, igniter_max_on_s, auger_max_on_s, probe_fault_s, error_cooldown_fan_s;
+	/* Dynamic flame-out assist: how far below the set point counts as the fire failing, and how
+	 * much recovery from the lowest point counts as it having caught again. */
+	bool   relight_enabled;
+	double relight_drop_c, relight_recover_c, relight_timeout_s;
 	bool coldstart; double coldstart_delta_c, coldstart_timeout_s, coldstart_window_s; bool coldstart_exit_on_rise;
 	/* startup / shutdown */
 	double startup_duration_s, prime_on_startup_g, startup_exit_c, startup_exit_rise_c;
@@ -44,6 +48,9 @@ typedef struct {
 typedef struct {
 	double floor_c;             /* SMOKE/HOLD flame-out floor */
 	bool   floor_set;
+	bool   relight_active;      /* the igniter is on because the pit fell away from the set point */
+	double relight_low_c;       /* the lowest the pit has been since that began */
+	double relight_below_since; /* when the pit first fell away, and did not come back */
 	double baseline_c;          /* cold-start: running minimum during the baseline window */
 	double baseline_window_end;
 	bool   coldstart_active, coldstart_reached;

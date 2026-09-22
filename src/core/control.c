@@ -65,6 +65,10 @@ static void load_cfg(pf_cfg *g)
 	g->igniter_max_on_s = N("safety.igniter_max_on_s", 1200);
 	g->auger_max_on_s = N("safety.auger_max_on_s", 60);
 	g->probe_fault_s = N("safety.probe_fault_s", 10);
+	g->relight_enabled = B("safety.relight_enabled", true);
+	g->relight_drop_c = D("safety.relight_drop", 20);
+	g->relight_recover_c = D("safety.relight_recover", 10);
+	g->relight_timeout_s = N("safety.relight_timeout_s", 300);
 	g->error_cooldown_fan_s = N("safety.error_cooldown_fan_s", 300);
 	g->coldstart = B("safety.coldstart.enabled", false);
 	g->coldstart_delta_c = D("safety.coldstart.delta_rise", 12);

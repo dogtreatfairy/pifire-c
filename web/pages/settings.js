@@ -69,6 +69,10 @@ const PAGES = [
   // ---- Safety
   { key: 'safety', title: 'Temperature Limits', sub: 'High-temperature cutoff, flame-out detection', section: 'Safety', icon: 'shield-check', color: '#ff453a', sections: [{ id: 'safety', fields: [
     T('maxtemp', 'High-temperature cutoff', 'Above this in any mode everything shuts off and the grill goes to Error'),
+    B('relight_enabled', 'Flame-out protection', 'While holding, a pit that falls away from the set point lights the igniter until the fire catches'),
+    { path: 'relight_drop', label: 'Drop that triggers it', help: 'How far below the set point the pit must fall', type: 'tempdelta' },
+    { path: 'relight_recover', label: 'Rise that ends it', help: 'How far the pit must climb from its lowest point before the igniter goes off', type: 'tempdelta' },
+    I('relight_timeout_s', 'Give up after (s)', 'If the pit has not climbed back by then, it is treated as a flame-out', { min: 60 }),
     B('startup_check', 'Flame-out detection', 'Watch for the pit dropping below the flame-out floor in Smoke and Hold'),
     T('minstartuptemp', 'Flame-out floor (minimum)', 'Lowest floor used after a normal startup'),
     T('maxstartuptemp', 'Flame-out floor (maximum)', ''),

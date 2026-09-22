@@ -20,6 +20,7 @@
 #include "net/tailscale.h"
 #include "features/push.h"
 #include "features/rules.h"
+#include "features/alarms.h"
 #include "features/tuner.h"
 #include "features/weather.h"
 #include "net/wifi.h"
@@ -252,6 +253,30 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 	}
 	if (get && !strcmp(p, "/events")) { reply(resp, 200, pf_db_events_recent((int)query_num(req->query, "limit", 100))); return; }
 	if (get && !strcmp(p, "/alerts")) { reply(resp, 200, pf_events_recent_json((int)query_num(req->query, "limit", 20))); return; }
+	/* The alarm table: one shared answer to what is wrong and what has not been looked at, so
+	 * clearing something on a phone clears it on the laptop too. */
+	if (get && !strcmp(p, "/alarms")) { reply(resp, 200, pf_alarms_json()); return; }
+	if (post && !strcmp(p, "/alarms/ack")) {
+		cJSON *b = req->body ? cJSON_Parse(req->body) : NULL;
+		const char *key = pf_json_str(b, "key", "");
+		int n = (!key[0] || pf_json_bool(b, "all", false)) ? pf_alarms_ack_all() : (pf_alarms_ack(key) == 0 ? 1 : 0);
+		cJSON_Delete(b);
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddNumberToObject(o, "acknowledged", n);
+		reply(resp, 200, o);
+		return;
+	}
+	if (post && !strcmp(p, "/alarms/shelve")) {
+		cJSON *b = req->body ? cJSON_Parse(req->body) : NULL;
+		char key[96];
+		pf_strlcpy(key, pf_json_str(b, "key", ""), sizeof key);
+		double secs = pf_json_num(b, "seconds", 1800);
+		cJSON_Delete(b);
+		if (!key[0]) { reply_err(resp, 400, "which alarm?"); return; }
+		if (pf_alarms_shelve(key, secs)) { reply_err(resp, 404, "no such alarm"); return; }
+		reply(resp, 200, cJSON_CreateObject());
+		return;
+	}
 	if (get && !strcmp(p, "/logs")) {
 		size_t n = 200000;
 		char *buf = malloc(n);
