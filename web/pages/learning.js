@@ -42,7 +42,8 @@ export function renderLearning(view) {
   }
 
   async function start(body, label) {
-    if (!await confirmDialog(label.title, label.text, 'Start')) return;
+    /* Erasing gets the red button, because it is the one that cannot be undone. */
+    if (!await confirmDialog(label.title, label.text, label.danger ? 'Erase & Start' : 'Start', !!label.danger)) return;
     try { await api('/tune/start', { body }); toast('Tuning started'); } catch (e) { toast(e.message, true); }
     loadTune();
   }
@@ -73,28 +74,47 @@ export function renderLearning(view) {
           : `Last run stopped. ${tune.message}`));
       }
 
-      tuneCard.append(segmented([['full', 'Full Profile'], ['one', 'One Temperature']], mode, (v) => { mode = v; renderTune(); }));
+      tuneCard.append(segmented([['full', 'Baseline'], ['one', 'One Temperature']], mode, (v) => { mode = v; renderTune(); }));
 
       // the daemon refuses to start on a grill that is already cooking, so say so rather than fail
       const busy = s && s.mode !== 'Stop' && s.mode !== 'Monitor';
       const units = PF.units === 'C' ? PRESETS_C : PRESETS_F;
 
       if (mode === 'full') {
+        const p = tune.profile || [];
+        const nruns = (tune.anchors || []).reduce((m, a) => Math.max(m, a.runs || 1), 0);
+        const have = (tune.anchors || []).length > 0;
         tuneCard.append(
           el('p', { class: 'muted', style: 'font-size:.85rem;margin-top:10px' },
-            ((p) => p.length > 1
-              ? `Measures ${p.map((v) => `${v}${degUnit()}`).join(', ')} in that order, and records the weather it measured them in. The first is the baseline, measured where the grill has the most room to swing either side of its centre, and everything after it is measured with that tuning already in hand. This replaces the tuning library and takes a few hours.`
-              : `Measures ${p.map((v) => `${v}${degUnit()}`).join('') || 'the baseline'} and records the weather it measured it in. This is where the grill has the most room to swing either side of its centre, which makes it the measurement worth trusting, and the schedule holds outside it — so one honest anchor governs the whole range. It replaces the tuning library and takes about an hour. Add other temperatures one at a time below, when a cook calls for them.`)(tune.profile || [])),
+            p.length > 1
+              ? `Measures ${p.map((v) => `${v}${degUnit()}`).join(', ')} in that order, and records the weather it measured them in. The first is the baseline, measured where the grill has the most room to swing either side of its centre.`
+              : `Measures ${p.map((v) => `${v}${degUnit()}`).join('') || 'the baseline'} and records the weather it measured it in. This is where the grill has the most room to swing either side of its centre, which makes it the measurement worth trusting, and the schedule holds outside it — so one honest anchor governs the whole range. About an hour.`),
+          /* A run is one afternoon's evidence: that day's wind, that hopper's pellets. Running it
+             again should make the answer better rather than throw the previous answer away. */
+          el('p', { class: 'muted', style: 'font-size:.85rem' },
+            have
+              ? `This refines what is already measured rather than replacing it${nruns > 1 ? ` — the library is ${nruns} runs deep` : ''}. Each run moves the numbers less than the last, so the noise of any one afternoon averages out, but never by so little that a grill which has genuinely changed cannot be followed.`
+              : 'There is nothing measured yet, so this starts the library.'),
           el('button', {
             class: 'btn primary block',
             disabled: busy,
             onclick: () => start({ full_profile: true }, {
-              title: 'Run a full profile tune?',
-              text: (tune.profile || []).length > 1
-                ? 'The grill starts itself, measures every temperature in turn and shuts down when it is finished. This replaces the tuning library with a new baseline. It takes a few hours, so do not cook during the run.'
-                : 'The grill starts itself, measures the loop and shuts down when it is finished. This replaces the tuning library with a new baseline. Do not cook during the run.',
+              title: have ? 'Refine the baseline?' : 'Measure the baseline?',
+              text: `The grill starts itself, measures ${p.length > 1 ? 'every temperature in turn' : 'the loop'} and shuts down when it is finished. ${have ? 'What it finds refines the tuning library.' : 'What it finds becomes the tuning library.'} Do not cook during the run.`,
             }),
-          }, busy ? 'Stop the grill to start a run' : 'Run Full Profile'));
+          }, busy ? 'Stop the grill to start a run' : have ? 'Refine Baseline' : 'Measure Baseline'),
+          /* Erasing is for a grill that has genuinely changed -- re-gasketed, rebuilt, moved -- and
+             is asked for by name rather than being the side effect of running a tune. */
+          have ? el('button', {
+            class: 'btn ghost block',
+            disabled: busy,
+            style: 'margin-top:8px',
+            onclick: () => start({ full_profile: true, from_scratch: true }, {
+              title: 'Erase and start from scratch?',
+              text: 'Everything the grill has measured about itself is thrown away before the run begins, and there is no undo. Do this when the grill itself has changed — a new gasket, a rebuild, a move — rather than to take another measurement. Back the library up first if you might want it.',
+              danger: true,
+            }),
+          }, 'Start From Scratch') : null);
       } else {
         tuneCard.append(
           el('p', { class: 'muted', style: 'font-size:.85rem;margin-top:10px' },

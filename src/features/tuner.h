@@ -18,7 +18,15 @@ void pf_tuner_init(void);
  * the library alongside whatever is already there.
  *
  * 0 on success, -1 with err when the grill is busy or a run is already going. */
-int  pf_tuner_start(const cJSON *setpoints_json, bool full_profile, char *err, size_t n);
+/* Start a run. `baseline` is the grill's reference measurement -- the set points in
+ * learning.tune_setpoints, 250 F by default -- as opposed to a single temperature added on its own.
+ *
+ * `from_scratch` is the only thing that erases anything. A baseline run normally REFINES what is
+ * already in the library: a relay test measures the grill on one afternoon, with that day's wind
+ * and that hopper's pellets, and running it again should make the answer better rather than throw
+ * the previous answer away. Erasing is for a grill that has genuinely changed -- re-gasketed,
+ * rebuilt, moved -- and is asked for explicitly. */
+int  pf_tuner_start(const cJSON *setpoints_json, bool baseline, bool from_scratch, char *err, size_t n);
 /* Stop early. The anchors already measured are kept. */
 void pf_tuner_stop(const char *why);
 /* Drive the run; called once a second from the services thread with the latest status. */

@@ -104,9 +104,10 @@ static void finish(bool ok, const char *why, double now)
 	char vals[200];
 	int nv = fmt_results(vals, sizeof vals, g.run_start_wall);
 	if (ok && g.full)
-		pf_events_emit("Tune_Done", "Full profile tune finished",
-		               "%d of %d set points measured%s%s. This is the grill's new baseline.%s%s",
-		               g.measured, g.n, g.skipped[0] ? ", nothing usable at " : "", g.skipped[0] ? g.skipped : "",
+		pf_events_emit("Tune_Done", "Baseline tune finished",
+		               "%d of %d set point%s measured%s%s. This is the grill's baseline.%s%s",
+		               g.measured, g.n, g.n == 1 ? "" : "s",
+		               g.skipped[0] ? ", nothing usable at " : "", g.skipped[0] ? g.skipped : "",
 		               nv ? " " : "", nv ? vals : "");
 	else if (ok)
 		pf_events_emit("Tune_Done", "Tuning finished", "Added to the tuning library. %s",
@@ -136,7 +137,7 @@ void pf_tuner_init(void)
 	}
 }
 
-int pf_tuner_start(const cJSON *setpoints_json, bool full_profile, char *err, size_t n)
+int pf_tuner_start(const cJSON *setpoints_json, bool full_profile, bool from_scratch, char *err, size_t n)
 {
 	pthread_mutex_lock(&g_mu);
 	if (g.running) { snprintf(err, n, "a tuning run is already going"); pthread_mutex_unlock(&g_mu); return -1; }
@@ -196,15 +197,22 @@ int pf_tuner_start(const cJSON *setpoints_json, bool full_profile, char *err, si
 	mark_inflight(true);
 	pthread_mutex_unlock(&g_mu);
 
-	/* A full profile is a fresh baseline: the old library described a grill that may since have
-	 * been cleaned, re-gasketed or moved, so it is cleared rather than merged into. */
-	if (full_profile) pf_learning_clear_anchors();
+	/* Only an explicit request erases anything. A baseline run otherwise refines what is already
+	 * there: one relay test is one afternoon's evidence, and a second run should make the answer
+	 * better rather than throw the first away. Starting from scratch is for a grill that has
+	 * genuinely changed, and is asked for by name. */
+	if (from_scratch) {
+		pf_learning_clear_anchors();
+		LOGW(TAG, "starting from scratch: the previous tuning library has been cleared");
+	}
 
 	pf_cmd c = { .type = PF_CMD_MODE, .mode = PF_MODE_HOLD, .num = pf_from_c(pts[0], pf_settings_units()) };
 	pf_cmdq_push(&c);
 	if (full_profile)
-		pf_events_emit("Tune_Started", "Full profile tune started",
-		               "The grill will hold %d set points in turn and oscillate a few degrees at each, then shut down. This replaces the tuning library. Leave it empty; it takes a few hours.", np);
+		pf_events_emit("Tune_Started", from_scratch ? "Baseline tune started (from scratch)" : "Baseline tune started",
+		               "The grill will hold %d set point%s and oscillate a few degrees at each, then shut down. %s Leave it empty.",
+		               np, np == 1 ? "" : "s in turn",
+		               from_scratch ? "The previous tuning library has been cleared." : "What it measures refines the tuning library.");
 	else
 		pf_events_emit("Tune_Started", "Tuning started",
 		               "The grill will hold %.0f and oscillate a few degrees around it, then shut down. Leave it empty.",

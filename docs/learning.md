@@ -73,7 +73,20 @@ Rules written against how far the grill is from its target stay quiet while a me
 
 *Settings → Cooking → Temperature Control & Learning → Autotune* offers two:
 
-* **Full Profile** visits every temperature in `learning.tune_setpoints` (250 °F alone by default). It is the grill's new baseline, so it **clears the library** before it starts. A few hours.
+* **Baseline** visits every temperature in `learning.tune_setpoints` (250 °F alone by default) and
+  **refines** what is already in the library. It does not erase anything.
+
+  A relay test measures the grill on one afternoon, with that day's wind and that hopper's pellets,
+  so a single run carries that day's noise with it. A repeat measurement at a set point already in
+  the library therefore moves it part of the way rather than replacing it: half on the second run,
+  a third on the third, and a quarter from the fourth onwards. Successive runs average the noise
+  out. The quarter is a floor, not a decay to nothing — a grill that has been re-gasketed, rebuilt
+  or is burning a different pellet has genuinely changed, and a library that kept averaging in
+  years of old evidence could never follow it. Each anchor records how many runs are behind it.
+
+* **Start From Scratch** is the only thing that erases the library, and it is a separate red
+  button rather than a side effect of running a tune. It is for a grill that has changed, not for
+  taking another measurement. Back the library up first (**Back Up** on the same page).
 
   **The baseline is measured first, and it is not the bottom of the range.** A grill holds 180 °F on
   very little fuel — close enough to the minimum feed that the relay has almost no room to swing
@@ -105,7 +118,10 @@ While holding, the daemon looks up the two entries that bracket the current set 
 
 A run that a restart interrupts is noticed at the next boot and reported, and whatever it had already measured is kept. The library survives reboots (kv namespace `learning`, key `anchors`) and is cleared by *Reset learning*.
 
-In the simulator (`tests/test_tuner.c`) a full profile takes the mean holding error at 180 °F from 4.3 °F to 0.2 °F, with 225, 350 and 450 °F all inside half a degree; the same test asserts that the controller is actually running on the library rather than merely storing it, and that a single-temperature run adds to the library while a full profile replaces it.
+In the simulator (`tests/test_tuner.c`) a full profile takes the mean holding error at 180 °F from 4.3 °F to 0.2 °F, with 225, 350 and 450 °F all inside half a degree; the same test asserts that the controller is actually running on the library rather than merely storing it, and that a single-temperature run adds to the library while a baseline run refines it. Another
+test walks the refinement itself: two runs at 40 and 60 give 50, a third at 80 gives 60, and a
+grill whose real answer has moved to 100 converges there rather than being averaged into
+irrelevance.
 
 ## 1. Feed-forward: how much fuel this grill needs (`features/learning.c`)
 

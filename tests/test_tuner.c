@@ -175,7 +175,7 @@ static void test_guided_tune_improves_holding(void)
 	/* the run itself: started once, hands off from here */
 	char err[160];
 	cJSON *pts = cJSON_Parse("[180,225,350,450]");
-	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(pts, true, err, sizeof err));
+	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(pts, true, true, err, sizeof err));
 	cJSON_Delete(pts);
 	for (int i = 0; i < 12 * 60 * 60; i += 30) {
 		cJSON *j = pf_tuner_json();
@@ -281,7 +281,7 @@ static void test_single_adds_and_full_profile_replaces(void)
 
 	char err[160];
 	cJSON *one = cJSON_Parse("[225]");
-	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(one, false, err, sizeof err));
+	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(one, false, false, err, sizeof err));
 	cJSON_Delete(one);
 	run_to_completion();
 
@@ -301,7 +301,7 @@ static void test_single_adds_and_full_profile_replaces(void)
 	   set points rather than with whatever the shipped default happens to be -- that is a
 	   configuration choice, and it is asserted separately below. */
 	cJSON *many = cJSON_Parse("[250,180,350]");
-	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(many, true, err, sizeof err));
+	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(many, true, true, err, sizeof err));
 	cJSON_Delete(many);
 	/* the old library is gone the moment a profile begins */
 	TEST_ASSERT_EQUAL_INT(0, pf_learning_anchor_list(a, PF_TUNE_ANCHORS));
@@ -463,7 +463,7 @@ static void test_relay_agrees_with_the_plant_it_measured(void)
 	pf_learning_clear_anchors();
 	char err[160];
 	cJSON *one = cJSON_Parse("[225]");
-	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(one, false, err, sizeof err));
+	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(one, false, false, err, sizeof err));
 	cJSON_Delete(one);
 
 	/* Take the model as the startup rise left it, before the relay has had a chance to replace it.
@@ -509,6 +509,77 @@ static void test_relay_agrees_with_the_plant_it_measured(void)
    enough with it to mean something later: canonical Celsius so a backup taken in Fahrenheit still
    restores on a grill set to Celsius, and the controller it was measured against, because PB, Ti
    and Td detached from a controller are just numbers. */
+/* A baseline run refines the library rather than erasing it. One relay test is one afternoon's
+   evidence -- that day's wind, that hopper's pellets -- and running it again should make the answer
+   better, not throw the previous answer away. Erasing is a separate, explicit request. */
+static void test_a_baseline_refines_rather_than_replacing(void)
+{
+	pf_learning_clear_anchors();
+	pf_autotune_result first = { .Ku = 1.0, .Pu = 400, .PB_c = 40, .Ti = 400, .Td = 40, .valid = true };
+	pf_learning_store_anchor(pf_f_to_c(250), &first, 10, 0);
+
+	pf_tune_anchor a[PF_TUNE_ANCHORS];
+	TEST_ASSERT_EQUAL_INT(1, pf_learning_anchor_list(a, PF_TUNE_ANCHORS));
+	TEST_ASSERT_EQUAL_INT_MESSAGE(1, a[0].runs, "the first measurement is one run");
+	TEST_ASSERT_DOUBLE_WITHIN(0.01, 40, a[0].PB_c);
+
+	/* a second run at the same set point moves it half way, not all the way */
+	pf_autotune_result second = { .Ku = 1.0, .Pu = 400, .PB_c = 60, .Ti = 600, .Td = 60, .valid = true };
+	pf_learning_store_anchor(pf_f_to_c(250), &second, 12, 5);
+	pf_learning_anchor_list(a, PF_TUNE_ANCHORS);
+	printf("after two runs: PB %.1f C, Ti %.0f s, runs %d\n", a[0].PB_c, a[0].Ti, a[0].runs);
+	TEST_ASSERT_EQUAL_INT(2, a[0].runs);
+	TEST_ASSERT_DOUBLE_WITHIN(0.01, 50, a[0].PB_c);
+	TEST_ASSERT_DOUBLE_WITHIN(0.01, 500, a[0].Ti);
+	/* the conditions are the newest ones, not an average of weather */
+	TEST_ASSERT_DOUBLE_WITHIN(0.01, 12, a[0].ambient_c);
+
+	/* a third moves it a third of the way */
+	pf_autotune_result third = { .Ku = 1.0, .Pu = 400, .PB_c = 80, .Ti = 800, .Td = 80, .valid = true };
+	pf_learning_store_anchor(pf_f_to_c(250), &third, 12, 5);
+	pf_learning_anchor_list(a, PF_TUNE_ANCHORS);
+	printf("after three runs: PB %.1f C, runs %d\n", a[0].PB_c, a[0].runs);
+	TEST_ASSERT_DOUBLE_WITHIN(0.01, 60, a[0].PB_c);   /* 50 + (80-50)/3 */
+
+	/* The weight has a floor, so a grill that has genuinely changed can still be followed. Ten more
+	   runs at a new value must converge on it rather than being averaged into irrelevance. */
+	pf_autotune_result changed = { .Ku = 1.0, .Pu = 400, .PB_c = 100, .Ti = 900, .Td = 90, .valid = true };
+	for (int i = 0; i < 12; i++) pf_learning_store_anchor(pf_f_to_c(250), &changed, 12, 5);
+	pf_learning_anchor_list(a, PF_TUNE_ANCHORS);
+	printf("after a real change: PB %.1f C over %d runs\n", a[0].PB_c, a[0].runs);
+	TEST_ASSERT_DOUBLE_WITHIN(2, 100, a[0].PB_c);
+
+	/* and a different set point is a new entry, not a refinement of the old one */
+	pf_learning_store_anchor(pf_f_to_c(400), &first, 12, 5);
+	TEST_ASSERT_EQUAL_INT(2, pf_learning_anchor_list(a, PF_TUNE_ANCHORS));
+	pf_learning_clear_anchors();
+}
+
+/* Starting from scratch is the only thing that erases the library, and it has to be asked for. */
+static void test_only_from_scratch_erases(void)
+{
+	char err[160];
+	pf_learning_clear_anchors();
+	pf_autotune_result r = { .Ku = 1.0, .Pu = 400, .PB_c = 40, .Ti = 400, .Td = 40, .valid = true };
+	pf_learning_store_anchor(pf_f_to_c(250), &r, 10, 0);
+	pf_tune_anchor a[PF_TUNE_ANCHORS];
+	TEST_ASSERT_EQUAL_INT(1, pf_learning_anchor_list(a, PF_TUNE_ANCHORS));
+
+	cJSON *pts = cJSON_Parse("[250]");
+	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(pts, true, false, err, sizeof err));
+	TEST_ASSERT_EQUAL_INT_MESSAGE(1, pf_learning_anchor_list(a, PF_TUNE_ANCHORS),
+	                              "a baseline run must not throw the library away");
+	pf_tuner_stop("test over");
+	tick(5);
+
+	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(pts, true, true, err, sizeof err));
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, pf_learning_anchor_list(a, PF_TUNE_ANCHORS),
+	                              "from scratch means from scratch");
+	pf_tuner_stop("test over");
+	cJSON_Delete(pts);
+	stop_and_wait_cold();
+}
+
 static void test_the_tuning_library_can_be_backed_up_and_restored(void)
 {
 	pf_learning_clear_anchors();
@@ -554,7 +625,7 @@ static void test_a_profile_measures_its_baseline_first(void)
 {
 	char err[160];
 	cJSON *pts = cJSON_Parse("[180,250,350,450]");
-	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(pts, true, err, sizeof err));
+	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(pts, true, true, err, sizeof err));
 	cJSON_Delete(pts);
 	tick(5);
 	cJSON *j = pf_tuner_json();
@@ -570,7 +641,7 @@ static void test_a_profile_measures_its_baseline_first(void)
 
 	/* a single temperature is not reordered: there is nothing to order */
 	cJSON *one = cJSON_Parse("[400]");
-	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(one, false, err, sizeof err));
+	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(one, false, false, err, sizeof err));
 	cJSON_Delete(one);
 	tick(5);
 	j = pf_tuner_json();
@@ -584,7 +655,7 @@ static void test_the_published_profile_is_the_whole_profile(void)
 {
 	char err[160];
 	cJSON *pts = cJSON_Parse("[180,225,350,450]");
-	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(pts, true, err, sizeof err));
+	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(pts, true, true, err, sizeof err));
 	cJSON_Delete(pts);
 	tick(5);
 
@@ -613,6 +684,8 @@ int main(void)
 	RUN_TEST(test_relay_recovers_from_a_badly_centred_swing);
 	RUN_TEST(test_single_adds_and_full_profile_replaces);
 	RUN_TEST(test_guided_tune_improves_holding);
+	RUN_TEST(test_a_baseline_refines_rather_than_replacing);
+	RUN_TEST(test_only_from_scratch_erases);
 	RUN_TEST(test_the_tuning_library_can_be_backed_up_and_restored);
 	RUN_TEST(test_a_profile_measures_its_baseline_first);
 	RUN_TEST(test_the_published_profile_is_the_whole_profile);   /* last: it starts a run of its own */

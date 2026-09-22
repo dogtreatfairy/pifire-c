@@ -457,7 +457,7 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		const cJSON *pts = body ? cJSON_GetObjectItem(body, "setpoints") : NULL;
 		bool full = body && cJSON_IsBool(cJSON_GetObjectItem(body, "full_profile"))
 		            ? cJSON_IsTrue(cJSON_GetObjectItem(body, "full_profile")) : !cJSON_IsArray(pts);
-		int rc = pf_tuner_start(pts, full, err, sizeof err);
+		int rc = pf_tuner_start(pts, full, pf_json_bool(body, "from_scratch", false), err, sizeof err);
 		cJSON_Delete(body);
 		if (rc) { reply_err(resp, 409, err); return; }
 		reply_ok(resp);

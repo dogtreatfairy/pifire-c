@@ -35,9 +35,15 @@ unsigned pf_learning_autotune_gen(void);
 /* `ambient_c` and `wind` are the conditions the measurement was taken in. A grill behaves
  * differently on a still 80 F afternoon than in a 20 F wind, so an anchor is only fully meaningful
  * alongside the weather it was measured in, and the app shows both. */
-typedef struct { double setpoint_c, Ku, Pu, PB_c, Ti, Td, ts, ambient_c, wind; bool valid; } pf_tune_anchor;
+typedef struct { double setpoint_c, Ku, Pu, PB_c, Ti, Td, ts, ambient_c, wind; int runs; bool valid; } pf_tune_anchor;
 
+/* Store a measurement. A set point already in the library is REFINED rather than replaced: a relay
+ * test measures the grill on one afternoon, with that day's wind and that hopper's pellets, and a
+ * single run carries that day's noise with it. Successive runs average the noise out. */
 void pf_learning_store_anchor(double setpoint_c, const pf_autotune_result *r, double ambient_c, double wind);
+/* Restore an anchor exactly as given, runs count and all -- for a backup, which is not new evidence
+ * about the grill and must not be averaged into anything. */
+void pf_learning_put_anchor(const pf_tune_anchor *a);
 /* Gains for this set point, interpolated between anchors and clamped outside their range.
  * False when the schedule is empty, in which case the controller keeps its own tuning. */
 bool pf_learning_gains(double setpoint_c, double *PB_c, double *Ti, double *Td);

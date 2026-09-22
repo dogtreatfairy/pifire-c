@@ -47,6 +47,7 @@ static void load_kv(void)
 			g_anchors[i].ts = pf_json_num(it, "ts", 0);
 			g_anchors[i].ambient_c = pf_json_num(it, "amb", NAN);
 			g_anchors[i].wind = pf_json_num(it, "wind", 0);
+			g_anchors[i].runs = pf_json_int(it, "runs", 1);
 			g_anchors[i].valid = g_anchors[i].PB_c > 0 && g_anchors[i].Ti > 0;
 			i++;
 		}
@@ -213,6 +214,7 @@ static void anchors_save(void)
 		cJSON_AddNumberToObject(o, "Ti", g_anchors[i].Ti);
 		cJSON_AddNumberToObject(o, "Td", g_anchors[i].Td);
 		cJSON_AddNumberToObject(o, "ts", g_anchors[i].ts);
+		cJSON_AddNumberToObject(o, "runs", g_anchors[i].runs);
 		if (!isnan(g_anchors[i].ambient_c)) cJSON_AddNumberToObject(o, "amb", g_anchors[i].ambient_c);
 		cJSON_AddNumberToObject(o, "wind", g_anchors[i].wind);
 		cJSON_AddItemToArray(arr, o);
@@ -239,17 +241,45 @@ void pf_learning_store_anchor(double setpoint_c, const pf_autotune_result *r, do
 			if (d > worst) { worst = d; slot = i; }
 		}
 	}
-	g_anchors[slot].setpoint_c = setpoint_c;
-	g_anchors[slot].Ku = r->Ku;
-	g_anchors[slot].Pu = r->Pu;
-	g_anchors[slot].PB_c = r->PB_c;
-	g_anchors[slot].Ti = r->Ti;
-	g_anchors[slot].Td = r->Td;
-	g_anchors[slot].ts = pf_wall();
-	g_anchors[slot].ambient_c = ambient_c;
-	g_anchors[slot].wind = wind;
-	g_anchors[slot].valid = true;
+	pf_tune_anchor *a = &g_anchors[slot];
+	/* How far a new measurement moves an entry that already exists. The first repeat moves it
+	 * half way, the next a third, and from the fourth onwards a quarter -- successive runs average
+	 * out the noise of any one afternoon. The floor is deliberate: a grill that has been
+	 * re-gasketed, or is burning a different pellet, has genuinely changed, and a library that
+	 * kept averaging in years of old evidence could never follow it. */
+	double w = a->valid && fabs(a->setpoint_c - setpoint_c) < 5 ? fmax(1.0 / (a->runs + 1), 0.25) : 1.0;
+	if (w >= 1.0) {
+		a->Ku = r->Ku; a->Pu = r->Pu; a->PB_c = r->PB_c; a->Ti = r->Ti; a->Td = r->Td;
+		a->runs = 1;
+	} else {
+		a->Ku += (r->Ku - a->Ku) * w;
+		a->Pu += (r->Pu - a->Pu) * w;
+		a->PB_c += (r->PB_c - a->PB_c) * w;
+		a->Ti += (r->Ti - a->Ti) * w;
+		a->Td += (r->Td - a->Td) * w;
+		a->runs++;
+		LOGI(TAG, "refined %.0f C with run %d (weight %.2f): PB %.1f C, Ti %.0f s, Td %.0f s",
+		     setpoint_c, a->runs, w, a->PB_c, a->Ti, a->Td);
+	}
+	/* The conditions describe the most recent evidence, not an average of weather. */
+	a->setpoint_c = setpoint_c;
+	a->ts = pf_wall();
+	a->ambient_c = ambient_c;
+	a->wind = wind;
+	a->valid = true;
 	anchors_save();
+	pthread_mutex_unlock(&g_mu);
+}
+
+void pf_learning_put_anchor(const pf_tune_anchor *in)
+{
+	if (!in || !in->valid || in->PB_c <= 0 || in->Ti <= 0) return;
+	pthread_mutex_lock(&g_mu);
+	int slot = -1;
+	for (int i = 0; i < PF_TUNE_ANCHORS; i++)
+		if (g_anchors[i].valid && fabs(g_anchors[i].setpoint_c - in->setpoint_c) < 5) { slot = i; break; }
+	if (slot < 0) for (int i = 0; i < PF_TUNE_ANCHORS; i++) if (!g_anchors[i].valid) { slot = i; break; }
+	if (slot >= 0) { g_anchors[slot] = *in; g_anchors[slot].valid = true; anchors_save(); }
 	pthread_mutex_unlock(&g_mu);
 }
 
@@ -442,6 +472,7 @@ cJSON *pf_learning_export(void)
 		cJSON_AddNumberToObject(e, "Ti", a[i].Ti);
 		cJSON_AddNumberToObject(e, "Td", a[i].Td);
 		cJSON_AddNumberToObject(e, "ts", a[i].ts);
+		cJSON_AddNumberToObject(e, "runs", a[i].runs);
 		if (!isnan(a[i].ambient_c)) cJSON_AddNumberToObject(e, "ambient_c", a[i].ambient_c);
 		cJSON_AddNumberToObject(e, "wind", a[i].wind);
 		cJSON_AddItemToArray(arr, e);
@@ -468,15 +499,20 @@ int pf_learning_import(const cJSON *doc, char *err, size_t n)
 	int k = 0;
 	const cJSON *e;
 	cJSON_ArrayForEach(e, arr) {
-		double sp = pf_json_num((cJSON *)e, "setpoint_c", 0);
-		pf_autotune_result r = {
+		/* A backup is not new evidence about the grill: it is put back exactly as it was, runs
+		 * count and all, rather than averaged into anything. */
+		pf_tune_anchor a = {
+			.setpoint_c = pf_json_num((cJSON *)e, "setpoint_c", 0),
 			.Ku = pf_json_num((cJSON *)e, "Ku", 0), .Pu = pf_json_num((cJSON *)e, "Pu", 0),
 			.PB_c = pf_json_num((cJSON *)e, "PB_c", 0), .Ti = pf_json_num((cJSON *)e, "Ti", 0),
 			.Td = pf_json_num((cJSON *)e, "Td", 0), .ts = pf_json_num((cJSON *)e, "ts", pf_wall()),
+			.ambient_c = pf_json_num((cJSON *)e, "ambient_c", NAN),
+			.wind = pf_json_num((cJSON *)e, "wind", 0),
+			.runs = pf_json_int((cJSON *)e, "runs", 1),
 			.valid = true,
 		};
-		if (sp <= 0 || r.PB_c <= 0 || r.Ti <= 0) continue;   /* not a measurement */
-		pf_learning_store_anchor(sp, &r, pf_json_num((cJSON *)e, "ambient_c", NAN), pf_json_num((cJSON *)e, "wind", 0));
+		if (a.setpoint_c <= 0 || a.PB_c <= 0 || a.Ti <= 0) continue;   /* not a measurement */
+		pf_learning_put_anchor(&a);
 		k++;
 	}
 	const cJSON *pl = cJSON_GetObjectItemCaseSensitive((cJSON *)doc, "plant");
