@@ -39,6 +39,20 @@ probe settings, everywhere they appear.
 
 A red menu row means it stops something. Nothing else is red.
 
+**Red is for a fault, not for a number getting smaller.** A hopper at a quarter, a battery at a
+fifth and a probe on one bar are all *attention* — amber — because each is still working and each
+has time left. Red is for the state that has actually gone wrong: the hopper about to run out, the
+battery about to die, the probe that has dropped off. Painting the ordinary low end of a range red
+means the panel spends most of a long cook claiming a fault it does not have, which is the surest
+way to teach someone to ignore the colour. Where a reading has a low end worth mentioning, it gets
+two thresholds: amber first, red when it is genuinely nearly over.
+
+**Identity is not status.** An icon that says *what* something is keeps its own colour whatever is
+happening to it. The Bluetooth rune on a probe card means "this probe is wireless"; it was once
+drawn in the signal-strength colour and so turned red whenever the probe was a room away, which
+read as a fault on a probe that was working. The bars beside it carry the strength; the rune
+carries the identity, and it is always Bluetooth blue.
+
 ## Numbers
 
 Temperatures carry their unit. A number that changes while you watch it is sized from the widest

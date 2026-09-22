@@ -265,6 +265,43 @@ static void test_text_metrics(void)
 
 /* The margins exist because a bezel hides the edge of the panel, which is something you can only
  * judge by looking at it, so they have to be reachable from the panel itself. */
+/* Red means a fault. A Bluetooth probe at the far end of the garden is not a fault, and the
+   Bluetooth rune is an identity mark -- "this probe is wireless" -- not a status light. Colouring
+   it by signal strength painted it red whenever the signal was weak, which is the panel claiming
+   something is wrong with a probe that is working perfectly well. */
+static void test_a_weak_bluetooth_probe_is_not_an_error(void)
+{
+	pf_gfx g;
+	TEST_ASSERT_EQUAL_INT(0, pf_gfx_init(&g, 320, 240));
+	pf_gfx_set_theme(&g, "dark");
+	pf_ui_state ui = { 0 };
+	cJSON *st = cJSON_Parse(status_json);
+	/* one wireless probe, barely in range, everything else healthy */
+	cJSON *probes = cJSON_GetObjectItem(st, "probes");
+	cJSON *bt = NULL;
+	cJSON *it;
+	cJSON_ArrayForEach(it, probes)
+		if (cJSON_IsTrue(cJSON_GetObjectItem(it, "wireless")) && !cJSON_IsTrue(cJSON_GetObjectItem(it, "companion"))) { bt = it; break; }
+	TEST_ASSERT_NOT_NULL(bt);
+	cJSON_ReplaceItemInObject(bt, "signal", cJSON_CreateNumber(1));
+	cJSON_ReplaceItemInObject(bt, "battery", cJSON_CreateNumber(80));
+	cJSON_ReplaceItemInObject(st, "hopper_pct", cJSON_CreateNumber(80));
+	set_mode(st, "Hold", 0);
+
+	render_to(&g, st, &ui, "weak_bt");
+
+	/* Nothing on this screen is faulted, so nothing on it should be drawing in the danger colour. */
+	uint16_t danger = g.th.danger;
+	int red = 0;
+	for (int i = 0, n = g.w * g.h; i < n; i++)
+		if (g.px[i] == (uint16_t)((danger << 8) | (danger >> 8))) red++;
+	printf("weak bluetooth probe: %d pixels in the danger colour\n", red);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, red, "a weak signal is not a fault and must not be painted red");
+
+	cJSON_Delete(st);
+	pf_gfx_free(&g);
+}
+
 static void test_settings_menu_offers_the_margin_editor(void)
 {
 	pf_menu_item items[PF_MENU_MAX];
@@ -329,6 +366,7 @@ int main(void)
 	RUN_TEST(test_banner_names_a_tuning_run);
 	RUN_TEST(test_a_reading_measures_the_same_whatever_its_digits);
 	RUN_TEST(test_menus_by_mode);
+	RUN_TEST(test_a_weak_bluetooth_probe_is_not_an_error);
 	RUN_TEST(test_settings_menu_offers_the_margin_editor);
 	RUN_TEST(test_navigation_stack);
 	RUN_TEST(test_text_metrics);

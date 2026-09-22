@@ -9,7 +9,9 @@ export const btIcon = () => lucide('bluetooth', 'ic bt');
    proportion so the level is legible before the number is, and it turns red when it is nearly out. */
 export const battIcon = (pct) => {
   const p = Math.max(0, Math.min(100, Math.round(pct)));
-  const cls = `batt ${p <= 20 ? 'low' : ''}`;
+  /* Getting low is amber; about to die is red. Red from a fifth remaining meant most of a cook
+     spent claiming a fault that was not there. */
+  const cls = `batt ${p <= 10 ? 'crit' : p <= 20 ? 'low' : ''}`;
   return el('span', { class: cls, title: `Battery ${p}%`, 'aria-label': `battery ${p} percent` },
     el('span', { class: 'batt-body' }, el('i', { style: `width:${p}%` })),
     el('span', { class: 'batt-pct' }, `${p}%`));

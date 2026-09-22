@@ -230,10 +230,12 @@ export function renderHome(view) {
     hopper.hidden = !(s.hopper_pct >= 0);
     if (s.hopper_pct >= 0) {
       const low = s.hopper_pct <= (PF.settings?.pelletlevel?.warning_level ?? 25);
+      const crit = s.hopper_pct <= 10;   /* amber while it is getting low, red when it is going to run out */
       hopBrand.textContent = brand || '';
       hopPct.textContent = `${s.hopper_pct}%`;
       hopFill.style.width = `${Math.max(0, Math.min(100, s.hopper_pct))}%`;
-      hopper.classList.toggle('low', low);
+      hopper.classList.toggle('low', low && !crit);
+      hopper.classList.toggle('crit', crit);
     }
 
     const key = `${s.mode}|${s.s_plus}|${s.setpoint}|${pm}`;

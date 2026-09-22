@@ -323,8 +323,12 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .hopper .pct { font-weight: 700; font-variant-numeric: tabular-nums; }
 .hopper .progress { height: 12px; border-radius: 6px; margin-top: 8px; }
 .hopper .progress > div { background: var(--ok); }
-.hopper.low .progress > div { background: var(--danger); }
-.hopper.low .pct { color: var(--danger); }
+/* Red is for a fault. Running low is attention, not a fault, so it is amber until the hopper is
+   actually about to run out. */
+.hopper.low .progress > div { background: var(--warn); }
+.hopper.low .pct { color: var(--warn); }
+.hopper.crit .progress > div { background: var(--danger); }
+.hopper.crit .pct { color: var(--danger); }
 
 /* probes page + probe popup */
 .ic.bt { width: 16px; height: 16px; color: var(--info); vertical-align: -2px; }
@@ -342,7 +346,8 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .sig.s1 i.on { background: var(--danger); } .sig.s2 i.on { background: var(--warn); }
 .pcell .n .sig { margin-right: 4px; color: var(--info); }
 .pcell .n .batt { font-size: .68rem; margin-right: 4px; color: var(--muted); }
-.pcell .n .batt.low { color: var(--danger); }
+.pcell .n .batt.low { color: var(--warn); }
+.pcell .n .batt.crit { color: var(--danger); }
 .pcell .amb { font-size: .74rem; color: var(--muted); margin-top: -2px; }
 .pcell .tg.muted { color: var(--muted); }
 .ppop-temp { font-size: 3rem; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; margin: 6px 0 10px; }
@@ -524,7 +529,8 @@ main.view { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scr
 .batt-body { position: relative; width: 20px; height: 11px; border: 1.5px solid currentColor; border-radius: 3px; padding: 1.5px; }
 .batt-body::after { content: ""; position: absolute; right: -3.5px; top: 50%; transform: translateY(-50%); width: 2px; height: 5px; background: currentColor; border-radius: 0 1px 1px 0; }
 .batt-body i { display: block; height: 100%; background: currentColor; border-radius: 1px; min-width: 1px; }
-.batt.low { color: var(--danger); }
+.batt.low { color: var(--warn); }
+.batt.crit { color: var(--danger); }
 .batt-pct { font-variant-numeric: tabular-nums; }
 /* the time remaining is its own fact, not a tail on the target line */
 .probe .tgt.eta { color: var(--accent); margin-top: 2px; }

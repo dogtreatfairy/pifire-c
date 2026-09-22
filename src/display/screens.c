@@ -341,8 +341,11 @@ static void draw_datablock(pf_gfx *g, const cJSON *s, const cJSON *primary, cons
 	int hop = (int)pf_json_num((cJSON *)s, "hopper_pct", -1);
 	if (hop >= 0) {
 		snprintf(line, sizeof line, "HOP %d%%", hop % 1000);
-		uint16_t hc = hop <= 25 ? g->th.danger : g->th.ok;
-		pf_gfx_text(g, B, p3, x, ly, line, hop <= 25 ? g->th.danger : g->th.text);
+		/* Getting low is amber; about to run out is red. Red at a quarter full meant the panel
+		 * spent most of a long cook claiming a fault it did not have, which is the surest way to
+		 * teach someone to ignore the colour. */
+		uint16_t hc = hop <= 10 ? g->th.danger : hop <= 25 ? g->th.warn : g->th.ok;
+		pf_gfx_text(g, B, p3, x, ly, line, hop <= 10 ? g->th.danger : hop <= 25 ? g->th.warn : g->th.text);
 		ly += l3;
 		/* Six pixels of bar is nothing at arm's length in daylight. Give it real height and an
 		 * outline, so the level reads as a level rather than as a hairline. */
@@ -398,7 +401,14 @@ static void draw_probe_col(pf_gfx *g, const cJSON *p, const char *units, bool bl
 	}
 	uint16_t tc = filled ? g->th.accent_text : hit ? alert : valid ? g->th.text : g->th.muted;
 	uint16_t mc = filled ? g->th.accent_text : hit ? alert : g->th.muted;
-	uint16_t sig_on = filled ? g->th.accent_text : bars >= 3 ? g->th.info : bars == 2 ? g->th.warn : g->th.danger;
+	/* The bars say how strong the link is; weak is amber, not red, because a probe at the far end
+	 * of the garden is not faulted -- losing it altogether raises its own alarm. */
+	uint16_t sig_on = filled ? g->th.accent_text : bars >= 3 ? g->th.info : g->th.warn;
+	/* The Bluetooth rune is an identity mark -- "this probe is wireless" -- not a status light.
+	 * Colouring it by signal strength painted it red whenever the probe was a room away, which
+	 * reads as a fault and is simply the wrong thing for the symbol to be saying. It is Bluetooth
+	 * blue, always, except on a filled card where it takes the card's own text colour. */
+	uint16_t rune = filled ? g->th.accent_text : g->th.info;
 	uint16_t sig_off = filled ? alert : g->th.line;
 	char name[12], t[8], tg[12] = "", et[8] = "", amb[16] = "", bat[8] = "";
 	snprintf(name, sizeof name, "%.8s", pf_json_str((cJSON *)p, "name", "?"));
@@ -412,13 +422,13 @@ static void draw_probe_col(pf_gfx *g, const cJSON *p, const char *units, bool bl
 	if (wireless && battery >= 0) snprintf(bat, sizeof bat, "%d%%", battery % 1000);
 	uint16_t tgc = filled ? g->th.accent_text : tc == alert ? alert : g->th.accent;
 	uint16_t dim = filled ? g->th.accent_text : g->th.muted;
-	uint16_t batc = filled ? g->th.accent_text : battery <= 20 ? g->th.danger : g->th.muted;
+	uint16_t batc = filled ? g->th.accent_text : battery <= 10 ? g->th.danger : battery <= 20 ? g->th.warn : g->th.muted;
 	if (w >= 90) {
 		/* row 1: name left, Bluetooth rune + bars right
 		 * row 2: temperature left; target and ETA stacked on the right
 		 * row 3: ambient readout left, battery right */
 		int nw = w - 12;
-		if (wireless) { pf_gfx_bt_rune(g, x + w - 6 - 15 - 11, y + 4, sig_on); pf_gfx_signal(g, x + w - 6 - 15, y + 3, bars, sig_on, sig_off); nw -= 30; }
+		if (wireless) { pf_gfx_bt_rune(g, x + w - 6 - 15 - 11, y + 4, rune); pf_gfx_signal(g, x + w - 6 - 15, y + 3, bars, sig_on, sig_off); nw -= 30; }
 		int px = 13;
 		while (px > 10 && pf_gfx_text_width(B, px, name) > nw) px--;
 		pf_gfx_text(g, B, px, x + 6, y + 3, name, mc);
