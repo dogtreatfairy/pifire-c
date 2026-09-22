@@ -404,6 +404,36 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 9 (%d at-temperature rule%s now cover Smoke too)", fixed, fixed == 1 ? "" : "s");
 			added = 1;
 		}
+		if (ver < 10) {
+			/* A profile used to climb from the bottom: 180, 225, 350, 450. The bottom is the worst
+			 * place to start. A grill holds 180 F on so little fuel that the relay has almost no
+			 * room to swing below its centre, and a lopsided swing reports an ultimate gain that is
+			 * too high -- so the least trustworthy measurement of the four was the one setting the
+			 * grill's baseline and seeding everything after it. The run now measures its baseline
+			 * near 250 F first, where there is real room either side, then walks the rest upward.
+			 * A list the user has edited is left alone. */
+			cJSON *ln = pf_json_path(g_root, "learning");
+			cJSON *sp = ln ? cJSON_GetObjectItem(ln, "tune_setpoints") : NULL;
+			bool stock = cJSON_IsArray(sp) && cJSON_GetArraySize(sp) == 4;
+			if (stock) {
+				static const double was[4] = { 180, 225, 350, 450 };
+				for (int i = 0; i < 4; i++) {
+					cJSON *it = cJSON_GetArrayItem(sp, i);
+					if (!cJSON_IsNumber(it) || fabs(it->valuedouble - was[i]) > 0.5) stock = false;
+				}
+			}
+			if (ln && stock) {
+				cJSON *fresh = cJSON_CreateArray();
+				static const double now_f[4] = { 250, 180, 350, 450 };
+				for (int i = 0; i < 4; i++) cJSON_AddItemToArray(fresh, cJSON_CreateNumber(now_f[i]));
+				cJSON_ReplaceItemInObject(ln, "tune_setpoints", fresh);
+			}
+			if (ln && !cJSON_GetObjectItem(ln, "tune_baseline")) cJSON_AddNumberToObject(ln, "tune_baseline", 250);
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 10); else cJSON_AddNumberToObject(g_root, "schema_version", 10);
+			LOGI(TAG, "settings migrated to schema 10 (%s)", stock ? "profile now measures its baseline first" : "profile set points left as edited");
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);

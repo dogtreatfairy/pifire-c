@@ -486,6 +486,41 @@ static void test_relay_agrees_with_the_plant_it_measured(void)
 /* The run publishes both the set point it is working on now and the whole profile it will walk.
  * They are different things and must not collapse into each other: a guard added to the first index
  * was once applied to the loop as well, and the profile came out as the current set point repeated. */
+/* The baseline is measured before anything else, because the bottom of the range is the worst
+ * place to start: at 180 F the grill holds on so little fuel that the relay has no room to swing
+ * below its centre, and a clamped swing reports an ultimate gain that is too high. Around 250 F
+ * there is room either side, so that is the measurement worth setting the grill's baseline from.
+ * After it, the run walks upward so it never waits for the grill to cool twice. */
+static void test_a_profile_measures_its_baseline_first(void)
+{
+	char err[160];
+	cJSON *pts = cJSON_Parse("[180,250,350,450]");
+	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(pts, true, err, sizeof err));
+	cJSON_Delete(pts);
+	tick(5);
+	cJSON *j = pf_tuner_json();
+	cJSON *arr = cJSON_GetObjectItem(j, "setpoints");
+	const double want[4] = { 250, 180, 350, 450 };
+	TEST_ASSERT_EQUAL_INT(4, cJSON_GetArraySize(arr));
+	for (int i = 0; i < 4; i++)
+		TEST_ASSERT_EQUAL_DOUBLE_MESSAGE(want[i], cJSON_GetArrayItem(arr, i)->valuedouble,
+		                                 "the baseline leads, then the rest ascending");
+	cJSON_Delete(j);
+	pf_tuner_stop("test over");
+	tick(5);
+
+	/* a single temperature is not reordered: there is nothing to order */
+	cJSON *one = cJSON_Parse("[400]");
+	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(one, false, err, sizeof err));
+	cJSON_Delete(one);
+	tick(5);
+	j = pf_tuner_json();
+	TEST_ASSERT_EQUAL_DOUBLE(400, cJSON_GetArrayItem(cJSON_GetObjectItem(j, "setpoints"), 0)->valuedouble);
+	cJSON_Delete(j);
+	pf_tuner_stop("test over");
+	stop_and_wait_cold();
+}
+
 static void test_the_published_profile_is_the_whole_profile(void)
 {
 	char err[160];
@@ -497,7 +532,9 @@ static void test_the_published_profile_is_the_whole_profile(void)
 	cJSON *j = pf_tuner_json();
 	cJSON *arr = cJSON_GetObjectItem(j, "setpoints");
 	TEST_ASSERT_EQUAL_INT(4, cJSON_GetArraySize(arr));
-	const double want[4] = { 180, 225, 350, 450 };
+	/* The baseline is measured first, then the rest in order: 225 is the nearest of these to the
+	 * default baseline of 250, so it leads and the others follow ascending. */
+	const double want[4] = { 225, 180, 350, 450 };
 	for (int i = 0; i < 4; i++)
 		TEST_ASSERT_EQUAL_DOUBLE_MESSAGE(want[i], cJSON_GetArrayItem(arr, i)->valuedouble,
 		                                 "the profile must list every set point, not repeat one");
@@ -517,6 +554,7 @@ int main(void)
 	RUN_TEST(test_relay_recovers_from_a_badly_centred_swing);
 	RUN_TEST(test_single_adds_and_full_profile_replaces);
 	RUN_TEST(test_guided_tune_improves_holding);
+	RUN_TEST(test_a_profile_measures_its_baseline_first);
 	RUN_TEST(test_the_published_profile_is_the_whole_profile);   /* last: it starts a run of its own */
 	return UNITY_END();
 }

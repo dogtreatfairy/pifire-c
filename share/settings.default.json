@@ -1,5 +1,5 @@
 {
-  "schema_version": 9,
+  "schema_version": 10,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -827,11 +827,12 @@
     "half_life_obs": 60,
     "auto_tune": true,
     "tune_setpoints": [
+      250,
       180,
-      225,
       350,
       450
-    ]
+    ],
+    "tune_baseline": 250
   },
   "update": {
     "repo": "dogtreatfairy/pifire-c",

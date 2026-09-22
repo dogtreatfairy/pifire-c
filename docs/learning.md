@@ -73,7 +73,23 @@ Rules written against how far the grill is from its target stay quiet while a me
 
 *Settings → Cooking → Temperature Control & Learning → Autotune* offers two:
 
-* **Full Profile** visits every temperature in `learning.tune_setpoints` (180, 225, 350 and 450 °F by default) in turn, climbing so the grill never has to cool down. It is the grill's new baseline, so it **clears the library** before it starts. A few hours.
+* **Full Profile** visits every temperature in `learning.tune_setpoints` (250, 180, 350 and 450 °F by default). It is the grill's new baseline, so it **clears the library** before it starts. A few hours.
+
+  **The baseline is measured first, and it is not the bottom of the range.** A grill holds 180 °F on
+  very little fuel — close enough to the minimum feed that the relay has almost no room to swing
+  below its centre. The swing gets clamped on one side, and the describing function behind the
+  result assumes a symmetric square wave, so a lopsided one reports an ultimate gain that is too
+  high. Starting there meant the least trustworthy of the four measurements was the one setting the
+  grill's baseline and seeding every set point after it. Near 250 °F (`learning.tune_baseline`, or
+  whichever configured point is closest to it) there is real room either side, so that one is
+  measured first and the rest follow upward. Once it is stored, the daemon interpolates the library
+  for whatever set point is being held and the controller prefers that over its own configured
+  proportional band — so the remaining points, and any cook after an interrupted run, are governed
+  by a measurement of this grill rather than by the untuned numbers someone typed in.
+
+  This costs exactly one downward step, the shortest in the run. Cooling is passive, so the settle
+  allowance follows how far the grill must travel and which way: roughly five degrees a minute
+  climbing, one and a half cooling, plus an hour to settle once it arrives.
 * **One Temperature** tunes a single temperature you pick between 180 and 450 °F and **adds** it to the library beside what is already there. About an hour. Use it for a temperature the profile does not cover, or one that has drifted.
 
 Every entry records the outdoor temperature and wind it was measured in, from the ambient probe or the local weather, and the app shows them: the same grill behaves differently on a still summer afternoon than in a winter wind, and an entry means little without the conditions behind it.

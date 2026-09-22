@@ -82,7 +82,7 @@ export function renderLearning(view) {
       if (mode === 'full') {
         tuneCard.append(
           el('p', { class: 'muted', style: 'font-size:.85rem;margin-top:10px' },
-            `Measures ${(tune.profile || []).map((v) => `${v}${degUnit()}`).join(', ') || 'the whole range'} one after another, climbing, and records the weather it measured them in. This becomes the grill's new baseline and replaces everything in the tuning library. It takes a few hours.`),
+            `Measures ${(tune.profile || []).map((v) => `${v}${degUnit()}`).join(', ') || 'the whole range'} in that order, and records the weather it measured them in. The first one is the baseline: it is measured where the grill has the most room to swing either side of its centre, which makes it the most trustworthy of the four, and everything after it is measured with that tuning already in hand. This replaces everything in the tuning library and takes a few hours.`),
           el('button', {
             class: 'btn primary block',
             disabled: busy,

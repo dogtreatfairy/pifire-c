@@ -50,6 +50,7 @@ static struct {
 	bool full;                 /* a full profile, which replaces the library, or a single set point */
 	double amb_c, wind_kmh;    /* conditions this run is being measured in */
 	double run_start_wall;     /* wall clock, to tell this run's anchors from older ones */
+	double settle_from_c;      /* where the pit was when this set point's settle began */
 	char skipped[64];          /* set points that gave nothing usable, for the finishing message */
 	char message[120];
 } g;
@@ -81,6 +82,7 @@ static void set_phase(phase p, double now, const char *msg)
 	g.ph = p;
 	g.phase_start = now;
 	g.stable_since = 0;
+	g.settle_from_c = NAN;
 	if (msg) pf_strlcpy(g.message, msg, sizeof g.message);
 }
 
@@ -152,12 +154,33 @@ int pf_tuner_start(const cJSON *setpoints_json, bool full_profile, char *err, si
 	}
 	cJSON_Delete(owned);
 	if (np == 0) {
-		static const double def_f[] = { 180, 225, 350, 450 };
+		static const double def_f[] = { 250, 180, 350, 450 };
 		for (int i = 0; i < 4; i++) pts[np++] = pf_to_c(def_f[i], PF_UNITS_F);
 	}
-	/* ascending, so the run climbs and never has to wait for the grill to cool */
+	/* Ascending, so the run climbs and never waits for the grill to cool -- except for the first
+	 * point, which is the baseline and is measured before the rest.
+	 *
+	 * The bottom of the range is the worst place to start. A grill holds 180 F on very little
+	 * fuel, so close to the minimum feed that the relay has almost no room to swing below its
+	 * centre: the swing gets clamped on one side, and the describing function behind the result
+	 * assumes a symmetric square wave, so a lopsided one reports an ultimate gain that is too
+	 * high. Around 250 F there is real room either side, which makes it the most trustworthy
+	 * measurement of the four and the right one to set the grill's baseline from. Measuring it
+	 * first also means the rest of the run, and a run that is interrupted, already has honest
+	 * tuning to work with rather than the untuned defaults someone typed in. */
 	for (int i = 1; i < np; i++)
 		for (int j = i; j > 0 && pts[j - 1] > pts[j]; j--) { double t = pts[j - 1]; pts[j - 1] = pts[j]; pts[j] = t; }
+	if (full_profile && np > 1) {
+		double want = pf_to_c(pf_set_num("learning.tune_baseline", 250), pf_settings_units());
+		int base = 0;
+		for (int i = 1; i < np; i++)
+			if (fabs(pts[i] - want) < fabs(pts[base] - want)) base = i;
+		if (base > 0) {   /* move it to the front, leaving the others in order */
+			double b = pts[base];
+			for (int i = base; i > 0; i--) pts[i] = pts[i - 1];
+			pts[0] = b;
+		}
+	}
 
 	memset(&g, 0, sizeof g);
 	memcpy(g.points_c, pts, sizeof pts);
@@ -288,10 +311,22 @@ void pf_tuner_tick(const cJSON *status, double now)
 			pf_cmdq_push(&c);
 			return;
 		}
-		if (elapsed > T_SETTLE_S) {
+		/* How long this step is allowed depends on how far the grill has to travel and which way.
+		 * A flat hour suited a run that climbed in even steps; measuring the baseline first means
+		 * one step down and then the longest climb of the run, and neither fits the same figure.
+		 * Cooling is passive -- the grill can only stop feeding and wait -- so it is reckoned far
+		 * slower than a climb. The allowance is the travel plus the old hour to settle once there. */
+		if (isnan(g.settle_from_c) && !isnan(pit)) g.settle_from_c = pit;
+		double allow = T_SETTLE_S;
+		if (!isnan(g.settle_from_c) && sp > 0) {
+			double gap_f = fabs(pf_delta_from_c(g.settle_from_c - sp, PF_UNITS_F));
+			double per_min = g.settle_from_c > sp ? 1.5 : 5.0;   /* degrees F a minute */
+			allow += gap_f / per_min * 60.0;
+		}
+		if (elapsed > allow) {
 			if (!isnan(pit) && sp > 0)
 				snprintf(why, sizeof why, "The grill never settled at %.0f%s: after %.0f minutes it was %.0f%s away and still moving.",
-				         at_sp, tdeg, T_SETTLE_S / 60, fabs(pf_delta_from_c(pit - sp, tu)), tdeg);
+				         at_sp, tdeg, allow / 60, fabs(pf_delta_from_c(pit - sp, tu)), tdeg);
 			else
 				snprintf(why, sizeof why, "The grill never settled at %.0f%s and the pit probe was not reading.", at_sp, tdeg);
 			finish(false, why, now);
@@ -317,6 +352,14 @@ void pf_tuner_tick(const cJSON *status, double now)
 			g.measured++;
 			g.at_gen = gen;
 			LOGI(TAG, "set point %.0f C measured: PB %.1f C, Ti %.0f s, Td %.0f s", g.points_c[g.step], r.PB_c, r.Ti, r.Td);
+			/* Storing the anchor is what adopts it: the daemon interpolates the library for
+			 * whichever set point is being held and hands the result to the controller, which
+			 * prefers it over the untuned numbers in its own configuration. So from the moment the
+			 * baseline is measured the rest of the run, and any cook after an interrupted run, is
+			 * governed by a real measurement of this grill rather than by a typed-in guess --
+			 * without writing a single measurement into the saved settings, where a bad one would
+			 * outlive the run that produced it. The finishing message reports the numbers instead,
+			 * so adopting them permanently stays a decision rather than a side effect. */
 			set_phase(PH_NEXT, now, "Moving to the next set point");
 		} else if (elapsed < 60 && g.tries < 2) {
 			/* The test never got going, which means the grill had drifted off the set point by
