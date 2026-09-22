@@ -16,12 +16,31 @@ export const PF = {
 };
 
 // ---------- API ----------
+/* Every request gets a deadline.
+ *
+ * A request with no timeout is not merely slow, it is contagious. Over a link that has gone away
+ * without saying so -- a phone that slept and left a Tailscale tunnel to re-handshake, a network
+ * that changed underneath us -- the socket sits open until the operating system gives up, which is
+ * tens of seconds. Meanwhile the status poll starts another one every few seconds, a browser only
+ * allows about six connections to one host, and once they are all held by requests that will never
+ * answer, nothing else can get out either. That is how a link that is actually back in a second or
+ * two leaves the app unusable for minutes. A short deadline frees the connection instead. */
 export async function api(path, opts = {}) {
-  const r = await fetch('/api/v1' + path, {
-    method: opts.method || (opts.body ? 'POST' : 'GET'),
-    headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-  });
+  const ms = opts.timeout ?? 8000;
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), ms);
+  let r;
+  try {
+    r = await fetch('/api/v1' + path, {
+      method: opts.method || (opts.body ? 'POST' : 'GET'),
+      headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+      signal: ac.signal,
+      cache: 'no-store',
+    });
+  } catch (e) {
+    throw new Error(e.name === 'AbortError' ? 'The grill did not answer in time' : 'Could not reach the grill');
+  } finally { clearTimeout(t); }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.message || `HTTP ${r.status}`);
   return j;
@@ -88,11 +107,24 @@ setInterval(() => {
   else if (ws.readyState === WebSocket.OPEN && now - lastMsgAt > 8000) reconnectNow();   /* the daemon pushes at least every 5 s */
   else if (ws.readyState === WebSocket.CLOSED) reconnectNow();
 }, 2000);
-for (const ev of ['online', 'pageshow', 'focus']) window.addEventListener(ev, () => setTimeout(reconnectNow, 150));
-document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(reconnectNow, 150); });
+/* Coming back from a sleeping phone, the socket has to be rebuilt and the tunnel underneath it may
+   still be waking. Ask for the status over plain HTTP at the same time, so the screen is right as
+   soon as anything gets through rather than only once the socket is up. */
+function resumeNow() {
+  setTimeout(reconnectNow, 150);
+  pollStatus();
+}
+for (const ev of ['online', 'pageshow', 'focus']) window.addEventListener(ev, resumeNow);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) resumeNow(); });
+/* One poll at a time. Without this the three-second timer keeps starting new ones on top of a
+   request that has not answered yet, which is the pile-up the deadline above exists to prevent. */
+let polling = false;
 async function pollStatus() {
-  if (PF.connected || document.hidden) return;
-  try { const st = await api('/status'); PF.status = st; PF.units = st.units; if (PF.lost) { /* reachable again: the socket will follow */ } emit(); } catch { /* still down */ }
+  if (document.hidden || polling) return;
+  polling = true;
+  try { const st = await api('/status', { timeout: 4000 }); PF.status = st; PF.units = st.units; emit(); }
+  catch { /* still down */ }
+  finally { polling = false; }
 }
 let lostTimer = null;
 function setConnected(on) {

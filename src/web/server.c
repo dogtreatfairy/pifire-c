@@ -29,6 +29,32 @@ extern const size_t pf_web_count;
 static struct mg_context *g_ctx;
 static pthread_mutex_t g_ws_mu = PTHREAD_MUTEX_INITIALIZER;
 static struct mg_connection *g_ws[MAX_WS];
+
+/* Write to every live client, and let go of any that will not take it.
+ *
+ * A phone whose screen has gone off leaves a socket that accepts nothing and never closes. Writing
+ * to it fills the kernel buffer and then blocks until civetweb's request timeout, and because that
+ * happens while this lock is held, one sleeping phone stops the updates reaching every other
+ * client, and keeps stopping them on every push. That is what made the live view unreliable
+ * whenever a phone was asleep, and what left it minutes behind when the phone came back.
+ *
+ * A short write means the client is not taking data. Drop it from the table straight away: its own
+ * thread will notice the connection is finished and clean it up, the next push skips it, and the
+ * app that reconnects gets a fresh slot instead of finding all sixteen occupied by ghosts. */
+static void ws_broadcast(const char *txt, size_t len)
+{
+	if (!txt || !len) return;
+	pthread_mutex_lock(&g_ws_mu);
+	for (int i = 0; i < MAX_WS; i++) {
+		if (!g_ws[i]) continue;
+		int n = mg_websocket_write(g_ws[i], MG_WEBSOCKET_OPCODE_TEXT, txt, len);
+		if (n <= 0 || (size_t)n < len) {
+			LOGW(TAG, "websocket client %d would not take an update, dropping it", i);
+			g_ws[i] = NULL;
+		}
+	}
+	pthread_mutex_unlock(&g_ws_mu);
+}
 static pthread_t g_push_tid;
 static atomic_bool g_run;
 
@@ -146,10 +172,7 @@ void pf_web_push_status(void)
 	cJSON_Delete(j);
 	if (!txt) return;
 	size_t len = strlen(txt);
-	pthread_mutex_lock(&g_ws_mu);
-	for (int i = 0; i < MAX_WS; i++)
-		if (g_ws[i]) mg_websocket_write(g_ws[i], MG_WEBSOCKET_OPCODE_TEXT, txt, len);
-	pthread_mutex_unlock(&g_ws_mu);
+	ws_broadcast(txt, len);
 	free(txt);
 }
 
@@ -178,9 +201,7 @@ static void *push_thread(void *arg)
 				char *txt = cJSON_PrintUnformatted(e);
 				cJSON_Delete(e);
 				if (txt) {
-					pthread_mutex_lock(&g_ws_mu);
-					for (int i = 0; i < MAX_WS; i++) if (g_ws[i]) mg_websocket_write(g_ws[i], MG_WEBSOCKET_OPCODE_TEXT, txt, strlen(txt));
-					pthread_mutex_unlock(&g_ws_mu);
+					ws_broadcast(txt, strlen(txt));
 					free(txt);
 				}
 			}
@@ -267,7 +288,9 @@ int pf_web_start(const char *bind_addr, int port)
 		 * the worker count */
 		"num_threads", "12",
 		"enable_keep_alive", "no",
-		"request_timeout_ms", "10000",
+		/* how long a write to a client may stall before it is given up on: a sleeping phone must
+		 * not hold the broadcaster for longer than the gap between two updates is worth */
+		"request_timeout_ms", "4000",
 		"websocket_timeout_ms", "60000",
 		"enable_directory_listing", "no",
 		"tcp_nodelay", "1",
