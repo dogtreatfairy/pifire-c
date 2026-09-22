@@ -369,6 +369,18 @@ static void test_tuning_events_are_their_own_category(void)
 	TEST_ASSERT_EQUAL_STRING("system", pf_push_category("UPDATE_AVAILABLE"));
 	TEST_ASSERT_EQUAL_STRING("alarms", pf_push_category("E02_FLAMEOUT"));
 	TEST_ASSERT_EQUAL_STRING("targets", pf_push_category("Probe_Temp_Achieved"));
+
+	/* A rule names its own services and was written by the person holding the phone. Putting it
+	 * through the category switches filed every conditional notification under "system", which is
+	 * off by default, so the probe target, the hopper warnings and the Test button all went
+	 * nowhere. A RULE_ code must never be filtered by category. */
+	TEST_ASSERT_EQUAL_STRING("system", pf_push_category("RULE_probe-target"));
+	char perr[160];
+	pf_settings_patch("notify", "{\"ntfy\":{\"enabled\":true,\"system\":false}}", perr, sizeof perr);
+	TEST_ASSERT_TRUE_MESSAGE(pf_push_wanted("ntfy", "RULE_probe-target"),
+	                         "a rule must reach an enabled sink whatever the category switches say");
+	TEST_ASSERT_FALSE_MESSAGE(pf_push_wanted("ntfy", "UPDATE_AVAILABLE"),
+	                          "the daemon's own system chatter still respects the switch");
 }
 
 int main(void)

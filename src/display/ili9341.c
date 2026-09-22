@@ -687,8 +687,8 @@ static void handle_key(tft_t *t, pf_key k, double now)
 			t->ui.margin_focus = ((t->ui.margin_focus + dir) % 6 + 6) % 6;
 		} else if (k == PF_KEY_ENTER) {
 			if (t->ui.margin_focus < 4) t->ui.margin_editing = !t->ui.margin_editing;
-			else if (t->ui.margin_focus == 4) margins_save(t);
-			else { margins_revert(t); pf_nav_pop(&t->ui); }
+			else if (t->ui.margin_focus == 4) { margins_revert(t); pf_nav_pop(&t->ui); }   /* Back */
+			else margins_save(t);                                                          /* Save */
 		}
 		break;
 

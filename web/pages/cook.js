@@ -82,9 +82,10 @@ export async function targetDialog(p) {
       el('div', { class: 'sheet-foot' },
         el('label', {}, 'When it gets there'),
         segmented(AFTER, after, (v) => (after = v))),
+      /* dismissive left, committing right: see docs/design-language.md */
       el('div', { class: 'btnrow' },
-        p.target > 0 ? el('button', { class: 'btn ghost', type: 'button', onclick: () => close({ target: 0, after: 0 }) }, 'Clear') : null,
-        el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel')));
+        el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'),
+        p.target > 0 ? el('button', { class: 'btn ghost', type: 'button', onclick: () => close({ target: 0, after: 0 }) }, 'Clear target') : null));
   });
 }
 

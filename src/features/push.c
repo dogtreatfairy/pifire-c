@@ -44,11 +44,16 @@ const char *pf_push_category(const char *code)
 	return "system";
 }
 
-static bool wanted(const char *sink, const char *code)
+bool pf_push_wanted(const char *sink, const char *code)
 {
 	char key[96];
 	snprintf(key, sizeof key, "notify.%s.enabled", sink);
 	if (!pf_set_bool(key, false)) return false;
+	/* A rule already names the services it wants and was written by the person holding the phone.
+	 * The category switches exist to filter the daemon's own chatter, and putting a rule through
+	 * them meant every conditional notification landed in "system", which is off by default: the
+	 * probe target, the hopper warnings and the Test button all went nowhere. */
+	if (!strncmp(code, "RULE_", 5)) return true;
 	const char *cat = pf_push_category(code);
 	if (!cat || !strcmp(cat, "test")) return true;
 	snprintf(key, sizeof key, "notify.%s.%.12s", sink, cat);
@@ -75,8 +80,8 @@ static void enqueue(const char *sink, const char *code, const char *title, const
 static void sink(const pf_event *e, void *ctx)
 {
 	(void)ctx;
-	if ((e->sinks & PF_SINK_PUSHOVER) && wanted("pushover", e->code)) enqueue("pushover", e->code, e->title, e->body, e->crit, false);
-	if ((e->sinks & PF_SINK_NTFY) && wanted("ntfy", e->code)) enqueue("ntfy", e->code, e->title, e->body, e->crit, false);
+	if ((e->sinks & PF_SINK_PUSHOVER) && pf_push_wanted("pushover", e->code)) enqueue("pushover", e->code, e->title, e->body, e->crit, false);
+	if ((e->sinks & PF_SINK_NTFY) && pf_push_wanted("ntfy", e->code)) enqueue("ntfy", e->code, e->title, e->body, e->crit, false);
 }
 
 static size_t discard(char *p, size_t s, size_t n, void *ud) { (void)p; (void)ud; return s * n; }

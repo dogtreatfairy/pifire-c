@@ -699,7 +699,9 @@ static void render_margins(pf_gfx *g, const pf_ui_state *ui)
 	}
 
 	/* Save and Back, focused after the four edges */
-	static const char *const BTN[2] = { "Save", "Back" };
+	/* Back on the left, Save on the right: the dismissive action is always the one you reach first
+	 * going backwards, and the committing one is always on the right. See docs/design-language.md. */
+	static const char *const BTN[2] = { "Back", "Save" };
 	for (int b2 = 0; b2 < 2; b2++) {
 		bool sel = ui->margin_focus == 4 + b2;
 		int bw = 62, bh = 26, bx = W / 2 - 66 + b2 * 70, by = H / 2 - 6;
