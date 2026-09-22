@@ -129,7 +129,18 @@ export async function renderProbes(view) {
   const table = el('div', { class: 'list ptable' });
   const renderTable = () => {
     table.innerHTML = '';
-    for (const p of map.probe_info) {
+    /* Grouped the way the probes are used: the pit, the food, then the air and the outside. The
+       type a probe is set to is what puts it in a group, so the grouping also makes a
+       mis-configured probe obvious at a glance. */
+    const GROUPS = [['Primary', 'Grill'], ['Food', 'Food'], ['Aux', 'Aux & Ambient']];
+    for (const [role, heading] of GROUPS) {
+      const members = map.probe_info.filter((p) => (p.type || 'Food') === role);
+      if (!members.length) continue;
+      table.append(el('div', { class: 'probe-group-row' }, heading));
+      for (const p of members) renderRow(p);
+    }
+
+    function renderRow(p) {
       const live = PF.status?.probes?.find((x) => x.label === p.label);
       table.append(el('button', { class: `item prow-btn ${p.enabled ? '' : 'off'}`, type: 'button', onclick: () => editProbe(p) },
         el('div', { class: 'pcol' }, el('div', { class: 'row', style: 'gap:6px' }, isWireless(p.device) ? btIcon() : null, isWireless(p.device) && live ? sigBars(live.signal || 0, live.rssi ? `${live.rssi} dBm` : 'no link') : null, el('strong', {}, p.name), el('span', { class: 'pill sm' }, p.type)),

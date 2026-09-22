@@ -67,6 +67,10 @@ typedef struct {
 	/* mode */
 	pf_mode mode, next_mode;
 	double mode_start;
+	/* When the grill was last given something new to aim at: a mode change or a new set point.
+	 * A pit below its target is only worth reporting once it has had time to climb, and this is
+	 * what "had time" is measured from. */
+	double aim_since;
 	bool req_pending; pf_mode req_mode; double req_setpoint_c; bool req_prime_then_startup;
 	double setpoint_c;
 	bool s_plus, pwm_control; int duty_cycle;

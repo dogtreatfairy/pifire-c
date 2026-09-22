@@ -142,6 +142,17 @@ double pf_learning_uff(double setpoint_c, double ambient_c, double u_min, double
 	if (n_out) *n_out = f.n;
 	if (isnan(ambient_c)) ambient_c = 20;
 	double u = f.a + f.b * (setpoint_c - ambient_c);
+
+	/* Until the fit has seen this grill, that number is the built-in prior: a guess about pellet
+	 * grills in general, and on a real one it came out about twice what the grill actually needed.
+	 * The two directions of error are not equal. Feeding too much sends the pit past the target
+	 * and a grill has no way to cool itself, so it sits there for as long as the integrator takes
+	 * to unwind. Feeding too little is corrected by the integrator within minutes. So an unproven
+	 * feed-forward deliberately errs low, and earns its full weight as observations accumulate. */
+	int n = f.n < 0 ? 0 : f.n;
+	double trust = (double)n / (n + 4.0);              /* 0 with nothing, 0.6 by six cooks' worth */
+	u *= 0.85 + 0.15 * trust;
+
 	return pf_clamp(u, u_min, fmax(u_min, u_max - 0.15));
 }
 

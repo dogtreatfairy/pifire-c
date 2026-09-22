@@ -170,7 +170,7 @@ function alert(m) {
   notify({ kind, title: m.title, body: m.body, code: m.code, ts: m.ts || Date.now() / 1000 });
   if (m.ts) store(SEEN_KEY, Math.max(load(SEEN_KEY, 0), m.ts));
   try {
-    if (document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') new Notification(m.title, { body: m.body, tag: m.code });
+    if (document.visibilityState !== 'visible') showSystemNotification(m);
     if (navigator.vibrate && kind !== 'info') navigator.vibrate([120, 60, 120]);
   } catch {}
 }
@@ -203,8 +203,39 @@ function installHint() {
     body: 'Tap Share, then "Add to Home Screen". Launched from there it runs full screen, without Safari\'s bars.' });
 }
 
+/* iPhones do not have the Notification constructor. A Home Screen web app on iOS 16.4 or later can
+   show a notification, but only through its service worker's registration, so that is the path to
+   try first and the constructor is the desktop fallback. Note that this reaches you while the app
+   is running or recently backgrounded; once iOS has fully closed it nothing arrives here, which is
+   what Pushover is for. */
+export async function showSystemNotification(m) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const opts = { body: m.body, tag: m.code, icon: '/icons/icon-192.png', badge: '/icons/icon-192.png', data: { code: m.code } };
+  try {
+    const reg = await navigator.serviceWorker?.ready;
+    if (reg?.showNotification) { await reg.showNotification(m.title, opts); return; }
+  } catch {}
+  try { new Notification(m.title, opts); } catch {}
+}
+
+/* Whether a system notification can reach this device at all, and why not when it cannot. */
+export function alertSupport() {
+  const standalone = window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (!('Notification' in window)) {
+    return { ok: false, why: ios && !standalone
+      ? 'On iPhone these only work once PiFire is added to the Home Screen. Tap Share, then "Add to Home Screen", and open it from there.'
+      : 'This browser cannot show notifications.' };
+  }
+  if (ios && !standalone) return { ok: false, why: 'Add PiFire to your Home Screen and open it from there, or iOS will not allow notifications.' };
+  if (!window.isSecureContext) return { ok: false, why: 'Notifications need a secure connection. Reach the grill over https, or through Tailscale.' };
+  if (Notification.permission === 'denied') return { ok: false, why: 'Notifications are blocked for PiFire in your device settings.' };
+  return { ok: Notification.permission === 'granted', why: Notification.permission === 'granted' ? '' : 'Not allowed yet.' };
+}
+
 export function requestAlertPermission() {
-  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
+  if ('Notification' in window && Notification.permission === 'default') return Notification.requestPermission().catch(() => 'default');
+  return Promise.resolve(typeof Notification !== 'undefined' ? Notification.permission : 'denied');
 }
 // Short confirmations ("Saved") are banners only; errors also land in the centre.
 export function toast(msg, err = false) {

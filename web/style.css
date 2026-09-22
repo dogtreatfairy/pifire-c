@@ -485,3 +485,12 @@ main.view { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scr
 @supports not (backdrop-filter: blur(1px)) {
   .topbar::before, .tabbar::before, .card::before, .hero::before, .ios-list::before, .dialog::before, .cgroup::before, .pcell::before, .toast::before { background: var(--surface); }
 }
+
+/* the tuning library, as a table you can read a row out of */
+.tunetable { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px 10px; font-size: .88rem; margin: 6px 0 10px; }
+.tunetable .th { color: var(--muted); font-size: .76rem; text-transform: uppercase; letter-spacing: .04em; }
+
+/* probe groups: the pit, the food, then the air and the outside */
+.probe-group { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 14px 0 6px; font-weight: 600; }
+.probe-group:first-child { margin-top: 0; }
+.ptable .probe-group-row { padding: 10px 12px 4px; font-size: .74rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }

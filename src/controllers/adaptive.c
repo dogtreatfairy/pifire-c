@@ -361,17 +361,22 @@ static void apply_tuning(void *self, double Ku, double Pu, double K, double tau,
 	s->theta = clampd(theta, THETA_MIN, THETA_MAX);
 	pf_tuning_from_plant(K, tau, theta, &PB, &Ti, &Td);
 	if (!(PB > 0) || !(Ti > 0)) return;
-	/* the model fixes the *shape* of the tuning; its absolute gain is only trusted within a band around
-	 * the configured baseline (the passive plant fit is crude), and the monitor refines it from there */
-	double lo = relay ? 0.33 : 0.5, hi = relay ? 3.0 : 1.5;
-	PB = clampd(PB, s->cfg_PB_c * lo, s->cfg_PB_c * hi);
-	/* A relay test measures the period directly, so the integral time it implies is a measurement
-	 * and not an inference: pinning it to a band around the configured value would throw away the
-	 * very thing that was measured. Only the crude passive fit is kept near the baseline. */
-	if (!relay) Ti = clampd(Ti, s->cfg_Ti * 0.5, s->cfg_Ti * 2.0);
-	Td = clampd(Td, 0, s->cfg_Td * 2.0);
-	PB = clampd(PB, 15, 300); Ti = clampd(Ti, 60, 3600); Td = clampd(Td, 0, 120);
-	if (s->l_valid) { PB = 0.5 * (PB + s->l_PB_c); Ti = 0.5 * (Ti + s->l_Ti); Td = 0.5 * (Td + s->l_Td); }
+	/* The configured PB, Ti and Td are where the grill starts, not a leash on what it learns. A
+	 * relay test drives the plant deliberately and measures it, and the answer can be several
+	 * times the starting guess: tying it to a band around that guess would throw away the
+	 * measurement and hand back the guess. Only the crude passive fit, which is inferred from
+	 * whatever the cook happened to do, is kept near the baseline. Absolute bounds still apply,
+	 * because a number outside them is a fault rather than a grill. */
+	if (!relay) {
+		PB = clampd(PB, s->cfg_PB_c * 0.5, s->cfg_PB_c * 1.5);
+		Ti = clampd(Ti, s->cfg_Ti * 0.5, s->cfg_Ti * 2.0);
+		Td = clampd(Td, 0, s->cfg_Td * 2.0);
+	}
+	PB = clampd(PB, 15, 400); Ti = clampd(Ti, 60, 3600); Td = clampd(Td, 0, 240);
+	/* Averaging a fresh measurement with the last one halves how much of it actually arrives, and
+	 * after a profile run each set point is measured once, so blending would leave every entry
+	 * halfway to the one before it. A measurement replaces; only the passive fit is smoothed. */
+	if (s->l_valid && !relay) { PB = 0.5 * (PB + s->l_PB_c); Ti = 0.5 * (Ti + s->l_Ti); Td = 0.5 * (Td + s->l_Td); }
 	s->l_PB_c = PB; s->l_Ti = Ti; s->l_Td = Td; s->l_valid = true; s->l_ts = (double)time(NULL);
 	snprintf(s->l_src, sizeof s->l_src, "%s", src);
 	/* a fresh model resets the empirical scale toward neutral, keeping half of what was learned */

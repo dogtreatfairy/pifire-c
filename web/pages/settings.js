@@ -1,4 +1,4 @@
-import { PF, el, api, patchSettings, toast, degUnit, confirmDialog } from '../app.js';
+import { PF, el, api, patchSettings, toast, degUnit, confirmDialog, alertSupport, requestAlertPermission } from '../app.js';
 import { renderProbes } from './probes.js';
 import { renderRules } from './rules.js';
 import { renderLearning } from './learning.js';
@@ -109,6 +109,10 @@ const PAGES = [
       { type: 'note', help: 'The grill estimates when each probe will reach its target from how fast it is climbing, and tells you before it gets there so you can be at the grill in time.' },
       I('eta_warn_min', 'Tell me this long before a probe reaches its target (minutes)', '0 = off. Sent once per target, as soon as the live estimate has settled below this', { min: 0, max: 240 }),
     ] },
+    { id: 'notify', title: 'Phone & Browser Alerts', fields: [
+      { type: 'note', help: 'On an iPhone these only arrive if PiFire has been added to the Home Screen and opened from there, and only while it is running or recently in the background. Once iOS closes it nothing gets through, which is what Pushover below is for.' },
+      { type: 'action', label: 'Allow notifications on this device', endpoint: '' , client: 'alerts' },
+    ] },
     { id: 'notify', title: 'Pushover', collapsible: 'pushover.enabled', fields: [
       { type: 'note', help: 'Install the Pushover app ($5 once), then paste your user key from the app and create an application token at pushover.net/apps/build.' },
       B('pushover.enabled', 'Pushover', 'Send notifications to the Pushover app'),
@@ -161,6 +165,21 @@ const setDeep = (obj, path, v) => { const ks = path.split('.'); let o = obj; for
 
 export function fieldInput(f, value) {
   if (f.type === 'note') return el('p', { class: 'muted', style: 'font-size:.82rem;margin:2px 0 8px' }, f.help);
+  if (f.client === 'alerts') {
+    /* Asking the browser for permission has to happen from a tap, so it lives here rather than
+       being something the app does on its own. The state line says plainly whether it can work. */
+    const state = el('div', { class: 'help' });
+    const btn = el('button', { class: 'btn sm', type: 'button' }, 'Allow');
+    const refresh = () => {
+      const sup = alertSupport();
+      state.textContent = sup.ok ? 'Allowed on this device.' : sup.why;
+      btn.disabled = sup.ok || (typeof Notification !== 'undefined' && Notification.permission === 'denied');
+      btn.textContent = sup.ok ? 'Allowed' : 'Allow';
+    };
+    btn.onclick = async () => { await requestAlertPermission(); refresh(); };
+    refresh();
+    return el('div', { class: 'field inline' }, el('div', {}, el('label', {}, f.label), state), btn);
+  }
   if (f.type === 'action') return el('div', { class: 'field inline' }, el('div', {}, el('label', {}, f.label), f.help ? el('div', { class: 'help' }, f.help) : null),
     el('button', { class: 'btn sm', type: 'button', onclick: async (e) => { const b = e.currentTarget; b.disabled = true; try { await api(f.endpoint, { body: {} }); toast('Sent — check your phone'); } catch (err) { toast(err.message, true); } b.disabled = false; } }, 'Send test'));
   if (f.type === 'weather') {
@@ -201,6 +220,8 @@ export function readField(f, form) {
 
 function pageCard(pg) {
   const wrap = el('div');
+  const rerender = () => { wrap.innerHTML = ''; build(); };
+  const build = () => {
   for (const sec of pg.sections) {
     const data = PF.settings[sec.id] || {};
     const form = el('form', { onsubmit: async (e) => {
@@ -208,13 +229,24 @@ function pageCard(pg) {
       const patch = {};
       try { for (const f of sec.fields) { const v = readField(f, form); if (v !== undefined) setDeep(patch, f.path, v); } }
       catch (err) { toast(err.message, true); return; }
-      const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
-      try { await patchSettings(sec.id, patch); toast('Saved'); if (sec.id === 'globals' && 'units' in patch) location.reload(); if (sec.id === 'weather') api('/weather/refresh', { body: {} }).catch(() => {}); } catch (err) { toast(err.message, true); }
-      btn.disabled = false;
+      const btn = form.querySelector('button[type=submit]');
+      if (btn) btn.disabled = true;
+      try {
+        await patchSettings(sec.id, patch);
+        toast('Saved');
+        if (sec.id === 'globals' && 'units' in patch) location.reload();
+        else if (sec.id === 'weather') api('/weather/refresh', { body: {} }).catch(() => {});
+        /* Redraw from what came back. The page was built from a snapshot of the settings, so
+           anything that reads the saved value -- a section that shows On or Off, a field the
+           daemon tidied on the way in -- otherwise keeps showing what was there before the save. */
+        rerender();
+      } catch (err) { toast(err.message, true); }
+      if (btn) btn.disabled = false;
     } });
     const card = el('div', { class: 'card' });
     for (const f of sec.fields) card.append(fieldInput(f, f.path ? get(data, f.path) : undefined));
-    card.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'submit' }, 'Save')));
+    /* a section of notes and device-side buttons has nothing to store, so it has nothing to save */
+    if (sec.fields.some((f) => f.path)) card.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'submit' }, 'Save')));
     if (sec.collapsible) {
       // open when the service is already switched on, so a configured sink stays visible
       const on = !!get(data, sec.collapsible);
@@ -226,6 +258,8 @@ function pageCard(pg) {
     }
     wrap.append(form);
   }
+  };
+  build();
   return wrap;
 }
 

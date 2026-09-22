@@ -117,18 +117,35 @@ export function renderLearning(view) {
     const anchors = tune.anchors || [];
     tuneCard.append(el('h3', { style: 'margin:16px 0 6px;font-size:.9rem' }, 'Tuning Library'));
     if (anchors.length) {
-      tuneCard.append(
-        el('div', { class: 'list' }, ...anchors.map((a) => el('div', { class: 'item' }, el('div', {},
-          el('div', {}, `${a.setpoint}${degUnit()}`),
-          el('div', { class: 'meta' }, [
-            `PB ${a.PB}${degUnit()}`, `Ti ${a.Ti} s`, `Td ${a.Td} s`,
-            a.ambient != null ? `${a.ambient}${degUnit()} out` : null,
-            a.wind_kmh ? `${a.wind_kmh} km/h wind` : null,
-            new Date(a.ts * 1000).toLocaleDateString(),
-          ].filter(Boolean).join(' · ')))))),
-        el('p', { class: 'muted', style: 'font-size:.8rem' }, 'The controller uses the entry for whatever it is holding and blends between them in between. It keeps adjusting from how each cook actually behaves, so these are a starting point that improves with use.'));
+      /* These are the numbers to keep. They go straight into the controller's own Proportional
+         Band, Integral Time and Derivative Time boxes, so a tune never has to be repeated just to
+         get back to a known-good setting. */
+      const tbl = el('div', { class: 'tunetable' },
+        el('div', { class: 'th' }, 'Set point'), el('div', { class: 'th' }, 'PB'), el('div', { class: 'th' }, 'Ti'), el('div', { class: 'th' }, 'Td'));
+      for (const a of anchors) {
+        tbl.append(el('div', {}, `${a.setpoint}${degUnit()}`), el('div', {}, `${a.PB}${degUnit()}`), el('div', {}, `${a.Ti} s`), el('div', {}, `${a.Td} s`));
+      }
+      const lines = anchors.map((a) => `${a.setpoint}${degUnit()}: PB ${a.PB}${degUnit()}, Ti ${a.Ti} s, Td ${a.Td} s`
+        + (a.ambient != null ? ` (measured at ${a.ambient}${degUnit()} out${a.wind_kmh ? `, ${a.wind_kmh} km/h` : ''})` : ''));
+      tuneCard.append(tbl,
+        el('p', { class: 'muted', style: 'font-size:.8rem' },
+          `Measured ${anchors[0].ambient != null ? `at ${anchors[0].ambient}${degUnit()} outside` : 'on this grill'}. These take priority over the Proportional Band, Integral Time and Derivative Time set on this page, which are only the starting point before anything has been measured. Type them in by hand and you get the same tuning without running another autotune.`),
+        el('div', { class: 'form-actions' },
+          el('button', { class: 'btn sm ghost', onclick: async () => {
+            try { await navigator.clipboard.writeText(lines.join('\n')); toast('Copied'); }
+            catch { toast(lines.join(' | '), false); }
+          } }, 'Copy values')));
+
+      if (tune.plant) {
+        tuneCard.append(el('h3', { style: 'margin:16px 0 6px;font-size:.9rem' }, 'Measured Grill'),
+          el('div', { class: 'kv' },
+            el('div', {}, 'Gain'), el('div', {}, `${tune.plant.K}${degUnit()} per unit of feed`),
+            el('div', {}, 'Time constant'), el('div', {}, `${tune.plant.tau} s`),
+            el('div', {}, 'Dead time'), el('div', {}, `${tune.plant.theta} s`)),
+          el('p', { class: 'muted', style: 'font-size:.8rem' }, 'How much the pit moves per unit of feed, how quickly it answers, and how long before it starts. The tuning above is derived from these three.'));
+      }
     } else {
-      tuneCard.append(el('p', { class: 'muted', style: 'font-size:.8rem' }, 'Nothing measured yet. Until a run finishes, the controller uses what it learns from ordinary cooks.'));
+      tuneCard.append(el('p', { class: 'muted', style: 'font-size:.8rem' }, 'Nothing measured yet. Until a run finishes, the controller uses the Proportional Band, Integral Time and Derivative Time set on this page.'));
     }
   }
 

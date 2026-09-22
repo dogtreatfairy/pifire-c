@@ -1,5 +1,5 @@
 {
-  "schema_version": 6,
+  "schema_version": 7,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -633,7 +633,7 @@
       },
       {
         "id": "grill-hot",
-        "name": "Grill Running Hot",
+        "name": "Grill Stalled Hot",
         "enabled": true,
         "select": {
           "domain": "grill",
@@ -653,25 +653,31 @@
               "trait": "over",
               "op": ">",
               "value": 20
+            },
+            {
+              "entity": "grill",
+              "trait": "aiming_s",
+              "op": ">",
+              "value": 1200
             }
           ]
         },
-        "title": "{grill} is running hot",
-        "body": "{grill_temp} against a {setpoint} target.",
+        "title": "{grill} is not coming down",
+        "body": "Still {grill_temp} against a {setpoint} target, twenty minutes after being asked for it.",
         "level": "high",
         "sinks": [
           "app",
           "pushover",
           "ntfy"
         ],
-        "for_s": 60,
+        "for_s": 120,
         "cooldown_s": 900,
         "repeat_s": 0,
         "only_while_cooking": true
       },
       {
         "id": "grill-cold",
-        "name": "Grill Running Cold",
+        "name": "Grill Stalled Cold",
         "enabled": true,
         "select": {
           "domain": "grill",
@@ -691,18 +697,24 @@
               "trait": "over",
               "op": "<",
               "value": -20
+            },
+            {
+              "entity": "grill",
+              "trait": "aiming_s",
+              "op": ">",
+              "value": 1200
             }
           ]
         },
-        "title": "{grill} is running cold",
-        "body": "{grill_temp} against a {setpoint} target. Check the fire and the hopper.",
+        "title": "{grill} is not getting there",
+        "body": "Still {grill_temp} against a {setpoint} target, twenty minutes after being asked for it. Check the fire and the hopper.",
         "level": "high",
         "sinks": [
           "app",
           "pushover",
           "ntfy"
         ],
-        "for_s": 60,
+        "for_s": 120,
         "cooldown_s": 900,
         "repeat_s": 0,
         "only_while_cooking": true

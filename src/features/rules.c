@@ -92,6 +92,9 @@ static val trait_of(const cJSON *status, const inst *in, const char *entity, con
 		{ "grill", "error", "safety.error_code" }, { "grill", "cook_elapsed", "cook_elapsed" },
 		{ "grill", "mode_remaining", "timers.mode_remaining" }, { "grill", "lid_open", "lid_open" },
 		{ "grill", "hopper", "hopper_pct" },
+		/* seconds since the grill was last given a new mode or set point: a pit short of its
+		 * target is ordinary while it climbs, and only worth reporting once it has had time */
+		{ "grill", "aiming_s", "aiming_s" },
 		{ "hopper", "level", "hopper_pct" },
 		{ "controller", "duty", "cycle.u_applied" }, { "controller", "feedforward", "cycle.u_ff" },
 		{ "controller", "error", "controller.error" },

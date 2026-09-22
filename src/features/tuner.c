@@ -334,6 +334,16 @@ cJSON *pf_tuner_json(void)
 	}
 	pthread_mutex_unlock(&g_mu);
 
+	/* the model the measurements built, so the numbers behind the tuning are visible too */
+	pf_fopdt m = pf_learning_fopdt();
+	if (m.valid) {
+		cJSON *pl = cJSON_AddObjectToObject(o, "plant");
+		cJSON_AddNumberToObject(pl, "K", round(pf_delta_from_c(m.K, u)));
+		cJSON_AddNumberToObject(pl, "tau", round(m.tau));
+		cJSON_AddNumberToObject(pl, "theta", round(m.theta));
+		cJSON_AddNumberToObject(pl, "ts", m.ts);
+	}
+
 	/* the schedule as it stands, which is what the run is building */
 	pf_tune_anchor a[PF_TUNE_ANCHORS];
 	int n = pf_learning_anchor_list(a, PF_TUNE_ANCHORS);

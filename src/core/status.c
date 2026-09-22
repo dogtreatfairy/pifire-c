@@ -54,6 +54,9 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 	cJSON_AddBoolToObject(o, "lid_open", s->lid_open);
 	cJSON_AddNumberToObject(o, "lid_open_remaining", s->lid_open ? fmax(0, s->lid_open_until - s->t) : 0);
 	cJSON_AddBoolToObject(o, "target_reached", s->target_reached);
+	/* How long the grill has been working towards what it is aiming at now. A pit short of its
+	 * target is ordinary while it climbs and only a fault once it has had time. */
+	cJSON_AddNumberToObject(o, "aiming_s", round(s->aim_since > 0 ? fmax(0, s->t - s->aim_since) : 0));
 	cJSON_AddBoolToObject(o, "sim", s->sim);
 	cJSON_AddNumberToObject(o, "hopper_pct", s->hopper_pct);
 	add_num_or_null(o, "ambient", r1(conv(s->ambient_c, units)));

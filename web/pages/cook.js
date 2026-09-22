@@ -119,7 +119,7 @@ async function recipeDialog(r) {
 }
 
 export function renderCook(view) {
-  const probes = el('div', { class: 'grid2' });
+  const probes = el('div');
   const timerCard = el('div', { class: 'card' });
   const alerts = el('div', { class: 'list' });
   const recipeCard = el('div', { class: 'card' });
@@ -177,11 +177,21 @@ export function renderCook(view) {
     }
 
     probes.innerHTML = '';
-    for (const p of s.probes) {
-      if (!p.enabled || p.role === 'Aux') continue;
+    /* Grouped by what each probe is for: the pit, then the food, then anything measuring the air
+       or the outside. Without the headings a long list of probes is just a wall of numbers. */
+    const GROUPS = [['Primary', 'Grill'], ['Food', 'Food'], ['Aux', 'Aux & Ambient']];
+    for (const [role, heading] of GROUPS) {
+      const members = (s.probes || []).filter((p) => p.enabled && (p.role || 'Food') === role);
+      if (!members.length) continue;
+      const grid = el('div', { class: 'grid2' });
+      probes.append(el('h3', { class: 'probe-group' }, heading), grid);
+      for (const p of members) renderProbe(grid, p);
+    }
+
+    function renderProbe(into, p) {
       const hit = p.target > 0 && p.valid && p.temp >= p.target;
       const eta = p.target > 0 && p.eta_s >= 0 ? `ETA ${fmtDur(p.eta_s)}` : '';
-      probes.append(el('div', { class: `probe ${p.role === 'Primary' ? 'primary' : ''} ${p.valid ? '' : 'invalid'} ${hit ? 'hit' : ''}`, style: 'min-height:130px' },
+      into.append(el('div', { class: `probe ${p.role === 'Primary' ? 'primary' : ''} ${p.valid ? '' : 'invalid'} ${hit ? 'hit' : ''}`, style: 'min-height:130px' },
         el('div', { class: 'name' }, el('span', {}, p.name), el('span', {}, p.limit_high || p.limit_low ? '⚠ alarm' : '')),
         el('div', { class: 'temp' }, p.valid ? fmtTemp(p.temp) : '—', el('small', {}, degUnit())),
         el('div', { class: 'tgt' }, p.target > 0 ? `Target ${fmtTemp(p.target)}${degUnit()} · ${AFTER.find((a) => a[0] === p.after)?.[1]}${eta ? ' · ' + eta : ''}` : 'No target'),

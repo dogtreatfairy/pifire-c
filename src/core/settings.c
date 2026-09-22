@@ -309,6 +309,43 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 6 (grill and hopper rules)");
 			added = 1;
 		}
+		if (ver < 7) {
+			/* The grill-hot and grill-cold rules fired while the grill was simply on its way to a
+			 * new set point, which is not a fault, it is a climb. They now wait until the grill
+			 * has had twenty minutes to get there, so what they report is a stall. Existing copies
+			 * are updated in place rather than offered as new rules, and one a user has already
+			 * rewritten to their own conditions is left alone. */
+			int fixed = 0;
+			cJSON *rules = pf_json_path(g_root, "notify.rules"), *r;
+			cJSON_ArrayForEach(r, rules) {
+				const char *id = pf_json_str(r, "id", "");
+				bool hot = !strcmp(id, "grill-hot"), cold = !strcmp(id, "grill-cold");
+				if (!hot && !cold) continue;
+				cJSON *conds = pf_json_path(r, "when.conditions");
+				if (!cJSON_IsArray(conds)) continue;
+				cJSON *cd; bool already = false;
+				cJSON_ArrayForEach(cd, conds) if (!strcmp(pf_json_str(cd, "trait", ""), "aiming_s")) already = true;
+				if (already) continue;
+				cJSON *add = cJSON_CreateObject();
+				cJSON_AddStringToObject(add, "entity", "grill");
+				cJSON_AddStringToObject(add, "trait", "aiming_s");
+				cJSON_AddStringToObject(add, "op", ">");
+				cJSON_AddNumberToObject(add, "value", 1200);
+				cJSON_AddItemToArray(conds, add);
+				cJSON_ReplaceItemInObject(r, "name", cJSON_CreateString(hot ? "Grill Stalled Hot" : "Grill Stalled Cold"));
+				cJSON_ReplaceItemInObject(r, "title", cJSON_CreateString(hot ? "{grill} is not coming down" : "{grill} is not getting there"));
+				cJSON_ReplaceItemInObject(r, "body", cJSON_CreateString(hot
+					? "Still {grill_temp} against a {setpoint} target, twenty minutes after being asked for it."
+					: "Still {grill_temp} against a {setpoint} target, twenty minutes after being asked for it. Check the fire and the hopper."));
+				cJSON *fs = cJSON_GetObjectItem(r, "for_s");
+				if (fs) cJSON_SetNumberValue(fs, 120);
+				fixed++;
+			}
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 7); else cJSON_AddNumberToObject(g_root, "schema_version", 7);
+			LOGI(TAG, "settings migrated to schema 7 (%d deviation rule%s now wait for a stall)", fixed, fixed == 1 ? "" : "s");
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);

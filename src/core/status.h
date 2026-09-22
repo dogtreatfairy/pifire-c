@@ -11,6 +11,7 @@ typedef struct {
 	double wall;              /* unix seconds */
 	pf_mode mode, next_mode;
 	double mode_start;        /* monotonic */
+	double aim_since;         /* monotonic: last mode change or set-point change */
 	double setpoint_c;
 	bool s_plus, pwm_control;
 	int duty_cycle;           /* configured DC fan % */

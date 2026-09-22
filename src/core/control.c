@@ -278,6 +278,7 @@ static void enter_mode(pf_control *c, pf_mode m, double now)
 	pf_mode prev = c->mode;
 	c->mode = m;
 	c->mode_start = now;
+	c->aim_since = now;
 	c->lid_open = false;
 	c->fan_pid_active = false;
 	c->fan_ramping = false;
@@ -463,6 +464,7 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 		if (cmd->num > 0) {
 			c->setpoint_c = pf_to_c(cmd->num, u);
 			c->target_reached = false;
+			c->aim_since = now;
 			learn_reset_window(c, now);
 			if (c->mode == PF_MODE_HOLD) c->ctrl_reset_needed = true;
 			else if (c->mode == PF_MODE_SMOKE) pf_control_request(c, PF_MODE_HOLD, c->setpoint_c);
@@ -1411,6 +1413,7 @@ static void publish(pf_control *c, double now)
 	pf_status s;
 	memset(&s, 0, sizeof s);
 	s.t = now;
+	s.aim_since = c->aim_since;
 	s.wall = pf_wall();
 	s.mode = c->mode;
 	s.next_mode = c->next_mode;

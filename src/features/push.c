@@ -77,6 +77,25 @@ static void sink(const pf_event *e, void *ctx)
 
 static size_t discard(char *p, size_t s, size_t n, void *ud) { (void)p; (void)ud; return s * n; }
 
+/* Credentials arrive by copy and paste from a phone, which is very good at bringing a space along
+ * with them. A Pushover user key is exactly thirty characters and a stray space makes it
+ * thirty-one, so the service rejects the whole request with a 400 and a message about the key
+ * being wrong -- which it looks, to anyone reading it back, exactly right. Trim on the way in. */
+static void trim(char *s)
+{
+	size_t n = strlen(s), i = 0;
+	while (n > 0 && (unsigned char)s[n - 1] <= ' ') s[--n] = 0;
+	while (s[i] && (unsigned char)s[i] <= ' ') i++;
+	if (i) memmove(s, s + i, n - i + 1);
+}
+
+/* read a setting and trim it in one step */
+static void cred(const char *key, char *out, size_t n, const char *dflt)
+{
+	pf_set_str(key, out, n, dflt);
+	trim(out);
+}
+
 /* the grill name leads the title so several grills can share one phone */
 static void titled(char *out, size_t n, const char *title)
 {
@@ -88,9 +107,9 @@ static void titled(char *out, size_t n, const char *title)
 static int deliver_pushover(const item_t *it, char *err, size_t errn)
 {
 	char token[64], user[64], sound[32];
-	pf_set_str("notify.pushover.app_token", token, sizeof token, "");
-	pf_set_str("notify.pushover.user_key", user, sizeof user, "");
-	pf_set_str("notify.pushover.sound", sound, sizeof sound, "");
+	cred("notify.pushover.app_token", token, sizeof token, "");
+	cred("notify.pushover.user_key", user, sizeof user, "");
+	cred("notify.pushover.sound", sound, sizeof sound, "");
 	if (!token[0] || !user[0]) { snprintf(err, errn, "Pushover: app token and user key are required"); return -1; }
 	/* the event's criticality decides the priority; the configured values are the floor */
 	int prio = pf_set_int("notify.pushover.priority", 0);
@@ -128,9 +147,9 @@ static int deliver_pushover(const item_t *it, char *err, size_t errn)
 static int deliver_ntfy(const item_t *it, char *err, size_t errn)
 {
 	char server[200], topic[100], token[120];
-	pf_set_str("notify.ntfy.server", server, sizeof server, "https://ntfy.sh");
-	pf_set_str("notify.ntfy.topic", topic, sizeof topic, "");
-	pf_set_str("notify.ntfy.token", token, sizeof token, "");
+	cred("notify.ntfy.server", server, sizeof server, "https://ntfy.sh");
+	cred("notify.ntfy.topic", topic, sizeof topic, "");
+	cred("notify.ntfy.token", token, sizeof token, "");
 	if (!topic[0]) { snprintf(err, errn, "ntfy: a topic is required"); return -1; }
 	size_t sl = strlen(server);
 	while (sl > 0 && server[sl - 1] == '/') server[--sl] = 0;
