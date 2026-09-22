@@ -35,6 +35,32 @@ static void set_mode(cJSON *st, const char *mode, double remaining)
 	cJSON_ReplaceItemInObject(cJSON_GetObjectItem(st, "timers"), "mode_remaining", cJSON_CreateNumber(remaining));
 }
 
+/* A tuning run holds set points like any cook, so the banner must say what it is really doing and
+ * what it is aiming at, rather than reading Hold while the pit swings either side of target. */
+static void test_banner_names_a_tuning_run(void)
+{
+	pf_gfx g;
+	TEST_ASSERT_EQUAL_INT(0, pf_gfx_init(&g, 320, 240));
+	pf_gfx_set_theme(&g, "dark");
+	cJSON *st = cJSON_Parse(status_json);
+	pf_ui_state ui = { 0 };
+	set_mode(st, "Hold", 0);
+	cJSON *at = cJSON_GetObjectItem(st, "autotune");
+	if (!at) { at = cJSON_AddObjectToObject(st, "autotune"); cJSON_AddBoolToObject(at, "active", true); }
+	else cJSON_ReplaceItemInObject(at, "active", cJSON_CreateTrue());
+	render_to(&g, st, &ui, "tuning");
+	/* the banner strip must differ from the plain Hold banner: same mode, different thing happening */
+	unsigned tuned = 0;
+	for (int x = 0; x < 320; x++) tuned = tuned * 31u + g.px[8 * g.w + x];
+	cJSON_ReplaceItemInObject(at, "active", cJSON_CreateFalse());
+	render_to(&g, st, &ui, "hold_plain");
+	unsigned plain = 0;
+	for (int x = 0; x < 320; x++) plain = plain * 31u + g.px[8 * g.w + x];
+	TEST_ASSERT_TRUE_MESSAGE(tuned != plain, "a tuning run must not look like an ordinary hold");
+	cJSON_Delete(st);
+	pf_gfx_free(&g);
+}
+
 static void test_render_screens(void)
 {
 	pf_gfx g;
@@ -240,6 +266,7 @@ int main(void)
 {
 	UNITY_BEGIN();
 	RUN_TEST(test_render_screens);
+	RUN_TEST(test_banner_names_a_tuning_run);
 	RUN_TEST(test_menus_by_mode);
 	RUN_TEST(test_navigation_stack);
 	RUN_TEST(test_text_metrics);

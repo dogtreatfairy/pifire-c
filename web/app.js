@@ -430,10 +430,14 @@ onStatus((s) => {
     const waiting = (s.mode === 'Startup' || s.mode === 'Reignite') && s.coldstart?.active && !s.coldstart?.reached && s.timers.mode_remaining <= 0;
     value = fmtDur(waiting ? s.coldstart.remaining : s.timers.mode_remaining);
   } else if (s.mode === 'Hold') value = `${fmtTemp(s.setpoint)}${degUnit()}`;
-  rdMode.textContent = s.mode;
+  /* A tuning run holds set points like any cook, so the mode alone says Hold and gives no hint that
+     the grill is deliberately swinging either side of its target. Name what it is actually doing. */
+  const tuning = !!s.autotune?.active;
+  if (tuning && home) value = `${fmtTemp(s.setpoint)}${degUnit()}`;
+  rdMode.textContent = tuning ? 'Auto Tuning' : s.mode;
   rdVal.textContent = value;
   rdVal.hidden = !value;
-  readout.dataset.mode = s.mode;
+  readout.dataset.mode = tuning ? 'Tuning' : s.mode;
 
   if (PF.lost) { b.hidden = false; b.className = 'banner warn'; b.textContent = 'Connection lost — reconnecting…'; return; }
   if (s.safety.error_code) {

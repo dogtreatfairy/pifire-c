@@ -263,6 +263,8 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .readout[data-mode="Shutdown"] .rd-mode { background: var(--info); color: #041018; }
 .readout[data-mode="Manual"] .rd-mode { background: var(--warn); color: #1a1500; }
 .readout[data-mode="Error"] .rd-mode { background: var(--danger); color: #fff; }
+/* a tuning run is a mode of its own as far as the reader is concerned, so it gets its own colour */
+.readout[data-mode="Tuning"] .rd-mode { background: var(--info); color: #041018; }
 /* conditional notifications: the rule table and its editor */
 .rule-row { display: flex; align-items: center; gap: 10px; }
 .rule-row.off { opacity: .55; }

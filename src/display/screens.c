@@ -195,7 +195,7 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 		} else {   /* the active menu: Startup, Reignite, Smoke, Hold, Shutdown, Manual */
 			if (!strcmp(mode, "Hold")) ADD(PF_ACT_SMOKE, 0, "Smoke Mode");
 			else ADD(PF_ACT_HOLD, 0, "Hold Mode");
-			ADD(PF_ACT_END_COOK, 0, "End Cook");
+			ADD(PF_ACT_END_COOK, 0, "End Cook"); DANGER();   /* red: it stops the cook */
 			ADD(PF_ACT_LIST, PF_LIST_PROBE, "Probe Target");
 			ADD(PF_ACT_LIST, PF_LIST_BT, "Bluetooth Probes");
 			ADD(PF_ACT_NETINFO, 0, "Network Info");
@@ -214,12 +214,25 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 static void draw_banner(pf_gfx *g, const cJSON *s, const char *mode)
 {
 	int W = g->vw;
-	uint16_t fill = mode_fill(g, mode), tc = on_fill_text(g, fill);
+	bool tuning_fill = pf_json_bool((cJSON *)s, "autotune.active", false);
+	uint16_t fill = tuning_fill ? g->th.info : mode_fill(g, mode), tc = on_fill_text(g, fill);
 	pf_gfx_rect(g, 0, 0, g->w, 34, fill);
-	char up[16];
-	snprintf(up, sizeof up, "%.12s", mode);
+	/* A tuning run holds set points like any cook, so "HOLD" tells you nothing about why the pit is
+	 * deliberately swinging either side of its target. Say what it is doing, and what it is aiming
+	 * at, because during a run the set point is the thing that keeps changing. */
+	bool tuning = tuning_fill;
+	char up[24];
+	if (tuning) {
+		double sp = pf_json_num((cJSON *)s, "setpoint", 0);
+		if (sp > 0) snprintf(up, sizeof up, "AUTO TUNING %d", (int)(sp + 0.5));
+		else snprintf(up, sizeof up, "AUTO TUNING");
+	} else {
+		snprintf(up, sizeof up, "%.12s", mode);
+	}
 	upper(up);
-	pf_gfx_text(g, B, 24, 10, 3, up, tc);
+	int px = 24;
+	while (px > 14 && pf_gfx_text_width(B, px, up) > W - 76) px -= 2;   /* leave the clock its corner */
+	pf_gfx_text(g, B, px, 10, 3 + (24 - px) / 2, up, tc);
 	/* right: countdown while a mode is timed, else how long the grill has been running */
 	char clk[16] = "";
 	double remaining = pf_json_num((cJSON *)s, "timers.mode_remaining", 0), cook = pf_json_num((cJSON *)s, "cook_elapsed", 0);
