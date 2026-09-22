@@ -432,8 +432,8 @@ onStatus((s) => {
   } else if (s.mode === 'Hold') value = `${fmtTemp(s.setpoint)}${degUnit()}`;
   /* A tuning run holds set points like any cook, so the mode alone says Hold and gives no hint that
      the grill is deliberately swinging either side of its target. Name what it is actually doing. */
-  const tuning = !!s.autotune?.active;
-  if (tuning && home) value = `${fmtTemp(s.setpoint)}${degUnit()}`;
+  const tuning = !!(s.tuning?.running || s.autotune?.active);
+  if (tuning && home) value = `${fmtTemp(s.tuning?.setpoint ?? s.setpoint)}${degUnit()}`;
   rdMode.textContent = tuning ? 'Auto Tuning' : s.mode;
   rdVal.textContent = value;
   rdVal.hidden = !value;

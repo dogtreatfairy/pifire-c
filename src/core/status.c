@@ -1,4 +1,5 @@
 #include "core/status.h"
+#include "features/tuner.h"
 #include "core/settings.h"
 #include "core/util.h"
 #include "features/weather.h"
@@ -74,6 +75,21 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 	cJSON *at = cJSON_AddObjectToObject(o, "autotune");
 	cJSON_AddBoolToObject(at, "active", s->autotune_active);
 	cJSON_AddNumberToObject(at, "crossings", s->autotune_crossings);
+	/* A tuning run is more than the oscillation: it lights the grill, waits for it to settle,
+	 * measures, moves to the next set point. Anyone looking at the grill while it is doing that
+	 * needs to know why it started itself, so the whole run is flagged, not just the measurement. */
+	{
+		double sp = 0; int step = 0, steps = 0;
+		bool on = pf_tuner_active(&sp, &step, &steps);
+		cJSON *tn = cJSON_AddObjectToObject(o, "tuning");
+		cJSON_AddBoolToObject(tn, "running", on);
+		if (on) {
+			cJSON_AddNumberToObject(tn, "setpoint", round(sp));
+			cJSON_AddNumberToObject(tn, "step", step);
+			cJSON_AddNumberToObject(tn, "steps", steps);
+			cJSON_AddBoolToObject(tn, "measuring", s->autotune_active);
+		}
+	}
 
 	cJSON *tm = cJSON_AddObjectToObject(o, "timers");
 	cJSON_AddNumberToObject(tm, "startup_duration", s->startup_duration);

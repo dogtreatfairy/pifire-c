@@ -410,6 +410,7 @@
       "targets": true,
       "alarms": true,
       "pellets": true,
+      "tuning": true,
       "system": false
     },
     "ntfy": {
@@ -422,6 +423,7 @@
       "targets": true,
       "alarms": true,
       "pellets": true,
+      "tuning": true,
       "system": false
     },
     "eta_warn_min": 15,

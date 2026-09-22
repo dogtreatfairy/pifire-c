@@ -227,7 +227,7 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 static void draw_banner(pf_gfx *g, const cJSON *s, const char *mode)
 {
 	int W = g->vw;
-	bool tuning_fill = pf_json_bool((cJSON *)s, "autotune.active", false);
+	bool tuning_fill = pf_json_bool((cJSON *)s, "tuning.running", false) || pf_json_bool((cJSON *)s, "autotune.active", false);
 	uint16_t fill = tuning_fill ? g->th.info : mode_fill(g, mode), tc = on_fill_text(g, fill);
 	pf_gfx_rect(g, 0, 0, g->w, 34, fill);
 	/* A tuning run holds set points like any cook, so "HOLD" tells you nothing about why the pit is
@@ -236,8 +236,15 @@ static void draw_banner(pf_gfx *g, const cJSON *s, const char *mode)
 	bool tuning = tuning_fill;
 	char up[24];
 	if (tuning) {
-		double sp = pf_json_num((cJSON *)s, "setpoint", 0);
-		if (sp > 0) snprintf(up, sizeof up, "AUTO TUNING %d", (int)(sp + 0.5));
+		/* the run's own target, which it moves through the profile, not whatever the grill is
+		 * holding at this instant: during startup those are not the same */
+		double sp = pf_json_num((cJSON *)s, "tuning.setpoint", 0);
+		if (sp <= 0) sp = pf_json_num((cJSON *)s, "setpoint", 0);
+		int step = (int)pf_json_num((cJSON *)s, "tuning.step", 0) % 100;
+		int steps = (int)pf_json_num((cJSON *)s, "tuning.steps", 0) % 100;
+		int t = (int)(sp + 0.5) % 10000;
+		if (sp > 0 && steps > 1) snprintf(up, sizeof up, "AUTO TUNE %d  %d/%d", t, step, steps);
+		else if (sp > 0) snprintf(up, sizeof up, "AUTO TUNE %d", t);
 		else snprintf(up, sizeof up, "AUTO TUNING");
 	} else {
 		snprintf(up, sizeof up, "%.12s", mode);

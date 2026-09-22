@@ -23,5 +23,10 @@ int  pf_tuner_start(const cJSON *setpoints_json, bool full_profile, char *err, s
 void pf_tuner_stop(const char *why);
 /* Drive the run; called once a second from the services thread with the latest status. */
 void pf_tuner_tick(const cJSON *status, double now);
+/* Is a run going, and what is it aiming at? The relay only oscillates for part of a run, so this
+ * is true through the startup and the settling too, which is when someone glancing at the grill
+ * most needs to know why it lit itself. Any argument may be NULL. */
+bool pf_tuner_active(double *setpoint_user, int *step, int *steps);
+
 /* {running, phase, step, steps, setpoint, elapsed_s, message, anchors:[...]} */
 cJSON *pf_tuner_json(void);

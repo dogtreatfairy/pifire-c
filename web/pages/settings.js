@@ -1,4 +1,4 @@
-import { PF, el, api, patchSettings, toast, degUnit, confirmDialog, alertSupport, requestAlertPermission } from '../app.js';
+import { PF, el, api, patchSettings, toast, degUnit, confirmDialog, alertSupport, requestAlertPermission, showSystemNotification } from '../app.js';
 import { renderProbes } from './probes.js';
 import { renderRules } from './rules.js';
 import { renderLearning } from './learning.js';
@@ -112,6 +112,7 @@ const PAGES = [
     { id: 'notify', title: 'Phone & Browser Alerts', fields: [
       { type: 'note', help: 'On an iPhone these only arrive if PiFire has been added to the Home Screen and opened from there, and only while it is running or recently in the background. Once iOS closes it nothing gets through, which is what Pushover below is for.' },
       { type: 'action', label: 'Allow notifications on this device', endpoint: '' , client: 'alerts' },
+      { type: 'action', label: 'Show a test notification', endpoint: '', client: 'alerttest' },
     ] },
     { id: 'notify', title: 'Pushover', collapsible: 'pushover.enabled', fields: [
       { type: 'note', help: 'Install the Pushover app ($5 once), then paste your user key from the app and create an application token at pushover.net/apps/build.' },
@@ -120,13 +121,13 @@ const PAGES = [
       S('pushover.priority', 'Priority', 'For targets, timers and pellets', [[-1, 'Quiet (no sound)'], [0, 'Normal'], [1, 'High (bypasses quiet hours)']]),
       S('pushover.alarm_priority', 'Alarm priority', 'For limit alarms and grill errors', [[0, 'Normal'], [1, 'High'], [2, 'Emergency (repeats until acknowledged)']]),
       X('pushover.sound', 'Sound', 'Blank = your default; e.g. cosmic, bike, siren'),
-      B('pushover.targets', 'Targets & timers', 'Target reached, the predictive warning, cook timer, recipe steps'), B('pushover.alarms', 'Alarms & errors', 'Probe limit alarms, flame-out, over-temperature'), B('pushover.pellets', 'Pellets low', ''), B('pushover.system', 'System', 'Autotune and tuning notices'),
+      B('pushover.targets', 'Targets & timers', 'Target reached, the predictive warning, cook timer, recipe steps'), B('pushover.alarms', 'Alarms & errors', 'Probe limit alarms, flame-out, over-temperature'), B('pushover.pellets', 'Pellets low', ''), B('pushover.tuning', 'Tuning runs', 'Started, finished, or gave up; a run takes hours unattended'), B('pushover.system', 'Other system notices', ''),
       { type: 'action', label: 'Send a test notification', endpoint: '/notify/test/pushover' },
     ] },
     { id: 'notify', title: 'ntfy (Free Alternative)', collapsible: 'ntfy.enabled', fields: [
       { type: 'note', help: 'Install the ntfy app, subscribe to a private topic name, and enter it here. Use ntfy.sh or your own server.' },
       B('ntfy.enabled', 'ntfy', ''), X('ntfy.server', 'Server', 'https://ntfy.sh or your own'), X('ntfy.topic', 'Topic', 'Pick something nobody would guess'), { path: 'ntfy.token', label: 'Access token', help: 'Only for protected topics', type: 'password' },
-      B('ntfy.targets', 'Targets & timers', ''), B('ntfy.alarms', 'Alarms & errors', ''), B('ntfy.pellets', 'Pellets low', ''), B('ntfy.system', 'System', ''),
+      B('ntfy.targets', 'Targets & timers', ''), B('ntfy.alarms', 'Alarms & errors', ''), B('ntfy.pellets', 'Pellets low', ''), B('ntfy.tuning', 'Tuning runs', 'Started, finished, or gave up'), B('ntfy.system', 'Other system notices', ''),
       { type: 'action', label: 'Send a test notification', endpoint: '/notify/test/ntfy' },
     ] },
   ] },
@@ -178,6 +179,22 @@ export function fieldInput(f, value) {
     };
     btn.onclick = async () => { await requestAlertPermission(); refresh(); };
     refresh();
+    return el('div', { class: 'field inline' }, el('div', {}, el('label', {}, f.label), state), btn);
+  }
+  if (f.client === 'alerttest') {
+    const state = el('div', { class: 'help' }, 'Appears on this device only. Leave the app, or lock the phone, before tapping.');
+    const btn = el('button', { class: 'btn sm', type: 'button' }, 'Show one');
+    btn.onclick = async () => {
+      const sup = alertSupport();
+      if (!sup.ok) { toast(sup.why, true); return; }
+      /* a notification only shows while the page is hidden, which is the case worth testing, so
+         give the tester a few seconds to put the app in the background */
+      state.textContent = 'In 5 seconds. Put the app in the background now.';
+      setTimeout(async () => {
+        await showSystemNotification({ title: 'PiFire', body: 'This is what an alert looks like.', code: 'Test_Notify' });
+        state.textContent = 'Sent. If nothing appeared, check PiFire in your phone notification settings.';
+      }, 5000);
+    };
     return el('div', { class: 'field inline' }, el('div', {}, el('label', {}, f.label), state), btn);
   }
   if (f.type === 'action') return el('div', { class: 'field inline' }, el('div', {}, el('label', {}, f.label), f.help ? el('div', { class: 'help' }, f.help) : null),

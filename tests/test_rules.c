@@ -4,6 +4,7 @@
 #include "core/settings.h"
 #include "core/util.h"
 #include "features/rules.h"
+#include "features/push.h"
 #include "unity.h"
 #include <stdio.h>
 #include <string.h>
@@ -354,6 +355,22 @@ static void test_hopper_rules(void)
 	cJSON_Delete(st);
 }
 
+/* A tuning run takes hours with nobody there, so being told it started, finished or gave up is the
+ * whole point of having a phone. Those events used to be filed under "system", which is off by
+ * default on every sink, so none of them ever left the grill. */
+static void test_tuning_events_are_their_own_category(void)
+{
+	TEST_ASSERT_EQUAL_STRING("tuning", pf_push_category("Tune_Started"));
+	TEST_ASSERT_EQUAL_STRING("tuning", pf_push_category("Tune_Done"));
+	TEST_ASSERT_EQUAL_STRING("tuning", pf_push_category("Tune_Failed"));
+	TEST_ASSERT_EQUAL_STRING("tuning", pf_push_category("Autotune_Done"));
+	TEST_ASSERT_EQUAL_STRING("tuning", pf_push_category("Autotune_Failed"));
+	/* and they are not lumped in with the notices that default to off */
+	TEST_ASSERT_EQUAL_STRING("system", pf_push_category("UPDATE_AVAILABLE"));
+	TEST_ASSERT_EQUAL_STRING("alarms", pf_push_category("E02_FLAMEOUT"));
+	TEST_ASSERT_EQUAL_STRING("targets", pf_push_category("Probe_Temp_Achieved"));
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -363,6 +380,7 @@ int main(void)
 	RUN_TEST(test_condition_groups);
 	RUN_TEST(test_eta_rule_and_tokens);
 	RUN_TEST(test_only_while_cooking);
+	RUN_TEST(test_tuning_events_are_their_own_category);
 	RUN_TEST(test_grill_stability_rules);
 	RUN_TEST(test_deviation_rules_are_quiet_during_a_measurement);
 	RUN_TEST(test_hopper_rules);

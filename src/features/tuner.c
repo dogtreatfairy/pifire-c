@@ -302,6 +302,20 @@ void pf_tuner_tick(const cJSON *status, double now)
 	pthread_mutex_unlock(&g_mu);
 }
 
+bool pf_tuner_active(double *setpoint_user, int *step, int *steps)
+{
+	pthread_mutex_lock(&g_mu);
+	bool on = g.running;
+	if (on) {
+		int i = g.step < g.n ? g.step : (g.n > 0 ? g.n - 1 : 0);
+		if (setpoint_user) *setpoint_user = pf_from_c(g.points_c[i], pf_settings_units());
+		if (step) *step = g.step + 1;
+		if (steps) *steps = g.n;
+	}
+	pthread_mutex_unlock(&g_mu);
+	return on;
+}
+
 cJSON *pf_tuner_json(void)
 {
 	cJSON *o = cJSON_CreateObject();

@@ -31,12 +31,16 @@ static pthread_t g_tid;
 static atomic_bool g_run;
 static char g_last_err[160];
 
-static const char *category(const char *code)
+const char *pf_push_category(const char *code)
 {
 	if (!strcmp(code, "Test_Notify")) return "test";
 	if (!strcmp(code, "Probe_Temp_Achieved") || !strcmp(code, "Probe_ETA") || !strcmp(code, "Timer_Expired") || !strncmp(code, "Recipe_", 7)) return "targets";
 	if (!strcmp(code, "Probe_Temp_Limit_Alarm") || (code[0] == 'E' && code[1] >= '0' && code[1] <= '9')) return "alarms";
 	if (!strcmp(code, "Pellet_Level_Low")) return "pellets";
+	/* A tuning run takes hours with nobody standing there, so being told it started, finished or
+	 * gave up is the whole point of having a phone. It used to fall under "system", which is off
+	 * by default, so none of it ever arrived. */
+	if (!strncmp(code, "Tune_", 5) || !strncmp(code, "Autotune_", 9)) return "tuning";
 	return "system";
 }
 
@@ -45,10 +49,10 @@ static bool wanted(const char *sink, const char *code)
 	char key[96];
 	snprintf(key, sizeof key, "notify.%s.enabled", sink);
 	if (!pf_set_bool(key, false)) return false;
-	const char *cat = category(code);
+	const char *cat = pf_push_category(code);
 	if (!cat || !strcmp(cat, "test")) return true;
 	snprintf(key, sizeof key, "notify.%s.%.12s", sink, cat);
-	return pf_set_bool(key, strcmp(cat, "system") != 0);
+	return pf_set_bool(key, strcmp(cat, "system") != 0);   /* everything but "system" defaults on */
 }
 
 static void enqueue(const char *sink, const char *code, const char *title, const char *body, int crit, bool force)
@@ -157,7 +161,7 @@ static int deliver_ntfy(const item_t *it, char *err, size_t errn)
 	         : it->crit >= PF_CRIT_HIGH ? 4 : it->crit <= PF_CRIT_INFO ? 2 : pf_set_int("notify.ntfy.priority", 3);
 	if (prio < 1) prio = 1;
 	if (prio > 5) prio = 5;
-	const char *cat = category(it->code);
+	const char *cat = pf_push_category(it->code);
 	const char *tags = it->crit >= PF_CRIT_HIGH ? "rotating_light" : !strcmp(cat, "pellets") ? "package" : !strcmp(cat, "targets") ? "meat_on_bone" : "gear";
 	CURL *c = curl_easy_init();
 	if (!c) { snprintf(err, errn, "curl init failed"); return -1; }
