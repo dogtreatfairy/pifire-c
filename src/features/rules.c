@@ -72,6 +72,9 @@ static val trait_of(const cJSON *status, const inst *in, const char *entity, con
 			return v_bool(cJSON_IsTrue(jget(o, "valid")));
 		}
 		if (!strcmp(trait, "wireless")) return v_bool(cJSON_IsTrue(jget(o, "wireless")));
+		/* Is this probe part of what is being cooked? A grill can have nine configured and two in
+		 * the meat; the rest are switched on in a drawer and there is nothing to say about them. */
+		if (!strcmp(trait, "in_use")) return v_bool(cJSON_IsTrue(jget(o, "in_use")));
 		if (!strcmp(trait, "enabled")) return v_bool(cJSON_IsTrue(jget(o, "enabled")));
 		if (!strcmp(trait, "name")) return v_str(pf_json_str((cJSON *)o, "name", ""));
 		if (!strcmp(trait, "role")) return v_str(pf_json_str((cJSON *)o, "role", ""));

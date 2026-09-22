@@ -31,7 +31,26 @@ static void test_divider(void)
 	TEST_ASSERT_DOUBLE_WITHIN(1, 10000, pf_shh_mv_to_ohms(1640, 10000, 3.28));
 	TEST_ASSERT_TRUE(pf_shh_mv_to_ohms(0, 10000, 3.28) < 0);          /* short */
 	TEST_ASSERT_TRUE(pf_shh_mv_to_ohms(3400, 10000, 3.28) < 0);       /* above reference */
-	TEST_ASSERT_TRUE(pf_shh_mv_to_ohms(3279, 10000, 3.28) > 1e6);     /* open -> huge */
+	/* An unplugged probe leaves the divider's pull-up holding the input at the rail. This used to
+	 * come back as megohms, which for a thermistor is indistinguishable from a very cold probe, so
+	 * an empty jack could be reported as a temperature. There is no reading; it must say so. */
+	TEST_ASSERT_TRUE_MESSAGE(pf_shh_mv_to_ohms(3279, 10000, 3.28) < 0, "an open jack is not a reading");
+	TEST_ASSERT_TRUE_MESSAGE(pf_shh_mv_to_ohms(3280, 10000, 3.28) < 0, "nor is one sitting exactly at the rail");
+	/* a probe that is genuinely there still reads, right up to the edge of the range */
+	TEST_ASSERT_TRUE(pf_shh_mv_to_ohms(3200, 10000, 3.28) > 1e5);
+}
+
+/* A grill sitting outside in winter is below freezing, and its ambient probe is reading the truth.
+ * The accepted range used to stop at 0 F and threw those readings away as faults. */
+static void test_winter_readings_are_accepted(void)
+{
+	double cold = pf_shh_c_to_ohms(-20.0, &twps);     /* -4 F */
+	TEST_ASSERT_TRUE(cold > 0);
+	double back = pf_shh_ohms_to_c(cold, &twps);
+	TEST_ASSERT_FALSE_MESSAGE(isnan(back), "a probe at -4 F is a reading, not a fault");
+	TEST_ASSERT_DOUBLE_WITHIN(0.5, -20.0, back);
+	/* and something far outside any probe's range is still rejected */
+	TEST_ASSERT_TRUE(isnan(pf_shh_ohms_to_c(1e12, &twps)));
 }
 
 static void test_sanity_clamp(void)
@@ -148,6 +167,7 @@ int main(void)
 	UNITY_BEGIN();
 	RUN_TEST(test_roundtrip);
 	RUN_TEST(test_divider);
+	RUN_TEST(test_winter_readings_are_accepted);
 	RUN_TEST(test_the_whole_chain_at_the_real_operating_point);
 	RUN_TEST(test_sanity_clamp);
 	RUN_TEST(test_solve);

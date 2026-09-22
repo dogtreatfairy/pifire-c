@@ -120,7 +120,8 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 
 	if (s->v == V_CLAMP || s->v == V_CLAMP_PCT || s->v == V_PARALLEL) {
 		s->p = s->kp * error;
-		s->inter += error * dt;
+		if (!isfinite(s->inter)) s->inter = 0;
+		if (isfinite(error) && isfinite(dt)) s->inter += error * dt;
 		s->i = s->ki * s->inter;
 		s->derv = (error - s->err_last) / dt;
 		s->d = s->kd * s->derv;
@@ -145,7 +146,8 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 				s->inter = 0;
 			if ((s->new_target && s->setpoint_c < cur) || fabs(error) > s->pb_c / 2) s->derv = 0;
 			s->p = s->kp * pred_err + s->center;
-			s->inter += pred_err * dt;
+			if (!isfinite(s->inter)) s->inter = 0;
+			if (isfinite(pred_err) && isfinite(dt)) s->inter += pred_err * dt;
 			s->i = fmax(-s->center, fmin(s->center, s->ki * s->inter));
 			s->derv = (pred - s->last_pit) / dt;
 			s->d = s->kd * s->derv;

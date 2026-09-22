@@ -346,6 +346,35 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 7 (%d deviation rule%s now wait for a stall)", fixed, fixed == 1 ? "" : "s");
 			added = 1;
 		}
+		if (ver < 8) {
+			/* Probe rules fired for probes nobody was using: a grill can have nine configured and
+			 * two in the meat, and the other seven sat in a drawer announcing that they were
+			 * offline or had reached a target of zero. They now require the probe to be part of
+			 * the cook, and to be a cook at all. A rule the user has rewritten is left alone. */
+			int fixed = 0;
+			cJSON *rules = pf_json_path(g_root, "notify.rules"), *r;
+			cJSON_ArrayForEach(r, rules) {
+				const char *id = pf_json_str(r, "id", "");
+				if (strncmp(id, "probe-", 6)) continue;
+				cJSON *conds = pf_json_path(r, "when.conditions");
+				if (!cJSON_IsArray(conds)) continue;
+				cJSON *cd; bool already = false;
+				cJSON_ArrayForEach(cd, conds) if (!strcmp(pf_json_str(cd, "trait", ""), "in_use")) already = true;
+				if (!already) {
+					cJSON *add = cJSON_CreateObject();
+					cJSON_AddStringToObject(add, "trait", "in_use");
+					cJSON_AddStringToObject(add, "op", "is_on");
+					cJSON_InsertItemInArray(conds, 0, add);
+					fixed++;
+				}
+				cJSON *owc = cJSON_GetObjectItem(r, "only_while_cooking");
+				if (owc && !cJSON_IsTrue(owc)) cJSON_ReplaceItemInObject(r, "only_while_cooking", cJSON_CreateTrue());
+			}
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 8); else cJSON_AddNumberToObject(g_root, "schema_version", 8);
+			LOGI(TAG, "settings migrated to schema 8 (%d probe rule%s now need the probe to be in the cook)", fixed, fixed == 1 ? "" : "s");
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);

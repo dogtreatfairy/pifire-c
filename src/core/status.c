@@ -183,6 +183,7 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 		cJSON_AddStringToObject(po, "name", p->name);
 		cJSON_AddStringToObject(po, "role", p->role == PF_PROBE_PRIMARY ? "Primary" : p->role == PF_PROBE_AUX ? "Aux" : "Food");
 		cJSON_AddBoolToObject(po, "enabled", p->enabled);
+		cJSON_AddBoolToObject(po, "in_use", p->in_use);
 		cJSON_AddBoolToObject(po, "home", p->home);
 		cJSON_AddBoolToObject(po, "valid", p->valid);
 		add_num_or_null(po, "temp", p->valid ? r1(conv(p->temp_c, units)) : NAN);

@@ -1,4 +1,5 @@
 #include "features/cookfile.h"
+#include <pthread.h>
 #include "core/db.h"
 #include "core/log.h"
 #include "core/settings.h"
@@ -148,4 +149,29 @@ int pf_cookfile_rename(int id, const char *name)
 		}
 	}
 	return rc;
+}
+
+
+/* ---------------- deferred write ---------------- */
+
+static pthread_mutex_t g_pend_mu = PTHREAD_MUTEX_INITIALIZER;
+static struct { bool queued; double start, end, auger, maxpit; } g_pend;
+
+void pf_cookfile_request(double start_wall, double end_wall, double auger_on_s, double max_pit_c)
+{
+	pthread_mutex_lock(&g_pend_mu);
+	g_pend.queued = true;
+	g_pend.start = start_wall; g_pend.end = end_wall;
+	g_pend.auger = auger_on_s; g_pend.maxpit = max_pit_c;
+	pthread_mutex_unlock(&g_pend_mu);
+}
+
+void pf_cookfile_pending_run(void)
+{
+	pthread_mutex_lock(&g_pend_mu);
+	bool go = g_pend.queued;
+	double a = g_pend.start, b = g_pend.end, c = g_pend.auger, d = g_pend.maxpit;
+	g_pend.queued = false;
+	pthread_mutex_unlock(&g_pend_mu);
+	if (go) pf_cookfile_finish(a, b, c, d);
 }

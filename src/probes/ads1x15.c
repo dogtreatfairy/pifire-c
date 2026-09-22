@@ -97,11 +97,16 @@ static int read_(void *self, pf_probe_sample *out, int nports)
 		else out[i].kind = PF_SAMPLE_INVALID;
 	}
 	if (!ok) {
-		/* nothing was asked for is not the same as nothing answered */
-		for (int i = 0; i < nports && i < 4; i++) if (out[i].kind != PF_SAMPLE_SKIP) return -1;
-		return 0;
+		/* Nothing answered is not the same as nothing being asked for. A poll where every port was
+		 * skipped is a success with no readings; a poll where a port was asked for and did not
+		 * answer is the chip being unreachable, and has to be counted, or a dead ADC goes on
+		 * reporting itself connected for ever. */
+		bool asked = false;
+		for (int i = 0; i < nports && i < 4; i++) if (out[i].kind != PF_SAMPLE_SKIP) asked = true;
+		if (!asked) return 0;
+		if (++s->errors == 5) s->env->log(PF_LVL_ERROR, "ads1x15", "no response from 0x%02x", s->addr);
+		return -1;
 	}
-	if (!ok) { if (++s->errors == 5) s->env->log(PF_LVL_ERROR, "ads1x15", "no response from 0x%02x", s->addr); return -1; }
 	s->errors = 0;
 	return 0;
 }

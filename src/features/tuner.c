@@ -341,10 +341,11 @@ cJSON *pf_tuner_json(void)
 		}
 	}
 	if (g.running) {
-		cJSON_AddNumberToObject(o, "setpoint", round(pf_from_c(g.points_c[g.step < g.n ? g.step : g.n - 1], u)));
+		int at = g.n > 0 ? (g.step < g.n ? g.step : g.n - 1) : 0;   /* never index behind the array */
+		cJSON_AddNumberToObject(o, "setpoint", round(pf_from_c(g.points_c[at], u)));
 		cJSON_AddNumberToObject(o, "elapsed_s", round(g.run_start > 0 ? g.last_now - g.run_start : 0));
 		cJSON *pts = cJSON_AddArrayToObject(o, "setpoints");
-		for (int i = 0; i < g.n; i++) cJSON_AddItemToArray(pts, cJSON_CreateNumber(round(pf_from_c(g.points_c[i], u))));
+		for (int i = 0; i < g.n; i++) cJSON_AddItemToArray(pts, cJSON_CreateNumber(round(pf_from_c(g.points_c[at], u))));
 	}
 	pthread_mutex_unlock(&g_mu);
 

@@ -113,10 +113,18 @@ static void refit(void)
 		}
 		sqlite3_finalize(st);
 	}
+	/* The determinant of a two-by-two normal-equation system, which is the weighted variance of x
+	 * times the total weight. Observations clustered at one set point make it the difference of two
+	 * nearly equal large numbers, so testing it against exactly zero is no test at all: it comes
+	 * back at 1e-16, the slope divides by it and goes to infinity, and an infinite feed-forward
+	 * reaches the cycle engine as a duty. Compare it against the scale of the numbers that made it,
+	 * and fall back to the prior when the data cannot support a slope. */
 	double det = sw * sxx - sx * sx;
-	double b = det != 0 ? (sw * sxy - sx * sy) / det : PRIOR_B;
-	double a = (sy - b * sx) / sw;
-	if (b < 0) { b = 0; a = sy / sw; }
+	double scale = sw * sxx;
+	double b = (scale > 0 && det > scale * 1e-9) ? (sw * sxy - sx * sy) / det : PRIOR_B;
+	double a = sw > 0 ? (sy - b * sx) / sw : 0;
+	if (!isfinite(b) || !isfinite(a)) { b = PRIOR_B; a = 0; }
+	if (b < 0) { b = 0; a = sw > 0 ? sy / sw : 0; }
 	/* residual rms over real observations */
 	if (n && sqlite3_prepare_v2(pf_db_handle(), "SELECT setpoint_c-ambient_c, u_mean FROM observations ORDER BY id DESC LIMIT ?", -1, &st, NULL) == SQLITE_OK) {
 		sqlite3_bind_int(st, 1, MAX_OBS);

@@ -8,7 +8,12 @@ double pf_shh_mv_to_ohms(double mv, double Rd, double Vs)
 	if (!(mv > 0) || mv > Vs * 1000.0 * 1.01) return -1;
 	double Vo = mv / 1000.0;
 	double denom = Vs - Vo;
-	if (denom < 0.001) denom = 0.001;
+	/* An unplugged probe leaves the divider's pull-up holding the input at the rail, so this
+	 * difference goes to zero. Pinning it to a thousandth of a volt turned that into a resistance
+	 * of megohms and handed it on as if it were a reading: for a thermistor, whose resistance
+	 * rises as it cools, megohms is simply a very cold probe, and an empty jack can be reported as
+	 * a plausible temperature. There is no reading here; say so. */
+	if (denom < 0.002) return -1;
 	return Vo * Rd / denom;
 }
 
@@ -20,7 +25,11 @@ double pf_shh_ohms_to_c(double ohms, const pf_shh *p)
 	if (invT == 0) return NAN;
 	double c = 1.0 / invT - 273.15;
 	double f = pf_c_to_f(c);
-	if (f < 0 || f > 600) return NAN;
+	/* The range a probe can sensibly report. The floor used to be 0 F, which threw away real
+	 * readings on a winter morning: an ambient probe outside in Wisconsin is below that for weeks.
+	 * It can be widened safely only because an open circuit is now rejected before it gets here,
+	 * rather than arriving as a very cold thermistor. */
+	if (f < -40 || f > 600) return NAN;
 	return c;
 }
 

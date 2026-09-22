@@ -11,6 +11,7 @@
 #include "display/registry.h"
 #include "features/mqtt.h"
 #include "features/pellets.h"
+#include "features/cookfile.h"
 #include "features/rules.h"
 #include "features/tuner.h"
 #include "features/update.h"
@@ -93,6 +94,7 @@ static void *services_thread(void *arg)
 			if (txt) { pf_display_tick(txt); free(txt); }
 		}
 		if (now - last_flush > 15) { last_flush = now; pf_history_flush(); }
+		pf_cookfile_pending_run();   /* the cook file, off the control thread where it belongs */
 		if (now - last_prune > 600) {
 			last_prune = now;
 			double hours = pf_set_num("history.retention_hours", 48);

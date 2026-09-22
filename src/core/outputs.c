@@ -119,7 +119,15 @@ int pf_outputs_emergency_off(int timeout_ms)
 	deadline.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
 	if (deadline.tv_nsec >= 1000000000L) { deadline.tv_sec++; deadline.tv_nsec -= 1000000000L; }
 	if (pthread_mutex_timedlock(&g_mu, &deadline) != 0) {
-		LOGE(TAG, "emergency off: HAL busy, could not drive outputs");
+		/* The lock is held by a thread that is not coming back, which is why we are here. Giving up
+		 * at this point means aborting with the auger possibly still turning and a fire being fed,
+		 * so drive the outputs anyway. Writing them without the lock risks racing a call already in
+		 * flight on the wedged thread; leaving a grill feeding itself does not risk anything, it
+		 * simply happens. The latch is already set, so nothing else of ours can turn them back on. */
+		LOGE(TAG, "emergency off: HAL busy, driving outputs off without the lock");
+		if (g_ops && g_inst) g_ops->all_off(g_inst);
+		memset(g_state, 0, sizeof g_state);
+		g_fan_pct = 0;
 		return -EBUSY;
 	}
 	if (g_ops && g_inst) g_ops->all_off(g_inst);

@@ -301,7 +301,13 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 		if (s->inter < -lim) s->inter = -lim;
 	}
 	s->in_band = in_band;
-	if (!sat_push) s->inter += e * dt;
+	/* A probe that drops out for a moment hands the controller a reading that is not a number. One
+	 * addition of it to the integrator poisons the integrator for ever, because every later
+	 * comparison against it is false and nothing clears it, so the loop never recovers even after
+	 * the probe comes back. Integrate only real numbers, and throw away an accumulator that has
+	 * already gone bad. */
+	if (!isfinite(s->inter)) s->inter = 0;
+	if (!sat_push && isfinite(e) && isfinite(dt)) s->inter += e * dt;
 	/* the integral never opposes a large error: a negative integral while the pit is far below the target
 	 * (or positive while far above) is left-over wind-down, not a steady-state correction */
 	if (e < -IBAND_C && s->inter < 0) s->inter = 0;

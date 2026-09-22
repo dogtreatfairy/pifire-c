@@ -295,7 +295,7 @@ int pf_db_history_prune(double older_than_ts)
 	sqlite3_stmt *st;
 	int rc = 0;
 	const char *qs[] = { "DELETE FROM history WHERE ts<?", "DELETE FROM history_probe WHERE ts<?", "DELETE FROM history_ctrl WHERE ts<?" };
-	for (int i = 0; i < 2; i++) {
+	for (size_t i = 0; i < sizeof qs / sizeof qs[0]; i++) {
 		if (sqlite3_prepare_v2(g_db, qs[i], -1, &st, NULL) != SQLITE_OK) return -1;
 		sqlite3_bind_double(st, 1, older_than_ts);
 		if (sqlite3_step(st) != SQLITE_DONE) rc = -1;

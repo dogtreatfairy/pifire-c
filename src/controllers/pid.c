@@ -88,7 +88,13 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 	double e = in->pit_c - in->setpoint_c;
 	s->p = s->kp * e + s->center;
 
-	s->inter += e * dt;
+	/* A probe that drops out for a moment hands the controller a reading that is not a number. One
+	 * addition of it to the integrator poisons the integrator for ever, because every later
+	 * comparison against it is false and nothing clears it, so the loop never recovers even after
+	 * the probe comes back. Integrate only real numbers, and throw away an accumulator that has
+	 * already gone bad. */
+	if (!isfinite(s->inter)) s->inter = 0;
+	if (isfinite(e) && isfinite(dt)) s->inter += e * dt;
 	if (s->center != 0) s->inter = fmax(-s->inter_max, fmin(s->inter_max, s->inter));
 	s->i = s->ki * s->inter;
 

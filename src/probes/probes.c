@@ -42,6 +42,16 @@ static device_t g_dev[PF_MAX_DEVICES];
 static int g_ndev;
 static pf_sensors g_snap;
 static probe_priv_t g_priv[PF_MAX_PROBES];
+static bool g_cooking;
+
+void pf_probes_set_cooking(bool cooking)
+{
+	pthread_mutex_lock(&g_mu);
+	if (!cooking && g_cooking)
+		for (int i = 0; i < g_snap.n; i++) g_snap.p[i].in_use = false;   /* the cook is over */
+	g_cooking = cooking;
+	pthread_mutex_unlock(&g_mu);
+}
 
 static int find_port(const device_t *d, const char *port)
 {
@@ -248,6 +258,9 @@ void pf_probes_poll(double now)
 			r->temp_c = pf_tempq_push(&pv->q, c);
 			r->valid = true;
 			r->last_valid_t = now;
+			/* it is reading while a cook is on, so it is part of the cook from here until the end */
+			if (g_cooking && r->enabled) r->in_use = true;
+			if (r->enabled && r->target_c > 0) r->in_use = true;   /* given a job, so it is in use */
 		} else {
 			r->valid = false;
 			/* keep last filtered value visible briefly for the UI, but mark invalid */

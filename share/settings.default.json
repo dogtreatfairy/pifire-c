@@ -1,5 +1,5 @@
 {
-  "schema_version": 7,
+  "schema_version": 8,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -444,6 +444,10 @@
           "op": "all",
           "conditions": [
             {
+              "trait": "in_use",
+              "op": "is_on"
+            },
+            {
               "trait": "target",
               "op": ">",
               "value": 0
@@ -485,6 +489,10 @@
         "when": {
           "op": "all",
           "conditions": [
+            {
+              "trait": "in_use",
+              "op": "is_on"
+            },
             {
               "trait": "target",
               "op": ">",
@@ -539,6 +547,10 @@
           "op": "all",
           "conditions": [
             {
+              "trait": "in_use",
+              "op": "is_on"
+            },
+            {
               "trait": "connected",
               "op": "is_off"
             }
@@ -573,6 +585,10 @@
           "op": "all",
           "conditions": [
             {
+              "trait": "in_use",
+              "op": "is_on"
+            },
+            {
               "trait": "battery",
               "op": ">",
               "value": 0
@@ -594,7 +610,7 @@
         "cooldown_s": 21600,
         "repeat_s": 0,
         "for_s": 10,
-        "only_while_cooking": false
+        "only_while_cooking": true
       },
       {
         "id": "grill-at-temp",

@@ -279,6 +279,11 @@ static void enter_mode(pf_control *c, pf_mode m, double now)
 	c->mode = m;
 	c->mode_start = now;
 	c->aim_since = now;
+	{
+		bool cooking = m == PF_MODE_STARTUP || m == PF_MODE_REIGNITE || m == PF_MODE_SMOKE ||
+		               m == PF_MODE_HOLD || m == PF_MODE_SHUTDOWN || m == PF_MODE_PRIME;
+		pf_probes_set_cooking(cooking);
+	}
 	c->lid_open = false;
 	c->fan_pid_active = false;
 	c->fan_ramping = false;
@@ -302,7 +307,7 @@ static void enter_mode(pf_control *c, pf_mode m, double now)
 		c->s_plus = false;
 		c->next_mode = PF_MODE_STOP;
 		if (c->cook_start_wall > 0) {
-			pf_cookfile_finish(c->cook_start_wall, pf_wall(), c->auger_total_on_s, c->cook_max_pit_c);
+			pf_cookfile_request(c->cook_start_wall, pf_wall(), c->auger_total_on_s, c->cook_max_pit_c);
 			c->cook_start_wall = 0;
 		}
 		break;

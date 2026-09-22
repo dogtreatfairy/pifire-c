@@ -26,6 +26,14 @@ typedef struct {
 	int battery;       /* %, -1 unknown (wireless only) */
 	int companion;     /* index of this probe's ambient sibling on the same wireless device, or -1 */
 	bool is_companion; /* this reading is shown inside its sibling's card, not as its own */
+	/* Is this probe part of what is being cooked?
+	 *
+	 * A grill can have nine probes configured and two in the meat. The other seven are switched on,
+	 * sitting in a drawer, reading nothing, and there is no sense telling anyone that they are
+	 * offline or that they have reached a target of zero. A probe counts as in use once it has been
+	 * given a target or has produced a reading while the grill was cooking, and stays in use until
+	 * the cook ends, so going quiet part way through is still worth reporting. */
+	bool in_use;
 } pf_probe_reading;
 
 /* 0..4 bars from an RSSI in dBm (0 = unknown / no link) */
@@ -46,6 +54,9 @@ int  pf_probes_init(void);        /* (re)build from current settings */
 void pf_probes_shutdown(void);
 /* Poll every device once (blocking on I/O), update the snapshot. Called from the sensor thread. */
 void pf_probes_poll(double now);
+/* Tell the probe layer whether a cook is under way, so it can work out which probes are part of it.
+ * Passing false ends the cook and clears every probe's in-use flag. */
+void pf_probes_set_cooking(bool cooking);
 void pf_probes_snapshot(pf_sensors *out);
 /* Per-device status for the UI: [{"device":..,"module":..,"status":{...}}] */
 cJSON *pf_probes_device_status(void);
