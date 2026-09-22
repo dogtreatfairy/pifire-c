@@ -1,46 +1,89 @@
 import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, dialog, numberDialog, toast, confirmDialog, segmented } from '../app.js';
 import { fmtEta, battIcon } from './probes.js';
 
-// Doneness presets in °F (converted for °C users)
+/* Doneness presets, in °F and converted for °C users.
+ *
+ * `carry` is how far the centre keeps climbing after the meat comes off the heat, so the number to
+ * cook to is the target minus the carryover. That is the number the probe alarm is set to, because
+ * an alert that fires when the meat is already done is an alert that arrives too late. Carryover
+ * grows with thickness, so these are the usual figures for a piece you would cook whole: a steak a
+ * few degrees, a whole bird more. Cuts taken to tenderness rather than to a temperature, like
+ * brisket and ribs, carry nothing worth naming, because you are pulling them when they feel right
+ * and then resting them for an hour anyway. */
 const PRESETS = {
-  Beef: [['Rare', 125, 'Cool red center'], ['Medium rare', 135, 'Warm red center'], ['Medium', 145, 'Warm pink center'], ['Medium well', 150, 'Slightly pink center'], ['Well done', 160, 'Cooked through']],
-  Brisket: [['Probe tender', 203, 'Pull and rest']],
-  Pork: [['Chops / loin', 145, 'Rest 3 min'], ['Pulled pork', 203, 'Falls apart']],
-  Ribs: [['Bend test', 195, 'Bones show']],
-  Chicken: [['Safe', 165, 'Breast'], ['Thighs', 175, 'Dark meat']],
-  Turkey: [['Safe', 165, 'Breast']],
-  Fish: [['Flaky', 145, '']],
-  Lamb: [['Medium rare', 135, ''], ['Medium', 145, '']],
-  Sausage: [['Cooked', 160, '']],
+  Beef: [
+    { name: 'Rare', to: 125, carry: 5, note: 'Cool red centre' },
+    { name: 'Medium rare', to: 135, carry: 5, note: 'Warm red centre' },
+    { name: 'Medium', to: 145, carry: 5, note: 'Warm pink centre' },
+    { name: 'Medium well', to: 150, carry: 5, note: 'Slightly pink' },
+    { name: 'Well done', to: 160, carry: 5, note: 'Cooked through' },
+  ],
+  Brisket: [{ name: 'Probe tender', to: 203, carry: 0, note: 'Then rest, an hour or more' }],
+  Pork: [
+    { name: 'Chops and loin', to: 145, carry: 5, note: 'Rest three minutes' },
+    { name: 'Pulled pork', to: 203, carry: 0, note: 'Falls apart' },
+  ],
+  Ribs: [{ name: 'Bend test', to: 195, carry: 0, note: 'Bones begin to show' }],
+  Chicken: [
+    { name: 'Breast', to: 165, carry: 5, note: 'Safe and still juicy' },
+    { name: 'Thighs', to: 175, carry: 5, note: 'Dark meat, better higher' },
+  ],
+  Turkey: [{ name: 'Whole bird', to: 165, carry: 8, note: 'Measured in the breast' }],
+  Fish: [{ name: 'Flaky', to: 145, carry: 3, note: 'Just opaque' }],
+  Lamb: [
+    { name: 'Medium rare', to: 135, carry: 5, note: '' },
+    { name: 'Medium', to: 145, carry: 5, note: '' },
+  ],
+  Sausage: [{ name: 'Cooked through', to: 160, carry: 5, note: '' }],
 };
 const AFTER = [[0, 'Notify only'], [1, 'Keep warm'], [2, 'Shutdown']];
 const toUser = (f) => (PF.units === 'C' ? Math.round((f - 32) * 5 / 9) : f);
+const deltaUser = (f) => (PF.units === 'C' ? Math.round(f * 5 / 9) : f);
 
 export async function targetDialog(p) {
   return dialog((close) => {
     let after = p.after || 0;
-    const custom = el('input', { type: 'text', inputmode: 'decimal', placeholder: `Custom ${degUnit()}`, 'aria-label': 'Custom target', style: 'width:130px' });
-    const meats = el('div', { class: 'presets' });
-    const options = el('div', { class: 'opts' });
-    const showMeat = (meat) => {
-      meats.querySelectorAll('button').forEach((b) => b.classList.toggle('primary', b.textContent === meat));
-      options.innerHTML = '';
-      for (const [name, f, desc] of PRESETS[meat]) {
-        const v = toUser(f);
-        options.append(el('button', { class: 'btn', type: 'button', onclick: () => close({ target: v, after }) },
-          el('div', { class: 'row between' }, el('span', {}, name, desc ? el('span', { class: 'muted', style: 'font-size:.78rem;margin-left:8px' }, desc) : null), el('strong', {}, `${v}${degUnit()}`))));
+    let meat = 'Beef';
+
+    const now = p.valid ? `${fmtTemp(p.temp)}${degUnit()}` : '—';
+    const head = el('div', { class: 'sheet-head' },
+      el('div', {}, el('h3', {}, p.name), el('div', { class: 'muted' }, `Now ${now}`)),
+      p.target > 0 ? el('div', { class: 'sheet-now' }, `${fmtTemp(p.target)}${degUnit()}`, el('small', {}, 'set')) : null);
+
+    const chips = el('div', { class: 'chiprow' });
+    const list = el('div', { class: 'donelist' });
+
+    const showMeat = (m) => {
+      meat = m;
+      chips.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.meat === m));
+      list.innerHTML = '';
+      for (const d of PRESETS[m]) {
+        const to = toUser(d.to), pull = toUser(d.to - d.carry), carry = deltaUser(d.carry);
+        list.append(el('button', { class: 'done', type: 'button', onclick: () => close({ target: pull, after }) },
+          el('div', { class: 'done-main' },
+            el('div', { class: 'done-name' }, d.name),
+            el('div', { class: 'done-note' }, carry > 0
+              ? `${d.note ? d.note + '. ' : ''}Climbs about ${carry}${degUnit()} once it is off the heat`
+              : d.note || 'Cook until it probes tender')),
+          el('div', { class: 'done-temps' },
+            el('div', { class: 'done-pull' }, `${pull}${degUnit()}`),
+            carry > 0 ? el('div', { class: 'done-final' }, `ready at ${to}${degUnit()}`) : null)));
       }
+      const custom = el('input', { type: 'text', inputmode: 'decimal', placeholder: degUnit(), 'aria-label': 'Custom target' });
+      list.append(el('form', { class: 'done custom', onsubmit: (e) => { e.preventDefault(); const v = parseFloat(custom.value); if (!Number.isNaN(v) && v > 0) close({ target: v, after }); } },
+        el('div', { class: 'done-main' }, el('div', { class: 'done-name' }, 'Something else'), el('div', { class: 'done-note' }, 'Set the alarm temperature yourself')),
+        el('div', { class: 'row', style: 'gap:6px' }, custom, el('button', { class: 'btn sm primary', type: 'submit' }, 'Set'))));
     };
-    for (const m of Object.keys(PRESETS)) meats.append(el('button', { class: 'btn sm', type: 'button', onclick: () => showMeat(m) }, m));
-    showMeat('Beef');
-    return el('div', {},
-      el('h3', {}, `${p.name} target`),
-      el('div', { class: 'field' }, el('label', {}, 'After the target is reached'), segmented(AFTER, after, (v) => (after = v))),
-      meats, options,
-      el('form', { class: 'row', onsubmit: (e) => { e.preventDefault(); const v = parseFloat(custom.value); if (!Number.isNaN(v) && v > 0) close({ target: v, after }); } },
-        custom, el('button', { class: 'btn sm primary', type: 'submit' }, 'Set custom')),
-      el('div', { class: 'btnrow', style: 'margin-top:10px' },
-        p.target > 0 ? el('button', { class: 'btn ghost', type: 'button', onclick: () => close({ target: 0, after: 0 }) }, 'Clear target') : null,
+
+    for (const m of Object.keys(PRESETS)) chips.append(el('button', { class: 'chip-btn', type: 'button', 'data-meat': m, onclick: () => showMeat(m) }, m));
+    showMeat(meat);
+
+    return el('div', { class: 'sheet' }, head, chips, list,
+      el('div', { class: 'sheet-foot' },
+        el('label', {}, 'When it gets there'),
+        segmented(AFTER, after, (v) => (after = v))),
+      el('div', { class: 'btnrow' },
+        p.target > 0 ? el('button', { class: 'btn ghost', type: 'button', onclick: () => close({ target: 0, after: 0 }) }, 'Clear') : null,
         el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel')));
   });
 }

@@ -244,7 +244,7 @@ static void draw_banner(pf_gfx *g, const cJSON *s, const char *mode)
 	}
 	upper(up);
 	int px = 24;
-	while (px > 14 && pf_gfx_text_width(B, px, up) > W - 76) px -= 2;   /* leave the clock its corner */
+	while (px > 14 && pf_gfx_number_width(B, px, up) > W - 76) px -= 2;   /* leave the clock its corner */
 	pf_gfx_text(g, B, px, 10, 3 + (24 - px) / 2, up, tc);
 	/* right: countdown while a mode is timed, else how long the grill has been running */
 	char clk[16] = "";
@@ -339,7 +339,7 @@ static void draw_pit(pf_gfx *g, const cJSON *primary, const char *units, const c
 	uint16_t c = valid ? g->th.text : g->th.muted;
 	char u[4];
 	snprintf(u, sizeof u, DEG "%c", units[0]);
-	while (big > 40 && pf_gfx_text_width(B, big, v) + 2 + pf_gfx_text_width(B, big / 2, u) > maxw) big -= 4;   /* shrink to fit */
+	while (big > 40 && pf_gfx_number_width(B, big, v) + 2 + pf_gfx_text_width(B, big / 2, u) > maxw) big -= 4;   /* shrink to fit */
 	int small = big / 2;
 	int adv = pf_gfx_text(g, B, big, x - 4, y, v, c);
 	int uy = y + pf_gfx_ascent(B, big) - pf_gfx_ascent(B, small);   /* baselines aligned */

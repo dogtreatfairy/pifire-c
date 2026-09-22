@@ -265,6 +265,22 @@ int pf_gfx_line_height(pf_font f, int px)
 	return (int)lroundf((ft->ascent - ft->descent) * s);
 }
 
+int pf_gfx_number_width(pf_font f, int px, const char *s)
+{
+	int bw = 0;
+	char widest = '0';
+	for (char d = '0'; d <= '9'; d++) {
+		char one[2] = { d, 0 };
+		int dw = pf_gfx_text_width(f, px, one);
+		if (dw > bw) { bw = dw; widest = d; }
+	}
+	char buf[32];
+	size_t n = 0;
+	for (; s[n] && n < sizeof buf - 1; n++) buf[n] = (s[n] >= '0' && s[n] <= '9') ? widest : s[n];
+	buf[n] = 0;
+	return pf_gfx_text_width(f, px, buf);
+}
+
 int pf_gfx_text_width(pf_font f, int px, const char *s)
 {
 	font_t *ft = font_get(f);

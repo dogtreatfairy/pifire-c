@@ -292,11 +292,37 @@ static void test_settings_menu_offers_the_margin_editor(void)
 	pf_gfx_free(&g);
 }
 
+/* The big pit number is shrunk to fit its space, and digits are not all the same width, so sizing
+ * from the digits actually on screen put the fit right at a boundary the next reading crossed: the
+ * number visibly changed size going from 335 to 336 on a real panel. Every reading of the same
+ * length has to measure the same. */
+static void test_a_reading_measures_the_same_whatever_its_digits(void)
+{
+	for (int px = 40; px <= 120; px += 20) {
+		int a = pf_gfx_number_width(PF_FONT_SEMIBOLD, px, "335");
+		int b = pf_gfx_number_width(PF_FONT_SEMIBOLD, px, "336");
+		TEST_ASSERT_EQUAL_INT_MESSAGE(a, b, "335 and 336 must measure the same");
+		/* and it is a genuine upper bound on what any three digits really take */
+		for (int v = 100; v <= 999; v += 7) {
+			char t[8];
+			snprintf(t, sizeof t, "%d", v);
+			TEST_ASSERT_TRUE_MESSAGE(pf_gfx_text_width(PF_FONT_SEMIBOLD, px, t) <= a,
+			                         "the reserved width must fit every reading of that length");
+			TEST_ASSERT_EQUAL_INT(a, pf_gfx_number_width(PF_FONT_SEMIBOLD, px, t));
+		}
+	}
+	/* the digits alone vary, which is what made this necessary */
+	TEST_ASSERT_TRUE(pf_gfx_text_width(PF_FONT_SEMIBOLD, 100, "336") != pf_gfx_text_width(PF_FONT_SEMIBOLD, 100, "111"));
+	/* non-digits are left alone, so a mode banner still measures as itself */
+	TEST_ASSERT_EQUAL_INT(pf_gfx_text_width(PF_FONT_SEMIBOLD, 20, "HOLD"), pf_gfx_number_width(PF_FONT_SEMIBOLD, 20, "HOLD"));
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
 	RUN_TEST(test_render_screens);
 	RUN_TEST(test_banner_names_a_tuning_run);
+	RUN_TEST(test_a_reading_measures_the_same_whatever_its_digits);
 	RUN_TEST(test_menus_by_mode);
 	RUN_TEST(test_settings_menu_offers_the_margin_editor);
 	RUN_TEST(test_navigation_stack);

@@ -507,3 +507,34 @@ main.view { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scr
 .batt-pct { font-variant-numeric: tabular-nums; }
 /* the time remaining is its own fact, not a tail on the target line */
 .probe .tgt.eta { color: var(--accent); margin-top: 2px; }
+
+/* ---- target sheet: choose a cut, then a doneness, and see what to pull at ---- */
+.sheet { display: flex; flex-direction: column; gap: 12px; min-width: min(92vw, 380px); }
+.sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.sheet-head h3 { font-size: 1.1rem; }
+.sheet-head .muted { font-size: .82rem; margin-top: 2px; }
+.sheet-now { text-align: right; font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+.sheet-now small { display: block; font-size: .64rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-top: 3px; }
+
+/* the cuts: one line, scrolled sideways, so the list below never moves */
+.chiprow { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.chiprow::-webkit-scrollbar { display: none; }
+.chip-btn { flex: none; border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 7px 14px; font-size: .86rem; font-weight: 600; color: var(--muted); }
+.chip-btn.on { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+
+.donelist { display: flex; flex-direction: column; gap: 7px; max-height: min(46vh, 340px); overflow-y: auto; }
+.done { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; text-align: left;
+  background: var(--surface2); border: 0; border-radius: var(--radius-s); padding: 11px 13px; min-height: 58px; }
+.done:active { transform: scale(.99); }
+.done-name { font-weight: 600; font-size: .95rem; }
+.done-note { color: var(--muted); font-size: .76rem; margin-top: 2px; line-height: 1.25; }
+.done-temps { text-align: right; flex: none; }
+.done-pull { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent); line-height: 1.1; }
+.done-final { font-size: .7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.done.custom { cursor: default; }
+.done.custom input { width: 74px; text-align: right; }
+
+.sheet-foot { display: flex; flex-direction: column; gap: 6px; }
+.sheet-foot label { font-size: .76rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+.donelist { scrollbar-width: none; }
+.donelist::-webkit-scrollbar { display: none; }

@@ -50,6 +50,12 @@ void pf_gfx_bar(pf_gfx *g, int x, int y, int w, int h, double frac, uint16_t fg,
  * subset covers ASCII plus ° · – → •. Returns the advance width. */
 int  pf_gfx_text(pf_gfx *g, pf_font f, int px, int x, int y, const char *s, uint16_t c);
 int  pf_gfx_text_width(pf_font f, int px, const char *s);
+/* How wide a reading of this shape could possibly be: the same string with every digit replaced by
+ * the widest one. Digits differ in width, so fitting a live reading to a space by measuring the
+ * digits actually on screen puts the test right at a boundary the next reading crosses, and the
+ * number visibly changes size as the grill warms through it. Measure this instead and every reading
+ * of the same length is drawn at the same size. */
+int  pf_gfx_number_width(pf_font f, int px, const char *s);
 int  pf_gfx_line_height(pf_font f, int px);
 int  pf_gfx_ascent(pf_font f, int px);
 void pf_gfx_text_center(pf_gfx *g, pf_font f, int px, int cx, int y, const char *s, uint16_t c);
