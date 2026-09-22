@@ -344,11 +344,15 @@ legend { font-weight: 600; margin-bottom: 6px; }
    ===================================================================== */
 :root {
   --glass-d: rgba(28, 29, 34, .58); --glass-l: rgba(255, 255, 255, .62);
+  --glass-strong-d: rgba(34, 35, 41, .74); --glass-strong-l: rgba(255, 255, 255, .78);
+  --glass-line-d: rgba(255, 255, 255, .11); --glass-line-l: rgba(255, 255, 255, .7);
+  --glass-shine-d: rgba(255, 255, 255, .22); --glass-shine-l: rgba(255, 255, 255, .9);
+  --glass-shadow-d: 0 12px 36px rgba(0, 0, 0, .45); --glass-shadow-l: 0 10px 30px rgba(20, 24, 40, .12);
   --glass: light-dark(var(--glass-l), var(--glass-d));
-  --glass-strong: light-dark(rgba(255, 255, 255, .78), rgba(34, 35, 41, .74));
-  --glass-line: light-dark(rgba(255, 255, 255, .7), rgba(255, 255, 255, .11));
-  --glass-shine: light-dark(rgba(255, 255, 255, .9), rgba(255, 255, 255, .22));
-  --glass-shadow: light-dark(0 10px 30px rgba(20, 24, 40, .12), 0 12px 36px rgba(0, 0, 0, .45));
+  --glass-strong: light-dark(var(--glass-strong-l), var(--glass-strong-d));
+  --glass-line: light-dark(var(--glass-line-l), var(--glass-line-d));
+  --glass-shine: light-dark(var(--glass-shine-l), var(--glass-shine-d));
+  --glass-shadow: light-dark(var(--glass-shadow-l), var(--glass-shadow-d));
   --radius: 22px; --radius-s: 14px;
   --tab-h: 64px;
 }
@@ -542,3 +546,31 @@ main.view { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scr
 .fanrow { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
 .fanrow input[type=range] { flex: 1; }
 .fanrow .fanpct { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 42px; text-align: right; }
+
+/* ---- light-dark() fallback ----------------------------------------------
+   light-dark() only arrived in iOS 17.5. On anything older every token above
+   parses as invalid and the app loses its colours completely, so the same
+   pairs are resolved by hand there: the system preference by media query, an
+   explicit choice in Appearance by the data-theme attribute. */
+@supports not (color: light-dark(#000, #fff)) {
+  :root {
+    --bg: var(--bg-d); --surface: var(--surface-d); --surface2: var(--surface2-d);
+    --line: var(--line-d); --text: var(--text-d); --muted: var(--muted-d);
+    --glass: var(--glass-d); --glass-strong: var(--glass-strong-d); --glass-line: var(--glass-line-d);
+    --glass-shine: var(--glass-shine-d); --glass-shadow: var(--glass-shadow-d);
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: var(--bg-l); --surface: var(--surface-l); --surface2: var(--surface2-l);
+      --line: var(--line-l); --text: var(--text-l); --muted: var(--muted-l);
+      --glass: var(--glass-l); --glass-strong: var(--glass-strong-l); --glass-line: var(--glass-line-l);
+      --glass-shine: var(--glass-shine-l); --glass-shadow: var(--glass-shadow-l);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: var(--bg-l); --surface: var(--surface-l); --surface2: var(--surface2-l);
+    --line: var(--line-l); --text: var(--text-l); --muted: var(--muted-l);
+    --glass: var(--glass-l); --glass-strong: var(--glass-strong-l); --glass-line: var(--glass-line-l);
+    --glass-shine: var(--glass-shine-l); --glass-shadow: var(--glass-shadow-l);
+  }
+}

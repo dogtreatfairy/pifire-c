@@ -44,6 +44,13 @@ static pf_sensors g_snap;
 static probe_priv_t g_priv[PF_MAX_PROBES];
 static bool g_cooking;
 
+/* Device reads happen outside the lock, because a Bluetooth read can block for a moment and the
+ * whole probe layer must not stall behind it. That leaves a window: a settings reload tears the
+ * devices down and frees the very instance a read is using. This counts the reads in flight, and
+ * teardown waits for them to finish before freeing anything. */
+static int g_reading;
+static pthread_cond_t g_idle = PTHREAD_COND_INITIALIZER;
+
 void pf_probes_set_cooking(bool cooking)
 {
 	pthread_mutex_lock(&g_mu);
@@ -60,8 +67,10 @@ static int find_port(const device_t *d, const char *port)
 	return -1;
 }
 
+/* caller holds g_mu */
 static void teardown(void)
 {
+	while (g_reading > 0) pthread_cond_wait(&g_idle, &g_mu);   /* let the readers out first */
 	for (int i = 0; i < g_ndev; i++)
 		if (g_dev[i].inst && g_dev[i].ops->destroy) g_dev[i].ops->destroy(g_dev[i].inst);
 	memset(g_dev, 0, sizeof g_dev);
@@ -203,8 +212,14 @@ void pf_probes_poll(double now)
 	pf_probe_sample samples[PF_MAX_DEVICES][PF_MAX_PORTS];
 	bool polled[PF_MAX_DEVICES] = { 0 };
 
-	/* I/O outside the lock: device reads may block briefly */
-	for (int i = 0; i < g_ndev; i++) {
+	/* I/O outside the lock: device reads may block briefly. Registering as a reader first keeps a
+	 * settings reload from freeing these instances while they are in use. */
+	pthread_mutex_lock(&g_mu);
+	int ndev = g_ndev;
+	g_reading++;
+	pthread_mutex_unlock(&g_mu);
+
+	for (int i = 0; i < ndev; i++) {
 		device_t *dev = &g_dev[i];
 		if (!dev->inst) continue;
 		if (now < dev->next_poll) continue;
@@ -226,6 +241,7 @@ void pf_probes_poll(double now)
 	}
 
 	pthread_mutex_lock(&g_mu);
+	if (--g_reading == 0) pthread_cond_broadcast(&g_idle);
 	g_snap.t = now;
 	for (int n = 0; n < g_snap.n; n++) {
 		pf_probe_reading *r = &g_snap.p[n];

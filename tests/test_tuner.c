@@ -434,6 +434,29 @@ static void test_relay_agrees_with_the_plant_it_measured(void)
 	stop_and_wait_cold();
 }
 
+/* The run publishes both the set point it is working on now and the whole profile it will walk.
+ * They are different things and must not collapse into each other: a guard added to the first index
+ * was once applied to the loop as well, and the profile came out as the current set point repeated. */
+static void test_the_published_profile_is_the_whole_profile(void)
+{
+	char err[160];
+	cJSON *pts = cJSON_Parse("[180,225,350,450]");
+	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(pts, true, err, sizeof err));
+	cJSON_Delete(pts);
+	tick(5);
+
+	cJSON *j = pf_tuner_json();
+	cJSON *arr = cJSON_GetObjectItem(j, "setpoints");
+	TEST_ASSERT_EQUAL_INT(4, cJSON_GetArraySize(arr));
+	const double want[4] = { 180, 225, 350, 450 };
+	for (int i = 0; i < 4; i++)
+		TEST_ASSERT_EQUAL_DOUBLE_MESSAGE(want[i], cJSON_GetArrayItem(arr, i)->valuedouble,
+		                                 "the profile must list every set point, not repeat one");
+	cJSON_Delete(j);
+	pf_tuner_stop("test over");
+	stop_and_wait_cold();   /* leave the grill as the next test expects to find it */
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -444,5 +467,6 @@ int main(void)
 	RUN_TEST(test_relay_recovers_from_a_badly_centred_swing);
 	RUN_TEST(test_single_adds_and_full_profile_replaces);
 	RUN_TEST(test_guided_tune_improves_holding);
+	RUN_TEST(test_the_published_profile_is_the_whole_profile);   /* last: it starts a run of its own */
 	return UNITY_END();
 }

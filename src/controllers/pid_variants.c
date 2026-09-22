@@ -133,8 +133,14 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 		/* auto-center (+ Smith predictor) */
 		double pred = cur, pred_err = error;
 		if (s->v == V_SP) {
-			double roc = (cur - s->last_pit) / dt;
-			pred = cur + (roc * s->theta) * (1 - exp(-dt / s->tau));
+			/* A plant model with no time constant has no prediction to offer, and dividing by it
+			 * puts a NaN through the rest of the loop. Fall back to the reading itself. */
+			double roc = dt > 0 ? (cur - s->last_pit) / dt : 0;
+			/* How much of one dead time's worth of coasting has already happened. With no time
+			 * constant the plant answers at once, so the whole of it has: that is what dividing by
+			 * zero used to arrive at by accident, and it is worth arriving at on purpose. */
+			double settled = s->tau > 0 ? 1.0 - exp(-dt / s->tau) : 1.0;
+			pred = cur + roc * s->theta * settled;
 			pred_err = pred - s->setpoint_c;
 		}
 		if (pred_err < -s->pb_c) s->u = 1.0;
@@ -144,12 +150,15 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 			if (fabs(error) > s->stable_window_c ||
 			    (s->new_target && now - s->last_set_t >= in->cycle_time_s * 3 && fabs(error) <= fabs(s->start_change_c - s->setpoint_c) / 2))
 				s->inter = 0;
-			if ((s->new_target && s->setpoint_c < cur) || fabs(error) > s->pb_c / 2) s->derv = 0;
 			s->p = s->kp * pred_err + s->center;
 			if (!isfinite(s->inter)) s->inter = 0;
 			if (isfinite(pred_err) && isfinite(dt)) s->inter += pred_err * dt;
 			s->i = fmax(-s->center, fmin(s->center, s->ki * s->inter));
+			/* The derivative here brakes the climb, so it must stay live through the large error
+			 * that a climb is. A set-point step cannot kick it: reset() re-seeds last_pit and
+			 * last_t on the step, so the first sample after one has nothing to differentiate. */
 			s->derv = (pred - s->last_pit) / dt;
+			if (!isfinite(s->derv)) s->derv = 0;
 			s->d = s->kd * s->derv;
 			s->u = s->p + s->i + s->d;
 		}

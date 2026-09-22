@@ -178,7 +178,12 @@ int pf_db_history_write(const pf_hist_sample *samples, int n)
 		sqlite3_finalize(s1); sqlite3_finalize(s2); sqlite3_finalize(s3);
 		return -1;
 	}
-	pf_db_exec("BEGIN");
+	/* IMMEDIATE, so a second writer is told at once rather than part way through, and the whole
+	 * batch is rolled back if a step fails instead of leaving a transaction open on the handle. */
+	if (pf_db_exec("BEGIN IMMEDIATE")) {
+		sqlite3_finalize(s1); sqlite3_finalize(s2); sqlite3_finalize(s3);
+		return -1;
+	}
 	for (int i = 0; i < n; i++) {
 		const pf_hist_sample *s = &samples[i];
 		sqlite3_reset(s1);
@@ -210,6 +215,7 @@ int pf_db_history_write(const pf_hist_sample *samples, int n)
 		}
 	}
 	int rc = pf_db_exec("COMMIT");
+	if (rc) pf_db_exec("ROLLBACK");
 	sqlite3_finalize(s1);
 	sqlite3_finalize(s2);
 	sqlite3_finalize(s3);

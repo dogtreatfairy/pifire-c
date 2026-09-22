@@ -68,6 +68,7 @@ static bool query_get(const char *query, const char *key, char *out, size_t n)
 {
 	size_t kl = strlen(key);
 	const char *p = query;
+	if (n == 0) return false;
 	while (p && *p) {
 		if (!strncmp(p, key, kl) && p[kl] == '=') {
 			const char *v = p + kl + 1, *e = strchr(v, '&');
@@ -252,8 +253,10 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 	if (get && !strcmp(p, "/events")) { reply(resp, 200, pf_db_events_recent((int)query_num(req->query, "limit", 100))); return; }
 	if (get && !strcmp(p, "/alerts")) { reply(resp, 200, pf_events_recent_json((int)query_num(req->query, "limit", 20))); return; }
 	if (get && !strcmp(p, "/logs")) {
-		char *buf = malloc(200000);
-		pf_log_recent_json(buf, 200000, (int)query_num(req->query, "limit", 300));
+		size_t n = 200000;
+		char *buf = malloc(n);
+		if (!buf) { reply(resp, 503, cJSON_CreateString("out of memory")); return; }
+		pf_log_recent_json(buf, n, (int)query_num(req->query, "limit", 300));
 		resp->status = 200;
 		resp->json = buf;
 		return;

@@ -54,6 +54,11 @@ add_library(cjson STATIC third_party/cjson/cJSON.c)
 target_include_directories(cjson PUBLIC third_party/cjson)
 target_compile_options(cjson PRIVATE -w)
 
+set(PF_VERSION "" CACHE STRING "Version string baked into the binary (release builds pass the git tag); empty = project version")
+if(NOT PF_VERSION)
+  set(PF_VERSION "${PROJECT_VERSION}")
+endif()
+
 # ---- embedded assets ---------------------------------------------------------
 add_executable(bin2c tools/bin2c.c)
 
@@ -73,14 +78,21 @@ add_custom_command(
 # ---- web assets: gzip at build time, embed ---------------------------------
 set(PF_WEB_FILES index.html style.css app.js sw.js manifest.webmanifest icon.svg icon-180.png icon-192.png icon-512.png icon-512-maskable.png
     pages/home.js pages/history.js pages/cook.js pages/settings.js pages/more.js pages/network.js pages/pellets.js pages/learning.js pages/probes.js pages/rules.js icons.js)
+# The service worker names its cache after the build. Hand-editing that string was one more thing
+# to remember at release time, and forgetting it leaves a phone running the previous shell.
+configure_file(${CMAKE_SOURCE_DIR}/web/sw.js ${CMAKE_BINARY_DIR}/gen/web-src/sw.js @ONLY)
 set(PF_WEB_GZ "")
 foreach(f ${PF_WEB_FILES})
   get_filename_component(base ${f} NAME)
+  set(src ${CMAKE_SOURCE_DIR}/web/${f})
+  if(base STREQUAL "sw.js")
+    set(src ${CMAKE_BINARY_DIR}/gen/web-src/sw.js)
+  endif()
   set(out ${CMAKE_BINARY_DIR}/gen/web/${base}.gz)
   add_custom_command(OUTPUT ${out}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/gen/web
-    COMMAND gzip -9 -n -c ${CMAKE_SOURCE_DIR}/web/${f} > ${out}
-    DEPENDS ${CMAKE_SOURCE_DIR}/web/${f} VERBATIM)
+    COMMAND gzip -9 -n -c ${src} > ${out}
+    DEPENDS ${src} VERBATIM)
   list(APPEND PF_WEB_GZ ${out})
 endforeach()
 foreach(f uPlot.iife.min.js uPlot.min.css)
@@ -180,10 +192,6 @@ if(PF_WITH_CURL)
 endif()
 if(PF_WITH_BLE)
   target_compile_definitions(pfcore PUBLIC PF_WITH_BLE=1)
-endif()
-set(PF_VERSION "" CACHE STRING "Version string baked into the binary (release builds pass the git tag); empty = project version")
-if(NOT PF_VERSION)
-  set(PF_VERSION "${PROJECT_VERSION}")
 endif()
 target_compile_definitions(pfcore PUBLIC
   PF_VERSION="${PF_VERSION}"

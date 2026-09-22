@@ -12,6 +12,7 @@ typedef struct {
 	int fd;
 	double ref_resistor;
 	int errors;
+	uint8_t cfg;   /* V_BIAS, auto conversion and the wire count: everything a fault clear must keep */
 	uint8_t fault;
 } max_t;
 
@@ -43,9 +44,9 @@ static void *create(const char *device_json, const pf_env *env)
 	cJSON_Delete(d);
 	s->fd = pf_spi_open(0, cs, 1, 500000); /* mode 1 (CPOL 0, CPHA 1) */
 	if (s->fd < 0) { env->log(PF_LVL_ERROR, "max31865", "cannot open /dev/spidev0.%d (is SPI enabled?)", cs); free(s); return NULL; }
-	/* V_BIAS on, auto conversion, 3-wire if selected, clear faults, 60 Hz filter */
-	uint8_t cfg = 0x80 | 0x40 | (wires == 3 ? 0x10 : 0) | 0x02;
-	reg_write(s, 0x00, cfg);
+	/* V_BIAS on, auto conversion, 3-wire if selected, 60 Hz filter */
+	s->cfg = (uint8_t)(0x80 | 0x40 | (wires == 3 ? 0x10 : 0));
+	reg_write(s, 0x00, s->cfg | 0x02);   /* plus a one-shot fault clear */
 	pf_sleep_ms(100);
 	env->log(PF_LVL_INFO, "max31865", "ready on CE%d (%d-wire, Rref %.0f)", cs, wires, s->ref_resistor);
 	return s;
@@ -73,7 +74,9 @@ static int read_(void *self, pf_probe_sample *out, int nports)
 		uint8_t f = 0;
 		reg_read(s, 0x07, &f, 1);
 		s->fault = f;
-		reg_write(s, 0x00, 0x80 | 0x40 | 0x02); /* clear fault */
+		/* Clearing a fault rewrites the whole config register, so it has to carry the wire count
+		 * with it. Writing a bare 0x80|0x40|0x02 dropped a 3-wire probe to 2-wire for good. */
+		reg_write(s, 0x00, s->cfg | 0x02);
 		return 0;
 	}
 	s->fault = 0;

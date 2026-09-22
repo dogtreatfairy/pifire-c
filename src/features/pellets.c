@@ -23,6 +23,18 @@ static double g_cm = -1, g_updated;
 static double g_last_check, g_last_warn, g_last_auger_total, g_est_usage_g;
 static atomic_bool g_check_req;
 static int g_current_id;
+/* The services thread adds to the usage estimate every tick while web threads read it and the
+ * pellet pages replace it. A double is not read or written in one piece, so it gets its own lock,
+ * held only around the arithmetic and never across database work. */
+static pthread_mutex_t g_stmu = PTHREAD_MUTEX_INITIALIZER;
+
+static void state_get(int *id, double *usage)
+{
+	pthread_mutex_lock(&g_stmu);
+	if (id) *id = g_current_id;
+	if (usage) *usage = g_est_usage_g;
+	pthread_mutex_unlock(&g_stmu);
+}
 
 static void load_state(void)
 {
@@ -38,7 +50,9 @@ static void load_state(void)
 static void save_state(void)
 {
 	char buf[128];
-	snprintf(buf, sizeof buf, "{\"current_id\":%d,\"est_usage_g\":%.1f}", g_current_id, g_est_usage_g);
+	int id; double usage;
+	state_get(&id, &usage);
+	snprintf(buf, sizeof buf, "{\"current_id\":%d,\"est_usage_g\":%.1f}", id, usage);
 	pf_db_kv_put("pellets", "state", buf);
 }
 
@@ -138,7 +152,9 @@ void pf_pellets_tick(double now, double auger_on_total_s, bool cooking)
 	double delta = auger_on_total_s - g_last_auger_total;
 	if (delta > 0) {
 		g_last_auger_total = auger_on_total_s;
+		pthread_mutex_lock(&g_stmu);
 		g_est_usage_g += delta * pf_set_num("globals.augerrate", 0.3);
+		pthread_mutex_unlock(&g_stmu);
 		static double last_save;
 		if (now - last_save > 60) { last_save = now; save_state(); }
 	}
@@ -158,8 +174,10 @@ cJSON *pf_pellets_json(void)
 	cJSON *o = cJSON_CreateObject();
 	sqlite3 *db = pf_db_handle();
 	cJSON *cur = cJSON_AddObjectToObject(o, "current");
-	cJSON_AddNumberToObject(cur, "id", g_current_id);
-	cJSON_AddNumberToObject(cur, "est_usage_g", g_est_usage_g);
+	int cur_id; double usage;
+	state_get(&cur_id, &usage);
+	cJSON_AddNumberToObject(cur, "id", cur_id);
+	cJSON_AddNumberToObject(cur, "est_usage_g", usage);
 	sqlite3_stmt *st;
 	cJSON *profiles = cJSON_AddArrayToObject(o, "profiles");
 	if (sqlite3_prepare_v2(db, "SELECT id,brand,wood,rating,comments,added_ts FROM pellets ORDER BY brand,wood", -1, &st, NULL) == SQLITE_OK) {
@@ -172,7 +190,7 @@ cJSON *pf_pellets_json(void)
 			cJSON_AddNumberToObject(p, "rating", sqlite3_column_int(st, 3));
 			cJSON_AddStringToObject(p, "comments", sqlite3_column_text(st, 4) ? (const char *)sqlite3_column_text(st, 4) : "");
 			cJSON_AddItemToArray(profiles, p);
-			if (id == g_current_id) { cJSON_AddStringToObject(cur, "brand", (const char *)sqlite3_column_text(st, 1)); cJSON_AddStringToObject(cur, "wood", (const char *)sqlite3_column_text(st, 2)); }
+			if (id == cur_id) { cJSON_AddStringToObject(cur, "brand", (const char *)sqlite3_column_text(st, 1)); cJSON_AddStringToObject(cur, "wood", (const char *)sqlite3_column_text(st, 2)); }
 		}
 		sqlite3_finalize(st);
 	}
@@ -225,7 +243,9 @@ int pf_pellets_profile_save(const char *json, char *err, size_t errn)
 
 int pf_pellets_profile_delete(int id)
 {
-	if (id == g_current_id) return -1;
+	int loaded;
+	state_get(&loaded, NULL);
+	if (id == loaded) return -1;
 	sqlite3_stmt *st;
 	if (sqlite3_prepare_v2(pf_db_handle(), "DELETE FROM pellets WHERE id=?", -1, &st, NULL) != SQLITE_OK) return -1;
 	sqlite3_bind_int(st, 1, id);
@@ -236,8 +256,10 @@ int pf_pellets_profile_delete(int id)
 
 int pf_pellets_load(int id)
 {
+	pthread_mutex_lock(&g_stmu);
 	g_current_id = id;
 	g_est_usage_g = 0;
+	pthread_mutex_unlock(&g_stmu);
 	save_state();
 	log_entry(id, "Loaded pellets");
 	pf_pellets_request_check();

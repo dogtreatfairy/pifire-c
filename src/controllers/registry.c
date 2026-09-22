@@ -4,6 +4,7 @@
 #include "core/log.h"
 #include <dirent.h>
 #include <dlfcn.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -13,24 +14,28 @@
 static const pf_controller_ops *g_list[MAX_CONTROLLERS];
 static int g_count;
 
-static void add(const pf_controller_ops *ops, const char *origin)
+/* Returns whether the table now holds this controller. A plugin that got in stays mapped for the
+ * life of the process on purpose -- its ops struct and strings live inside the library -- but one
+ * that was turned away has nothing left pointing into it and its handle should be given back. */
+static bool add(const pf_controller_ops *ops, const char *origin)
 {
-	if (!ops) return;
+	if (!ops) return false;
 	if (ops->abi != PF_CONTROLLER_ABI) {
 		LOGE(TAG, "%s: controller '%s' has ABI %u, expected %u - ignored", origin, ops->id ? ops->id : "?", ops->abi, PF_CONTROLLER_ABI);
-		return;
+		return false;
 	}
 	if (!ops->id || !ops->create || !ops->update || !ops->reset) {
 		LOGE(TAG, "%s: controller missing required fields - ignored", origin);
-		return;
+		return false;
 	}
 	if (pf_controller_find(ops->id)) {
 		LOGW(TAG, "%s: controller '%s' already registered - ignored", origin, ops->id);
-		return;
+		return false;
 	}
-	if (g_count >= MAX_CONTROLLERS) return;
+	if (g_count >= MAX_CONTROLLERS) return false;
 	g_list[g_count++] = ops;
 	LOGI(TAG, "registered controller '%s' (%s)", ops->id, origin);
+	return true;
 }
 
 void pf_controllers_init(const char *plugin_dir)
@@ -57,7 +62,7 @@ void pf_controllers_init(const char *plugin_dir)
 		if (!h) { LOGE(TAG, "dlopen %s: %s", path, dlerror()); continue; }
 		pf_controller_export_fn fn = (pf_controller_export_fn)dlsym(h, "pf_controller_export");
 		if (!fn) { LOGE(TAG, "%s: no pf_controller_export symbol", path); dlclose(h); continue; }
-		add(fn(), path);
+		if (!add(fn(), path)) dlclose(h);
 	}
 	closedir(d);
 }

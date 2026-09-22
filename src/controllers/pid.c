@@ -38,7 +38,11 @@ static void calc_gains(pid_t_ *s)
 	s->kp = s->PB_c == 0 ? 0 : -1.0 / s->PB_c;
 	s->ki = s->Ti == 0 ? 0 : s->kp / s->Ti;
 	s->kd = s->kp * s->Td;
-	s->inter_max = s->ki != 0 ? fabs(s->center / s->ki) : 0;
+	/* How far the integrator may wind. Bounding it by the centre is right when there is one, but a
+	 * centre of zero used to leave the bound at zero and the clamp skipped altogether, so the
+	 * integrator grew for ever and the loop could not be talked down once it ran away. With no
+	 * centre, bound it so the integral term alone cannot exceed a full output. */
+	s->inter_max = s->ki != 0 ? fabs((s->center != 0 ? s->center : 1.0) / s->ki) : 0;
 }
 
 static void apply_config(pid_t_ *s, const char *json)
@@ -75,7 +79,7 @@ static void reset(void *self, const pf_ctrl_in *in)
 	double p = s->kp * e + s->center;
 	double want_i = in->u_prev_applied - p;
 	s->inter = s->ki != 0 ? want_i / s->ki : 0;
-	if (s->center != 0) s->inter = fmax(-s->inter_max, fmin(s->inter_max, s->inter));
+	if (s->inter_max > 0) s->inter = fmax(-s->inter_max, fmin(s->inter_max, s->inter));
 }
 
 static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)

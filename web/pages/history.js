@@ -76,7 +76,11 @@ export function renderHistory(view) {
       const arr = h.probes[label].temp.filter((v) => v != null);
       if (!arr.length) continue;
       const pr = PF.status?.probes.find((p) => p.label === label);
-      stats.append(el('div', { class: 'card tight stat' }, el('div', { class: 'v' }, `${arr[arr.length - 1].toFixed(0)}${degUnit()}`), el('div', { class: 'l' }, `${pr?.name || label} · min ${Math.min(...arr).toFixed(0)} · max ${Math.max(...arr).toFixed(0)}`)));
+      /* A 48 h range is tens of thousands of samples per probe, and spreading that many arguments
+         into Math.min blows the call stack on some engines. Walk it instead. */
+      let lo = arr[0], hi = arr[0];
+      for (const v of arr) { if (v < lo) lo = v; if (v > hi) hi = v; }
+      stats.append(el('div', { class: 'card tight stat' }, el('div', { class: 'v' }, `${arr[arr.length - 1].toFixed(0)}${degUnit()}`), el('div', { class: 'l' }, `${pr?.name || label} · min ${lo.toFixed(0)} · max ${hi.toFixed(0)}`)));
     }
   }
   load();

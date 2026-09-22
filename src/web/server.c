@@ -41,6 +41,15 @@ static struct mg_connection *g_ws[MAX_WS];
  * A short write means the client is not taking data. Drop it from the table straight away: its own
  * thread will notice the connection is finished and clean it up, the next push skips it, and the
  * app that reconnects gets a fresh slot instead of finding all sixteen occupied by ghosts. */
+/* one connection, one writer at a time */
+static int ws_send(struct mg_connection *conn, int op, const char *data, size_t len)
+{
+	pthread_mutex_lock(&g_ws_mu);
+	int n = mg_websocket_write(conn, op, data, len);
+	pthread_mutex_unlock(&g_ws_mu);
+	return n;
+}
+
 static void ws_broadcast(const char *txt, size_t len)
 {
 	if (!txt || !len) return;
@@ -138,7 +147,11 @@ static void ws_ready(struct mg_connection *conn, void *cbdata)
 static int ws_data(struct mg_connection *conn, int bits, char *data, size_t len, void *cbdata)
 {
 	(void)cbdata;
-	if ((bits & 0x0f) == MG_WEBSOCKET_OPCODE_PING) { mg_websocket_write(conn, MG_WEBSOCKET_OPCODE_PONG, data, len); return 1; }
+	/* Every write to a client goes through the same lock. Two threads writing to one connection
+	 * interleave their frames, and a half-written frame is not something a browser recovers from:
+	 * the broadcaster writes from the push thread while a pong or an error reply is written from
+	 * this one. */
+	if ((bits & 0x0f) == MG_WEBSOCKET_OPCODE_PING) { ws_send(conn, MG_WEBSOCKET_OPCODE_PONG, data, len); return 1; }
 	if ((bits & 0x0f) == MG_WEBSOCKET_OPCODE_TEXT && len < 4096) {
 		/* commands over WS use the same handler as POST /api/v1/cmd */
 		char body[4096];
@@ -148,7 +161,7 @@ static int ws_data(struct mg_connection *conn, int bits, char *data, size_t len,
 		if (pf_api_command_json(body, err, sizeof err)) {
 			char msg[256];
 			int n = snprintf(msg, sizeof msg, "{\"type\":\"error\",\"msg\":\"%s\"}", err);
-			mg_websocket_write(conn, MG_WEBSOCKET_OPCODE_TEXT, msg, (size_t)n);
+			ws_send(conn, MG_WEBSOCKET_OPCODE_TEXT, msg, (size_t)n);
 		}
 	}
 	return 1;
@@ -213,35 +226,60 @@ static void *push_thread(void *arg)
 
 /* ---------------- HTTP ---------------- */
 
+/* A settings restore is the largest thing anything posts here; past that it is not a request we
+ * should be trying to hold in memory on a Zero 2W. */
+#define BODY_MAX (1u << 20)
+
+static void send_json(struct mg_connection *conn, int status, const char *json)
+{
+	mg_printf(conn,
+	          "HTTP/1.1 %d %s\r\nContent-Type: application/json\r\nContent-Length: %zu\r\n"
+	          "Cache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
+	          status, status < 300 ? "OK" : "Error", strlen(json));
+	mg_write(conn, json, strlen(json));
+}
+
 static int api_handler(struct mg_connection *conn, void *cbdata)
 {
 	(void)cbdata;
 	const struct mg_request_info *ri = mg_get_request_info(conn);
-	char body[65536];
+	/* The body is read onto the heap, sized from Content-Length. Eight civetweb workers each
+	 * carrying a 64 KB request buffer on their stack was a lot of stack for a request that is
+	 * usually a hundred bytes, and anything larger than the buffer used to be truncated into
+	 * malformed JSON rather than refused. */
+	char *body = NULL;
+	size_t cap = 0;
 	int blen = 0;
 	if (!strcmp(ri->request_method, "POST") || !strcmp(ri->request_method, "PUT") || !strcmp(ri->request_method, "PATCH")) {
+		long long cl = ri->content_length;
+		if (cl > (long long)BODY_MAX) { send_json(conn, 413, "{\"error\":\"request too large\"}"); return 413; }
+		cap = cl > 0 ? (size_t)cl + 1 : 4096;
+		if (!(body = malloc(cap))) { send_json(conn, 503, "{\"error\":\"out of memory\"}"); return 503; }
 		int r;
-		while (blen < (int)sizeof body - 1 && (r = mg_read(conn, body + blen, sizeof body - 1 - (size_t)blen)) > 0) blen += r;
+		while ((r = mg_read(conn, body + blen, cap - 1 - (size_t)blen)) > 0) {
+			blen += r;
+			if ((size_t)blen + 1 < cap) continue;
+			if (cap >= BODY_MAX) { free(body); send_json(conn, 413, "{\"error\":\"request too large\"}"); return 413; }
+			cap = cap > BODY_MAX / 2 ? BODY_MAX : cap * 2;
+			char *nb = realloc(body, cap);
+			if (!nb) { free(body); send_json(conn, 503, "{\"error\":\"out of memory\"}"); return 503; }
+			body = nb;
+		}
+		body[blen] = 0;
 	}
-	body[blen] = 0;
 
 	pf_api_req req = {
 		.method = ri->request_method,
 		.path = ri->local_uri + 7, /* strip "/api/v1" */
 		.query = ri->query_string ? ri->query_string : "",
-		.body = body,
+		.body = body ? body : "",
 		.body_len = (size_t)blen,
 	};
 	pf_api_resp resp = { 0 };
 	pf_api_dispatch(&req, &resp);
-
-	const char *json = resp.json ? resp.json : "{}";
-	mg_printf(conn,
-	          "HTTP/1.1 %d %s\r\nContent-Type: application/json\r\nContent-Length: %zu\r\n"
-	          "Cache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
-	          resp.status, resp.status < 300 ? "OK" : "Error", strlen(json));
-	mg_write(conn, json, strlen(json));
+	send_json(conn, resp.status, resp.json ? resp.json : "{}");
 	free(resp.json);
+	free(body);
 	return resp.status;
 }
 

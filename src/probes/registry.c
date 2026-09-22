@@ -3,6 +3,7 @@
 #include "core/log.h"
 #include <dirent.h>
 #include <dlfcn.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -12,15 +13,18 @@
 static const pf_probe_ops *g_list[MAX_DRIVERS];
 static int g_count;
 
-static void add(const pf_probe_ops *ops, const char *origin)
+/* Returns whether the driver was registered; see the note in controllers/registry.c on why a
+ * registered plugin keeps its handle and a rejected one does not. */
+static bool add(const pf_probe_ops *ops, const char *origin)
 {
-	if (!ops) return;
-	if (ops->abi != PF_PROBE_ABI) { LOGE(TAG, "%s: probe driver ABI %u != %u - ignored", origin, ops->abi, PF_PROBE_ABI); return; }
-	if (!ops->id || !ops->create || !ops->read || !ops->ports) { LOGE(TAG, "%s: probe driver incomplete - ignored", origin); return; }
-	if (pf_probe_driver_find(ops->id)) return;
-	if (g_count >= MAX_DRIVERS) return;
+	if (!ops) return false;
+	if (ops->abi != PF_PROBE_ABI) { LOGE(TAG, "%s: probe driver ABI %u != %u - ignored", origin, ops->abi, PF_PROBE_ABI); return false; }
+	if (!ops->id || !ops->create || !ops->read || !ops->ports) { LOGE(TAG, "%s: probe driver incomplete - ignored", origin); return false; }
+	if (pf_probe_driver_find(ops->id)) return false;
+	if (g_count >= MAX_DRIVERS) return false;
 	g_list[g_count++] = ops;
 	LOGD(TAG, "registered probe driver '%s' (%s)", ops->id, origin);
+	return true;
 }
 
 void pf_probe_drivers_init(const char *plugin_dir)
@@ -48,7 +52,7 @@ void pf_probe_drivers_init(const char *plugin_dir)
 		if (!h) { LOGE(TAG, "dlopen %s: %s", path, dlerror()); continue; }
 		pf_probe_export_fn fn = (pf_probe_export_fn)dlsym(h, "pf_probe_export");
 		if (!fn) { LOGE(TAG, "%s: no pf_probe_export", path); dlclose(h); continue; }
-		add(fn(), path);
+		if (!add(fn(), path)) dlclose(h);
 	}
 	closedir(d);
 }

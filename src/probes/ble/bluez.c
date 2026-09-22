@@ -55,8 +55,15 @@ static pthread_t g_tid;
 static atomic_bool g_run, g_avail;
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 static pf_ble_dev g_devs[MAX_DEVS];
+/* The outgoing write queue has a lock of its own, and it must stay that way.
+ *
+ * The manager thread holds g_mu while it steps each device, and stepping a device calls into the
+ * probe driver's on_connected, which is exactly where a driver sends its login sequence. If that
+ * write took g_mu the thread would block on a mutex it already holds, and since it is not
+ * recursive, the Bluetooth manager would deadlock the instant a probe connected. */
 static wreq_t g_q[QLEN];
 static int g_qhead, g_qlen;
+static pthread_mutex_t g_qmu = PTHREAD_MUTEX_INITIALIZER;
 static sd_bus *g_bus;
 static char g_adapter[64] = "/org/bluez/hci0";
 static bool g_discovering;
@@ -687,12 +694,12 @@ static void process_writes(void)
 {
 	for (;;) {
 		wreq_t w;
-		pthread_mutex_lock(&g_mu);
-		if (g_qlen == 0) { pthread_mutex_unlock(&g_mu); return; }
+		pthread_mutex_lock(&g_qmu);
+		if (g_qlen == 0) { pthread_mutex_unlock(&g_qmu); return; }
 		w = g_q[g_qhead];
 		g_qhead = (g_qhead + 1) % QLEN;
 		g_qlen--;
-		pthread_mutex_unlock(&g_mu);
+		pthread_mutex_unlock(&g_qmu);
 		if (w.d->st != ST_READY) continue;
 		const char *p = char_path(w.d, w.uuid);
 		if (!p) { LOGW(TAG, "%s: write to unknown characteristic %s", w.d->name, w.uuid); continue; }
@@ -820,7 +827,7 @@ void pf_ble_unregister(pf_ble_dev *d)
 int pf_ble_write(pf_ble_dev *d, const char *uuid, const uint8_t *data, size_t len, bool with_response)
 {
 	if (!d || len > 32) return -1;
-	pthread_mutex_lock(&g_mu);
+	pthread_mutex_lock(&g_qmu);
 	int rc = -1;
 	if (g_qlen < QLEN) {
 		wreq_t *w = &g_q[(g_qhead + g_qlen) % QLEN];
@@ -832,7 +839,7 @@ int pf_ble_write(pf_ble_dev *d, const char *uuid, const uint8_t *data, size_t le
 		g_qlen++;
 		rc = 0;
 	}
-	pthread_mutex_unlock(&g_mu);
+	pthread_mutex_unlock(&g_qmu);
 	return rc;
 }
 
