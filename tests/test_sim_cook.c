@@ -191,6 +191,52 @@ static void test_flameout_protection_lights_the_igniter_and_recovers(void)
 	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
 }
 
+/* Lowering the set point a long way makes the grill starve the fire on purpose and coast down, and
+   that coast is exactly when a fire dies -- by the end of it there may be nothing left to catch.
+   Waiting for another twenty degrees of undershoot would mean waiting through the most dangerous
+   part of it, so the igniter goes on the moment the pit crosses the new set point on the way down,
+   and comes off once the pit has stopped falling and climbed back. */
+static void test_a_big_step_down_lights_the_igniter_at_the_crossing(void)
+{
+	pf_settings_patch("safety", "{\"relight_enabled\":true,\"relight_drop\":20,\"relight_recover\":10}", NULL, 0);
+	pf_control_reload_settings(&ctrl);
+	pf_cmd_mode(PF_MODE_HOLD, 300);
+	tick(250 + 25 * 60);
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	TEST_ASSERT_TRUE(ctrl.target_reached);
+	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_IGNITER));
+
+	/* down a long way: the grill stops feeding and the barrel coasts */
+	{ pf_cmd sp = { .type = PF_CMD_SETPOINT, .num = 225 }; pf_cmdq_push(&sp); }
+	tick(5);
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.safety.stepdown_armed, "a big step down should arm the coast watch");
+	TEST_ASSERT_FALSE_MESSAGE(pf_outputs_get(PF_OUT_IGNITER), "nothing to do while the pit is still above the target");
+
+	/* nothing happens on the way down until the pit reaches the new set point */
+	double t = 0;
+	while (!ctrl.safety.relight_active && t < 90 * 60) { tick(5); t += 5; }
+	printf("step-down: igniter at pit %.1f F, set point %.1f F, after %.0f s\n",
+	       pf_from_c(ctrl.pit_c, PF_UNITS_F), pf_from_c(ctrl.setpoint_c, PF_UNITS_F), t);
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.safety.relight_active, "crossing the lowered set point should light the igniter");
+	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_IGNITER));
+	/* it fired at the crossing, not twenty degrees below it */
+	double below_f = pf_from_c(ctrl.setpoint_c, PF_UNITS_F) - pf_from_c(ctrl.pit_c, PF_UNITS_F);
+	printf("step-down: fired %.1f F below the new set point\n", below_f);
+	TEST_ASSERT_TRUE_MESSAGE(below_f < 10, "it should fire at the crossing, not after a long undershoot");
+	TEST_ASSERT_EQUAL_MESSAGE(PF_MODE_HOLD, ctrl.mode, "coasting to a lower target is not a flame-out");
+
+	/* The pit keeps falling for a while with the igniter on, so the low it is judged against is
+	   the bottom of the dip and not where it was when the igniter came on. */
+	t = 0;
+	while (ctrl.safety.relight_active && t < 30 * 60) { tick(5); t += 5; }
+	double low_f = pf_from_c(ctrl.safety.relight_low_c, PF_UNITS_F), now_f = pf_from_c(ctrl.pit_c, PF_UNITS_F);
+	printf("step-down: igniter off after %.0f s, pit %.1f F from a low of %.1f F (rise %.1f F)\n",
+	       t, now_f, low_f, now_f - low_f);
+	TEST_ASSERT_FALSE_MESSAGE(ctrl.safety.relight_active, "once the pit is climbing again the igniter is not needed");
+	TEST_ASSERT_TRUE_MESSAGE(now_f - low_f >= 9.5, "it should come off on the configured rise from the lowest point");
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+}
+
 /* The hard floor is the last word, and it is what the assist hands over to. With the assist off,
    this is the original path: the fire is out, the grill re-ignites, and a second failure errors. */
 static void test_flameout_reignites_then_errors(void)
@@ -339,6 +385,7 @@ int main(void)
 	RUN_TEST(test_lid_open_pauses_feed);
 	RUN_TEST(test_overtemp_errors);
 	RUN_TEST(test_flameout_protection_lights_the_igniter_and_recovers);
+	RUN_TEST(test_a_big_step_down_lights_the_igniter_at_the_crossing);
 	RUN_TEST(test_flameout_reignites_then_errors);
 	RUN_TEST(test_coldstart_winter);
 	RUN_TEST(test_coldstart_failure);

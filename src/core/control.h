@@ -51,6 +51,8 @@ typedef struct {
 	bool   relight_active;      /* the igniter is on because the pit fell away from the set point */
 	double relight_low_c;       /* the lowest the pit has been since that began */
 	double relight_below_since; /* when the pit first fell away, and did not come back */
+	bool   stepdown_armed;      /* the set point was lowered a long way; watch for the pit crossing it */
+	double last_sp_c;           /* the set point on the previous tick, to notice it being changed */
 	double baseline_c;          /* cold-start: running minimum during the baseline window */
 	double baseline_window_end;
 	bool   coldstart_active, coldstart_reached;

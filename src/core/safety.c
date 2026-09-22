@@ -170,84 +170,118 @@ int pf_safety_tick(pf_control *c, double now)
 		}
 	}
 
-	/* 5. dynamic flame-out assist.
+	/* 5. flame-out protection.
 	 *
 	 * The fixed floor below is the last word: by the time the pit has fallen that far the fire is
-	 * out and the grill has to start again. Long before that, a pit sliding away from a set point
-	 * it was holding is a fire that is failing, and the cheapest answer is the igniter -- it costs
-	 * nothing but electricity and it catches the fire before there is nothing left to catch.
+	 * out and the grill has to start again. Long before that, a pit that is not where the grill is
+	 * trying to keep it is a fire that is failing, and the cheapest answer is the igniter -- it
+	 * costs nothing but electricity and it catches the fire before there is nothing left to catch.
 	 *
-	 * It stays on until the pit has climbed back a little way from the lowest point it reached,
-	 * rather than until it is back at the set point: recovery is the evidence that the fire has
-	 * taken, and waiting for the whole way back would hold the igniter on through the entire
-	 * recovery. The lowest point keeps moving down while the pit is still falling, so the test is
-	 * always against the bottom of this dip and not the one before it. The igniter's own
-	 * continuous-on cap above still applies and still wins.
+	 * There are two ways to arrive at that, and they need different triggers.
 	 *
-	 * It only applies to a pit that had arrived. A grill on its way up to a set point, or climbing
-	 * to a new one, is far below it for entirely ordinary reasons, and lighting the igniter for
-	 * that would fire on every cook -- the same mistake the running-cold rule made before it
-	 * learned to wait for a stall. target_reached is cleared when the set point changes, so a step
-	 * up re-arms it exactly as a fresh cook does. An open lid is excluded for the same reason from
-	 * the other end: the pit falls twenty degrees because the heat walked out, not because the
-	 * fire went out, and the igniter has nothing to fix. */
-	if (m == PF_MODE_HOLD && cfg->relight_enabled && c->pit_valid && c->setpoint_c > 0 &&
-	    c->target_reached && !c->lid_open) {
+	 *   HOLDING. The grill reached its set point and the pit is sliding away from it. Nothing has
+	 *   been asked of the grill, so any real distance below the target is a fault: the trigger is
+	 *   falling `relight_drop` below it. This only applies to a pit that had arrived -- a grill on
+	 *   its way up is far below its target for entirely ordinary reasons, and lighting the igniter
+	 *   for that would fire on every cook.
+	 *
+	 *   COMING DOWN. The set point was lowered a long way, so the grill deliberately starves the
+	 *   fire and coasts. That coast is exactly when a fire dies, and by the end of it there may be
+	 *   nothing left to catch. Waiting for another twenty degrees of undershoot would be waiting
+	 *   through the most dangerous part of the manoeuvre, so the trigger here is the moment the
+	 *   pit crosses the new set point on the way down -- the point from which it should be
+	 *   recovering rather than still falling.
+	 *
+	 * Both end the same way: the igniter comes off once the pit has climbed `relight_recover`
+	 * above the lowest point it reached. Recovery from the bottom of the dip is the evidence that
+	 * the fire has taken; waiting for the whole way back to the set point would hold the igniter on
+	 * through the entire recovery. The lowest point keeps moving down while the pit is still
+	 * falling, so the test is always against the bottom of this dip and not the one before it.
+	 *
+	 * An open lid is excluded from both: the pit falls because the heat walked out, not because
+	 * the fire went out, and the igniter has nothing to fix. The igniter's own continuous-on cap
+	 * above always applies and always wins.
+	 *
+	 * None of it applies during a tuning measurement. The relay deliberately drives the pit to
+	 * both sides of the set point and leaves it there for minutes at a time: that is the
+	 * measurement, not a fire in trouble, and lighting the igniter would both corrupt it and have
+	 * nothing to fix. */
+	bool relight_ok = m == PF_MODE_HOLD && cfg->relight_enabled && c->pit_valid && c->setpoint_c > 0 &&
+	                  !c->lid_open && !c->autotune.active;
+
+	/* Notice the set point being lowered a long way, and arm the coast. It is only armed when the
+	 * pit is above the new target, because a set point dropped to somewhere the grill has not
+	 * reached yet involves no coast at all. */
+	if (m == PF_MODE_HOLD && c->pit_valid) {
+		if (s->last_sp_c > 0 && c->setpoint_c > 0 && s->last_sp_c - c->setpoint_c >= cfg->relight_drop_c &&
+		    c->pit_c > c->setpoint_c) {
+			s->stepdown_armed = true;
+			LOGI(TAG, "set point lowered %.0f C to %.0f C: watching the coast down for the fire going out",
+			     s->last_sp_c - c->setpoint_c, c->setpoint_c);
+		}
+		if (c->setpoint_c > 0) s->last_sp_c = c->setpoint_c;
+	} else {
+		s->last_sp_c = 0;
+		s->stepdown_armed = false;
+	}
+
+	if (relight_ok) {
 		double gap = c->setpoint_c - c->pit_c;
-		/* Coming back counts only as climbing back towards the set point, not as the small rise
-		 * the igniter itself can produce. Judging recovery by the rise off the lowest point is
-		 * right for switching the igniter off -- that rise is the fire taking -- but it is the
-		 * wrong clock to escalate on: the assist cycles on and off while the pit hovers, and a
-		 * deadline that restarted on every cycle would never expire with the fire still out. */
-		if (gap <= cfg->relight_drop_c / 2) {
+
+		/* The escalation clock, kept apart from the igniter itself. Judging recovery by the rise
+		 * off the lowest point is right for switching the igniter off, but it is the wrong clock to
+		 * escalate on: the igniter's own heat can lift the pit a few degrees with the fire still
+		 * out, so the assist cycles, and a deadline that restarted on every cycle would never
+		 * expire. Only the pit genuinely climbing back towards the set point resets this. */
+		if (gap <= cfg->relight_drop_c / 2 || !c->target_reached) s->relight_below_since = 0;
+		else if (gap >= cfg->relight_drop_c && s->relight_below_since == 0) s->relight_below_since = now;
+
+		if (s->relight_below_since > 0 && now - s->relight_below_since > cfg->relight_timeout_s) {
+			/* A rescue is an attempt, not a way to run. The igniter has had its window and the pit
+			 * has not climbed back, so the fire is out rather than struggling: hand it to the
+			 * flame-out path, which knows how to start the grill again and when to stop trying.
+			 * Without this the assist would hold the igniter on until its own cap and keep the pit
+			 * just warm enough that nothing else noticed. */
+			s->relight_active = false;
 			s->relight_below_since = 0;
-			if (s->relight_active) {
+			s->stepdown_armed = false;
+			pf_outputs_set(PF_OUT_IGNITER, false);
+			pf_alarms_clear("SAFETY:relight");
+			LOGW(TAG, "pit stayed %.0f C below the set point for %.0f s: treating it as a flame-out",
+			     gap, cfg->relight_timeout_s);
+			return flameout(c);
+		}
+
+		if (!s->relight_active) {
+			bool holding = c->target_reached && gap >= cfg->relight_drop_c;
+			bool crossed = s->stepdown_armed && gap > 0;   /* through the new set point, going down */
+			if ((holding || crossed) && !s->igniter_locked_out) {
+				s->relight_active = true;
+				s->relight_low_c = c->pit_c;
+				s->stepdown_armed = false;
+				pf_outputs_set(PF_OUT_IGNITER, true);
+				LOGW(TAG, "%s: igniter on to catch the fire (pit %.0f C, set point %.0f C)",
+				     crossed ? "pit crossed the lowered set point on the way down" : "pit fell away from the set point",
+				     c->pit_c, c->setpoint_c);
+				pf_alarms_raise("SAFETY:relight", "W08_RELIGHT", "Flame-out protection", PF_CRIT_HIGH, PF_SINK_ALL,
+				                "Flame-out protection",
+				                crossed ? "The grill is coasting down to a lower temperature, so the igniter is on until the pit stops falling."
+				                        : "The pit fell away from the set point, so the igniter is on until the fire catches.");
+				if (pf_db_handle()) pf_db_event(PF_LVL_WARN, "W08_RELIGHT", "Flame-out protection: igniter on");
+			}
+		} else {
+			if (c->pit_c < s->relight_low_c) s->relight_low_c = c->pit_c;
+			if (c->pit_c >= s->relight_low_c + cfg->relight_recover_c) {
+				/* the fire has taken: stop feeding it electricity and let the grill work */
 				s->relight_active = false;
 				pf_outputs_set(PF_OUT_IGNITER, false);
+				LOGI(TAG, "pit recovered to %.0f C from a low of %.0f C: igniter off", c->pit_c, s->relight_low_c);
 				pf_alarms_clear("SAFETY:relight");
-			}
-		} else if (gap >= cfg->relight_drop_c || s->relight_below_since > 0) {
-			if (s->relight_below_since == 0) s->relight_below_since = now;
-			if (now - s->relight_below_since > cfg->relight_timeout_s) {
-				/* A rescue is an attempt, not a way to run. The igniter has had its window and the
-				 * pit has not climbed back, so the fire is out rather than struggling: hand it to
-				 * the flame-out path, which knows how to start the grill again and when to stop
-				 * trying. Without this the assist would hold the igniter on until its own cap and
-				 * keep the pit just warm enough that nothing else noticed. */
-				s->relight_active = false;
-				s->relight_below_since = 0;
-				pf_outputs_set(PF_OUT_IGNITER, false);
+			} else if (s->igniter_locked_out) {
+				s->relight_active = false;   /* the cap has taken it; stop claiming otherwise */
 				pf_alarms_clear("SAFETY:relight");
-				LOGW(TAG, "pit stayed %.0f C below the set point for %.0f s: treating it as a flame-out",
-				     gap, cfg->relight_timeout_s);
-				return flameout(c);
-			}
-			if (!s->relight_active) {
-				if (!s->igniter_locked_out) {
-					s->relight_active = true;
-					s->relight_low_c = c->pit_c;
-					pf_outputs_set(PF_OUT_IGNITER, true);
-					LOGW(TAG, "pit %.0f C is %.0f C below the %.0f C set point: igniter on to catch the fire",
-					     c->pit_c, gap, c->setpoint_c);
-					pf_alarms_raise("SAFETY:relight", "W08_RELIGHT", "Flame-out protection", PF_CRIT_HIGH, PF_SINK_ALL,
-					                "Flame-out protection",
-					                "The pit fell away from the set point, so the igniter is on until the fire catches.");
-					if (pf_db_handle()) pf_db_event(PF_LVL_WARN, "W08_RELIGHT", "Pit fell away from the set point; igniter on");
-				}
 			} else {
-				if (c->pit_c < s->relight_low_c) s->relight_low_c = c->pit_c;
-				if (c->pit_c >= s->relight_low_c + cfg->relight_recover_c) {
-					/* the fire has taken: stop feeding it electricity and let the grill work */
-					s->relight_active = false;
-					pf_outputs_set(PF_OUT_IGNITER, false);
-					LOGI(TAG, "pit recovered to %.0f C from a low of %.0f C: igniter off", c->pit_c, s->relight_low_c);
-					pf_alarms_clear("SAFETY:relight");
-				} else if (s->igniter_locked_out) {
-					s->relight_active = false;   /* the cap has taken it; stop claiming otherwise */
-					pf_alarms_clear("SAFETY:relight");
-				} else {
-					pf_outputs_set(PF_OUT_IGNITER, true);
-				}
+				pf_outputs_set(PF_OUT_IGNITER, true);
 			}
 		}
 	} else if (s->relight_active || s->relight_below_since > 0) {

@@ -42,20 +42,39 @@ pit should never fall below, and dropping under it means the fire is out and the
 again. That floor is the last word, and by the time it speaks there is usually nothing left in the
 pot to catch.
 
-Flame-out protection is the earlier, cheaper answer. While the grill is **holding** a set point it
-has already reached, a pit that falls `safety.relight_drop` (20 °F by default) below that set point
-is a fire that is failing, so the igniter comes on. It stays on until the pit has climbed
-`safety.relight_recover` (10 °F) **above the lowest point it reached** — recovery from the bottom of
-the dip is the evidence the fire has taken, and waiting for the whole way back to the set point
-would hold the igniter on through the entire recovery.
+Flame-out protection is the earlier, cheaper answer. There are two ways to arrive at a fire in
+trouble, and they need different triggers.
+
+**Holding.** The grill reached its set point and the pit is sliding away from it. Nothing has been
+asked of the grill, so any real distance below the target is a fault: the trigger is falling
+`safety.relight_drop` (20 °F by default) below the set point.
+
+**Coming down.** The set point was lowered by more than `safety.relight_drop`, so the grill
+deliberately starves the fire and coasts. That coast is exactly when a fire dies, and by the end of
+it there may be nothing left to catch — waiting for another twenty degrees of undershoot would mean
+waiting through the most dangerous part of the manoeuvre. So the trigger here is the moment the pit
+**crosses the new set point on the way down**: the point from which it ought to be recovering rather
+than still falling. It arms only when the pit is above the new target when the change is made, since
+a set point dropped to somewhere the grill has not reached yet involves no coast at all.
+
+Both end the same way. The igniter comes off once the pit has climbed `safety.relight_recover`
+(10 °F) **above the lowest point it reached** — recovery from the bottom of the dip is the evidence
+the fire has taken, and waiting for the whole way back to the set point would hold the igniter on
+through the entire recovery. The lowest point keeps moving down while the pit is still falling, so
+the test is always against the bottom of this dip and not where the igniter came on.
 
 Four things bound it:
 
-* **It only applies to a pit that had arrived.** A grill climbing to a set point, or to a new one
-  after a change, is far below it for ordinary reasons. `target_reached` is cleared when the set
-  point changes, so a step up re-arms it exactly as a fresh cook does.
+* **The holding trigger only applies to a pit that had arrived.** A grill climbing to a set point,
+  or to a new one after a change, is far below it for ordinary reasons. `target_reached` is cleared
+  when the set point changes, so a step up re-arms it exactly as a fresh cook does. The coast-down
+  trigger is the deliberate exception: it exists precisely for the window where the grill has not
+  arrived yet.
 * **An open lid is excluded.** The pit falls twenty degrees because the heat walked out, not
   because the fire went out, and the igniter has nothing to fix.
+* **A tuning measurement is excluded.** The relay deliberately drives the pit to both sides of the
+  set point and leaves it there for minutes at a time. That is the measurement, not a fire in
+  trouble, and lighting the igniter would both corrupt it and have nothing to fix.
 * **The igniter's continuous-on cap still applies and still wins.** Protection never overrides it.
 * **It gives up.** If the pit has not climbed back to within half the trigger distance of the set
   point within `safety.relight_timeout_s` (5 minutes), the fire is out rather than struggling and it
