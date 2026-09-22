@@ -58,6 +58,7 @@ typedef enum {
 	PF_ACT_POWEROFF,
 	PF_ACT_MARGINS,       /* open the margin editor */
 	PF_ACT_THEME,         /* switch the panel between dark and light */
+	PF_ACT_COLOUR,        /* swap the panel's red/blue order, judged with the screen in front of you */
 } pf_action;
 
 typedef struct {

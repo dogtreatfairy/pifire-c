@@ -380,3 +380,109 @@ cJSON *pf_learning_json(void)
 	}
 	return o;
 }
+
+/* ------------------------------------------------------------------ backup */
+
+#define PF_TUNE_EXPORT_KIND "pifire-tuning"
+#define PF_TUNE_EXPORT_VER  1
+
+cJSON *pf_learning_export(void)
+{
+	cJSON *o = cJSON_CreateObject();
+	cJSON_AddStringToObject(o, "kind", PF_TUNE_EXPORT_KIND);
+	cJSON_AddNumberToObject(o, "version", PF_TUNE_EXPORT_VER);
+	cJSON_AddNumberToObject(o, "exported_at", pf_wall());
+	cJSON_AddStringToObject(o, "units", "C");   /* canonical: a backup outlives a unit change */
+	char name[64];
+	pf_set_str("globals.grill_name", name, sizeof name, "PiFire");
+	cJSON_AddStringToObject(o, "grill", name);
+#ifdef PF_VERSION
+	cJSON_AddStringToObject(o, "daemon", PF_VERSION);
+#endif
+
+	/* The controller this tuning was measured against, and the numbers it is running on now.
+	 * PB/Ti/Td mean nothing without knowing which controller they belong to. */
+	char cid[40];
+	pf_set_str("controller.selected", cid, sizeof cid, "adaptive");
+	cJSON *ctl = cJSON_AddObjectToObject(o, "controller");
+	cJSON_AddStringToObject(ctl, "id", cid);
+	char path[96];
+	snprintf(path, sizeof path, "controller.config.%.40s", cid);
+	cJSON *cfg = pf_set_dup(path);
+	if (cfg) cJSON_AddItemToObject(ctl, "config", cfg);
+
+	pf_ff_fit f = pf_learning_fit();
+	cJSON *ff = cJSON_AddObjectToObject(o, "feedforward");
+	cJSON_AddNumberToObject(ff, "a", f.a);
+	cJSON_AddNumberToObject(ff, "b", f.b);
+	cJSON_AddNumberToObject(ff, "n", f.n);
+	cJSON_AddNumberToObject(ff, "rms", f.rms);
+
+	pf_fopdt m = pf_learning_fopdt();
+	if (m.valid) {
+		cJSON *pl = cJSON_AddObjectToObject(o, "plant");
+		cJSON_AddNumberToObject(pl, "K", m.K);
+		cJSON_AddNumberToObject(pl, "tau", m.tau);
+		cJSON_AddNumberToObject(pl, "theta", m.theta);
+		cJSON_AddNumberToObject(pl, "ts", m.ts);
+	}
+
+	/* The library itself: one measured anchor per set point, with the conditions it was taken in,
+	 * because a tune measured in a 20 F wind is not the same evidence as one taken on a still day. */
+	pf_tune_anchor a[PF_TUNE_ANCHORS];
+	int na = pf_learning_anchor_list(a, PF_TUNE_ANCHORS);
+	cJSON *arr = cJSON_AddArrayToObject(o, "anchors");
+	for (int i = 0; i < na; i++) {
+		if (!a[i].valid) continue;
+		cJSON *e = cJSON_CreateObject();
+		cJSON_AddNumberToObject(e, "setpoint_c", a[i].setpoint_c);
+		cJSON_AddNumberToObject(e, "Ku", a[i].Ku);
+		cJSON_AddNumberToObject(e, "Pu", a[i].Pu);
+		cJSON_AddNumberToObject(e, "PB_c", a[i].PB_c);
+		cJSON_AddNumberToObject(e, "Ti", a[i].Ti);
+		cJSON_AddNumberToObject(e, "Td", a[i].Td);
+		cJSON_AddNumberToObject(e, "ts", a[i].ts);
+		if (!isnan(a[i].ambient_c)) cJSON_AddNumberToObject(e, "ambient_c", a[i].ambient_c);
+		cJSON_AddNumberToObject(e, "wind", a[i].wind);
+		cJSON_AddItemToArray(arr, e);
+	}
+	return o;
+}
+
+int pf_learning_import(const cJSON *doc, char *err, size_t n)
+{
+	if (!cJSON_IsObject(doc) || strcmp(pf_json_str((cJSON *)doc, "kind", ""), PF_TUNE_EXPORT_KIND)) {
+		snprintf(err, n, "that is not a PiFire tuning backup");
+		return -1;
+	}
+	if (pf_json_num((cJSON *)doc, "version", 0) > PF_TUNE_EXPORT_VER) {
+		snprintf(err, n, "that backup was written by a newer version of PiFire");
+		return -1;
+	}
+	const cJSON *arr = cJSON_GetObjectItemCaseSensitive((cJSON *)doc, "anchors");
+	if (!cJSON_IsArray(arr)) { snprintf(err, n, "the backup has no tuning library in it"); return -1; }
+
+	/* All or nothing: a half-restored library would interpolate between one grill's measurements
+	 * and another's, which is worse than either. */
+	pf_learning_clear_anchors();
+	int k = 0;
+	const cJSON *e;
+	cJSON_ArrayForEach(e, arr) {
+		double sp = pf_json_num((cJSON *)e, "setpoint_c", 0);
+		pf_autotune_result r = {
+			.Ku = pf_json_num((cJSON *)e, "Ku", 0), .Pu = pf_json_num((cJSON *)e, "Pu", 0),
+			.PB_c = pf_json_num((cJSON *)e, "PB_c", 0), .Ti = pf_json_num((cJSON *)e, "Ti", 0),
+			.Td = pf_json_num((cJSON *)e, "Td", 0), .ts = pf_json_num((cJSON *)e, "ts", pf_wall()),
+			.valid = true,
+		};
+		if (sp <= 0 || r.PB_c <= 0 || r.Ti <= 0) continue;   /* not a measurement */
+		pf_learning_store_anchor(sp, &r, pf_json_num((cJSON *)e, "ambient_c", NAN), pf_json_num((cJSON *)e, "wind", 0));
+		k++;
+	}
+	const cJSON *pl = cJSON_GetObjectItemCaseSensitive((cJSON *)doc, "plant");
+	if (cJSON_IsObject(pl))
+		pf_learning_store_fopdt(pf_json_num((cJSON *)pl, "K", 0), pf_json_num((cJSON *)pl, "tau", 0),
+		                        pf_json_num((cJSON *)pl, "theta", 0));
+	LOGI(TAG, "restored %d tuning anchor%s from a backup", k, k == 1 ? "" : "s");
+	return k;
+}

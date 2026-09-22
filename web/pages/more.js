@@ -199,7 +199,13 @@ export async function hardware(view) {
         el('select', { onchange: (e) => setp(plat, path, coerce(e.target.value)) }, Object.entries(dep.options).map(([v, l]) => el('option', { value: v, selected: String(val ?? 'None') === v || (val === null && v === 'None') }, l)))));
     }
   };
-  const coerce = (v) => (v === 'None' ? null : v === 'True' ? true : v === 'False' ? false : /^-?\d+$/.test(v) ? Number(v) : v);
+  /* An option's value is always a string by the time it comes back out of the DOM, so a schema
+     whose list_values are real booleans has to be put back together here. It must accept the
+     lowercase forms HTML produces as well as the capitalised ones the manifest inherited from
+     PiFire's Python. */
+  const coerce = (v) => (v === 'None' || v === 'null' ? null
+    : /^true$/i.test(v) ? true : /^false$/i.test(v) ? false
+    : /^-?\d+$/.test(v) ? Number(v) : v);
   const applyDefaults = () => {
     const b = boards[plat.current];
     for (const dep of Object.values(b.settings_dependencies)) {
@@ -234,7 +240,10 @@ export async function hardware(view) {
         if (c.hidden) continue;
         const v = cfg[c.label] ?? c.default;
         const input = c.type === 'list'
-          ? el('select', { onchange: (e) => (cfg[c.label] = coerce(e.target.value)) }, c.list_values.map((lv, k) => el('option', { value: lv, selected: String(v) === String(lv) }, c.list_labels?.[k] ?? lv)))
+          /* String(lv), because el() treats an attribute value of false as "leave it out" and true
+             as "present but empty" -- right for `disabled`, wrong for `value`, where the boolean is
+             the data. Swapping the panel to BGR stored an empty string and could never take. */
+          ? el('select', { onchange: (e) => (cfg[c.label] = coerce(e.target.value)) }, c.list_values.map((lv, k) => el('option', { value: String(lv), selected: String(v) === String(lv) }, c.list_labels?.[k] ?? String(lv))))
           : el('input', { type: 'text', inputmode: 'decimal', value: v ?? '', onchange: (e) => (cfg[c.label] = c.type === 'int' || c.type === 'float' ? Number(e.target.value) : e.target.value) });
         card.append(el('div', { class: 'field inline' }, el('div', {}, el('label', {}, c.friendly_name), el('div', { class: 'help' }, c.description)), input));
       }

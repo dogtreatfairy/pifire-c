@@ -35,9 +35,17 @@ static uint16_t mode_fill(const pf_gfx *g, const char *mode)
 	if (!strcmp(mode, "Manual")) return g->th.warn;
 	return g->th.card2;   /* Stop, Monitor */
 }
+/* Black or white, chosen by how bright the fill actually is rather than by naming the colours that
+ * happen to take white today. A hand-kept list goes stale the moment a theme or a tile colour
+ * changes, and outdoors the wrong choice is not merely ugly: white on amber in direct sun washes
+ * out to nothing. Pure black and pure white are picked deliberately -- this panel is read at arm's
+ * length in sunlight, and that is where the contrast has to come from. */
 static uint16_t on_fill_text(const pf_gfx *g, uint16_t fill)
 {
-	return (fill == g->th.danger || fill == g->th.info || fill == g->th.card2) ? g->th.text : g->th.accent_text;
+	(void)g;
+	int r = (fill >> 11) & 0x1F, gg = (fill >> 5) & 0x3F, b = fill & 0x1F;
+	int lum = (54 * (r << 3) + 183 * (gg << 2) + 19 * (b << 3)) >> 8;   /* Rec. 601 on 0..255 */
+	return lum > 140 ? PF_RGB(0, 0, 0) : PF_RGB(255, 255, 255);
 }
 
 static bool is_timed(const char *mode)
@@ -119,6 +127,11 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 		pf_set_str("display.theme", th, sizeof th, "dark");
 		ADD(PF_ACT_THEME, 0, "Theme");
 		snprintf(out[n - 1].right, sizeof out[n - 1].right, "%s", th[0] == 'l' ? "Light" : "Dark");
+		/* The one setting you cannot judge from a phone: whether this panel is wired RGB or BGR is
+		 * a question about the thing in front of you, and the answer is obvious the instant it is
+		 * right. Orange stops being blue. */
+		ADD(PF_ACT_COLOUR, 0, "Colour Order");
+		snprintf(out[n - 1].right, sizeof out[n - 1].right, "%s", pf_set_bool("display.bgr", false) ? "BGR" : "RGB");
 		ADD(PF_ACT_BACK, 0, "Back");
 		break;
 	}
@@ -328,9 +341,13 @@ static void draw_datablock(pf_gfx *g, const cJSON *s, const cJSON *primary, cons
 	int hop = (int)pf_json_num((cJSON *)s, "hopper_pct", -1);
 	if (hop >= 0) {
 		snprintf(line, sizeof line, "HOP %d%%", hop % 1000);
-		pf_gfx_text(g, B, p3, x, ly, line, hop <= 25 ? g->th.danger : g->th.muted);
+		uint16_t hc = hop <= 25 ? g->th.danger : g->th.ok;
+		pf_gfx_text(g, B, p3, x, ly, line, hop <= 25 ? g->th.danger : g->th.text);
 		ly += l3;
-		pf_gfx_bar(g, x, ly + 2, w, 6, hop / 100.0, hop <= 25 ? g->th.danger : g->th.ok, g->th.card2);
+		/* Six pixels of bar is nothing at arm's length in daylight. Give it real height and an
+		 * outline, so the level reads as a level rather than as a hairline. */
+		pf_gfx_bar(g, x, ly + 2, w, 14, hop / 100.0, hc, g->th.card2);
+		pf_gfx_frame(g, x, ly + 2, w, 14, g->th.line);
 	}
 	if (pf_json_bool((cJSON *)s, "lid_open", false)) pf_gfx_text(g, B, p3, x, ly + 12, "LID OPEN", g->th.warn);
 }
@@ -486,9 +503,16 @@ static void render_list(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 	if (n > 0) sel = ((sel % n) + n) % n;
 	for (int i = 0; i < n; i++) {
 		bool is = i == sel;
-		if (is) pf_gfx_rrect(g, 6, y + 1, W - 12, rowh - 3, 7, items[i].danger ? g->th.danger : g->th.accent);
+		/* Selection has to survive sunlight on a dim panel: a filled block, an outline around it in
+		 * the opposite colour, and text chosen for the fill. A slightly lighter shade of grey --
+		 * which is what this used to be in places -- disappears completely outdoors. */
+		uint16_t rowfill = items[i].danger ? g->th.danger : g->th.accent;
+		if (is) {
+			pf_gfx_rrect(g, 6, y + 1, W - 12, rowh - 3, 7, rowfill);
+			pf_gfx_frame(g, 6, y + 1, W - 12, rowh - 3, on_fill_text(g, rowfill));
+		}
 		int ty = y + (rowh - pf_gfx_line_height(B, px)) / 2;
-		uint16_t c = is ? (items[i].danger ? g->th.text : g->th.accent_text) : items[i].danger ? g->th.danger : g->th.text;
+		uint16_t c = is ? on_fill_text(g, rowfill) : items[i].danger ? g->th.danger : g->th.text;
 		pf_gfx_text(g, B, px, 16, ty, items[i].label, c);
 		if (items[i].right[0]) pf_gfx_text_right(g, B, px - 4 < 12 ? 12 : px - 4, W - 14, ty + 2, items[i].right, is ? c : g->th.muted);
 		y += rowh;
@@ -692,8 +716,22 @@ static void render_margins(pf_gfx *g, const pf_ui_state *ui)
 		char v[8];
 		snprintf(v, sizeof v, "%d", ui->margin[e]);
 		int bw = 40, bh = 26, bx = at[e].x - bw / 2, by = at[e].y - 4;
-		if (sel) pf_gfx_rrect(g, bx, by, bw, bh, 6, ui->margin_editing ? g->th.accent : g->th.card2);
-		uint16_t tc = sel && ui->margin_editing ? g->th.accent_text : sel ? g->th.text : g->th.muted;
+		/* Editing: filled accent, so there is no doubt the knob is changing this one. Merely
+		 * selected: a thick accent outline rather than a slightly lighter grey, which on a dim
+		 * panel in daylight is indistinguishable from not selected at all. */
+		uint16_t tc;
+		if (sel && ui->margin_editing) {
+			pf_gfx_rrect(g, bx, by, bw, bh, 6, g->th.accent);
+			tc = on_fill_text(g, g->th.accent);
+		} else if (sel) {
+			pf_gfx_rrect(g, bx, by, bw, bh, 6, g->th.card2);
+			pf_gfx_frame(g, bx, by, bw, bh, g->th.accent);
+			pf_gfx_frame(g, bx + 1, by + 1, bw - 2, bh - 2, g->th.accent);
+			tc = g->th.text;
+		} else {
+			pf_gfx_rrect(g, bx, by, bw, bh, 6, g->th.card2);
+			tc = g->th.muted;
+		}
 		pf_gfx_text_center(g, B, 18, at[e].x, by + 4, v, tc);
 		pf_gfx_text_center(g, R, 11, at[e].x, by + bh, EDGE[e], sel ? g->th.text : g->th.muted);
 	}
@@ -706,6 +744,7 @@ static void render_margins(pf_gfx *g, const pf_ui_state *ui)
 		bool sel = ui->margin_focus == 4 + b2;
 		int bw = 62, bh = 26, bx = W / 2 - 66 + b2 * 70, by = H / 2 - 6;
 		pf_gfx_rrect(g, bx, by, bw, bh, 6, sel ? g->th.accent : g->th.card2);
+		if (sel) pf_gfx_frame(g, bx, by, bw, bh, on_fill_text(g, g->th.accent));
 		pf_gfx_text_center(g, B, 14, bx + bw / 2, by + (bh - pf_gfx_line_height(B, 14)) / 2,
 		                   BTN[b2], sel ? g->th.accent_text : g->th.text);
 	}

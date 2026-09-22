@@ -64,7 +64,10 @@ bool pf_json_bool(cJSON *root, const char *path, bool dflt)
 	cJSON *n = pf_json_path(root, path);
 	if (cJSON_IsBool(n)) return cJSON_IsTrue(n);
 	if (cJSON_IsNumber(n)) return n->valuedouble != 0;
-	if (cJSON_IsString(n)) return !strcasecmp(n->valuestring, "true") || !strcmp(n->valuestring, "1");
+	/* An empty string is not "false", it is nothing at all -- a control that failed to write a
+	 * value. Reading it as false is how a panel set to BGR stayed stubbornly RGB. */
+	if (cJSON_IsString(n) && n->valuestring[0])
+		return !strcasecmp(n->valuestring, "true") || !strcmp(n->valuestring, "1") || !strcasecmp(n->valuestring, "yes");
 	return dflt;
 }
 const char *pf_json_str(cJSON *root, const char *path, const char *dflt)

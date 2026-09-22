@@ -272,11 +272,16 @@ static void test_settings_menu_offers_the_margin_editor(void)
 	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_SETTINGS);
 	cJSON *st = cJSON_Parse("{\"mode\":\"Stop\"}");
 	int n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
-	TEST_ASSERT_EQUAL_INT(3, n);
+	TEST_ASSERT_EQUAL_INT(4, n);
 	TEST_ASSERT_EQUAL_STRING("Screen Margins", items[0].label);
 	TEST_ASSERT_EQUAL(PF_ACT_MARGINS, items[0].act);
 	TEST_ASSERT_EQUAL_STRING("Theme", items[1].label);
-	TEST_ASSERT_EQUAL_STRING("Back", items[2].label);
+	/* Whether the panel is wired RGB or BGR is a question about the thing in front of you, so it
+	   is answered from the panel and shows its current answer beside it. */
+	TEST_ASSERT_EQUAL_STRING("Colour Order", items[2].label);
+	TEST_ASSERT_EQUAL(PF_ACT_COLOUR, items[2].act);
+	TEST_ASSERT_EQUAL_STRING("RGB", items[2].right);
+	TEST_ASSERT_EQUAL_STRING("Back", items[3].label);
 	cJSON_Delete(st);
 
 	/* the editor draws the drawable area, so a left or top margin has to move the picture, not

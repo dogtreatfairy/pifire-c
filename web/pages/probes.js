@@ -169,7 +169,7 @@ export async function renderProbes(view) {
       for (const c of m?.device_specific?.config || []) {
         if (c.hidden) continue;
         const v = d.config?.[c.label] ?? c.default;
-        const input = c.type === 'list' ? el('select', { onchange: (e) => ((d.config ??= {})[c.label] = e.target.value) }, c.list_values.map((lv, k) => el('option', { value: lv, selected: String(v) === String(lv) }, c.list_labels?.[k] ?? lv)))
+        const input = c.type === 'list' ? el('select', { onchange: (e) => ((d.config ??= {})[c.label] = e.target.value) }, c.list_values.map((lv, k) => el('option', { value: String(lv), selected: String(v) === String(lv) }, c.list_labels?.[k] ?? String(lv))))
           : el('input', { type: 'text', inputmode: c.type === 'bt_address' ? 'text' : 'decimal', value: v ?? '', onchange: (e) => ((d.config ??= {})[c.label] = c.type === 'int' || c.type === 'float' ? Number(e.target.value) : e.target.value.trim()) });
         fs.append(el('div', { class: 'field inline' }, el('div', {}, el('label', {}, c.friendly_name), el('div', { class: 'help' }, c.description)), input));
       }

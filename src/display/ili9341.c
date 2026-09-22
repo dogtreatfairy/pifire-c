@@ -395,6 +395,25 @@ static void do_action(tft_t *t, pf_action act, int arg)
 		}
 		return;
 	}
+	case PF_ACT_COLOUR: {
+		/* Written as a real JSON boolean, which is the whole story behind this setting never
+		 * having worked from the web app: a select wrote it as an empty string and the daemon read
+		 * that as false, so BGR could not be switched on however many times it was saved. */
+		bool bgr = !pf_set_bool("display.bgr", false);
+		char patch[40], err[120];
+		snprintf(patch, sizeof patch, "{\"bgr\":%s}", bgr ? "true" : "false");
+		if (pf_settings_patch("display", patch, err, sizeof err) == 0) {
+			static const uint8_t madctl[4] = { 0x40, 0x20, 0x80, 0xE0 };
+			t->bgr = bgr;
+			cmd1(t, 0x36, (uint8_t)(madctl[(t->rotation / 90) & 3] | (t->bgr ? 0x08 : 0x00)));
+			t->cfg_gen = pf_settings_generation();
+			t->last_hash = 0;   /* the pixels are the same; what the panel makes of them is not */
+			LOGI(TAG, "colour order set to %s from the panel", bgr ? "BGR" : "RGB");
+		} else {
+			LOGW(TAG, "could not save the colour order: %s", err);
+		}
+		return;
+	}
 	case PF_ACT_MANUAL:
 		t->ui.manual_focus = 0;
 		pf_nav_push(&t->ui, PF_SCR_MANUAL, 0);

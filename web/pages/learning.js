@@ -134,7 +134,37 @@ export function renderLearning(view) {
           el('button', { class: 'btn sm ghost', onclick: async () => {
             try { await navigator.clipboard.writeText(lines.join('\n')); toast('Copied'); }
             catch { toast(lines.join(' | '), false); }
-          } }, 'Copy values')));
+          } }, 'Copy values'),
+          /* A tuning library is hours of the grill's own time and a hopper of pellets, and it
+             lives on an SD card. The backup is canonical Celsius and carries the controller and
+             the plant model with it, because the numbers mean nothing detached from those. */
+          el('button', { class: 'btn sm ghost', onclick: async () => {
+            try {
+              const doc = await api('/tune/export');
+              const name = `pifire-tuning-${new Date().toISOString().slice(0, 10)}.json`;
+              const url = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }));
+              const a = el('a', { href: url, download: name });
+              document.body.append(a); a.click(); a.remove();
+              setTimeout(() => URL.revokeObjectURL(url), 10000);
+              toast('Backed up');
+            } catch (e) { toast(e.message, true); }
+          } }, 'Back Up'),
+          el('button', { class: 'btn sm ghost', onclick: () => {
+            const f = el('input', { type: 'file', accept: 'application/json,.json' });
+            f.onchange = async () => {
+              const file = f.files?.[0];
+              if (!file) return;
+              try {
+                const doc = JSON.parse(await file.text());
+                if (!await confirmDialog('Restore this tuning library?',
+                  'Everything the grill has measured is replaced by what is in the file.', 'Restore', true)) return;
+                const r = await api('/tune/import', { body: doc });
+                toast(`Restored ${r.restored} set point${r.restored === 1 ? '' : 's'}`);
+                renderTune();
+              } catch (e) { toast(e.message || 'That file is not a tuning backup', true); }
+            };
+            f.click();
+          } }, 'Restore')));
 
       if (tune.plant) {
         tuneCard.append(el('h3', { style: 'margin:16px 0 6px;font-size:.9rem' }, 'Measured Grill'),

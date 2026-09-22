@@ -45,3 +45,15 @@ int  pf_learning_anchor_list(pf_tune_anchor *out, int max);
 void pf_learning_clear_anchors(void);
 void pf_learning_reset(void);
 cJSON *pf_learning_json(void);   /* everything above, temperatures in user units */
+
+/* Back up and restore everything the grill has learned about itself.
+ *
+ * The tuning library is hours of the grill's own time and a hopper of pellets, and it lives in a
+ * database on an SD card. An export is canonical: temperatures in Celsius as the daemon holds them,
+ * so a backup taken in Fahrenheit still restores correctly on a grill set to Celsius. It carries
+ * the whole picture rather than the anchors alone -- the plant model, the feed-forward fit, and the
+ * controller and gains actually in force -- because a restored library that lands on a different
+ * controller is not the tuning that was measured. */
+cJSON *pf_learning_export(void);
+/* Returns the number of anchors restored, or -1 if the document is not one of ours. */
+int pf_learning_import(const cJSON *doc, char *err, size_t n);

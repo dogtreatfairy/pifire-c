@@ -256,6 +256,21 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 	/* The alarm table: one shared answer to what is wrong and what has not been looked at, so
 	 * clearing something on a phone clears it on the laptop too. */
 	if (get && !strcmp(p, "/alarms")) { reply(resp, 200, pf_alarms_json()); return; }
+	/* A backup of what the grill has learned about itself: hours of its own time and a hopper of
+	 * pellets, living on an SD card. */
+	if (get && !strcmp(p, "/tune/export")) { reply(resp, 200, pf_learning_export()); return; }
+	if (post && !strcmp(p, "/tune/import")) {
+		cJSON *body = req->body ? cJSON_Parse(req->body) : NULL;
+		if (!body) { reply_err(resp, 400, "expected a tuning backup"); return; }
+		char err[160];
+		int k = pf_learning_import(body, err, sizeof err);
+		cJSON_Delete(body);
+		if (k < 0) { reply_err(resp, 400, err); return; }
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddNumberToObject(o, "restored", k);
+		reply(resp, 200, o);
+		return;
+	}
 	if (post && !strcmp(p, "/alarms/ack")) {
 		cJSON *b = req->body ? cJSON_Parse(req->body) : NULL;
 		const char *key = pf_json_str(b, "key", "");
