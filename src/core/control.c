@@ -483,6 +483,12 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 		if (!strcmp(cmd->str, "pwm")) { pf_outputs_fan_pct((int)cmd->num); c->manual_until[PF_OUT_FAN] = until; break; }
 		for (int i = 0; i < PF_OUT_COUNT; i++)
 			if (!strcmp(cmd->str, pf_output_name((pf_output)i))) {
+				/* A variable-speed fan has a relay and a duty, and they are separate. Switching the
+				 * relay on while the duty still reads zero from whatever ran last gives a fan that
+				 * is on and not turning, which looks like a broken switch. Asking for a fan means
+				 * asking for air, so give it full speed unless a duty has already been chosen. */
+				if (i == PF_OUT_FAN && cmd->flag && c->cfg.dc_fan && pf_outputs_get_fan_pct() <= 0)
+					pf_outputs_fan_pct(c->cfg.pwm_max_duty > 0 ? c->cfg.pwm_max_duty : 100);
 				pf_outputs_set((pf_output)i, cmd->flag);
 				c->manual_until[i] = until;
 				if (i == PF_OUT_AUGER && cmd->flag) c->auger_on_since = now;

@@ -538,3 +538,7 @@ main.view { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scr
 .sheet-foot label { font-size: .76rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
 .donelist { scrollbar-width: none; }
 .donelist::-webkit-scrollbar { display: none; }
+/* manual fan speed: a slider that only appears once the fan is actually on */
+.fanrow { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.fanrow input[type=range] { flex: 1; }
+.fanrow .fanpct { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 42px; text-align: right; }

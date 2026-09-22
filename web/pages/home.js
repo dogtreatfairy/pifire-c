@@ -242,12 +242,22 @@ export function renderHome(view) {
     // manual output switches while monitoring (auger cap and the other interlocks still apply)
     manual.hidden = s.mode !== 'Monitor';
     if (s.mode === 'Monitor') {
-      const want = `${s.outputs.auger}|${s.outputs.fan}|${s.outputs.igniter}`;
+      const want = `${s.outputs.auger}|${s.outputs.fan}|${s.outputs.igniter}|${s.outputs.fan_pct}`;
       if (manual.dataset.state !== want) {
         manual.dataset.state = want;
         manual.innerHTML = '';
         manual.append(el('div', { class: 'muted', style: 'font-size:.8rem;margin-bottom:4px' }, 'Manual outputs — everything turns off when you press Stop'),
-          manualRow('Auger', 'auger', s.outputs.auger), manualRow('Fan', 'fan', s.outputs.fan), manualRow('Igniter', 'igniter', s.outputs.igniter));
+          manualRow('Auger', 'auger', s.outputs.auger), manualRow('Fan', 'fan', s.outputs.fan));
+        /* a variable-speed fan turns on at full and is dialled down from there, because a fan you
+           have to set a number on before it moves any air does not read as a switch */
+        if (PF.settings?.platform?.dc_fan && s.outputs.fan) {
+          const pct = el('span', { class: 'fanpct' }, `${s.outputs.fan_pct}%`);
+          const sl = el('input', { type: 'range', min: 10, max: 100, step: 5, value: s.outputs.fan_pct || 100,
+            oninput: (e) => (pct.textContent = `${e.target.value}%`),
+            onchange: (e) => cmd({ cmd: 'manual', output: 'pwm', pct: Number(e.target.value) }) });
+          manual.append(el('div', { class: 'fanrow' }, el('span', { class: 'muted' }, 'Fan speed'), sl, pct));
+        }
+        manual.append(manualRow('Igniter', 'igniter', s.outputs.igniter));
       }
     } else manual.dataset.state = '';
 
