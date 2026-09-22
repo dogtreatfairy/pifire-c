@@ -1,4 +1,5 @@
 import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, dialog, numberDialog, toast, confirmDialog, segmented } from '../app.js';
+import { fmtEta, battIcon } from './probes.js';
 
 // Doneness presets in °F (converted for °C users)
 const PRESETS = {
@@ -190,11 +191,13 @@ export function renderCook(view) {
 
     function renderProbe(into, p) {
       const hit = p.target > 0 && p.valid && p.temp >= p.target;
-      const eta = p.target > 0 && p.eta_s >= 0 ? `ETA ${fmtDur(p.eta_s)}` : '';
+      const eta = p.target > 0 && p.eta_s >= 0 ? `${fmtEta(p.eta_s)} to target` : '';
       into.append(el('div', { class: `probe ${p.role === 'Primary' ? 'primary' : ''} ${p.valid ? '' : 'invalid'} ${hit ? 'hit' : ''}`, style: 'min-height:130px' },
-        el('div', { class: 'name' }, el('span', {}, p.name), el('span', {}, p.limit_high || p.limit_low ? '⚠ alarm' : '')),
+        el('div', { class: 'name' }, el('span', {}, p.name),
+          el('span', {}, p.wireless && p.battery >= 0 ? battIcon(p.battery) : null, p.limit_high || p.limit_low ? '⚠ alarm' : '')),
         el('div', { class: 'temp' }, p.valid ? fmtTemp(p.temp) : '—', el('small', {}, degUnit())),
-        el('div', { class: 'tgt' }, p.target > 0 ? `Target ${fmtTemp(p.target)}${degUnit()} · ${AFTER.find((a) => a[0] === p.after)?.[1]}${eta ? ' · ' + eta : ''}` : 'No target'),
+        el('div', { class: 'tgt' }, p.target > 0 ? `Target ${fmtTemp(p.target)}${degUnit()} · ${AFTER.find((a) => a[0] === p.after)?.[1]}` : 'No target'),
+        eta ? el('div', { class: 'tgt eta' }, eta) : null,
         el('div', { class: 'btnrow', style: 'margin-top:8px' },
           el('button', { class: 'btn sm', onclick: async (e) => { e.stopPropagation(); const r = await targetDialog(p); if (r) cmd({ cmd: 'target', label: p.label, ...r }); } }, p.target > 0 ? 'Change' : 'Set target'),
           el('button', { class: 'btn sm ghost', onclick: async (e) => { e.stopPropagation(); const r = await limitsDialog(p); if (r) cmd({ cmd: 'limits', label: p.label, ...r }); } }, 'Alarms'))));

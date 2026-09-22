@@ -5,6 +5,15 @@ import { icon as lucide } from '../icons.js';
 // ADC ports or pairing Bluetooth probes, the ADC/RTD hardware, and the Steinhart-Hart profiles + tuner.
 
 export const btIcon = () => lucide('bluetooth', 'ic bt');
+/* A bare "42%" beside a probe name reads as anything: signal, doneness, duty. The outline fills in
+   proportion so the level is legible before the number is, and it turns red when it is nearly out. */
+export const battIcon = (pct) => {
+  const p = Math.max(0, Math.min(100, Math.round(pct)));
+  const cls = `batt ${p <= 20 ? 'low' : ''}`;
+  return el('span', { class: cls, title: `Battery ${p}%`, 'aria-label': `battery ${p} percent` },
+    el('span', { class: 'batt-body' }, el('i', { style: `width:${p}%` })),
+    el('span', { class: 'batt-pct' }, `${p}%`));
+};
 const WIRELESS_MODULES = ['ibbq', 'meater', 'chefiq'];
 /** 0..4 bars from an RSSI in dBm (same thresholds as the daemon) */
 export const barsFromRssi = (rssi) => (!rssi ? 0 : rssi >= -60 ? 4 : rssi >= -70 ? 3 : rssi >= -80 ? 2 : 1);
