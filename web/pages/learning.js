@@ -198,27 +198,32 @@ export function renderLearning(view, slots = {}) {
               } catch (e) { toast(e.message || 'That file is not a tuning backup', true); }
             };
             f.click();
-          } }, 'Restore'),
-          /* The other way back: throw the measurements away and let the Proportional Band, Integral
-             Time and Derivative Time typed on this page govern the grill again. Not the same as
-             clearing what the grill has learned, which is why it sits here rather than there. */
-          el('button', { class: 'btn sm ghost', onclick: async () => {
-            if (!await confirmDialog('Clear the measured tuning?',
-              'The tuning library, the last autotune and the grill model measured from startups are thrown away, and the grill goes back to the Proportional Band, Integral Time and Derivative Time typed on this page. Measuring them again takes hours and a hopper of pellets, so back them up first if you might want them.', 'Clear', true)) return;
-            try { await api('/tune/clear', { body: {} }); toast('Back to the typed values'); setTimeout(() => load().catch(() => {}), 400); }
-            catch (e) { toast(e.message, true); }
-          } }, 'Clear Autotune')));
+          } }, 'Restore')));
 
-      if (tune.plant) {
-        tuneCard.append(el('h3', { style: 'margin:16px 0 6px;font-size:.9rem' }, 'Measured Grill'),
-          el('div', { class: 'kv' },
-            el('div', {}, 'Gain'), el('div', {}, `${tune.plant.K}${degUnit()} per unit of feed`),
-            el('div', {}, 'Time constant'), el('div', {}, `${tune.plant.tau} s`),
-            el('div', {}, 'Dead time'), el('div', {}, `${tune.plant.theta} s`)),
-          el('p', { class: 'muted', style: 'font-size:.8rem' }, 'How much the pit moves per unit of feed, how quickly it answers, and how long before it starts. The tuning above is derived from these three.'));
-      }
     } else {
-      tuneCard.append(el('p', { class: 'muted', style: 'font-size:.8rem' }, 'Nothing measured yet. Until a run finishes, the controller uses the Proportional Band, Integral Time and Derivative Time set on this page.'));
+      tuneCard.append(el('p', { class: 'muted', style: 'font-size:.8rem' }, 'No temperature has been measured deliberately yet. Until a run finishes, the controller works from the grill model fitted to each startup, or from the Proportional Band, Integral Time and Derivative Time set on this page.'));
+    }
+
+    /* The grill model is measured whether or not a tune was ever run -- every startup rise fits one
+       -- so it is shown, and can be cleared, on its own. */
+    if (tune.plant) {
+      tuneCard.append(el('h3', { style: 'margin:16px 0 6px;font-size:.9rem' }, 'Measured Grill'),
+        el('div', { class: 'kv' },
+          el('div', {}, 'Gain'), el('div', {}, `${tune.plant.K}${degUnit()} per unit of feed`),
+          el('div', {}, 'Time constant'), el('div', {}, `${tune.plant.tau} s`),
+          el('div', {}, 'Dead time'), el('div', {}, `${tune.plant.theta} s`)),
+        el('p', { class: 'muted', style: 'font-size:.8rem' }, 'How much the pit moves per unit of feed, how quickly it answers, and how long before it starts. The tuning above is derived from these three.'));
+    }
+
+    /* The way back to the values you typed. It is a row of its own, in the section whose contents
+       it removes, rather than a second clearing button next to the one under Learning. */
+    if (anchors.length || tune.plant) {
+      tuneCard.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn sm ghost', onclick: async () => {
+        if (!await confirmDialog('Clear the measured tuning?',
+          'The tuning library, the last autotune and the grill model measured from startups are thrown away, and the grill goes back to the Proportional Band, Integral Time and Derivative Time typed on this page. Measuring them again takes hours and a hopper of pellets, so back them up first if you might want them.', 'Clear', true)) return;
+        try { await api('/tune/clear', { body: {} }); toast('Back to the typed values'); setTimeout(() => load().catch(() => {}), 400); }
+        catch (e) { toast(e.message, true); }
+      } }, 'Clear Autotune')));
     }
   }
 
