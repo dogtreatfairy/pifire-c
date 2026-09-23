@@ -12,6 +12,7 @@
 #include "controllers/registry.h"
 #include "features/cookfile.h"
 #include "features/learning.h"
+#include "features/tuner.h"
 #include "features/pellets.h"
 #include "features/weather.h"
 #include "platform/sim.h"
@@ -161,6 +162,16 @@ static void controller_destroy(pf_control *c)
 	c->cops = NULL;
 }
 
+/* The three numbers someone types on the controller page: where the grill starts before anything
+ * is measured or learned. Read straight from settings so a change made anywhere is seen. */
+static void typed_gains(const char *id, double v[3])
+{
+	char path[96];
+	snprintf(path, sizeof path, "controller.config.%s.PB", id); v[0] = pf_set_num(path, 0);
+	snprintf(path, sizeof path, "controller.config.%s.Ti", id); v[1] = pf_set_num(path, 0);
+	snprintf(path, sizeof path, "controller.config.%s.Td", id); v[2] = pf_set_num(path, 0);
+}
+
 static int controller_load(pf_control *c, const char *id)
 {
 	controller_destroy(c);
@@ -178,10 +189,23 @@ static int controller_load(pf_control *c, const char *id)
 	free(cfg);
 	if (!c->cinst) { LOGE(TAG, "controller '%s' failed to create", ops->id); return -1; }
 	c->cops = ops;
+	typed_gains(ops->id, c->typed_gains);
 	c->ctrl_reset_needed = true;
 	c->safety.ctrl_fault_count = 0;
 	LOGI(TAG, "controller '%s' loaded", ops->id);
 	return 0;
+}
+
+/* Throw away what was learned and reload the controller with it, because the controller holds its
+ * own copy in memory: clearing only the stored copy would leave the grill running a refinement the
+ * user has just asked to be rid of until the next restart. */
+static void forget_learning(pf_control *c, bool library_too, const char *why)
+{
+	if (library_too) pf_learning_reset(); else pf_learning_forget();
+	if (c->cfg.controller_id[0]) controller_load(c, c->cfg.controller_id);
+	pf_events_emit("Learning_Cleared", "Learning cleared",
+	               library_too ? "Everything the grill had learned, and the tuning library, were erased (%s)."
+	                           : "The grill starts learning again from the tuning it has (%s).", why);
 }
 
 static void controller_fill_defaults(void)
@@ -580,8 +604,14 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 		}
 		pf_settings_save();
 		pf_events_emit("Tuning_Applied", "Tuning applied", "Controller '%s' now uses the learned tuning.", c->cops->id);
+		/* Those numbers were just written into the starting values by the daemon, not typed by
+		 * anyone, so they must not read as a change of mind the next time settings are reloaded. */
+		typed_gains(c->cops->id, c->typed_gains);
 		break;
 	}
+	case PF_CMD_FORGET_LEARNING:
+		forget_learning(c, cmd->flag, cmd->str[0] ? cmd->str : "asked for");
+		break;
 	default: break;
 	}
 }
@@ -694,7 +724,9 @@ static void learn_reset_window(pf_control *c, double now)
 /* called every HOLD cycle with the applied duty */
 static void learn_track_steady(pf_control *c, double now)
 {
-	if (!pf_learning_enabled() || c->autotune.active) return;
+	/* Not while the grill is being measured: a tuning run is a disturbance from end to end, and an
+	 * observation taken during one describes the test rather than an ordinary cook. */
+	if (!pf_learning_enabled() || c->autotune.active || pf_tuner_active(NULL, NULL, NULL)) return;
 	double err = c->pit_c - c->setpoint_c;
 	bool calm = fabs(err) < 3.0 && !c->lid_open && now - c->learn.last_disturb_t > 300 && c->saturated >= 0 && c->u_applied > c->cfg.u_min + 0.005;
 	if (!calm) { c->learn.steady_since = 0; c->learn.u_sum = c->learn.pit_sum = c->learn.pit_sq = 0; c->learn.n = 0; return; }
@@ -1045,6 +1077,7 @@ static void run_hold_cycle(pf_control *c, double now)
 			.sched_PB_c = sched_PB, .sched_Ti = sched_Ti, .sched_Td = sched_Td,
 			.cycle_time_s = c->ccfg.cycle_s, .u_min = c->ccfg.u_min, .u_max = c->ccfg.u_max,
 			.target_reached = c->target_reached, .fan_on = pf_outputs_get(PF_OUT_FAN), .fan_pct = pf_outputs_get_fan_pct(),
+			.tuning = c->autotune.active || pf_tuner_active(NULL, NULL, NULL),
 			.hist = pf_history_ctrl_view(),
 		};
 		if (c->ctrl_reset_needed) { c->cops->reset(c->cinst, &in); c->ctrl_reset_needed = false; }
@@ -1254,13 +1287,24 @@ void pf_control_reload_settings(pf_control *c)
 	if (c->cfg.units != old_u) {
 		/* setpoint is stored in C; nothing to convert. Controllers get new PB in C. */
 	}
+	/* The starting values are the ground everything else is built on. When they are typed in
+	 * again, the observations, the fitted plant and the per-temperature corrections were all
+	 * learned against a grill that is no longer described the same way, so they go and the
+	 * learning starts from the new numbers. The tuning library stays: it is measured, not learned. */
+	double now_typed[3];
+	typed_gains(c->cfg.controller_id, now_typed);
+	bool typed_changed = !strcmp(old_id, c->cfg.controller_id) && c->cfg.units == old_u &&
+	                     (now_typed[0] != c->typed_gains[0] || now_typed[1] != c->typed_gains[1] ||
+	                      now_typed[2] != c->typed_gains[2]);
 	if (strcmp(old_id, c->cfg.controller_id)) controller_load(c, c->cfg.controller_id);
+	else if (typed_changed) forget_learning(c, false, "the starting values were changed");
 	else if (c->cinst && c->cops->configure) {
 		char *cfg = controller_config_json(c->cops->id, c->cfg.units);
 		c->cops->configure(c->cinst, cfg);
 		free(cfg);
 		c->ctrl_reset_needed = true;
 	}
+	memcpy(c->typed_gains, now_typed, sizeof now_typed);
 	if (c->cfg.dc_fan) pf_outputs_pwm_frequency(c->cfg.pwm_hz);
 	LOGI(TAG, "settings reloaded");
 }

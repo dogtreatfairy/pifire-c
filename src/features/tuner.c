@@ -103,6 +103,15 @@ static void finish(bool ok, const char *why, double now)
 	if (!was) return;
 	char vals[200];
 	int nv = fmt_results(vals, sizeof vals, g.run_start_wall);
+	/* A baseline is a new description of the grill, so whatever was refined on top of the old one
+	 * goes and the learning starts again from here. The library itself is kept -- this run is part
+	 * of it -- and the control thread does the clearing, because it also has to reload the
+	 * controller so the copy in memory goes with the stored one. */
+	if (ok && g.full && g.measured > 0) {
+		pf_cmd fl = { .type = PF_CMD_FORGET_LEARNING, .flag = false };
+		pf_strlcpy(fl.str, "a new baseline was measured", sizeof fl.str);
+		pf_cmdq_push(&fl);
+	}
 	if (ok && g.full)
 		pf_events_emit("Tune_Done", "Baseline tune finished",
 		               "%d of %d set point%s measured%s%s. This is the grill's baseline.%s%s",

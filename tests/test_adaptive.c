@@ -69,7 +69,10 @@ static double pit_oscillating(double t) { return 110 + 6.0 * sin(t / 40.0); }   
 static double pit_sluggish(double t) { (void)t; return 103; }                   /* sits 7 C low, no movement */
 static double pit_good(double t) { return 110 + 0.5 * sin(t / 60.0); }
 
-static void test_monitor_adjusts_scale(void)
+/* The monitor's whole job is to move the proportional band itself -- in degrees, the same number
+ * that is displayed, exported and typed into another grill -- rather than a hidden factor applied
+ * to it. A wider band is a gentler loop, a narrower one more aggressive. */
+static void test_monitor_adjusts_the_band(void)
 {
 	g_kv[0] = 0;
 	const pf_controller_ops *ops = pf_controller_find("adaptive");
@@ -77,24 +80,28 @@ static void test_monitor_adjusts_scale(void)
 	double t = 1000;
 	pf_ctrl_in in0 = { .now_s = t, .pit_c = 110, .setpoint_c = 110, .ambient_c = 20, .u_prev_applied = 0.3, .u_ff = 0.3, .cycle_time_s = 20, .u_min = 0.1, .u_max = 0.9 };
 	ops->reset(c, &in0);
+	double base = state_num(ops, c, "PB_c");
+	TEST_ASSERT_TRUE(base > 0);
 	run_window(ops, c, &t, 110, pit_good, 0);
-	TEST_ASSERT_EQUAL_DOUBLE(1.0, state_num(ops, c, "scale"));         /* well-behaved: untouched */
+	TEST_ASSERT_EQUAL_DOUBLE(base, state_num(ops, c, "PB_c"));           /* well-behaved: untouched */
 	run_window(ops, c, &t, 110, pit_oscillating, 0);
-	double s1 = state_num(ops, c, "scale");
-	TEST_ASSERT_TRUE(s1 < 1.0);                                          /* oscillation: gain reduced */
-	TEST_ASSERT_TRUE(strstr(g_kv, "\"scale\"") != NULL);                 /* persisted */
+	double b1 = state_num(ops, c, "PB_c");
+	TEST_ASSERT_TRUE_MESSAGE(b1 > base, "oscillation should widen the band");
+	TEST_ASSERT_TRUE(strstr(g_kv, "\"band_learned\"") != NULL);           /* persisted */
 	t += 2000;                                                           /* well past any set-point change */
 	run_window(ops, c, &t, 110, pit_sluggish, 0);
-	double s2 = state_num(ops, c, "scale");
-	TEST_ASSERT_TRUE(s2 > s1);                                           /* sluggish: gain raised */
+	double b2 = state_num(ops, c, "PB_c");
+	TEST_ASSERT_TRUE_MESSAGE(b2 < b1, "sluggish should tighten the band");
 	run_window(ops, c, &t, 110, pit_good, 0);                            /* flush the window with calm data */
-	double s3 = state_num(ops, c, "scale");
+	double b3 = state_num(ops, c, "PB_c");
 	run_window(ops, c, &t, 110, pit_sluggish, -1);
-	TEST_ASSERT_EQUAL_DOUBLE(s3, state_num(ops, c, "scale"));            /* saturated at u_min: not the loop's fault */
+	TEST_ASSERT_EQUAL_DOUBLE(b3, state_num(ops, c, "PB_c"));             /* saturated at u_min: not the loop's fault */
+	/* whatever it settles on stays within reach of the tuning it is refining */
+	TEST_ASSERT_TRUE(b3 >= base * 0.69 && b3 <= base * 1.61);
 	ops->destroy(c);
 }
 
-static void test_overshoot_lowers_scale(void)
+static void test_overshoot_widens_the_band(void)
 {
 	g_kv[0] = 0;
 	const pf_controller_ops *ops = pf_controller_find("adaptive");
@@ -102,6 +109,7 @@ static void test_overshoot_lowers_scale(void)
 	double t = 1000;
 	pf_ctrl_in in = { .now_s = t, .pit_c = 100, .setpoint_c = 100, .ambient_c = 20, .u_prev_applied = 0.3, .u_ff = 0.3, .cycle_time_s = 20, .u_min = 0.1, .u_max = 0.9 };
 	ops->reset(c, &in);
+	double base = state_num(ops, c, "PB_c");
 	/* step to 140: the pit climbs, overshoots to 152, then settles */
 	double path[] = { 100, 108, 118, 128, 138, 146, 152, 150, 146, 142, 141, 140, 140, 140 };
 	for (size_t k = 0; k < sizeof path / sizeof path[0]; k++) {
@@ -109,7 +117,7 @@ static void test_overshoot_lowers_scale(void)
 		in.now_s = t; in.pit_c = path[k]; in.setpoint_c = 140;
 		ops->update(c, &in, NULL);
 	}
-	TEST_ASSERT_TRUE(state_num(ops, c, "scale") < 1.0);
+	TEST_ASSERT_TRUE(state_num(ops, c, "PB_c") > base);
 	ops->destroy(c);
 }
 
@@ -146,9 +154,9 @@ static void test_integrator_seed_and_no_opposition(void)
 /* an oscillation around a 230 C set point, for the top band */
 static double pit_oscillating_hot(double t) { return 230 + 6.0 * sin(t / 40.0); }
 
-/* What the loop gain needs at 110 C is not what it needs at 230 C, so the correction the monitor
- * learns is kept per temperature band and a lesson at one end must not move the other. */
-static void test_scale_is_learned_per_temperature_band(void)
+/* What the loop needs at 110 C is not what it needs at 230 C, so the band learning settles on is
+ * kept per temperature range and a lesson at one end must not move the other. */
+static void test_the_band_is_learned_per_temperature_range(void)
 {
 	g_kv[0] = 0;
 	const pf_controller_ops *ops = pf_controller_find("adaptive");
@@ -156,29 +164,30 @@ static void test_scale_is_learned_per_temperature_band(void)
 	double t = 1000;
 	pf_ctrl_in in0 = { .now_s = t, .pit_c = 110, .setpoint_c = 110, .ambient_c = 20, .u_prev_applied = 0.3, .u_ff = 0.3, .cycle_time_s = 20, .u_min = 0.1, .u_max = 0.9 };
 	ops->reset(c, &in0);
+	double base = state_num(ops, c, "PB_c");
 
-	/* hunt badly at 110 C (a low band) until the monitor pulls the gain down */
+	/* hunt badly at 110 C (a low band) until the monitor widens the band */
 	run_window(ops, c, &t, 110, pit_oscillating, 0);
 	run_window(ops, c, &t, 110, pit_oscillating, 0);
-	double low = state_num(ops, c, "scale");
-	printf("scale at 110 C: %.3f\n", low);
-	TEST_ASSERT_TRUE_MESSAGE(low < 1.0, "hunting should pull the gain down");
+	double low = state_num(ops, c, "PB_c");
+	printf("band at 110 C: %.1f C (from %.1f)\n", low, base);
+	TEST_ASSERT_TRUE_MESSAGE(low > base, "hunting should widen the band");
 
-	/* move to 230 C: the correction from the low band must not follow */
+	/* move to 230 C: the lesson from the low band must not follow */
 	t += 2000;
 	run_window(ops, c, &t, 230, pit_good, 0);
-	double hot = state_num(ops, c, "scale");
-	printf("scale at 230 C: %.3f\n", hot);
-	TEST_ASSERT_EQUAL_DOUBLE_MESSAGE(1.0, hot, "the hot band should start from its own, untouched, correction");
+	double hot = state_num(ops, c, "PB_c");
+	printf("band at 230 C: %.1f C\n", hot);
+	TEST_ASSERT_EQUAL_DOUBLE_MESSAGE(base, hot, "the hot band should start from the tuning, untouched");
 
 	/* and a lesson up here stays up here */
 	run_window(ops, c, &t, 230, pit_oscillating_hot, 0);
 	run_window(ops, c, &t, 230, pit_oscillating_hot, 0);
-	double hot2 = state_num(ops, c, "scale");
-	TEST_ASSERT_TRUE(hot2 < 1.0);
+	double hot2 = state_num(ops, c, "PB_c");
+	TEST_ASSERT_TRUE(hot2 > base);
 	t += 2000;
 	run_window(ops, c, &t, 110, pit_good, 0);
-	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.001, low, state_num(ops, c, "scale"), "the low band should be as it was left");
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.001, low, state_num(ops, c, "PB_c"), "the low band should be as it was left");
 
 	/* both survive a restart */
 	ops->destroy(c);
@@ -186,7 +195,39 @@ static void test_scale_is_learned_per_temperature_band(void)
 	pf_ctrl_in in1 = { .now_s = t, .pit_c = 230, .setpoint_c = 230, .ambient_c = 20, .u_prev_applied = 0.3, .u_ff = 0.3, .cycle_time_s = 20, .u_min = 0.1, .u_max = 0.9 };
 	ops->reset(c, &in1);
 	ops->update(c, &in1, NULL);
-	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.001, hot2, state_num(ops, c, "scale"), "per-band corrections should persist");
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.001, hot2, state_num(ops, c, "PB_c"), "per-band learning should persist");
+	ops->destroy(c);
+}
+
+/* A tune measured after the fact is the authority, and a lesson learned against the old numbers is
+ * carried onto it in proportion rather than thrown away or applied literally: the point of the
+ * whole arrangement is that the band actually running is the tuned band, refined. */
+static void test_learning_refines_a_tune_rather_than_being_overruled_by_it(void)
+{
+	g_kv[0] = 0;
+	const pf_controller_ops *ops = pf_controller_find("adaptive");
+	void *c = ops->create("{\"_units\":\"C\",\"PB\":100,\"Ti\":400,\"Td\":30}", &env);
+	double t = 1000;
+	pf_ctrl_in in = { .now_s = t, .pit_c = 110, .setpoint_c = 110, .ambient_c = 20, .u_prev_applied = 0.3, .u_ff = 0.3, .cycle_time_s = 20, .u_min = 0.1, .u_max = 0.9 };
+	ops->reset(c, &in);
+	run_window(ops, c, &t, 110, pit_oscillating, 0);
+	run_window(ops, c, &t, 110, pit_oscillating, 0);
+	double learned = state_num(ops, c, "PB_c");
+	TEST_ASSERT_TRUE(learned > 100);
+	double ratio = learned / 100.0;
+
+	/* the tuning library now offers 60 C for this set point: that is the new anchor, and the
+	 * lesson rides on it instead of the number it was learned against */
+	for (int k = 0; k < 3; k++) {
+		t += 20;
+		pf_ctrl_in sc = { .now_s = t, .pit_c = 110, .setpoint_c = 110, .ambient_c = 20, .u_prev_applied = 0.3, .u_ff = 0.3, .cycle_time_s = 20, .u_min = 0.1, .u_max = 0.9,
+		                  .sched_PB_c = 60, .sched_Ti = 300, .sched_Td = 20 };
+		ops->update(c, &sc, NULL);
+	}
+	double now = state_num(ops, c, "PB_c");
+	printf("learned %.1f on 100, riding a tune of 60 -> %.1f\n", learned, now);
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.5, 60.0 * ratio, now, "the lesson should ride the new tune in proportion");
+	TEST_ASSERT_EQUAL_DOUBLE_MESSAGE(300.0, state_num(ops, c, "Ti"), "Ti is measured, not learned");
 	ops->destroy(c);
 }
 
@@ -241,9 +282,10 @@ int main(void)
 	pf_controllers_init(NULL);
 	UNITY_BEGIN();
 	RUN_TEST(test_model_tuning_and_persistence);
-	RUN_TEST(test_monitor_adjusts_scale);
-	RUN_TEST(test_overshoot_lowers_scale);
-	RUN_TEST(test_scale_is_learned_per_temperature_band);
+	RUN_TEST(test_monitor_adjusts_the_band);
+	RUN_TEST(test_overshoot_widens_the_band);
+	RUN_TEST(test_the_band_is_learned_per_temperature_range);
+	RUN_TEST(test_learning_refines_a_tune_rather_than_being_overruled_by_it);
 	RUN_TEST(test_gain_change_does_not_jolt_the_integrator);
 	RUN_TEST(test_integrator_seed_and_no_opposition);
 	return UNITY_END();

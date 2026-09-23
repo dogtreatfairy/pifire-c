@@ -6,6 +6,12 @@ import { icon as lucide } from '../icons.js';
 // trait added in C shows up in these dropdowns on the next load.
 
 const LEVELS = [['info', 'Info'], ['normal', 'Normal'], ['high', 'High'], ['critical', 'Critical']];
+// The list reads worst first, then alphabetically inside each level: the thing most worth knowing
+// about is at the top, and anything else is where its name says it will be rather than where it
+// happened to be added.
+const RANK = { critical: 0, high: 1, normal: 2, info: 3 };
+const byUrgencyThenName = (a, b) => (RANK[a.level] ?? 2) - (RANK[b.level] ?? 2) ||
+  String(a.name || a.id).localeCompare(String(b.name || b.id), undefined, { sensitivity: 'base', numeric: true });
 const SINKS = [['app', 'In App'], ['webpush', 'This Device'], ['pushover', 'Pushover'], ['ntfy', 'ntfy']];
 const ROLES = [['any', 'Any Probe'], ['Food', 'Food Probes'], ['Primary', 'The Pit Probe'], ['Aux', 'Aux Probes']];
 const LINKS = [['any', 'Wired & Bluetooth'], ['bluetooth', 'Bluetooth Only'], ['wired', 'Wired Only']];
@@ -382,7 +388,7 @@ export async function renderRules(view) {
 
   const draw = () => {
     list.innerHTML = '';
-    for (const r of rules) {
+    for (const r of [...rules].sort(byUrgencyThenName)) {
       const sw = el('label', { class: 'switch', onclick: (e) => e.stopPropagation() },
         el('input', { type: 'checkbox', checked: r.enabled !== false, onchange: async (e) => { r.enabled = e.target.checked; await save(); } }), el('span'));
       list.append(el('div', { class: `item rule-row ${r.enabled === false ? 'off' : ''}` },

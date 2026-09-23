@@ -89,6 +89,9 @@ typedef struct {
 	pf_cycle cycle; pf_cycle_cfg ccfg;
 	const pf_controller_ops *cops; void *cinst; pf_env cenv; pf_ctrl_dbg dbg;
 	double u_raw, u_applied; int saturated; bool ctrl_reset_needed;
+	/* The starting Proportional Band, Integral Time and Derivative Time as last seen, so a change
+	 * typed on the controller page can be told apart from the daemon writing back a tuning. */
+	double typed_gains[3];
 	bool target_reached;
 	bool fan_pid_active;
 	/* lid / fan */

@@ -1,5 +1,5 @@
 /* Adaptive controller: learned feed-forward plus a self-tuning PID on the error.
- *   u = ff_gain * u_ff(setpoint, ambient)  +  scale * (Kp*e + Ki*∫e + Kd*de/dt)
+ *   u = ff_gain * u_ff(setpoint, ambient)  +  Kp*e + Ki*∫e + Kd*de/dt
  * u_ff comes from the daemon (features/learning.c) via pf_ctrl_in.u_ff; the PID only has to
  * correct what the feed-forward gets wrong, so it can be gentle (large PB, long Ti).
  *
@@ -8,8 +8,10 @@
  *    (K, tau, theta) and derives SIMC gains from it; a relay autotune result (Ku, Pu) is used the
  *    same way. Learned gains are blended with the previous ones and persisted (env kv "learned").
  *  - a performance monitor watches every 10 minutes of Hold: sustained oscillation lowers the gain
- *    scale, a sluggish loop that sits off target raises it, big overshoot after a set-point change
- *    lowers it. The scale is persisted too, so the grill keeps getting better across cooks.
+ *    the band itself: a sluggish loop that sits off target narrows it, big overshoot after a
+ *    set-point change widens it, always staying near the tuning it is refining. The refined band is
+ *    persisted, so the grill keeps getting better across cooks and the number on display is the
+ *    number in force.
  * Integration is conditional (paused while saturated) and the integrator is seeded for bumpless
  * transfer. */
 #include "controllers/pid_common.h"
@@ -23,8 +25,10 @@
 
 #define WINDOW_S      600.0   /* performance window */
 #define DEADBAND_C    1.5     /* error must cross +/- this to count as an oscillation half-cycle */
-#define SCALE_MIN     0.4
-#define SCALE_MAX     2.0
+/* How far learning may move the band away from the tuning it is refining. A measurement is
+ * evidence; learning is a correction to it, not a licence to replace it. */
+#define LEARN_MIN     0.7
+#define LEARN_MAX     1.6
 #define IBAND_C       8.5     /* +/- 15 F: entering this band trims the integrator (approach wind-up) */
 #define THETA_MIN     40.0
 #define THETA_MAX     240.0
@@ -38,11 +42,17 @@ typedef struct {
 	/* configured (user) gains */
 	double cfg_PB_c, cfg_Ti, cfg_Td, ff_gain;
 	/* learned gains, used when valid and auto_tune */
-	double l_PB_c, l_Ti, l_Td, scale; bool l_valid; double l_ts; char l_src[8];
+	double l_PB_c, l_Ti, l_Td; bool l_valid; double l_ts; char l_src[8];
 	/* The loop gain correction the monitor learns, kept per temperature band. A grill that hunts
 	 * at 180 F is not necessarily hunting at 450 F, and one number across the whole range would
 	 * average away exactly the difference this controller is trying to learn. */
-	double band_scale[PF_SCALE_BANDS];
+	/* the band learning settled on for each temperature range, in degrees -- not a factor */
+	double band_learned[PF_SCALE_BANDS];
+	/* The band each lesson was learned against, so a later tune can inherit the lesson instead of
+	 * discarding it: what learning actually discovered is that this grill wants a band some
+	 * fraction of whatever was measured, and that fraction still holds when the measurement moves. */
+	double band_anchor[PF_SCALE_BANDS];
+	double band_PB_c;   /* the lesson for the band being held right now, re-anchored; 0 when there is none */
 	/* tuning autotune measured at this set point, handed over fresh each cycle */
 	double sch_PB_c, sch_Ti, sch_Td; bool sch_valid;
 	/* effective */
@@ -73,6 +83,7 @@ static double clampd(double v, double lo, double hi) { return v < lo ? lo : v > 
 static const double BAND_EDGE_C[PF_SCALE_BANDS - 1] = { 93.3, 135.0, 204.4 };
 
 static void use_band(ad_t *s, double setpoint_c);
+static double anchor_PB(const ad_t *s);
 
 static int band_of(double setpoint_c)
 {
@@ -82,17 +93,24 @@ static int band_of(double setpoint_c)
 
 static void recompute(ad_t *s)
 {
-	/* Order of preference: what autotune measured at this very set point, then what the
-	 * grill taught us over ordinary cooks, then the configured numbers. The schedule wins because
-	 * it is the only one of the three that knows which set point we are holding. */
+	/* One answer, in degrees, and it is the one on display. The tune is the authority: the library
+	 * entry measured at this very set point if there is one, else the fit from the last cook, else
+	 * the numbers that were typed in. Learning then refines that answer per temperature range, and
+	 * because its lesson is carried as a proportion of whatever it was learned against, a later
+	 * tune replaces the measurement without throwing the lesson away.
+	 *
+	 * There is no gain factor anywhere in here any more. Learning used to multiply whichever tuning
+	 * won by a number nobody could see, so the band actually in force was never the band on
+	 * display: a measured 123 running at 1.15 is a 107 that appears nowhere. Written down and typed
+	 * into another identical grill, the number carried none of what made this one work. */
 	bool use_sched = s->auto_tune && s->sch_valid;
 	bool use_learned = s->auto_tune && s->l_valid;
-	s->PB_c = use_sched ? s->sch_PB_c : use_learned ? s->l_PB_c : s->cfg_PB_c;
+	double anchor = anchor_PB(s);
+	s->PB_c = s->auto_tune && s->band_PB_c > 0 ? s->band_PB_c : anchor;
 	s->Ti = use_sched ? s->sch_Ti : use_learned ? s->l_Ti : s->cfg_Ti;
 	s->Td = use_sched ? s->sch_Td : use_learned ? s->l_Td : s->cfg_Td;
-	double sc = s->auto_tune ? s->scale : 1.0;   /* s->scale mirrors the band in use */
 	double ki_was = s->ki;
-	s->kp = s->PB_c > 0 ? -sc / s->PB_c : 0;
+	s->kp = s->PB_c > 0 ? -1.0 / s->PB_c : 0;
 	s->ki = s->Ti > 0 ? s->kp / s->Ti : 0;
 	s->kd = s->kp * s->Td;
 	/* The integrator holds an accumulated error, and its contribution to the output is ki times
@@ -106,31 +124,34 @@ static void recompute(ad_t *s)
 static void save_learned(ad_t *s)
 {
 	if (!s->env || !s->env->kv_put) return;
-	char buf[320];
-	snprintf(buf, sizeof buf, "{\"PB_c\":%.2f,\"Ti\":%.1f,\"Td\":%.1f,\"scale\":%.3f,\"band_scale\":[%.3f,%.3f,%.3f,%.3f],\"valid\":%s,\"ts\":%.0f,\"src\":\"%s\",\"theta\":%.0f}",
-	         s->l_PB_c, s->l_Ti, s->l_Td, s->scale,
-	         s->band_scale[0], s->band_scale[1], s->band_scale[2], s->band_scale[3],
+	char buf[512];
+	snprintf(buf, sizeof buf, "{\"PB_c\":%.2f,\"Ti\":%.1f,\"Td\":%.1f,\"band_learned\":[%.2f,%.2f,%.2f,%.2f],"
+	         "\"band_anchor\":[%.2f,%.2f,%.2f,%.2f],\"valid\":%s,\"ts\":%.0f,\"src\":\"%s\",\"theta\":%.0f}",
+	         s->l_PB_c, s->l_Ti, s->l_Td,
+	         s->band_learned[0], s->band_learned[1], s->band_learned[2], s->band_learned[3],
+	         s->band_anchor[0], s->band_anchor[1], s->band_anchor[2], s->band_anchor[3],
 	         s->l_valid ? "true" : "false", s->l_ts, s->l_src, s->theta);
 	s->env->kv_put(s->env, "learned", buf);
 }
 
 static void load_learned(ad_t *s)
 {
-	s->scale = 1.0;
-	for (int i = 0; i < PF_SCALE_BANDS; i++) s->band_scale[i] = 1.0;
+	for (int i = 0; i < PF_SCALE_BANDS; i++) { s->band_learned[i] = 0; s->band_anchor[i] = 0; }
 	if (!s->env || !s->env->kv_get) return;
-	char buf[256];
+	char buf[512];
 	if (s->env->kv_get(s->env, "learned", buf, sizeof buf) != 0) return;
 	cJSON *j = cJSON_Parse(buf);
 	if (!j) return;
 	s->l_PB_c = pf_pid_cfg_num(j, "PB_c", 0); s->l_Ti = pf_pid_cfg_num(j, "Ti", 0); s->l_Td = pf_pid_cfg_num(j, "Td", 0);
-	s->scale = clampd(pf_pid_cfg_num(j, "scale", 1.0), SCALE_MIN, SCALE_MAX);
+
 	/* Per-band corrections, or the old single value spread across every band when upgrading from
 	 * a release that only had one. */
-	cJSON *bs = cJSON_GetObjectItem(j, "band_scale");
+	cJSON *bs = cJSON_GetObjectItem(j, "band_learned"), *ba = cJSON_GetObjectItem(j, "band_anchor");
 	for (int i = 0; i < PF_SCALE_BANDS; i++) {
 		cJSON *it = cJSON_IsArray(bs) ? cJSON_GetArrayItem(bs, i) : NULL;
-		s->band_scale[i] = clampd(cJSON_IsNumber(it) ? it->valuedouble : s->scale, SCALE_MIN, SCALE_MAX);
+		cJSON *an = cJSON_IsArray(ba) ? cJSON_GetArrayItem(ba, i) : NULL;
+		s->band_learned[i] = cJSON_IsNumber(it) && it->valuedouble > 0 ? it->valuedouble : 0;
+		s->band_anchor[i] = cJSON_IsNumber(an) && an->valuedouble > 0 ? an->valuedouble : 0;
 	}
 	s->l_ts = pf_pid_cfg_num(j, "ts", 0);
 	s->theta = clampd(pf_pid_cfg_num(j, "theta", THETA_DEFAULT), THETA_MIN, THETA_MAX);
@@ -162,7 +183,7 @@ static void *create(const char *json, const pf_env *env)
 	s->theta = THETA_DEFAULT;
 	load_learned(s);
 	apply_config(s, json);
-	if (env && env->log && s->l_valid) env->log(PF_LVL_INFO, "adaptive", "learned tuning restored: PB %.1f C, Ti %.0f s, Td %.0f s, gain x%.2f (%s)", s->l_PB_c, s->l_Ti, s->l_Td, s->scale, s->l_src);
+	if (env && env->log && s->l_valid) env->log(PF_LVL_INFO, "adaptive", "learned tuning restored: PB %.1f C, Ti %.0f s, Td %.0f s (%s)", s->l_PB_c, s->l_Ti, s->l_Td, s->l_src);
 	return s;
 }
 static void destroy(void *self) { free(self); }
@@ -199,33 +220,61 @@ static void reset(void *self, const pf_ctrl_in *in)
 	s->in_band = fabs(s->last_err) <= IBAND_C;
 }
 
-/* Point s->scale at the band this set point falls in, so recompute() and the published note both
- * show the correction actually in force. */
+/* Use the lesson learning settled on for this temperature range, so recompute() and the published
+ * note both show the tuning actually in force. A lesson learned against an older tune is carried
+ * onto the current one in proportion, not thrown away and not applied literally: "a fifth wider
+ * than what was measured here" survives a new measurement, "128 degrees" does not. A range nothing
+ * has been learned about runs the tune as measured. */
 static void use_band(ad_t *s, double setpoint_c)
 {
-	double v = s->band_scale[band_of(setpoint_c)];
-	if (v <= 0) v = 1.0;
-	if (fabs(v - s->scale) < 1e-6) return;
-	s->scale = v;
+	int b = band_of(setpoint_c);
+	double v = s->band_learned[b], a0 = s->band_anchor[b], a = anchor_PB(s);
+	double want = 0;
+	if (v > 0) want = a0 > 0 && a > 0 ? clampd(a * (v / a0), a * LEARN_MIN, a * LEARN_MAX) : v;
+	s->band_PB_c = want;
 	recompute(s);
 }
 
-static void set_scale(ad_t *s, double v, const char *why)
+/* What the autotune (or, failing that, what was typed) says the band should be. Learning refines
+ * that answer; it does not get to invent its own. */
+static double anchor_PB(const ad_t *s)
 {
-	v = clampd(v, SCALE_MIN, SCALE_MAX);
-	if (fabs(v - s->scale) < 1e-6) return;
+	if (s->auto_tune && s->sch_valid && s->sch_PB_c > 0) return s->sch_PB_c;
+	if (s->auto_tune && s->l_valid && s->l_PB_c > 0) return s->l_PB_c;
+	return s->cfg_PB_c > 0 ? s->cfg_PB_c : s->l_PB_c;
+}
+
+/* `tighter` above 1 makes the loop more aggressive, which means a narrower band. The result is
+ * kept near the tuning it is refining: learning that may wander to half or double its anchor is
+ * not refining a measurement, it is replacing it with a guess. */
+static void adjust_band(ad_t *s, double tighter, const char *why)
+{
+	double base = s->PB_c > 0 ? s->PB_c : anchor_PB(s);
+	if (!(base > 0) || !(tighter > 0)) return;
+	double a = anchor_PB(s);
+	double want = base / tighter;
+	if (a > 0) want = clampd(want, a * LEARN_MIN, a * LEARN_MAX);
+	if (fabs(want - s->PB_c) < 1e-6) return;
 	int b = band_of(s->setpoint_c);
-	s->scale = v;
-	s->band_scale[b] = v;
+	/* The lesson belongs to the band, alongside the tune it refines; it does not overwrite the
+	 * measurement, which is what a later export and a later tune both need to stay honest. */
+	s->band_learned[b] = want;
+	s->band_anchor[b] = a > 0 ? a : want;
+	s->band_PB_c = want;
 	recompute(s);
 	save_learned(s);
-	if (s->env && s->env->log) s->env->log(PF_LVL_INFO, "adaptive", "loop gain x%.2f around %.0f C (%s)", v, s->setpoint_c, why);
+	if (s->env && s->env->log)
+		s->env->log(PF_LVL_INFO, "adaptive", "band %.1f C around %.0f C, refining %.1f C (%s)", want, s->setpoint_c, a, why);
 }
 
 /* rule-based self-correction from the last window of Hold behaviour */
 static void monitor(ad_t *s, const pf_ctrl_in *in, double e)
 {
 	if (!s->auto_tune) return;
+	/* A tuning run drives the loop on purpose. Every window through it would look like hunting,
+	 * and the correction learned from it would be a correction for the test rather than for the
+	 * grill -- clouding the very measurement it is standing next to. */
+	if (in->tuning) { window_reset(s, in->now_s); return; }
 	double a = fabs(e);
 	s->win_abs_sum += a; s->win_n++;
 	if (a > s->win_peak) s->win_peak = a;
@@ -241,15 +290,15 @@ static void monitor(ad_t *s, const pf_ctrl_in *in, double e)
 		bool timeout = in->now_s - s->step_t > 3600;
 		if (s->settled_n >= 3 || timeout) {
 			s->step_open = false;
-			if (!timeout && s->step_peak > 5.0 && s->step_peak > 0.15 * fabs(s->step_size)) set_scale(s, s->scale * 0.9, "overshoot after set-point change");
+			if (!timeout && s->step_peak > 5.0 && s->step_peak > 0.15 * fabs(s->step_size)) adjust_band(s, 0.9, "overshoot after a set-point change");
 		}
 	}
 	if (in->now_s - s->win_start < WINDOW_S || s->win_n < 10) return;
 	double mean_abs = s->win_abs_sum / s->win_n;
 	bool mostly_free = s->win_sat < s->win_n / 4;
 	bool step_recent = s->step_open || in->now_s - s->step_t < 1200;
-	if (s->win_changes >= 3 && s->win_peak >= 3.0) set_scale(s, s->scale * 0.85, "sustained oscillation");
-	else if (mean_abs > 3.0 && s->win_changes <= 1 && mostly_free && !step_recent) set_scale(s, s->scale * (mean_abs > 6.0 ? 1.25 : 1.15), "slow to reach target");
+	if (s->win_changes >= 3 && s->win_peak >= 3.0) adjust_band(s, 0.85, "sustained oscillation");
+	else if (mean_abs > 3.0 && s->win_changes <= 1 && mostly_free && !step_recent) adjust_band(s, mean_abs > 6.0 ? 1.25 : 1.15, "slow to reach target");
 	window_reset(s, in->now_s);
 }
 
@@ -283,7 +332,9 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 		s->sch_PB_c = in->sched_PB_c;
 		s->sch_Ti = in->sched_Ti;
 		s->sch_Td = in->sched_Td;
-		recompute(s);
+		/* A different entry from the tuning library is a different anchor, so the lesson for this
+		 * band is re-applied against it rather than left pointing at the old one. */
+		use_band(s, in->setpoint_c);
 	}
 	double dt = in->now_s - s->last_t;
 	if (dt <= 0) dt = in->cycle_time_s > 0 ? in->cycle_time_s : 1;
@@ -334,7 +385,8 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 	monitor(s, in, e);
 	if (dbg) {
 		dbg->p = s->p; dbg->i = s->i; dbg->d = s->d; dbg->ff = s->ff; dbg->error = e; dbg->derivative = derv; dbg->integral = s->inter;
-		snprintf(dbg->note, sizeof dbg->note, "ff %.2f · PB %.0f Ti %.0f Td %.0f ×%.2f%s%s", s->ff, pf_delta_from_c(s->PB_c, s->units), s->Ti, s->Td, s->auto_tune ? s->scale : 1.0, s->auto_tune && s->sch_valid ? " tuned" : s->auto_tune && s->l_valid ? " learned" : "", s->coasting ? " · coasting" : "");
+		/* PB, Ti and Td here are what the loop is running on, with nothing applied on top. */
+		snprintf(dbg->note, sizeof dbg->note, "ff %.2f · PB %.0f Ti %.0f Td %.0f%s%s", s->ff, pf_delta_from_c(s->PB_c, s->units), s->Ti, s->Td, s->auto_tune && s->sch_valid ? " tuned" : s->auto_tune && s->l_valid ? " learned" : "", s->coasting ? " · coasting" : "");
 	}
 	return s->u;
 }
@@ -345,8 +397,8 @@ static int state_json(void *self, char *out, size_t n)
 {
 	ad_t *s = self;
 	return snprintf(out, n, "{\"kp\":%.6g,\"ki\":%.6g,\"kd\":%.6g,\"ff\":%.4f,\"p\":%.4f,\"i\":%.4f,\"d\":%.4f,\"u\":%.4f,"
-	                "\"PB_c\":%.2f,\"Ti\":%.1f,\"Td\":%.1f,\"scale\":%.3f,\"learned\":%s,\"auto_tune\":%s,\"learned_ts\":%.0f,\"src\":\"%s\"}",
-	                s->kp, s->ki, s->kd, s->ff, s->p, s->i, s->d, s->u, s->PB_c, s->Ti, s->Td, s->auto_tune ? s->scale : 1.0,
+	                "\"PB_c\":%.2f,\"Ti\":%.1f,\"Td\":%.1f,\"learned\":%s,\"auto_tune\":%s,\"learned_ts\":%.0f,\"src\":\"%s\"}",
+	                s->kp, s->ki, s->kd, s->ff, s->p, s->i, s->d, s->u, s->PB_c, s->Ti, s->Td,
 	                s->l_valid ? "true" : "false", s->auto_tune ? "true" : "false", s->l_ts, s->l_src);
 }
 
@@ -386,10 +438,15 @@ static void apply_tuning(void *self, double Ku, double Pu, double K, double tau,
 	if (s->l_valid && !relay) { PB = 0.5 * (PB + s->l_PB_c); Ti = 0.5 * (Ti + s->l_Ti); Td = 0.5 * (Td + s->l_Td); }
 	s->l_PB_c = PB; s->l_Ti = Ti; s->l_Td = Td; s->l_valid = true; s->l_ts = (double)time(NULL);
 	snprintf(s->l_src, sizeof s->l_src, "%s", src);
-	/* a fresh model resets the empirical scale toward neutral, keeping half of what was learned */
-	/* a fresh model supersedes half of what the monitor had concluded, in every band */
-	for (int i = 0; i < PF_SCALE_BANDS; i++) s->band_scale[i] = clampd(1.0 + 0.5 * (s->band_scale[i] - 1.0), SCALE_MIN, SCALE_MAX);
-	s->scale = clampd(1.0 + 0.5 * (s->scale - 1.0), SCALE_MIN, SCALE_MAX);
+	/* A fresh measurement supersedes what the monitor had concluded: the bands it had settled on
+	 * were corrections to the previous tuning, and half of that correction is kept as a hint
+	 * rather than carried over whole onto a number it was never measured against. */
+	for (int i = 0; i < PF_SCALE_BANDS; i++) {
+		double r = s->band_learned[i] > 0 && s->band_anchor[i] > 0 ? s->band_learned[i] / s->band_anchor[i] : 0;
+		if (!(r > 0)) { s->band_learned[i] = 0; s->band_anchor[i] = 0; continue; }
+		s->band_learned[i] = PB * clampd(1.0 + 0.5 * (r - 1.0), LEARN_MIN, LEARN_MAX);
+		s->band_anchor[i] = PB;
+	}
 	recompute(s);
 	save_learned(s);
 	if (s->env && s->env->log) s->env->log(PF_LVL_INFO, "adaptive", "tuning learned from %s: PB %.1f C, Ti %.0f s, Td %.0f s%s", src, PB, Ti, Td, s->auto_tune ? "" : " (auto-tune off: stored only)");

@@ -12,6 +12,7 @@ int pf_db_exec(const char *sql);
 /* Key/value store (JSON text) namespaced by component, e.g. ("controller.pid", "tuning"). */
 int pf_db_kv_get(const char *ns, const char *key, char *out, size_t n); /* 0 found, 1 missing, <0 error */
 int pf_db_kv_put(const char *ns, const char *key, const char *json);
+int pf_db_kv_delete(const char *ns, const char *key);
 int pf_db_kv_delete_ns(const char *ns);
 
 /* Event log */

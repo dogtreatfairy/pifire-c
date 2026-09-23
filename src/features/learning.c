@@ -1,6 +1,7 @@
 #include "features/learning.h"
 #include "core/db.h"
 #include "core/log.h"
+#include "controllers/registry.h"
 #include "core/settings.h"
 #include "core/util.h"
 #include "pifire/common.h"
@@ -337,6 +338,31 @@ void pf_learning_clear_anchors(void)
 unsigned pf_learning_autotune_gen(void) { pthread_mutex_lock(&g_mu); unsigned v = g_at_gen; pthread_mutex_unlock(&g_mu); return v; }
 
 pf_autotune_result pf_learning_autotune(void) { pthread_mutex_lock(&g_mu); pf_autotune_result r = g_at; pthread_mutex_unlock(&g_mu); return r; }
+
+void pf_learning_forget(void)
+{
+	/* Everything the grill worked out for itself, and nothing it was told or measured on purpose.
+	 *
+	 * A tune is a measurement: someone lit the grill, it oscillated the loop deliberately and wrote
+	 * down what it found, and that stays. What goes is the refinement built on top of it -- the
+	 * steady-state observations behind the feed-forward, the plant fitted from ordinary startups,
+	 * and the per-temperature corrections each controller has settled on. Those were all learned
+	 * against numbers that have just been replaced, so keeping them would mean refining an answer
+	 * nobody is using any more. */
+	pf_db_exec("DELETE FROM observations");
+	pf_db_kv_delete("learning", "fopdt");
+	for (int i = 0; i < pf_controller_count(); i++) {
+		const pf_controller_ops *ops = pf_controller_at(i);
+		char ns[64];
+		snprintf(ns, sizeof ns, "controller.%s", ops->id);
+		pf_db_kv_delete(ns, "learned");
+	}
+	pthread_mutex_lock(&g_mu);
+	memset(&g_fopdt, 0, sizeof g_fopdt);
+	g_fit_dirty = true;
+	pthread_mutex_unlock(&g_mu);
+	LOGI(TAG, "learning cleared; the tuning library kept");
+}
 
 void pf_learning_reset(void)
 {

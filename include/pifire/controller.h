@@ -11,7 +11,7 @@
  */
 #include "pifire/common.h"
 
-#define PF_CONTROLLER_ABI 2
+#define PF_CONTROLLER_ABI 3
 
 typedef struct {
 	double t;          /* monotonic seconds */
@@ -51,6 +51,11 @@ typedef struct {
 	bool   target_reached;               /* pit has reached setpoint at least once this HOLD */
 	bool   fan_on;
 	int    fan_pct;
+	/* A measurement of the grill is in progress: a relay autotune, or the settling either side of
+	 * one during a tuning run. The loop is deliberately being disturbed, so a controller that
+	 * learns from how well it is holding must not draw conclusions from any of it -- what it would
+	 * learn is the shape of the test, not the grill. */
+	bool   tuning;
 	const pf_history *hist;
 } pf_ctrl_in;
 

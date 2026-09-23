@@ -49,6 +49,13 @@ void pf_learning_put_anchor(const pf_tune_anchor *a);
 bool pf_learning_gains(double setpoint_c, double *PB_c, double *Ti, double *Td);
 int  pf_learning_anchor_list(pf_tune_anchor *out, int max);
 void pf_learning_clear_anchors(void);
+/* Forget what the grill taught itself and start again, keeping the tuning library: the
+ * observations, the passively fitted plant, and the per-temperature corrections the controller has
+ * settled on. This is what happens when the ground those were learned against moves -- a new
+ * baseline measured, or the starting Proportional Band, Integral Time or Derivative Time typed in
+ * again -- and it is what the "Clear learning" button does. */
+void pf_learning_forget(void);
+/* Erase everything, the tuning library included. */
 void pf_learning_reset(void);
 cJSON *pf_learning_json(void);   /* everything above, temperatures in user units */
 

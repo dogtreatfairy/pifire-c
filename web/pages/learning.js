@@ -217,7 +217,12 @@ export function renderLearning(view) {
       el('p', { class: 'muted', style: 'font-size:.85rem' }, `Model: feed = ${f.a.toFixed(3)} + ${f.b_per_degC.toFixed(4)} × (set point − ambient, °C). Fitted from ${f.observations} observation${f.observations === 1 ? '' : 's'}${f.observations ? `, rms error ${f.rms.toFixed(3)}` : ' (using the built-in prior until real cooks accumulate)'}.`),
       el('div', { class: 'kv' }, ...f.examples.flatMap((e) => [el('div', {}, `Hold ${e.setpoint}${degUnit()} at ${f.example_ambient}${degUnit()} ambient`), el('div', {}, `${(e.u * 100).toFixed(0)}% feed`)])),
       s?.mode === 'Hold' ? el('p', { class: 'muted', style: 'font-size:.85rem' }, `Right now: feed-forward ${(s.cycle.u_ff * 100).toFixed(0)}%, applied ${(s.cycle.u_applied * 100).toFixed(0)}%.`) : null,
-      el('div', { class: 'form-actions' }, el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog('Reset learning?', 'All observations, plant estimates and the tuning library are erased.', 'Reset', true)) { await api('/learning/reset', { body: {} }); load(); } } }, 'Reset learning'))].filter(Boolean));
+      // Two different things, named for what survives each one. Clearing is the ordinary one: the
+      // grill keeps what it measured on purpose and starts refining it again. Erasing throws the
+      // measurements away too, and costs hours and a hopper of pellets to get back.
+      el('div', { class: 'form-actions' },
+        el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog('Clear learning?', 'Observations, the fitted grill model and the corrections the controller has settled on are cleared. The tuning library is kept, and the grill starts learning again from it.', 'Clear', true)) { await api('/learning/forget', { body: {} }); load(); } } }, 'Clear learning'),
+        el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog('Erase everything?', 'The tuning library goes too, along with everything learned. Measuring a new baseline takes hours and a hopper of pellets.', 'Erase', true)) { await api('/learning/reset', { body: {} }); load(); } } }, 'Erase everything'))].filter(Boolean));
 
     const p = data.plant;
     plantCard.innerHTML = '';

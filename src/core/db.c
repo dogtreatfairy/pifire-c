@@ -123,6 +123,17 @@ int pf_db_kv_put(const char *ns, const char *key, const char *json)
 	return rc;
 }
 
+int pf_db_kv_delete(const char *ns, const char *key)
+{
+	sqlite3_stmt *st;
+	if (sqlite3_prepare_v2(g_db, "DELETE FROM kv WHERE ns=? AND key=?", -1, &st, NULL) != SQLITE_OK) return -1;
+	sqlite3_bind_text(st, 1, ns, -1, SQLITE_STATIC);
+	sqlite3_bind_text(st, 2, key, -1, SQLITE_STATIC);
+	int rc = sqlite3_step(st) == SQLITE_DONE ? 0 : -1;
+	sqlite3_finalize(st);
+	return rc;
+}
+
 int pf_db_kv_delete_ns(const char *ns)
 {
 	sqlite3_stmt *st;
