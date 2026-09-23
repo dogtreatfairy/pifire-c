@@ -499,6 +499,31 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 12 (%s)", stock ? "a profile is now the 250 F baseline alone" : "tuning set points left as edited");
 			added = 1;
 		}
+		if (ver < 13) {
+			/* A hopper sensor looks at a sloping pile of pellets through a tube, so its reading
+			 * wanders by a few per cent while the hopper only ever gets emptier. Sitting on a
+			 * threshold, it crossed back and forth and announced itself each time: 18, then 21,
+			 * then 13, then 21. A deadband makes the alarm clear only once the reading has
+			 * genuinely recovered, rather than the moment it grazes back over the line. The
+			 * deviation rules get a smaller one for the same reason. */
+			static const struct { const char *id; double db; } DB[] = {
+				{ "hopper-low", 5 }, { "hopper-critical", 4 }, { "grill-hot", 3 }, { "grill-cold", 3 },
+			};
+			int fixed = 0;
+			cJSON *rules = pf_json_path(g_root, "notify.rules"), *r;
+			cJSON_ArrayForEach(r, rules) {
+				const char *id = pf_json_str(r, "id", "");
+				for (size_t i = 0; i < sizeof DB / sizeof DB[0]; i++) {
+					if (strcmp(id, DB[i].id) || cJSON_GetObjectItem(r, "deadband")) continue;
+					cJSON_AddNumberToObject(r, "deadband", DB[i].db);
+					fixed++;
+				}
+			}
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 13); else cJSON_AddNumberToObject(g_root, "schema_version", 13);
+			LOGI(TAG, "settings migrated to schema 13 (%d rule%s given a deadband)", fixed, fixed == 1 ? "" : "s");
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);

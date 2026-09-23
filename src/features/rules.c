@@ -229,7 +229,11 @@ static val resolve_operand(const cJSON *status, const inst *in, const cJSON *v)
 	return v_none();
 }
 
-static bool compare(const val *a, const char *op, const val *b, const val *b2)
+/* `db` is the deadband: how far the reading must come back before the condition is allowed to go
+ * false again, applied only while the rule is already reporting. Without it a reading that sits on
+ * its threshold re-arms and re-fires every time it wobbles across -- a hopper sensor reading 18,
+ * then 21, then 13, then 21 announces itself four times while the hopper simply gets emptier. */
+static bool compare(const val *a, const char *op, const val *b, const val *b2, double db)
 {
 	if (!strcmp(op, "unavailable")) return a->t == VT_NONE;
 	if (!strcmp(op, "available")) return a->t != VT_NONE;
@@ -258,19 +262,21 @@ static bool compare(const val *a, const char *op, const val *b, const val *b2)
 	 * compare against, so the comparison is simply not satisfied. */
 	if (b->t == VT_NONE) return false;
 	double x = a->num, y = b->num;
-	if (!strcmp(op, ">")) return x > y;
-	if (!strcmp(op, ">=")) return x >= y;
-	if (!strcmp(op, "<")) return x < y;
-	if (!strcmp(op, "<=")) return x <= y;
-	if (!strcmp(op, "==") || !strcmp(op, "is")) return fabs(x - y) < 1e-9;
+	/* The threshold is widened in whichever direction keeps the condition true, so an alarm clears
+	 * only once the reading has genuinely recovered rather than the moment it grazes back. */
+	if (!strcmp(op, ">")) return x > y - db;
+	if (!strcmp(op, ">=")) return x >= y - db;
+	if (!strcmp(op, "<")) return x < y + db;
+	if (!strcmp(op, "<=")) return x <= y + db;
+	if (!strcmp(op, "==") || !strcmp(op, "is")) return fabs(x - y) < (db > 0 ? db : 1e-9);
 	if (!strcmp(op, "!=") || !strcmp(op, "is_not")) return fabs(x - y) >= 1e-9;
-	if (!strcmp(op, "between")) return b2->t != VT_NONE && x >= y && x <= b2->num;
-	if (!strcmp(op, "within")) return b2->t != VT_NONE && fabs(x - y) <= b2->num;
+	if (!strcmp(op, "between")) return b2->t != VT_NONE && x >= y - db && x <= b2->num + db;
+	if (!strcmp(op, "within")) return b2->t != VT_NONE && fabs(x - y) <= b2->num + db;
 	return false;
 }
 
 /* A condition node is either a comparison or a group of them joined by all/any. */
-static bool eval_node(const cJSON *status, const inst *in, const cJSON *node, val *matched)
+static bool eval_node(const cJSON *status, const inst *in, const cJSON *node, val *matched, double db)
 {
 	const cJSON *kids = jget(node, "conditions");
 	if (cJSON_IsArray(kids)) {
@@ -282,7 +288,7 @@ static bool eval_node(const cJSON *status, const inst *in, const cJSON *node, va
 		bool result = !any;   /* all: start true; any: start false */
 		const cJSON *k;
 		cJSON_ArrayForEach(k, kids) {
-			bool r = eval_node(status, in, k, matched);
+			bool r = eval_node(status, in, k, matched, db);
 			if (any) result = result || r; else result = result && r;
 		}
 		return result;
@@ -301,7 +307,7 @@ static bool eval_node(const cJSON *status, const inst *in, const cJSON *node, va
 		const cJSON *it;
 		cJSON_ArrayForEach(it, jget(node, "value")) {
 			val b = resolve_operand(status, in, it);
-			if (compare(&a, "is", &b, &none)) { found = true; break; }
+			if (compare(&a, "is", &b, &none, 0)) { found = true; break; }
 		}
 		bool r = !strcmp(op, "is_one_of") ? found : !found;
 		if (r && matched && matched->t == VT_NONE) *matched = a;
@@ -310,7 +316,7 @@ static bool eval_node(const cJSON *status, const inst *in, const cJSON *node, va
 
 	val b = resolve_operand(status, in, jget(node, "value"));
 	val b2 = resolve_operand(status, in, jget(node, "value2"));
-	bool r = compare(&a, op, &b, &b2);
+	bool r = compare(&a, op, &b, &b2, db);
 	if (r && matched && matched->t == VT_NONE) *matched = a;
 	return r;
 }
@@ -518,10 +524,14 @@ void pf_rules_tick(const cJSON *status, double now)
 		int matches = 0;
 		for (int i = 0; i < ni; i++) {
 			val matched = v_none();
-			bool ok = when ? eval_node(status, &instances[i], when, &matched) : false;
+			/* The deadband only applies to a rule that is already reporting: it decides when the
+			 * report ends, never when it starts. */
+			rstate *pre = state_for(id, instances[i].label);
+			double db = (pre && pre->raised) ? pf_json_num((cJSON *)rule, "deadband", 0) : 0;
+			bool ok = when ? eval_node(status, &instances[i], when, &matched, db) : false;
 			if (every) { matches += ok ? 1 : 0; continue; }
 
-			rstate *st = state_for(id, instances[i].label);
+			rstate *st = pre;
 			if (!st) continue;
 			if (!ok) {
 				st->held_since = 0;
@@ -610,7 +620,7 @@ void pf_rules_preview(const cJSON *rule, const cJSON *status, char *title, size_
 	val matched = v_none();
 	for (int i = 0; i < ni; i++) {
 		val m = v_none();
-		if (when && eval_node(status, &instances[i], when, &m)) {
+		if (when && eval_node(status, &instances[i], when, &m, 0)) {
 			if (matching) (*matching)++;
 			if (show <= 0 || matched.t == VT_NONE) { show = i; matched = m; }
 		}

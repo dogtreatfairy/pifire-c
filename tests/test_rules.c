@@ -670,6 +670,54 @@ static void test_an_unset_target_is_not_zero(void)
 	cJSON_Delete(st);
 }
 
+/* A hopper sensor looks at a sloping pile through a tube: its reading wanders by a few per cent
+   while the hopper only ever gets emptier. Sitting on its threshold it crossed back and forth and
+   announced itself every time -- 18, then 21, then 13, then 21, four warnings for one emptying
+   hopper. A deadband ends the report only once the reading has genuinely recovered. */
+static void test_a_deadband_stops_a_wandering_reading_re_announcing(void)
+{
+	only_rule("{\"id\":\"hop\",\"enabled\":true,\"only_while_cooking\":true,\"for_s\":0,\"deadband\":5,"
+	          "\"select\":{\"domain\":\"hopper\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":[{\"trait\":\"level\",\"op\":\"<\",\"value\":20}]},"
+	          "\"title\":\"low\",\"body\":\"at {hopper}\",\"level\":\"normal\",\"sinks\":[\"app\"],\"cooldown_s\":0}");
+	cJSON *st = status();
+	const int walk[] = { 18, 21, 13, 21, 18, 22, 19 };
+	double t = 1000;
+	for (size_t i = 0; i < sizeof walk / sizeof walk[0]; i++) {
+		cJSON_ReplaceItemInObject(st, "hopper_pct", cJSON_CreateNumber(walk[i]));
+		pf_rules_tick(st, t); t += 60;
+	}
+	printf("wandering hopper announced %d time(s) over %zu readings\n", g_ncap, sizeof walk / sizeof walk[0]);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_ncap, "one emptying hopper is one warning");
+
+	/* genuinely refilled, past the deadband: the next emptying is news again */
+	cJSON_ReplaceItemInObject(st, "hopper_pct", cJSON_CreateNumber(60));
+	pf_rules_tick(st, t); t += 60;
+	cJSON_ReplaceItemInObject(st, "hopper_pct", cJSON_CreateNumber(15));
+	pf_rules_tick(st, t);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(2, g_ncap, "after a real refill it should warn again");
+	cJSON_Delete(st);
+}
+
+/* Without one, the same walk announces itself over and over -- which is what it used to do. */
+static void test_without_a_deadband_it_still_chatters(void)
+{
+	only_rule("{\"id\":\"hop2\",\"enabled\":true,\"only_while_cooking\":true,\"for_s\":0,"
+	          "\"select\":{\"domain\":\"hopper\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":[{\"trait\":\"level\",\"op\":\"<\",\"value\":20}]},"
+	          "\"title\":\"low\",\"body\":\"\",\"level\":\"normal\",\"sinks\":[\"app\"],\"cooldown_s\":0}");
+	cJSON *st = status();
+	const int walk[] = { 18, 21, 13, 21, 18 };
+	double t = 1000;
+	for (size_t i = 0; i < sizeof walk / sizeof walk[0]; i++) {
+		cJSON_ReplaceItemInObject(st, "hopper_pct", cJSON_CreateNumber(walk[i]));
+		pf_rules_tick(st, t); t += 60;
+	}
+	printf("without a deadband: %d announcement(s)\n", g_ncap);
+	TEST_ASSERT_TRUE_MESSAGE(g_ncap > 1, "this is the behaviour the deadband exists to stop");
+	cJSON_Delete(st);
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -691,6 +739,8 @@ int main(void)
 	RUN_TEST(test_acknowledgement_is_shared_and_respects_what_is_still_true);
 	RUN_TEST(test_a_rule_that_stops_applying_retires_what_it_raised);
 	RUN_TEST(test_a_chattering_condition_is_silenced);
+	RUN_TEST(test_a_deadband_stops_a_wandering_reading_re_announcing);
+	RUN_TEST(test_without_a_deadband_it_still_chatters);
 	RUN_TEST(test_at_temperature_separates_hold_from_smoke);
 	RUN_TEST(test_an_unset_target_is_not_zero);
 	return UNITY_END();

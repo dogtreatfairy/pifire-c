@@ -1,5 +1,5 @@
 {
-  "schema_version": 12,
+  "schema_version": 13,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -729,7 +729,8 @@
         "for_s": 120,
         "cooldown_s": 900,
         "repeat_s": 0,
-        "only_while_cooking": true
+        "only_while_cooking": true,
+        "deadband": 3
       },
       {
         "id": "grill-cold",
@@ -773,7 +774,8 @@
         "for_s": 120,
         "cooldown_s": 900,
         "repeat_s": 0,
-        "only_while_cooking": true
+        "only_while_cooking": true,
+        "deadband": 3
       },
       {
         "id": "hopper-low",
@@ -804,7 +806,8 @@
         "for_s": 30,
         "cooldown_s": 1800,
         "repeat_s": 0,
-        "only_while_cooking": true
+        "only_while_cooking": true,
+        "deadband": 5
       },
       {
         "id": "hopper-critical",
@@ -835,7 +838,8 @@
         "for_s": 30,
         "cooldown_s": 600,
         "repeat_s": 900,
-        "only_while_cooking": true
+        "only_while_cooking": true,
+        "deadband": 4
       }
     ]
   },

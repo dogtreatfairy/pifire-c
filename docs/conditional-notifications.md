@@ -349,7 +349,16 @@ device clear it everywhere, and what makes an old entry unable to reappear as ne
 `{type:"alarms", gen}` on every change, and clients refetch rather than being sent a delta, so a
 phone that was asleep gets the current state instead of a replay of what it missed.
 
-Rules may set `clear_after_s` to wait before declaring a condition over, the mirror of `for_s`.
+Rules may set `clear_after_s` to wait before declaring a condition over, the mirror of `for_s`, and
+`deadband` to say how far a reading must come back before the report ends.
+
+**The deadband applies only while a rule is already reporting.** It decides when a report ends,
+never when it starts, so a threshold means exactly what it says the first time and the alarm simply
+does not let go until the reading has genuinely recovered. This was documented long before it
+existed: a hopper sensor looks at a sloping pile of pellets through a tube, so its reading wanders
+by a few per cent while the hopper only ever gets emptier, and sitting on its threshold it crossed
+back and forth and announced itself each time. A real walk from the grill -- 18, 21, 13, 21, 18, 22,
+19 -- produced three warnings for one emptying hopper, and produces one with a deadband of five.
 
 ---
 
