@@ -6,6 +6,7 @@
 #include "core/settings.h"
 #include "core/util.h"
 #include "distance/registry.h"
+#include <math.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -20,9 +21,12 @@ static pf_env g_env;
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 static atomic_int g_pct = -1;
 static double g_cm = -1, g_updated;
-static double g_last_check, g_last_warn, g_last_auger_total, g_est_usage_g;
+static double g_last_check, g_last_auger_total, g_est_usage_g;
 static atomic_bool g_check_req;
 static int g_current_id;
+/* A level that disagrees with the accepted one, and how many times it has said so. */
+static double g_pending;
+static int g_pending_n;
 /* The services thread adds to the usage estimate every tick while web threads read it and the
  * pellet pages replace it. A double is not read or written in one piece, so it gets its own lock,
  * held only around the arithmetic and never across database work. */
@@ -135,9 +139,29 @@ static void read_hopper(void)
 	g_updated = pf_wall();
 	if (cm < 0 || empty <= full) { g_cm = -1; atomic_store(&g_pct, -1); }
 	else {
-		g_cm = cm;
-		double pct = (empty - cm) / (empty - full) * 100.0;
-		atomic_store(&g_pct, (int)pf_clamp(pct, 0, 100));
+		double pct = pf_clamp((empty - cm) / (empty - full) * 100.0, 0, 100);
+		int cur = atomic_load(&g_pct);
+		/* A hopper full of pellets cannot lose most of itself in a minute and get it back. Pellets
+		 * leave through the auger, a few grams at a time, and arrive only when somebody pours them
+		 * in. A reading that disagrees with the last accepted one by a large amount is therefore
+		 * either a refill or a bad echo, and the two are told apart by whether it says the same
+		 * thing twice: a refill persists, a reflection off a sloping pile or off pellets falling
+		 * past the sensor does not. Three readings 50 ms apart cannot tell them apart, because a
+		 * sensor that is wrong while the auger is running is wrong for all three. */
+		if (cur < 0 || fabs(pct - cur) <= 8) {
+			g_cm = cm;
+			atomic_store(&g_pct, (int)pct);
+			g_pending_n = 0;
+		} else if (g_pending_n > 0 && fabs(pct - g_pending) <= 5) {
+			g_cm = cm;
+			atomic_store(&g_pct, (int)pct);
+			g_pending_n = 0;
+			LOGI(TAG, "hopper level moved to %d%% (confirmed)", (int)pct);
+		} else {
+			g_pending = pct;
+			g_pending_n++;
+			LOGD(TAG, "hopper read %d%% against %d%%: waiting for it to say so twice", (int)pct, cur);
+		}
 	}
 	pthread_mutex_unlock(&g_mu);
 }
@@ -158,12 +182,10 @@ void pf_pellets_tick(double now, double auger_on_total_s, bool cooking)
 		static double last_save;
 		if (now - last_save > 60) { last_save = now; save_state(); }
 	}
-	int pct = atomic_load(&g_pct);
-	if (cooking && pct >= 0 && pf_set_bool("pelletlevel.warning_enabled", true) && pct <= pf_set_int("pelletlevel.warning_level", 25) &&
-	    now - g_last_warn > pf_set_num("pelletlevel.warning_time", 20) * 60) {
-		g_last_warn = now;
-		pf_events_emit("Pellet_Level_Low", "Pellets running low", "Hopper is at %d%%.", pct);
-	}
+	/* The hopper warning is a conditional notification like everything else -- the hopper-low and
+	 * hopper-critical rules -- so it is not also emitted from here. Two systems warning about one
+	 * hopper meant switching the warning off in settings and still being warned, by the other one. */
+	(void)cooking;
 }
 
 void pf_pellets_request_check(void) { atomic_store(&g_check_req, true); }

@@ -99,7 +99,9 @@ const PAGES = [
   // ---- Cook
   { key: 'keepwarm', title: 'Keep Warm', sub: 'After a probe reaches its target', section: 'Cooking', icon: 'flame', color: '#ff6b35', sections: [{ id: 'keep_warm', fields: [T('temp', 'Keep-warm temperature', ''), B('s_plus', 'Use Smoke+ while keeping warm', '')] }] },
   { key: 'pellets', title: 'Pellets & Hopper', sub: 'Loaded pellets, brands, low-pellet warnings, hopper sensor', section: 'Cooking', icon: 'package', color: '#ac8e68', after: renderPellets, sections: [{ id: 'pelletlevel', title: 'Hopper', fields: [
-    B('warning_enabled', 'Low-pellet warnings', ''), I('warning_level', 'Warn below (%)', '', { min: 1, max: 99 }), I('warning_time', 'Repeat every (min)', '', { min: 1 }),
+    /* The low-pellet warning is a conditional notification like everything else, so it is set up
+       where the others are rather than having a second switch here that disagrees with it. */
+    { type: 'note', help: 'Low-hopper warnings are conditional notifications: see Notifications \u2192 Conditional Notifications, where "Hopper Low" and "Hopper Critical" set the levels and where they are sent.' },
     I('empty', 'Sensor reading when empty (cm)', 'Distance from the sensor to the bottom of the hopper', { min: 1 }), I('full', 'Sensor reading when full (cm)', '', { min: 0 }),
   ] }] },
   { key: 'history', title: 'Data & History', sub: 'Chart sampling and retention', section: 'System', icon: 'database', color: '#5e5ce6', sections: [{ id: 'history', fields: [

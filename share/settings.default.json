@@ -255,9 +255,6 @@
     ]
   },
   "pelletlevel": {
-    "warning_enabled": false,
-    "warning_level": 25,
-    "warning_time": 20,
     "empty": 22,
     "full": 4
   },
