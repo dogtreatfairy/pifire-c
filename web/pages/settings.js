@@ -18,18 +18,11 @@ const X = (path, label, help) => ({ path, label, help, type: 'text' });
 // and saves independently, so a page can combine related groups (e.g. startup + shutdown).
 const PAGES = [
   // ---- Grill
-  { key: 'controller', title: 'Temperature Control & Learning', sub: 'Controller, what it learns from every cook, local weather', section: 'Cooking', icon: 'gauge', color: '#ff8a1f', custom: controllerPage },
+  /* Named for the mode it governs. Everything here decides how the grill holds a temperature: the
+     controller, its tuning, and the cycle the auger feeds on. None of it touches Smoke. */
+  { key: 'controller', title: 'Hold Mode', sub: 'The controller that holds a temperature, its tuning, and the feed cycle', section: 'Cooking', icon: 'gauge', color: '#ff8a1f', custom: controllerPage },
   { key: 'hardware', title: 'Grill Hardware', sub: 'Board, pins, display, hopper sensor', section: 'Hardware', icon: 'cpu', color: '#64d2ff', custom: (v) => import('./more.js').then((m) => m.hardware(v)) },
   { key: 'probes', title: 'Probes', sub: 'Wired and Bluetooth probes, profiles, tuner', section: 'Hardware', icon: 'thermometer', color: '#ff453a', custom: renderProbes },
-  { key: 'auger', title: 'Auger & Feed', sub: 'Cycle length, feed limits, P-mode', section: 'Cooking', icon: 'sliders-horizontal', color: '#ff9f0a', sections: [{ id: 'cycle_data', fields: [
-    I('HoldCycleTime', 'Control cycle (s)', 'Length of one auger cycle while holding a temperature; the controller decides the feed once per cycle', { min: 5, max: 120 }),
-    N('u_min', 'Minimum auger duty', 'Smallest fraction of each cycle the auger runs (0.1 = 10%). Keeps the fire alive at low set points', { step: 0.01, min: 0, max: 1 }),
-    N('u_max', 'Maximum auger duty', 'Largest fraction of each cycle the auger runs (0.9 = 90%). Stops the pot from over-filling', { step: 0.01, min: 0, max: 1 }),
-    I('SmokeOnCycleTime', 'Smoke: auger on (s)', 'Auger run time per cycle in Smoke and during startup', { min: 1 }),
-    I('SmokeOffCycleTime', 'Smoke: auger off (s)', 'Base pause between runs in Smoke; each P-mode level adds 10 s', { min: 1 }),
-    I('PMode', 'P-mode', 'Higher = longer pauses = less pellets and more smoke (0–9)', { min: 0, max: 9 }),
-    B('FanPidEnabled', 'Modulate AC fan at minimum feed', 'When the auger is already at its minimum duty, pulse the fan to hold temperature (AC fans only)'),
-  ] }] },
   { key: 'startup', title: 'Startup & Shutdown', sub: 'Ignition, what happens after startup, cool-down', section: 'Cooking', icon: 'power', color: '#30d158', sections: [
     { id: 'startup', title: 'Startup', fields: [
       I('duration', 'Startup time (s)', 'Igniter and startup feed run for this long', { min: 60, max: 900 }),
@@ -47,13 +40,22 @@ const PAGES = [
       B('auto_power_off', 'Power off the Pi after shutdown', ''),
     ] },
   ] },
-  { key: 'smoke', title: 'Smoke & Smoke+', sub: 'Default smoke mode and fan cycling', section: 'Cooking', icon: 'cloud', color: '#8e8e93', sections: [{ id: 'smoke_plus', fields: [
+  /* Smoke is driven by the P-mode and a fixed auger cycle, not by the controller, so its timings
+     live here rather than beside settings that only affect Hold. */
+  { key: 'smoke', title: 'Smoke Mode', sub: 'P-mode, the auger cycle it feeds on, and Smoke+ fan cycling', section: 'Cooking', icon: 'cloud', color: '#8e8e93', sections: [
+    { id: 'cycle_data', title: 'Auger Cycle', fields: [
+      I('PMode', 'P-mode', 'Higher = longer pauses = fewer pellets and more smoke (0–9)', { min: 0, max: 9 }),
+      I('SmokeOnCycleTime', 'Auger on (s)', 'Auger run time per cycle in Smoke and during startup', { min: 1 }),
+      I('SmokeOffCycleTime', 'Auger off (s)', 'Base pause between runs; each P-mode level adds 10 s', { min: 1 }),
+    ] },
+    { id: 'smoke_plus', title: 'Smoke+', fields: [
     S('enabled', 'Default smoke mode', 'Which mode Smoke starts in; switch any time from the Home screen', [['false', 'Smoke'], ['true', 'Smoke+']], true),
     T('min_temp', 'Smoke+ works above', 'Below this the fan stays on continuously'),
     T('max_temp', 'Smoke+ works below', 'Above this the fan stays on continuously'),
     I('on_time', 'Fan on (s)', '', { min: 1 }), I('off_time', 'Fan off (s)', '', { min: 1 }),
     B('fan_ramp', 'Ramp fan speed', 'DC fan only: ramp up instead of switching'), I('duty_cycle', 'Ramp target speed (%)', 'DC fan only', { min: 10, max: 100 }),
-  ] }] },
+    ] },
+  ] },
   { key: 'fan', title: 'DC Fan', sub: 'PWM speed control', section: 'Hardware', icon: 'fan', color: '#64d2ff', dc: true, sections: [{ id: 'pwm', fields: [
     B('pwm_control', 'Vary fan speed with temperature', 'Default for new cooks; can be changed while cooking'),
     I('frequency', 'PWM frequency (Hz)', '25 000 Hz for 4-wire PC fans', { min: 100, max: 100000 }),
@@ -320,6 +322,18 @@ async function controllerCard() {
   return wrap;
 }
 
+/* A collapsed section that still answers its own question from the summary line: you should be
+   able to read what the controller is set to without opening anything. */
+const fold = (title, meta, body, open = false) =>
+  el('details', { class: 'fold', open }, el('summary', {}, el('span', {}, title), el('span', { class: 'fold-meta' }, meta || '')), body);
+
+const holdCycleFields = [
+  I('HoldCycleTime', 'Control cycle (s)', 'One auger cycle while holding. The controller decides the feed once per cycle, so a shorter cycle corrects sooner but feeds less per pulse. Smoke has its own timings and is not affected.', { min: 5, max: 120 }),
+  N('u_min', 'Minimum auger duty', 'Smallest fraction of each cycle the auger runs (0.1 = 10%). Keeps the fire alive at low set points', { step: 0.01, min: 0, max: 1 }),
+  N('u_max', 'Maximum auger duty', 'Largest fraction of each cycle the auger runs (0.9 = 90%). Stops the pot from over-filling', { step: 0.01, min: 0, max: 1 }),
+  B('FanPidEnabled', 'Modulate AC fan at minimum feed', 'When the auger is already at its minimum duty, pulse the fan to hold temperature (AC fans only)'),
+];
+
 const learningFields = [
   B('enabled', 'Learn from cooks', 'Record the steady feed for each set point and ambient temperature, and the plant model from every startup'),
   B('auto_tune', 'Apply learned tuning automatically', 'Hand the measured plant model (and autotune results) to the controller as soon as they are known'),
@@ -332,8 +346,35 @@ const weatherFields = [
 ];
 // Temperature control & learning: the controller, what it learns, the weather it learns against, and the learned data
 async function controllerPage(view) {
-  view.append(await controllerCard());
-  view.append(pageCard({ title: 'Learning', sections: [{ id: 'learning', title: 'Learning', fields: learningFields }, { id: 'weather', title: 'Local Weather', fields: weatherFields }] }));
+  /* The page was one long scroll of everything at once. Each part is its own collapsed section now,
+     with the answer on the summary line, so the page is a short list you open into rather than a
+     wall you scroll through. */
+  const cyc = PF.settings?.cycle_data || {};
+  let tuned = '';
+  try {
+    const t = await api('/tune');
+    const n = (t.anchors || []).length;
+    if (n) {
+      const deep = Math.max(...(t.anchors || []).map((a) => a.runs || 1));
+      tuned = ` · tuned${deep > 1 ? ` (${deep} runs)` : ''}`;
+    }
+  } catch { /* the summary simply says less */ }
+
+  const ctl = await controllerCard();
+  const sel = PF.settings?.controller?.selected || '';
+  const cfg = PF.settings?.controller?.config?.[sel] || {};
+  const pid = [cfg.PB != null ? `PB ${cfg.PB}` : null, cfg.Ti != null ? `Ti ${cfg.Ti}` : null, cfg.Td != null ? `Td ${cfg.Td}` : null].filter(Boolean).join(' ');
+  view.append(fold('Controller', `${sel}${pid ? ` · ${pid}` : ''}${tuned}`, ctl));
+
+  view.append(fold('Feed Cycle', `${cyc.HoldCycleTime ?? '—'} s · ${cyc.u_min ?? '—'}–${cyc.u_max ?? '—'} duty`,
+    pageCard({ title: '', sections: [{ id: 'cycle_data', title: '', fields: holdCycleFields }] })));
+
+  view.append(fold('Learning', PF.settings?.learning?.enabled === false ? 'off' : 'on',
+    pageCard({ title: '', sections: [{ id: 'learning', title: '', fields: learningFields }] })));
+
+  view.append(fold('Local Weather', PF.settings?.weather?.enabled ? (PF.settings.weather.postal_code || 'on') : 'off',
+    pageCard({ title: '', sections: [{ id: 'weather', title: '', fields: weatherFields }] })));
+
   return renderLearning(view);
 }
 // Wi-Fi & hotspot: live connection and networks, then the hotspot settings
@@ -355,6 +396,10 @@ export function renderSettings(view, rest) {
   const page = rest?.[0];
   if (page) {
     setBack('#/settings', 'Settings');
+    /* Auger & Feed was split: the cycle and the duty limits only ever affected Hold, and the smoke
+       timings only ever affected Smoke. The old address still works rather than dead-ending. */
+    const MOVED = { auger: 'controller' };
+    if (MOVED[page]) { location.replace(`#/settings/${MOVED[page]}`); return; }
     const pg = pages.find((x) => x.key === page);
     if (!pg) { view.append(el('div', { class: 'card muted' }, 'No such settings page')); return; }
     if (pg.custom) return Promise.resolve(pg.custom(view)).catch((e) => { toast(e.message, true); });

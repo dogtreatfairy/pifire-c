@@ -318,6 +318,9 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .fold { border: 1px solid var(--line); border-radius: var(--radius-s); margin-bottom: 12px; overflow: hidden; }
 .fold > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; cursor: pointer; font-weight: 600; list-style: none; }
 .fold > summary::-webkit-details-marker { display: none; }
+/* The answer on the summary line, so a collapsed section still tells you what it is set to. */
+.fold > summary .fold-meta { margin-left: auto; color: var(--muted); font-weight: 400; font-size: .84rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fold > summary::after { content: "›"; color: var(--muted); font-size: 1.2rem; transform: rotate(90deg); transition: transform .18s; }
 .fold[open] > summary::after { transform: rotate(-90deg); }
 .fold .fold-state { font-size: .72rem; font-weight: 700; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; margin-left: auto; }
