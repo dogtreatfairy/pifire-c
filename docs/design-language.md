@@ -100,3 +100,13 @@ several seconds first, because a reconnect takes under a second and must not fla
 What reaches a phone is decided by the rule that fired, not by a second layer of filtering. A rule
 names its own services and its own urgency; the category switches exist for the daemon's own
 chatter and must not silently swallow anything a person wrote.
+
+## The order things are listed in
+
+A list the user scans for something wrong reads worst first, then alphabetically inside each
+level: conditional notifications, the notification centre, alarms. Urgency decides the group and
+the name decides the place within it, so the thing most worth knowing about is at the top and
+everything else is where its name says it will be rather than where it happened to be added.
+
+Lists that are a history — events, logs, cook files — stay newest first, because there the time is
+the subject.
