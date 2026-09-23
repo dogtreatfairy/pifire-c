@@ -101,6 +101,19 @@ What reaches a phone is decided by the rule that fired, not by a second layer of
 names its own services and its own urgency; the category switches exist for the daemon's own
 chatter and must not silently swallow anything a person wrote.
 
+## One question, one control
+
+A new capability that overlaps something the app already does is folded into that control, never
+added beside it. Two buttons for one idea — "Clear learning" next to "Erase everything" — read as
+duplicates even when they differ, because the difference is only visible after you have opened both
+and compared the wording. Find the control that already answers the question and extend it; if the
+new thing genuinely belongs elsewhere, put it where it belongs and say so in the one place, as
+Clear learning points at Autotune's Start From Scratch.
+
+The same holds for switches. One question gets one switch, in one place. Learning was once asked
+about three times on a single page — "Learn from cooks", "Apply learned tuning automatically", and
+the controller's own copy of the same idea — and they could disagree with each other.
+
 ## The order things are listed in
 
 A list the user scans for something wrong reads worst first, then alphabetically inside each

@@ -34,7 +34,7 @@ src/core/         daemon: state machine, cycle engine, safety, notify/timers, se
 src/hal/          GPIO (kernel uAPI v2), sysfs PWM, I2C, SPI
 src/platform/     Raspberry Pi outputs, simulator thermal model
 src/probes/       wired and Bluetooth probe drivers, Steinhart-Hart, filtering
-src/controllers/  pid, pid_clamping, pid_clamping_percent_pb, pid_ac, pid_sp, pid_parallel, adaptive
+src/controllers/  adaptive (default), pid
 src/features/     notifications (mqtt, webhook), pellets, cook files, recipes, learning
 src/net/          Wi-Fi / hotspot (nmcli), system info
 src/web/          civetweb server, REST/WebSocket API; web/ is the embedded UI

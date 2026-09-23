@@ -3,7 +3,7 @@
  * u_ff comes from the daemon (features/learning.c) via pf_ctrl_in.u_ff; the PID only has to
  * correct what the feed-forward gets wrong, so it can be gentle (large PB, long Ti).
  *
- * Learning, all automatic unless auto_tune is off:
+ * Learning, all automatic while the Learning switch is on:
  *  - apply_tuning() receives the plant model the daemon identifies from every startup rise
  *    (K, tau, theta) and derives SIMC gains from it; a relay autotune result (Ku, Pu) is used the
  *    same way. Learned gains are blended with the previous ones and persisted (env kv "learned").
@@ -69,9 +69,11 @@ typedef struct {
 	bool in_band, coasting;
 } ad_t;
 
+/* No learning switch here. Whether the grill learns is one decision, made once, in the Learning
+ * section; the daemon passes the answer down as `auto_tune`. Offering it again as a controller
+ * option meant two switches for one question, sitting on the same page, able to disagree. */
 static const char schema[] =
-"[{\"option_name\":\"auto_tune\",\"option_friendly_name\":\"Learn tuning automatically\",\"option_description\":\"Derive PB/Ti/Td from the measured plant model and keep adjusting the loop gain from how each cook behaves. Off = use the values below as-is. [Default on]\",\"option_type\":\"bool\",\"option_default\":true},"
- "{\"option_name\":\"PB\",\"option_friendly_name\":\"Proportional Band (PB)\",\"option_description\":\"Correction band around the set point; starting point until the grill has learned its own. [Default 80]\",\"option_type\":\"float\",\"option_default\":80.0,\"option_step\":1,\"units\":\"temp_delta\"},"
+"[{\"option_name\":\"PB\",\"option_friendly_name\":\"Proportional Band (PB)\",\"option_description\":\"Correction band around the set point; starting point until the grill has learned its own. [Default 80]\",\"option_type\":\"float\",\"option_default\":80.0,\"option_step\":1,\"units\":\"temp_delta\"},"
  "{\"option_name\":\"Ti\",\"option_friendly_name\":\"Integral Time (Ti)\",\"option_description\":\"Seconds to correct residual error. [Default 400]\",\"option_type\":\"float\",\"option_default\":400.0,\"option_step\":1},"
  "{\"option_name\":\"Td\",\"option_friendly_name\":\"Derivative Time (Td)\",\"option_description\":\"Damping against fast swings (lid, wind). [Default 30]\",\"option_type\":\"float\",\"option_default\":30.0,\"option_step\":1},"
  "{\"option_name\":\"ff_gain\",\"option_friendly_name\":\"Feed-forward gain\",\"option_description\":\"Scale on the learned steady-state feed (1.0 = trust the model fully). [Default 1.0]\",\"option_type\":\"float\",\"option_default\":1.0,\"option_step\":0.05}]";
@@ -103,7 +105,9 @@ static void recompute(ad_t *s)
 	 * won by a number nobody could see, so the band actually in force was never the band on
 	 * display: a measured 123 running at 1.15 is a 107 that appears nowhere. Written down and typed
 	 * into another identical grill, the number carried none of what made this one work. */
-	bool use_sched = s->auto_tune && s->sch_valid;
+	/* The schedule arrives only when the tuning library is switched on -- the daemon decides that,
+	 * and simply passes nothing when it is off -- so its presence is the whole test here. */
+	bool use_sched = s->sch_valid;
 	bool use_learned = s->auto_tune && s->l_valid;
 	double anchor = anchor_PB(s);
 	s->PB_c = s->auto_tune && s->band_PB_c > 0 ? s->band_PB_c : anchor;
@@ -239,7 +243,7 @@ static void use_band(ad_t *s, double setpoint_c)
  * that answer; it does not get to invent its own. */
 static double anchor_PB(const ad_t *s)
 {
-	if (s->auto_tune && s->sch_valid && s->sch_PB_c > 0) return s->sch_PB_c;
+	if (s->sch_valid && s->sch_PB_c > 0) return s->sch_PB_c;
 	if (s->auto_tune && s->l_valid && s->l_PB_c > 0) return s->l_PB_c;
 	return s->cfg_PB_c > 0 ? s->cfg_PB_c : s->l_PB_c;
 }
@@ -386,12 +390,38 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 	if (dbg) {
 		dbg->p = s->p; dbg->i = s->i; dbg->d = s->d; dbg->ff = s->ff; dbg->error = e; dbg->derivative = derv; dbg->integral = s->inter;
 		/* PB, Ti and Td here are what the loop is running on, with nothing applied on top. */
-		snprintf(dbg->note, sizeof dbg->note, "ff %.2f · PB %.0f Ti %.0f Td %.0f%s%s", s->ff, pf_delta_from_c(s->PB_c, s->units), s->Ti, s->Td, s->auto_tune && s->sch_valid ? " tuned" : s->auto_tune && s->l_valid ? " learned" : "", s->coasting ? " · coasting" : "");
+		snprintf(dbg->note, sizeof dbg->note, "ff %.2f · PB %.0f Ti %.0f Td %.0f%s%s", s->ff, pf_delta_from_c(s->PB_c, s->units), s->Ti, s->Td, s->sch_valid ? " tuned" : s->auto_tune && s->l_valid ? " learned" : "", s->coasting ? " · coasting" : "");
 	}
 	return s->u;
 }
 
 static void configure(void *self, const char *json) { ad_t *s = self; apply_config(s, json); s->have_last = false; }
+
+/* Throw away one half of what is held, or both, and write that down. Clearing the measurement
+ * takes the grill back to the numbers that were typed; clearing the refinement leaves the
+ * measurement standing and starts the learning again from it. */
+static void forget(void *self, unsigned what)
+{
+	ad_t *s = self;
+	if (what & PF_FORGET_TUNING) {
+		s->l_PB_c = s->l_Ti = s->l_Td = 0;
+		s->l_valid = false;
+		s->l_ts = 0;
+		s->l_src[0] = 0;
+		s->theta = THETA_DEFAULT;
+	}
+	if (what & PF_FORGET_REFINEMENT) {
+		for (int i = 0; i < PF_SCALE_BANDS; i++) { s->band_learned[i] = 0; s->band_anchor[i] = 0; }
+		s->band_PB_c = 0;
+		window_reset(s, s->last_t);
+	}
+	recompute(s);
+	save_learned(s);
+	if (s->env && s->env->log)
+		s->env->log(PF_LVL_INFO, "adaptive", "forgot %s; band now %.1f C",
+		            (what & PF_FORGET_TUNING) && (what & PF_FORGET_REFINEMENT) ? "everything it had learned and been told"
+		            : (what & PF_FORGET_TUNING) ? "the tuning it was given" : "what it had refined for itself", s->PB_c);
+}
 
 static int state_json(void *self, char *out, size_t n)
 {
@@ -456,6 +486,6 @@ static const pf_controller_ops ops = {
 	.abi = PF_CONTROLLER_ABI, .id = "adaptive", .name = "Adaptive (self-learning)",
 	.description = "Learns the steady-state feed your grill needs for each set point and ambient temperature across cooks, derives its PID tuning from the plant model measured during every startup, and keeps adjusting the loop gain from how each cook behaves. Improves with every cook.",
 	.author = "PiFire", .config_schema_json = schema, .recommend = { 20, 0.08, 0.9 },
-	.create = create, .destroy = destroy, .reset = reset, .update = update, .configure = configure, .state_json = state_json, .apply_tuning = apply_tuning,
+	.create = create, .destroy = destroy, .reset = reset, .update = update, .configure = configure, .state_json = state_json, .apply_tuning = apply_tuning, .forget = forget,
 };
 const pf_controller_ops *pf_controller_adaptive(void) { return &ops; }

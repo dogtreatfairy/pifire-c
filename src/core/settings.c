@@ -549,6 +549,52 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 14 (%d rule%s now also reach this browser)", fixed, fixed == 1 ? "" : "s");
 			added = 1;
 		}
+		if (ver < 15) {
+			/* Five PID variants retired. They differed in details nobody could choose between
+			 * without a trace to read, and the adaptive controller measures for itself what they
+			 * asked to be told. A grill left on one of them is moved to the adaptive controller
+			 * rather than silently falling back, and its own starting values are carried across so
+			 * the first cook afterwards starts from familiar numbers. Their stored settings go too:
+			 * a section for a controller that no longer exists is a page of dead options. */
+			static const char *GONE[] = { "pid_clamping", "pid_clamping_percent_pb", "pid_ac", "pid_sp", "pid_parallel" };
+			cJSON *cfg = pf_json_path(g_root, "controller.config");
+			cJSON *sel = pf_json_path(g_root, "controller.selected");
+			const char *cur = cJSON_IsString(sel) ? sel->valuestring : "";
+			bool moved = false;
+			for (size_t i = 0; i < sizeof GONE / sizeof GONE[0]; i++) {
+				cJSON *old = cfg ? cJSON_GetObjectItem(cfg, GONE[i]) : NULL;
+				if (old && !strcmp(cur, GONE[i])) {
+					cJSON *ad = cJSON_GetObjectItem(cfg, "adaptive");
+					const char *keep[] = { "PB", "Ti", "Td" };
+					for (size_t k = 0; ad && k < 3; k++) {
+						cJSON *v = cJSON_GetObjectItem(old, keep[k]);
+						if (cJSON_IsNumber(v)) cJSON_ReplaceItemInObject(ad, keep[k], cJSON_CreateNumber(v->valuedouble));
+					}
+					cJSON_SetValuestring(sel, "adaptive");
+					moved = true;
+				}
+				if (old) cJSON_DeleteItemFromObject(cfg, GONE[i]);
+			}
+			/* Three switches asked one question. "Learn from cooks", "Apply learned tuning
+			 * automatically" and the adaptive controller's own "Learn tuning automatically" could
+			 * disagree with each other, and two of them sat on the same page. One switch survives,
+			 * off if any of them was off, because that was plainly the intent. */
+			cJSON *learn = pf_json_path(g_root, "learning");
+			cJSON *lat = learn ? cJSON_GetObjectItem(learn, "auto_tune") : NULL;
+			cJSON *ad = cfg ? cJSON_GetObjectItem(cfg, "adaptive") : NULL;
+			cJSON *cat = ad ? cJSON_GetObjectItem(ad, "auto_tune") : NULL;
+			bool want = pf_json_bool(learn, "enabled", true) && (!lat || cJSON_IsTrue(lat)) && (!cat || cJSON_IsTrue(cat));
+			if (learn) {
+				cJSON_DeleteItemFromObject(learn, "enabled");
+				cJSON_AddBoolToObject(learn, "enabled", want);
+				cJSON_DeleteItemFromObject(learn, "auto_tune");
+			}
+			if (ad) cJSON_DeleteItemFromObject(ad, "auto_tune");
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 15); else cJSON_AddNumberToObject(g_root, "schema_version", 15);
+			LOGI(TAG, "settings migrated to schema 15 (retired PID variants removed%s)", moved ? ", this grill moved to the adaptive controller" : "");
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);

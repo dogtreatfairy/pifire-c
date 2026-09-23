@@ -80,21 +80,13 @@ static void run_with(const char *id)
 }
 
 static void t_pid(void) { run_with("pid"); }
-static void t_clamp(void) { run_with("pid_clamping"); }
-static void t_clamp_pct(void) { run_with("pid_clamping_percent_pb"); }
-static void t_ac(void) { run_with("pid_ac"); }
-static void t_sp(void) { run_with("pid_sp"); }
-static void t_par(void) { run_with("pid_parallel"); }
+static void t_adaptive(void) { run_with("adaptive"); }
 
 int main(void)
 {
 	pf_log_init(PF_LOG_ERROR);
 	UNITY_BEGIN();
 	RUN_TEST(t_pid);
-	RUN_TEST(t_clamp);
-	RUN_TEST(t_clamp_pct);
-	RUN_TEST(t_ac);
-	RUN_TEST(t_sp);
-	RUN_TEST(t_par);
+	RUN_TEST(t_adaptive);
 	return UNITY_END();
 }

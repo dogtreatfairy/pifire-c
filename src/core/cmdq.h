@@ -30,7 +30,7 @@ typedef enum {
 	PF_CMD_AUTOTUNE_START,
 	PF_CMD_AUTOTUNE_STOP,
 	PF_CMD_TUNING_APPLY,   /* push the stored autotune / plant fit into the active controller */
-	PF_CMD_FORGET_LEARNING,/* flag = erase the tuning library too, rather than the refinement alone */
+	PF_CMD_FORGET_LEARNING,/* aux = mask of PF_FORGET_* : the refinement, the measured tuning, or both */
 } pf_cmd_type;
 
 typedef struct {

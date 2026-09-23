@@ -41,13 +41,12 @@ static bool add(const pf_controller_ops *ops, const char *origin)
 void pf_controllers_init(const char *plugin_dir)
 {
 	g_count = 0;
-	add(pf_controller_pid(), "builtin");
-	add(pf_controller_pid_clamping(), "builtin");
-	add(pf_controller_pid_clamping_percent_pb(), "builtin");
-	add(pf_controller_pid_ac(), "builtin");
-	add(pf_controller_pid_sp(), "builtin");
-	add(pf_controller_pid_parallel(), "builtin");
+	/* Two, on purpose. The Python original shipped six PID variants because nobody could say which
+	 * one suited a given grill, and choosing between them was work handed to the user. There is now
+	 * one controller that measures the grill and one that does exactly what it is told, and the
+	 * choice between them is a real question with a short answer. */
 	add(pf_controller_adaptive(), "builtin");
+	add(pf_controller_pid(), "builtin");
 
 	if (!plugin_dir) return;
 	DIR *d = opendir(plugin_dir);

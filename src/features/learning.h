@@ -49,13 +49,19 @@ void pf_learning_put_anchor(const pf_tune_anchor *a);
 bool pf_learning_gains(double setpoint_c, double *PB_c, double *Ti, double *Td);
 int  pf_learning_anchor_list(pf_tune_anchor *out, int max);
 void pf_learning_clear_anchors(void);
-/* Forget what the grill taught itself and start again, keeping the tuning library: the
- * observations, the passively fitted plant, and the per-temperature corrections the controller has
- * settled on. This is what happens when the ground those were learned against moves -- a new
- * baseline measured, or the starting Proportional Band, Integral Time or Derivative Time typed in
- * again -- and it is what the "Clear learning" button does. */
+/* Two clearings, because two different things can be wrong.
+ *
+ * `forget` throws away what the grill taught itself -- the observations behind the feed-forward and
+ * the per-temperature corrections the controller settled on -- and keeps what was measured. It is
+ * what happens when the ground the learning stood on moves: a new baseline, or the starting
+ * Proportional Band, Integral Time and Derivative Time typed in again.
+ *
+ * `clear_tuning` throws away what was measured -- the tuning library, the last relay result and the
+ * plant fitted from startup rises -- so the grill goes back to the numbers that were typed. Both
+ * also reach into the controller, which holds its own copy; the control thread does that part. */
 void pf_learning_forget(void);
-/* Erase everything, the tuning library included. */
+void pf_learning_clear_tuning(void);
+/* Both at once. */
 void pf_learning_reset(void);
 cJSON *pf_learning_json(void);   /* everything above, temperatures in user units */
 

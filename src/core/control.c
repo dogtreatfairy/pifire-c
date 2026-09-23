@@ -150,6 +150,10 @@ static char *controller_config_json(const char *id, pf_units u)
 	cJSON *cfg = pf_set_dup(path);
 	if (!cfg) cfg = cJSON_CreateObject();
 	cJSON_AddStringToObject(cfg, "_units", u == PF_UNITS_C ? "C" : "F");
+	/* Whether the grill learns is settled in one place. A controller that can learn is told the
+	 * answer rather than asking for it a second time under its own name. */
+	cJSON_DeleteItemFromObject(cfg, "auto_tune");
+	cJSON_AddBoolToObject(cfg, "auto_tune", pf_learning_enabled());
 	char *s = cJSON_PrintUnformatted(cfg);
 	cJSON_Delete(cfg);
 	return s;
@@ -196,16 +200,20 @@ static int controller_load(pf_control *c, const char *id)
 	return 0;
 }
 
-/* Throw away what was learned and reload the controller with it, because the controller holds its
- * own copy in memory: clearing only the stored copy would leave the grill running a refinement the
- * user has just asked to be rid of until the next restart. */
-static void forget_learning(pf_control *c, bool library_too, const char *why)
+/* Throw away what was learned, or what was measured, or both -- and tell the controller, because it
+ * holds its own copy: clearing only the stored copy would leave the old numbers running until the
+ * next restart. `what` is a mask of PF_FORGET_*. */
+static void forget_learning(pf_control *c, unsigned what, const char *why)
 {
-	if (library_too) pf_learning_reset(); else pf_learning_forget();
-	if (c->cfg.controller_id[0]) controller_load(c, c->cfg.controller_id);
-	pf_events_emit("Learning_Cleared", "Learning cleared",
-	               library_too ? "Everything the grill had learned, and the tuning library, were erased (%s)."
-	                           : "The grill starts learning again from the tuning it has (%s).", why);
+	if (what & PF_FORGET_REFINEMENT) pf_learning_forget();
+	if (what & PF_FORGET_TUNING) pf_learning_clear_tuning();
+	if (c->cinst && c->cops->forget) c->cops->forget(c->cinst, what);
+	if (what & PF_FORGET_TUNING)
+		pf_events_emit("Tuning_Cleared", "Measured tuning cleared",
+		               "The tuning library is gone and the grill is back to the Proportional Band, Integral Time and Derivative Time typed on the controller page (%s).", why);
+	else
+		pf_events_emit("Learning_Cleared", "Learning cleared",
+		               "The grill starts learning again from the tuning it has (%s).", why);
 }
 
 static void controller_fill_defaults(void)
@@ -598,10 +606,6 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 			snprintf(path, sizeof path, "controller.config.%s.Td", c->cops->id);
 			pf_set_put_num(path, round(a.Td));
 		}
-		if (p.valid && !strcmp(c->cops->id, "pid_sp")) {
-			pf_set_put_num("controller.config.pid_sp.tau", round(p.tau));
-			pf_set_put_num("controller.config.pid_sp.theta", round(p.theta));
-		}
 		pf_settings_save();
 		pf_events_emit("Tuning_Applied", "Tuning applied", "Controller '%s' now uses the learned tuning.", c->cops->id);
 		/* Those numbers were just written into the starting values by the daemon, not typed by
@@ -610,7 +614,7 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 		break;
 	}
 	case PF_CMD_FORGET_LEARNING:
-		forget_learning(c, cmd->flag, cmd->str[0] ? cmd->str : "asked for");
+		forget_learning(c, (unsigned)cmd->aux, cmd->str[0] ? cmd->str : "asked for");
 		break;
 	default: break;
 	}
@@ -773,7 +777,7 @@ static void learn_rise_track(pf_control *c, double now)
 		if (tau > 30 && tau < 3600 && K > 0) {
 			pf_learning_store_fopdt(K, tau, theta);
 			/* Nest-style: hand the fresh plant model straight to the controller so its gains track the grill */
-			if (pf_set_bool("learning.auto_tune", true) && c->cinst && c->cops->apply_tuning) {
+			if (pf_learning_enabled() && c->cinst && c->cops->apply_tuning) {
 				pf_fopdt p = pf_learning_fopdt();
 				c->cops->apply_tuning(c->cinst, 0, 0, p.K, p.tau, p.theta);
 				event(PF_LVL_INFO, "TUNING_LEARNED", "Controller tuning updated from this startup's plant model");
@@ -851,7 +855,7 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 	}
 	pf_learning_store_autotune(&r);
 	bool applied = false;
-	if (pf_set_bool("learning.auto_tune", true) && c->cinst && c->cops->apply_tuning) {
+	if (pf_learning_enabled() && c->cinst && c->cops->apply_tuning) {
 		/* hand over the model, not the raw oscillation: the controller designs from the same three
 		 * numbers whichever measurement produced them */
 		pf_fopdt m = pf_learning_fopdt();
@@ -1297,7 +1301,7 @@ void pf_control_reload_settings(pf_control *c)
 	                     (now_typed[0] != c->typed_gains[0] || now_typed[1] != c->typed_gains[1] ||
 	                      now_typed[2] != c->typed_gains[2]);
 	if (strcmp(old_id, c->cfg.controller_id)) controller_load(c, c->cfg.controller_id);
-	else if (typed_changed) forget_learning(c, false, "the starting values were changed");
+	else if (typed_changed) forget_learning(c, PF_FORGET_REFINEMENT, "the starting values were changed");
 	else if (c->cinst && c->cops->configure) {
 		char *cfg = controller_config_json(c->cops->id, c->cfg.units);
 		c->cops->configure(c->cinst, cfg);

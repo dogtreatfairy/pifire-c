@@ -2,7 +2,7 @@
 
 A controller turns the pit temperature and set point into a **feed ratio `u` in [0, 1]**: the fraction of each auger cycle the auger runs. Everything else — the cycle timing, `u_min`/`u_max` clamps, the absolute auger-on cap, lid-open pauses, safety — is owned by the daemon, so a plugin only has to do control math.
 
-The ABI is `include/pifire/controller.h`, currently **version 2**. A plugin built against version 1 is refused with a logged reason, so rebuild it after updating; version 2 only adds the three gain-schedule fields described below, which a plugin may ignore. Plugins can be compiled into the daemon (add to `src/controllers/registry.c`) or built as shared objects and dropped into `/usr/lib/pifire/controllers/`. `plugins/example_controller/` is a complete, dependency-free example.
+The ABI is `include/pifire/controller.h`, currently **version 4**. A plugin built against an older version is refused with a logged reason, so rebuild it after updating; version 2 added the three gain-schedule fields described below, version 3 added `tuning` (a measurement of the grill is in progress), and version 4 added the optional `forget(self, what)` so a controller can be told to throw away what it was given or what it worked out for itself. A plugin may ignore all of them. Plugins can be compiled into the daemon (add to `src/controllers/registry.c`) or built as shared objects and dropped into `/usr/lib/pifire/controllers/`. `plugins/example_controller/` is a complete, dependency-free example.
 
 ## Units and timing
 

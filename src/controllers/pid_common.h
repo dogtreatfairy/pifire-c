@@ -26,9 +26,4 @@ static inline pf_units pf_pid_cfg_units(const cJSON *c)
 
 /* Built-in controller constructors. */
 const pf_controller_ops *pf_controller_pid(void);
-const pf_controller_ops *pf_controller_pid_clamping(void);
-const pf_controller_ops *pf_controller_pid_clamping_percent_pb(void);
-const pf_controller_ops *pf_controller_pid_ac(void);
-const pf_controller_ops *pf_controller_pid_sp(void);
-const pf_controller_ops *pf_controller_pid_parallel(void);
 const pf_controller_ops *pf_controller_adaptive(void);

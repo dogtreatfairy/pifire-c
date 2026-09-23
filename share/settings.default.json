@@ -1,5 +1,5 @@
 {
-  "schema_version": 14,
+  "schema_version": 15,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -97,40 +97,7 @@
         "Td": 45.0,
         "center": 0.5
       },
-      "pid_ac": {
-        "PB": 60.0,
-        "Ti": 180.0,
-        "Td": 45.0,
-        "center_factor": 0.001,
-        "stable_window": 12
-      },
-      "pid_clamping": {
-        "PB": 100.0,
-        "Ti": 180.0,
-        "Td": 45.0
-      },
-      "pid_clamping_percent_pb": {
-        "PB": 42.0,
-        "Ti": 180.0,
-        "Td": 45.0
-      },
-      "pid_parallel": {
-        "Kp": 0.01,
-        "Ki": 5.5e-05,
-        "Kd": 0.45,
-        "Clamping": true
-      },
-      "pid_sp": {
-        "PB": 60.0,
-        "Ti": 180.0,
-        "Td": 45.0,
-        "center_factor": 0.001,
-        "stable_window": 12,
-        "tau": 115,
-        "theta": 65
-      },
       "adaptive": {
-        "auto_tune": true,
         "PB": 60.0,
         "Ti": 180.0,
         "Td": 45.0,
@@ -868,7 +835,6 @@
   "learning": {
     "enabled": true,
     "half_life_obs": 60,
-    "auto_tune": true,
     "use_library": true,
     "tune_setpoints": [
       250

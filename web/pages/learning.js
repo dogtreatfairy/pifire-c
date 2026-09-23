@@ -12,18 +12,26 @@ const PHASE_TEXT = {
 const PRESETS_F = [180, 200, 225, 250, 275, 325, 375, 425, 450];
 const PRESETS_C = [80, 95, 105, 120, 135, 165, 190, 220, 230];
 
-export function renderLearning(view) {
+/* The page this fills is a short list of sections, so the parts are handed to whoever is laying it
+   out rather than appended in one stream: `slots.tuning` gets everything about measuring the grill,
+   `slots.learning` everything about what it works out for itself, and `slots.note` the one line
+   saying which tuning is in force. Without slots they all go into the view in that order. */
+export function renderLearning(view, slots = {}) {
   const tuneCard = el('div', { class: 'card' });
   const ffCard = el('div', { class: 'card' });
-  const plantCard = el('div', { class: 'card' });
   const recent = el('div', { class: 'list' });
-  view.append(
-    el('h2', {}, 'Tuning in Use'),
-    el('div', { class: 'card', id: 'learned-note' }, el('div', { class: 'muted' }, 'Tuning in use appears here for the adaptive controller.')),
-    el('h2', {}, 'Autotune'), tuneCard,
-    el('h2', {}, 'Feed-Forward Model'), ffCard,
-    el('h2', {}, 'Plant Estimate'), plantCard,
-    el('h2', {}, 'Recent Observations'), el('div', { class: 'card' }, recent));
+  const note = el('div', { class: 'card', id: 'learned-note' }, el('div', { class: 'muted' }, 'Tuning in use appears here for the adaptive controller.'));
+  const tuningInto = slots.tuning || view;
+  const learningInto = slots.learning || view;
+  if (slots.note) slots.note.append(note);
+  else view.append(el('h2', {}, 'Tuning in Use'), note);
+  if (!slots.tuning) tuningInto.append(el('h2', {}, 'Autotune'));
+  tuningInto.append(tuneCard);
+  if (!slots.learning) learningInto.append(el('h2', {}, 'Feed-Forward Model'));
+  /* No plant estimate here: the three numbers measured from the grill belong with the rest of the
+     measuring, under Auto Tuning, and printing them twice would only invite them to disagree. */
+  learningInto.append(ffCard,
+    el('h3', { style: 'margin:14px 0 6px;font-size:.9rem' }, 'Recent Observations'), el('div', { class: 'card' }, recent));
 
   let data = null;
   let tune = null;
@@ -190,7 +198,16 @@ export function renderLearning(view) {
               } catch (e) { toast(e.message || 'That file is not a tuning backup', true); }
             };
             f.click();
-          } }, 'Restore')));
+          } }, 'Restore'),
+          /* The other way back: throw the measurements away and let the Proportional Band, Integral
+             Time and Derivative Time typed on this page govern the grill again. Not the same as
+             clearing what the grill has learned, which is why it sits here rather than there. */
+          el('button', { class: 'btn sm ghost', onclick: async () => {
+            if (!await confirmDialog('Clear the measured tuning?',
+              'The tuning library, the last autotune and the grill model measured from startups are thrown away, and the grill goes back to the Proportional Band, Integral Time and Derivative Time typed on this page. Measuring them again takes hours and a hopper of pellets, so back them up first if you might want them.', 'Clear', true)) return;
+            try { await api('/tune/clear', { body: {} }); toast('Back to the typed values'); setTimeout(() => load().catch(() => {}), 400); }
+            catch (e) { toast(e.message, true); }
+          } }, 'Clear Autotune')));
 
       if (tune.plant) {
         tuneCard.append(el('h3', { style: 'margin:16px 0 6px;font-size:.9rem' }, 'Measured Grill'),
@@ -212,25 +229,18 @@ export function renderLearning(view) {
     const f = data.feedforward;
     ffCard.innerHTML = '';
     ffCard.append(...[
-      el('label', { class: 'toggle' }, el('div', {}, el('div', {}, 'Learn from cooks'), el('div', { class: 'help muted', style: 'font-size:.76rem' }, 'Record steady-state feed at each set point and ambient temperature')),
-        el('span', { class: 'switch' }, el('input', { type: 'checkbox', checked: data.enabled, onchange: async (e) => { await patchSettings('learning', { enabled: e.target.checked }); load(); } }), el('span'))),
+      // The switch lives in the Learning section above, once. This card only reports what it found.
+      data.enabled ? null : el('div', { class: 'notice warn' }, 'Learning is switched off, so none of this is being updated.'),
       el('p', { class: 'muted', style: 'font-size:.85rem' }, `Model: feed = ${f.a.toFixed(3)} + ${f.b_per_degC.toFixed(4)} × (set point − ambient, °C). Fitted from ${f.observations} observation${f.observations === 1 ? '' : 's'}${f.observations ? `, rms error ${f.rms.toFixed(3)}` : ' (using the built-in prior until real cooks accumulate)'}.`),
       el('div', { class: 'kv' }, ...f.examples.flatMap((e) => [el('div', {}, `Hold ${e.setpoint}${degUnit()} at ${f.example_ambient}${degUnit()} ambient`), el('div', {}, `${(e.u * 100).toFixed(0)}% feed`)])),
       s?.mode === 'Hold' ? el('p', { class: 'muted', style: 'font-size:.85rem' }, `Right now: feed-forward ${(s.cycle.u_ff * 100).toFixed(0)}%, applied ${(s.cycle.u_applied * 100).toFixed(0)}%.`) : null,
-      // Two different things, named for what survives each one. Clearing is the ordinary one: the
-      // grill keeps what it measured on purpose and starts refining it again. Erasing throws the
-      // measurements away too, and costs hours and a hopper of pellets to get back.
+      // Clearing what the grill taught itself belongs here, with the rest of the learning. The
+      // other clearing -- throwing the measurements away and going back to the typed values -- sits
+      // under Auto Tuning, beside the library it removes.
       el('div', { class: 'form-actions' },
-        el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog('Clear learning?', 'Observations, the fitted grill model and the corrections the controller has settled on are cleared. The tuning library is kept, and the grill starts learning again from it.', 'Clear', true)) { await api('/learning/forget', { body: {} }); load(); } } }, 'Clear learning'),
-        el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog('Erase everything?', 'The tuning library goes too, along with everything learned. Measuring a new baseline takes hours and a hopper of pellets.', 'Erase', true)) { await api('/learning/reset', { body: {} }); load(); } } }, 'Erase everything'))].filter(Boolean));
+        el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog('Clear learning?', 'The observations behind the feed-forward and the corrections the controller has settled on are cleared, and the grill starts learning again from the tuning it has measured. What autotune measured is kept.', 'Clear', true)) { await api('/learning/forget', { body: {} }); load(); } } }, 'Clear learning'))].filter(Boolean));
 
-    const p = data.plant;
-    plantCard.innerHTML = '';
-    plantCard.append(p.valid
-      ? el('div', { class: 'kv' }, el('div', {}, 'Gain (K)'), el('div', {}, `${p.K.toFixed(0)}° per unit feed`), el('div', {}, 'Time constant (τ)'), el('div', {}, `${p.tau.toFixed(0)} s`), el('div', {}, 'Dead time (θ)'), el('div', {}, `${p.theta.toFixed(0)} s`), el('div', {}, 'Measured'), el('div', {}, new Date(p.ts * 1000).toLocaleString()))
-      : el('p', { class: 'muted' }, 'Measured automatically from the temperature rise of each startup. Not available yet.'));
-
-    if (s?.controller?.note && s.controller.id === 'adaptive') view.querySelector('#learned-note')?.replaceChildren(el('div', { class: 'kv' }, el('div', {}, 'Controller tuning in use'), el('div', {}, s.controller.note)));
+    if (s?.controller?.note && s.controller.id === 'adaptive') note.replaceChildren(el('div', { class: 'kv' }, el('div', {}, 'Controller tuning in use'), el('div', {}, s.controller.note)));
 
     recent.innerHTML = '';
     for (const o of data.recent) recent.append(el('div', { class: 'item' }, el('div', {}, el('div', {}, `Hold ${o.setpoint}${degUnit()} · ambient ${o.ambient}${degUnit()} · feed ${(o.u * 100).toFixed(0)}%`), el('div', { class: 'meta' }, `${o.controller} · ${new Date(o.ts * 1000).toLocaleString()}`))));

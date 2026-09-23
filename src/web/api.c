@@ -406,16 +406,13 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 	if (post && !strcmp(p, "/pellets/check")) { pf_pellets_request_check(); reply_ok(resp); return; }
 	if (get && !strcmp(p, "/learning")) { reply(resp, 200, pf_learning_json()); return; }
 	/* Both go through the control thread: it owns the controller instance, which holds its own copy
-	 * of what was learned, and clearing the stored copy alone would leave that running. */
-	if (post && !strcmp(p, "/learning/reset")) {
-		pf_cmd c = { .type = PF_CMD_FORGET_LEARNING, .flag = true };
-		pf_strlcpy(c.str, "asked for", sizeof c.str);
-		pf_cmdq_push(&c);
-		reply_ok(resp);
-		return;
-	}
-	if (post && !strcmp(p, "/learning/forget")) {
-		pf_cmd c = { .type = PF_CMD_FORGET_LEARNING, .flag = false };
+	 * of what it has learned and been told, and clearing the stored copy alone would leave that
+	 * running. Two different things can be wrong, so they are two different requests: forget what
+	 * the grill worked out for itself, or throw away what was measured and go back to the numbers
+	 * that were typed. */
+	if (post && (!strcmp(p, "/learning/forget") || !strcmp(p, "/tune/clear"))) {
+		pf_cmd c = { .type = PF_CMD_FORGET_LEARNING,
+		             .aux = p[1] == 'l' ? (int)PF_FORGET_REFINEMENT : (int)PF_FORGET_TUNING };
 		pf_strlcpy(c.str, "asked for", sizeof c.str);
 		pf_cmdq_push(&c);
 		reply_ok(resp);

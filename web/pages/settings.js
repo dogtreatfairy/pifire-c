@@ -115,14 +115,14 @@ const PAGES = [
      not only a phone: a browser on a laptop subscribes the same way, and MQTT and a webhook go
      nowhere near a phone at all. */
   { key: 'services', title: 'Notification Services', sub: 'Where notifications are delivered', section: 'Notifications', icon: 'bell', color: '#ff453a', sections: [
-    { id: 'notify', title: 'This Device', collapsible: 'webpush.enabled', state: browserState, fields: [
+    { id: 'notify', title: 'This Device', sub: 'Browser notifications on the device you are holding', icon: 'smartphone', color: '#0a84ff', collapsible: 'webpush.enabled', state: browserState, fields: [
       { type: 'note', help: 'This browser, on this device. Allow notifications and subscribe, and the grill can reach it through the browser maker\u2019s push service even with PiFire closed. On an iPhone, add PiFire to your Home Screen and open it from there first. Each device subscribes separately.' },
       { type: 'pushstate' },
       { type: 'action', label: 'Allow notifications on this device', endpoint: '', client: 'alerts' },
       { type: 'action', label: 'Show a test notification', endpoint: '', client: 'alerttest' },
       B('webpush.targets', 'Targets & timers', ''), B('webpush.alarms', 'Alarms & errors', ''), B('webpush.pellets', 'Pellets low', ''), B('webpush.tuning', 'Tuning runs', ''), B('webpush.system', 'Other system notices', ''),
     ] },
-    { id: 'notify', title: 'Pushover', collapsible: 'pushover.enabled', fields: [
+    { id: 'notify', title: 'Pushover', sub: 'Push to your phone, with priorities and sounds', icon: 'bell', color: '#ff9f0a', collapsible: 'pushover.enabled', fields: [
       { type: 'note', help: 'Install the Pushover app ($5 once), then paste your user key from the app and create an application token at pushover.net/apps/build.' },
       B('pushover.enabled', 'Pushover', 'Send notifications to the Pushover app'),
       X('pushover.user_key', 'User key', 'Shown at the top of the Pushover app'), { path: 'pushover.app_token', label: 'Application token', type: 'password' },
@@ -132,20 +132,20 @@ const PAGES = [
       B('pushover.targets', 'Targets & timers', 'Target reached, the predictive warning, cook timer, recipe steps'), B('pushover.alarms', 'Alarms & errors', 'Probe limit alarms, flame-out, over-temperature'), B('pushover.pellets', 'Pellets low', ''), B('pushover.tuning', 'Tuning runs', 'Started, finished, or gave up; a run takes hours unattended'), B('pushover.system', 'Other system notices', ''),
       { type: 'action', label: 'Send a test notification', endpoint: '/notify/test/pushover' },
     ] },
-    { id: 'notify', title: 'ntfy', collapsible: 'ntfy.enabled', fields: [
+    { id: 'notify', title: 'ntfy', sub: 'Free push through a topic you choose', icon: 'megaphone', color: '#30d158', collapsible: 'ntfy.enabled', fields: [
       { type: 'note', help: 'Free. Install the ntfy app, subscribe to a private topic name, and enter it here. Use ntfy.sh or your own server.' },
       B('ntfy.enabled', 'ntfy', ''), X('ntfy.server', 'Server', 'https://ntfy.sh or your own'), X('ntfy.topic', 'Topic', 'Pick something nobody would guess'), { path: 'ntfy.token', label: 'Access token', help: 'Only for protected topics', type: 'password' },
       B('ntfy.targets', 'Targets & timers', ''), B('ntfy.alarms', 'Alarms & errors', ''), B('ntfy.pellets', 'Pellets low', ''), B('ntfy.tuning', 'Tuning runs', 'Started, finished, or gave up'), B('ntfy.system', 'Other system notices', ''),
       { type: 'action', label: 'Send a test notification', endpoint: '/notify/test/ntfy' },
     ] },
-    { id: 'notify', title: 'Home Assistant', collapsible: 'mqtt.enabled', fields: [
+    { id: 'notify', title: 'Home Assistant', sub: 'MQTT with discovery: the grill appears as entities', icon: 'house', color: '#0a84ff', collapsible: 'mqtt.enabled', fields: [
       { type: 'note', help: 'Publishes the grill\u2019s state to an MQTT broker with Home Assistant discovery, so the grill and every probe appear as entities without configuring them by hand.' },
       B('mqtt.enabled', 'MQTT', 'Publish state to a broker, with Home Assistant discovery'),
       X('mqtt.broker', 'Broker host', ''), I('mqtt.port', 'Broker port', '', { min: 1, max: 65535 }),
       X('mqtt.username', 'Username', ''), { path: 'mqtt.password', label: 'Password', type: 'password' },
       X('mqtt.id', 'Device ID', 'Topic prefix'), I('mqtt.update_sec', 'Publish every (s)', '', { min: 5 }),
     ] },
-    { id: 'notify', title: 'Webhook', collapsible: 'webhook.enabled', fields: [
+    { id: 'notify', title: 'Webhook', sub: 'POST every event as JSON to a URL', icon: 'webhook', color: '#8e8e93', collapsible: 'webhook.enabled', fields: [
       { type: 'note', help: 'POSTs every event as JSON to a URL of your choosing \u2014 for anything that is not one of the services above.' },
       B('webhook.enabled', 'Webhook', 'POST events as JSON to a URL'), X('webhook.url', 'Webhook URL', ''),
     ] },
@@ -205,10 +205,14 @@ async function browserState() {
    the predictive warning, which needs the grill's own estimate of when a probe will arrive. It
    belongs with what the grill says rather than with where it is sent. */
 async function conditionalPage(view) {
-  view.append(pageCard({ title: '', sections: [{ id: 'notify', title: 'Predictive Alerts', fields: [
-    { type: 'note', help: 'The grill estimates when each probe will reach its target from how fast it is climbing, and tells you before it gets there so you can be at the grill in time.' },
-    I('eta_warn_min', 'Tell me this long before a probe reaches its target (minutes)', '0 = off. Sent once per target, as soon as the live estimate has settled below this', { min: 0, max: 240 }),
-  ] }] }));
+  view.append(pageCard({ title: '', sections: [{
+    id: 'notify', title: 'Predictive Alerts', sub: 'A warning before a probe reaches its target',
+    icon: 'timer', color: '#bf5af2', collapsible: 'eta_warn_min',
+    summary: (d) => { const v = Number(d?.eta_warn_min || 0); return { on: v > 0, label: v > 0 ? `${v} min ahead` : 'Off' }; },
+    fields: [
+      { type: 'note', help: 'The grill estimates when each probe will reach its target from how fast it is climbing, and tells you before it gets there so you can be at the grill in time.' },
+      I('eta_warn_min', 'Tell me this long before a probe reaches its target (minutes)', '0 = off. Sent once per target, as soon as the live estimate has settled below this', { min: 0, max: 240 }),
+    ] }] }));
   return renderRules(view);
 }
 
@@ -343,11 +347,23 @@ function pageCard(pg) {
     /* a section of notes and device-side buttons has nothing to store, so it has nothing to save */
     if (sec.fields.some((f) => f.path)) card.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'submit' }, 'Save')));
     if (sec.collapsible) {
-      // open when the service is already switched on, so a configured sink stays visible
-      const on = !!get(data, sec.collapsible);
-      const state = el('span', { class: `fold-state ${on ? 'on' : ''}` }, on ? 'On' : 'Off');
-      const det = el('details', { class: 'fold', open: on },
-        el('summary', {}, el('span', {}, sec.title || pg.title), state), card);
+      /* Built from the same parts as a settings row -- icon tile, title, one line saying what it
+         is, then whether it is on -- so a service you can open looks like the rows above it rather
+         than a bordered box bolted on. Every one starts closed, including the ones already
+         switched on: the page is a list of services, and a configured service opening itself only
+         buries the next one. What it is set to is on its own summary line, so opening it is never
+         how you find out. */
+      /* Off, On, or whatever the section itself would rather say -- "20 min" answers the question
+         better than "On" does, and answering it on the summary line is the point of the fold. */
+      const sum = sec.summary ? sec.summary(data) : null;
+      const on = sum ? sum.on : !!get(data, sec.collapsible);
+      const state = el('span', { class: `fold-state ${on ? 'on' : ''}` }, sum ? sum.label : on ? 'On' : 'Off');
+      const det = el('details', { class: 'fold ios-fold' },
+        el('summary', {},
+          sec.icon ? el('span', { class: 'tile', style: sec.color ? `--tile:${sec.color}` : '' }, lucide(sec.icon)) : null,
+          el('span', { class: 'body' }, el('span', { class: 't' }, sec.title || pg.title), sec.sub ? el('span', { class: 's' }, sec.sub) : null),
+          state, lucide('chevron-right', 'ic chev')),
+        el('div', { class: 'fold-body' }, card));
       /* Some services are not a switch. Being able to reach this browser is not something you turn
          on in settings -- the browser grants it and then holds a subscription -- so the summary says
          what is actually true rather than pretending there is a toggle behind it. */
@@ -355,7 +371,6 @@ function pageCard(pg) {
         if (!r) return;
         state.textContent = r.label;
         state.className = `fold-state ${r.on ? 'on' : ''}`;
-        if (r.on) det.open = true;
       }).catch(() => {});
       form.append(det);
     } else {
@@ -423,10 +438,11 @@ const holdCycleFields = [
   B('FanPidEnabled', 'Modulate AC fan at minimum feed', 'When the auger is already at its minimum duty, pulse the fan to hold temperature (AC fans only)'),
 ];
 
+/* One switch for one question. There were three -- this one, "apply learned tuning" beside it, and
+   the adaptive controller's own copy on the same page -- and they could disagree. */
 const learningFields = [
-  B('enabled', 'Learn from cooks', 'Record the steady feed for each set point and ambient temperature, and the plant model from every startup'),
-  B('auto_tune', 'Apply learned tuning automatically', 'Hand the measured plant model (and autotune results) to the controller as soon as they are known'),
-  B('use_library', 'Use the tuning library', 'On: measured anchors override the Proportional Band, Integral Time and Derivative Time set on the controller. Off: the grill uses exactly what is typed there, which is what makes those three numbers portable to another grill of the same kind'),
+  B('enabled', 'Learn from cooks', 'Measure the grill on every startup, record the steady feed at each set point and ambient temperature, and refine the tuning from how each cook actually goes'),
+  B('use_library', 'Use measured tuning', 'On: what autotune measured overrides the Proportional Band, Integral Time and Derivative Time typed on this page. Off: the grill uses exactly what is typed there, which is what makes those three numbers portable to another grill of the same kind'),
   I('half_life_obs', 'Memory half-life (observations)', 'How quickly old cooks fade; ~12 observations per hour of Hold', { min: 5, max: 500 }),
 ];
 const weatherFields = [
@@ -434,21 +450,21 @@ const weatherFields = [
   B('enabled', 'Use local weather', ''), X('country', 'Country code', 'Two letters, e.g. us, ca, de'), X('postal_code', 'Postal / ZIP code', ''),
   { type: 'weather' },
 ];
-// Temperature control & learning: the controller, what it learns, the weather it learns against, and the learned data
+/* Hold Mode: five sections, in the order you would think about them. What holds the temperature,
+   how it is measured, what it learns from ordinary cooks, how the auger feeds, and the weather all
+   of that is judged against. Everything to do with one of them is inside that one section --
+   including the button that clears it, which is why there is no row of clearing buttons anywhere. */
 async function controllerPage(view) {
-  /* The page was one long scroll of everything at once. Each part is its own collapsed section now,
-     with the answer on the summary line, so the page is a short list you open into rather than a
-     wall you scroll through. */
   const cyc = PF.settings?.cycle_data || {};
-  let tuned = '';
+  let tuned = '', anchors = 0, deep = 1;
   try {
     const t = await api('/tune');
-    const n = (t.anchors || []).length;
-    if (n) {
-      const deep = Math.max(...(t.anchors || []).map((a) => a.runs || 1));
+    anchors = (t.anchors || []).length;
+    if (anchors) {
+      deep = Math.max(...(t.anchors || []).map((a) => a.runs || 1));
       tuned = PF.settings?.learning?.use_library === false
-        ? ' · library off, using typed values'
-        : ` · tuned${deep > 1 ? ` (${deep} runs)` : ''}`;
+        ? ' · measured, not in use'
+        : ' · tuned';
     }
   } catch { /* the summary simply says less */ }
 
@@ -456,18 +472,31 @@ async function controllerPage(view) {
   const sel = PF.settings?.controller?.selected || '';
   const cfg = PF.settings?.controller?.config?.[sel] || {};
   const pid = [cfg.PB != null ? `PB ${cfg.PB}` : null, cfg.Ti != null ? `Ti ${cfg.Ti}` : null, cfg.Td != null ? `Td ${cfg.Td}` : null].filter(Boolean).join(' ');
-  view.append(fold('Controller', `${sel}${pid ? ` · ${pid}` : ''}${tuned}`, ctl, 'sliders-horizontal', '#ff8a1f'));
 
-  view.append(fold('Feed Cycle', `${cyc.HoldCycleTime ?? '—'} s · ${cyc.u_min ?? '—'}–${cyc.u_max ?? '—'} duty`,
-    pageCard({ title: '', sections: [{ id: 'cycle_data', title: '', fields: holdCycleFields }] }), 'timer', '#ff9f0a'));
+  /* The three parts that report rather than configure -- which tuning is in force, the autotune and
+     its library, what has been learned -- are built by the learning page and dropped into the
+     section each belongs to. */
+  const noteInto = el('div'), tuningInto = el('div'), learningInto = el('div');
+
+  view.append(fold('Controller', `${sel}${pid ? ` · ${pid}` : ''}${tuned}`,
+    el('div', {}, ctl, noteInto), 'sliders-horizontal', '#ff8a1f'));
+
+  view.append(fold('Auto Tuning', anchors
+    ? `${anchors} temperature${anchors === 1 ? '' : 's'} measured${deep > 1 ? ` · ${deep} runs deep` : ''}`
+    : 'nothing measured yet',
+    tuningInto, 'target', '#0a84ff'));
 
   view.append(fold('Learning', PF.settings?.learning?.enabled === false ? 'off' : 'on',
-    pageCard({ title: '', sections: [{ id: 'learning', title: '', fields: learningFields }] }), 'brain', '#bf5af2'));
+    el('div', {}, pageCard({ title: '', sections: [{ id: 'learning', title: '', fields: learningFields }] }), learningInto),
+    'brain', '#bf5af2'));
 
-  view.append(fold('Local Weather', PF.settings?.weather?.enabled ? (PF.settings.weather.postal_code || 'on') : 'off',
+  view.append(fold('Feed', `${cyc.HoldCycleTime ?? '—'} s · ${cyc.u_min ?? '—'}–${cyc.u_max ?? '—'} duty`,
+    pageCard({ title: '', sections: [{ id: 'cycle_data', title: '', fields: holdCycleFields }] }), 'timer', '#ff9f0a'));
+
+  view.append(fold('Weather', PF.settings?.weather?.enabled ? (PF.settings.weather.postal_code || 'on') : 'off',
     pageCard({ title: '', sections: [{ id: 'weather', title: '', fields: weatherFields }] }), 'cloud-sun', '#64d2ff'));
 
-  return renderLearning(view);
+  return renderLearning(view, { note: noteInto, tuning: tuningInto, learning: learningInto });
 }
 // Wi-Fi & hotspot: live connection and networks, then the hotspot settings
 function networkPage(view) {

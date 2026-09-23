@@ -165,7 +165,6 @@ add_library(pfcore STATIC
   src/probes/probes.c
   src/controllers/registry.c
   src/controllers/pid.c
-  src/controllers/pid_variants.c
   src/controllers/adaptive.c
   src/features/alarms.c
   src/features/webpush.c

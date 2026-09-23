@@ -17,6 +17,7 @@
 #include "core/settings.h"
 #include "core/util.h"
 #include "features/learning.h"
+#include "pifire/controller.h"
 #include <math.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -108,7 +109,7 @@ static void finish(bool ok, const char *why, double now)
 	 * of it -- and the control thread does the clearing, because it also has to reload the
 	 * controller so the copy in memory goes with the stored one. */
 	if (ok && g.full && g.measured > 0) {
-		pf_cmd fl = { .type = PF_CMD_FORGET_LEARNING, .flag = false };
+		pf_cmd fl = { .type = PF_CMD_FORGET_LEARNING, .aux = PF_FORGET_REFINEMENT };
 		pf_strlcpy(fl.str, "a new baseline was measured", sizeof fl.str);
 		pf_cmdq_push(&fl);
 	}

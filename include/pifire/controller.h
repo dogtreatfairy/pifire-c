@@ -11,7 +11,7 @@
  */
 #include "pifire/common.h"
 
-#define PF_CONTROLLER_ABI 3
+#define PF_CONTROLLER_ABI 4
 
 typedef struct {
 	double t;          /* monotonic seconds */
@@ -75,7 +75,7 @@ typedef struct {
 
 typedef struct pf_controller_ops {
 	uint32_t abi;                        /* PF_CONTROLLER_ABI */
-	const char *id;                      /* "pid", "pid_clamping", ... */
+	const char *id;                      /* "adaptive", "pid", or a plugin's own */
 	const char *name;
 	const char *description;
 	const char *author;
@@ -95,6 +95,14 @@ typedef struct pf_controller_ops {
 	/* optional (may be NULL) */
 	void   (*apply_tuning)(void *self, double Ku, double Pu, double K, double tau, double theta);
 	void   (*episode_end)(void *self, const pf_episode *ep);
+	/* Forget part of what this controller is holding, and persist that. The two halves are cleared
+	 * separately because they answer to different things: a measurement is thrown away when the
+	 * grill is to go back to the numbers that were typed, and a refinement when the tuning it was
+	 * refining has moved. `what` is a mask of PF_FORGET_*. */
+	void   (*forget)(void *self, unsigned what);
 } pf_controller_ops;
+
+#define PF_FORGET_REFINEMENT 1u   /* what the controller worked out for itself, cook by cook */
+#define PF_FORGET_TUNING     2u   /* what was measured for it and handed over by apply_tuning */
 
 typedef const pf_controller_ops *(*pf_controller_export_fn)(void);
