@@ -524,6 +524,31 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 13 (%d rule%s given a deadband)", fixed, fixed == 1 ? "" : "s");
 			added = 1;
 		}
+		if (ver < 14) {
+			/* Web push arrived after every existing rule was written, so not one of them named it and
+			 * a subscribed phone was addressed by nothing at all -- the delivery path shipped, and
+			 * the rules that would have used it did not. Any rule that already sends to a phone gets
+			 * it, because that is plainly what it was for; a rule that deliberately goes only to the
+			 * app or only to a webhook is left as it is. */
+			int fixed = 0;
+			cJSON *rules = pf_json_path(g_root, "notify.rules"), *r;
+			cJSON_ArrayForEach(r, rules) {
+				cJSON *sinks = cJSON_GetObjectItem(r, "sinks");
+				if (!cJSON_IsArray(sinks)) continue;
+				bool phone = false, already = false;
+				cJSON *it;
+				cJSON_ArrayForEach(it, sinks) {
+					if (!cJSON_IsString(it)) continue;
+					if (!strcmp(it->valuestring, "webpush")) already = true;
+					if (!strcmp(it->valuestring, "pushover") || !strcmp(it->valuestring, "ntfy")) phone = true;
+				}
+				if (phone && !already) { cJSON_AddItemToArray(sinks, cJSON_CreateString("webpush")); fixed++; }
+			}
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 14); else cJSON_AddNumberToObject(g_root, "schema_version", 14);
+			LOGI(TAG, "settings migrated to schema 14 (%d rule%s now also reach this browser)", fixed, fixed == 1 ? "" : "s");
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);

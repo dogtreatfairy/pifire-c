@@ -426,6 +426,7 @@ const holdCycleFields = [
 const learningFields = [
   B('enabled', 'Learn from cooks', 'Record the steady feed for each set point and ambient temperature, and the plant model from every startup'),
   B('auto_tune', 'Apply learned tuning automatically', 'Hand the measured plant model (and autotune results) to the controller as soon as they are known'),
+  B('use_library', 'Use the tuning library', 'On: measured anchors override the Proportional Band, Integral Time and Derivative Time set on the controller. Off: the grill uses exactly what is typed there, which is what makes those three numbers portable to another grill of the same kind'),
   I('half_life_obs', 'Memory half-life (observations)', 'How quickly old cooks fade; ~12 observations per hour of Hold', { min: 5, max: 500 }),
 ];
 const weatherFields = [
@@ -445,7 +446,9 @@ async function controllerPage(view) {
     const n = (t.anchors || []).length;
     if (n) {
       const deep = Math.max(...(t.anchors || []).map((a) => a.runs || 1));
-      tuned = ` · tuned${deep > 1 ? ` (${deep} runs)` : ''}`;
+      tuned = PF.settings?.learning?.use_library === false
+        ? ' · library off, using typed values'
+        : ` · tuned${deep > 1 ? ` (${deep} runs)` : ''}`;
     }
   } catch { /* the summary simply says less */ }
 

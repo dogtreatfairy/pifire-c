@@ -70,6 +70,7 @@ static void load_cfg(pf_cfg *g)
 	g->relight_recover_c = D("safety.relight_recover", 10);
 	g->relight_recover_step_c = D("safety.relight_recover_step", 3);
 	g->relight_timeout_s = N("safety.relight_timeout_s", 300);
+	g->use_library = B("learning.use_library", true);
 	g->error_cooldown_fan_s = N("safety.error_cooldown_fan_s", 300);
 	g->coldstart = B("safety.coldstart.enabled", false);
 	g->coldstart_delta_c = D("safety.coldstart.delta_rise", 12);
@@ -864,7 +865,15 @@ static double recent_hold_duty(const pf_control *c, double now, double window_s)
 
 static void autotune_start(pf_control *c, double now)
 {
-	if (c->mode != PF_MODE_HOLD || !c->target_reached) { pf_events_emit("Autotune_Failed", "Autotune not started", "Hold at the set point first (the pit must have reached it)."); return; }
+	/* Near the set point is enough to begin; the relay drives the pit across it from wherever it
+	 * starts. Demanding that it had already touched the target meant a controller tuned too slowly
+	 * to quite get there could never run the measurement that would retune it. */
+	double at_band = pf_delta_to_c(15, PF_UNITS_F);
+	if (c->mode != PF_MODE_HOLD || !c->pit_valid || c->setpoint_c <= 0 || fabs(c->pit_c - c->setpoint_c) > at_band) {
+		pf_events_emit("Autotune_Failed", "Autotune not started",
+		               "Hold near the set point first: the pit has to be within about 15 degrees of it.");
+		return;
+	}
 	memset(&c->autotune, 0, sizeof c->autotune);
 	c->autotune.active = true;
 	/* Centre the swing on what the grill has been doing, falling back to the model and then to the
@@ -1022,9 +1031,14 @@ static void run_hold_cycle(pf_control *c, double now)
 	} else {
 		int nobs = 0;
 		c->learn.u_ff = pf_learning_uff(c->setpoint_c, isnan(c->ambient_c) ? 20 : c->ambient_c, c->cfg.u_min, c->cfg.u_max, &nobs);
-		/* tuning autotune measured at this set point, if the library has anything in it */
+		/* The tuning library, if it has anything measured at this set point -- and if it is still
+		 * being trusted. The library takes priority over the numbers typed into the controller,
+		 * which is right while it is the better evidence and wrong the moment somebody writes
+		 * values down and types them in expecting them to be used: they were overridden in silence
+		 * by a measurement they had never seen. Turning the library off is how you say "use what I
+		 * typed", which is also what makes the three numbers portable to another grill. */
 		double sched_PB = 0, sched_Ti = 0, sched_Td = 0;
-		pf_learning_gains(c->setpoint_c, &sched_PB, &sched_Ti, &sched_Td);
+		if (c->cfg.use_library) pf_learning_gains(c->setpoint_c, &sched_PB, &sched_Ti, &sched_Td);
 		pf_ctrl_in in = {
 			.now_s = now, .pit_c = c->pit_c, .setpoint_c = c->setpoint_c, .ambient_c = c->ambient_c,
 			.u_prev_raw = c->u_raw, .u_prev_applied = c->u_applied, .u_ff = c->learn.u_ff, .saturated = c->saturated,

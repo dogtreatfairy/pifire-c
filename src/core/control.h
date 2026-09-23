@@ -24,6 +24,7 @@ typedef struct {
 	double manual_override_s, igniter_max_on_s, auger_max_on_s, probe_fault_s, error_cooldown_fan_s;
 	/* Dynamic flame-out assist: how far below the set point counts as the fire failing, and how
 	 * much recovery from the lowest point counts as it having caught again. */
+	bool   use_library;         /* let measured anchors override the typed-in PB/Ti/Td */
 	bool   relight_enabled;
 	double relight_drop_c, relight_recover_c, relight_recover_step_c, relight_timeout_s;
 	bool coldstart; double coldstart_delta_c, coldstart_timeout_s, coldstart_window_s; bool coldstart_exit_on_rise;

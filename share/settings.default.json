@@ -1,5 +1,5 @@
 {
-  "schema_version": 13,
+  "schema_version": 14,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -476,6 +476,7 @@
         "level": "high",
         "sinks": [
           "app",
+          "webpush",
           "pushover",
           "ntfy"
         ],
@@ -533,6 +534,7 @@
         "level": "normal",
         "sinks": [
           "app",
+          "webpush",
           "pushover",
           "ntfy"
         ],
@@ -571,6 +573,7 @@
         "level": "high",
         "sinks": [
           "app",
+          "webpush",
           "pushover",
           "ntfy"
         ],
@@ -615,6 +618,7 @@
         "level": "info",
         "sinks": [
           "app",
+          "webpush",
           "pushover"
         ],
         "cooldown_s": 21600,
@@ -676,6 +680,7 @@
         "level": "normal",
         "sinks": [
           "app",
+          "webpush",
           "pushover",
           "ntfy"
         ],
@@ -720,6 +725,7 @@
         "level": "high",
         "sinks": [
           "app",
+          "webpush",
           "pushover",
           "ntfy"
         ],
@@ -765,6 +771,7 @@
         "level": "high",
         "sinks": [
           "app",
+          "webpush",
           "pushover",
           "ntfy"
         ],
@@ -797,6 +804,7 @@
         "level": "normal",
         "sinks": [
           "app",
+          "webpush",
           "pushover",
           "ntfy"
         ],
@@ -829,6 +837,7 @@
         "level": "critical",
         "sinks": [
           "app",
+          "webpush",
           "pushover",
           "ntfy"
         ],
@@ -860,6 +869,7 @@
     "enabled": true,
     "half_life_obs": 60,
     "auto_tune": true,
+    "use_library": true,
     "tune_setpoints": [
       250
     ],

@@ -306,9 +306,14 @@ void pf_tuner_tick(const cJSON *status, double now)
 		 * untuned grill swings about its target, and waiting for tight holding here would mean
 		 * waiting for the very thing this run exists to produce. The pit must also have actually
 		 * touched the set point, which is the same condition the relay test itself insists on. */
+		/* Close enough and no longer going anywhere. It used to also insist the pit had actually
+		 * touched the set point, which turned a bad tune into a trap it could not get out of: a
+		 * controller left with too wide a band sits a few degrees short indefinitely, so the pit
+		 * never touches the target, so the measurement that would fix the band never starts. The
+		 * relay does not need good tuning -- it is bang-bang about a centre and drives the pit
+		 * across the set point itself -- it only needs to begin somewhere near. */
 		double band = pf_settings_units() == PF_UNITS_C ? 8.0 : 15.0;
-		bool reached = pf_json_bool((cJSON *)status, "target_reached", false);
-		bool close = reached && !isnan(pit) && sp > 0 && fabs(pit - sp) <= band;
+		bool close = !isnan(pit) && sp > 0 && fabs(pit - sp) <= band;
 		if (!close) g.stable_since = 0;
 		else if (g.stable_since == 0) g.stable_since = now;
 		if (g.stable_since > 0 && now - g.stable_since >= STABLE_S) {
