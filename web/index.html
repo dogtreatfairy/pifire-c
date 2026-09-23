@@ -18,6 +18,46 @@
 <link rel="apple-touch-icon" href="/icon-180.png">
 <link rel="stylesheet" href="/uPlot.min.css">
 <link rel="stylesheet" href="/style.css">
+<script>
+/* A Home Screen app that comes up unstyled leaves its owner no recourse but to force-quit it, so
+   it checks its own work. The body is pinned by the stylesheet; if it is not pinned, the stylesheet
+   did not arrive, whatever the service worker believed. Fetch it again past every cache, and if
+   even that fails, say so in plain HTML rather than sitting there looking broken. */
+(function () {
+  /* The stylesheet pins the body to the viewport -- that is the app shell, and nothing else in the
+     document does it -- and clears the user agent's margin. Either signal on its own is enough, and
+     if the check cannot run we assume all is well rather than risk fighting a page that is fine. */
+  function styled() {
+    try {
+      var cs = getComputedStyle(document.body);
+      return cs.position === 'fixed' || cs.marginTop === '0px';
+    } catch (e) { return true; }
+  }
+  function retry(n) {
+    var l = document.createElement('link');
+    l.rel = 'stylesheet';
+    l.href = '/style.css?retry=' + Date.now();
+    l.onload = function () { document.documentElement.removeAttribute('data-unstyled'); };
+    l.onerror = function () { if (n > 0) setTimeout(function () { retry(n - 1); }, 1500); };
+    document.head.appendChild(l);
+  }
+  addEventListener('DOMContentLoaded', function () {
+    if (styled()) return;
+    document.documentElement.setAttribute('data-unstyled', '');
+    retry(3);
+    /* A reload is the last resort and happens once. A Home Screen app stuck in a reload loop is
+       worse than one that looks wrong, because there is no address bar to escape from it. */
+    setTimeout(function () {
+      if (styled()) return;
+      try {
+        if (sessionStorage.getItem('pf_css_reload')) return;
+        sessionStorage.setItem('pf_css_reload', '1');
+      } catch (e) { return; }
+      location.reload();
+    }, 6000);
+  });
+})();
+</script>
 </head>
 <body>
 <div class="edge-anchor" aria-hidden="true"></div>

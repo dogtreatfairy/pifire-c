@@ -1,21 +1,44 @@
 // Cache the app shell so the PWA opens instantly; API and WebSocket traffic always goes to the network.
 /* Substituted by CMake at build time, so every release gets its own cache. */
 const VERSION = 'pifire-@PF_VERSION@';
-const SHELL = ['/', '/index.html', '/app.js', '/style.css', '/uPlot.iife.min.js', '/uPlot.min.css', '/manifest.webmanifest', '/icon.svg', '/icon-180.png', '/icon-192.png',
-  '/pages/home.js', '/pages/history.js', '/pages/cook.js', '/pages/settings.js', '/pages/more.js', '/pages/network.js', '/pages/pellets.js', '/pages/learning.js', '/pages/probes.js', '/pages/rules.js', '/icons.js'];
+/* Without these the app is not an app: it is a page of unstyled links, which is exactly what a
+   half-filled cache produced. They are cached with a retry and their failure fails the install. */
+const CORE = ['/', '/index.html', '/app.js', '/style.css', '/icons.js'];
+/* Everything else is worth having and survivable without: a missing chart library costs the
+   history page, not the whole shell. */
+const EXTRA = ['/uPlot.iife.min.js', '/uPlot.min.css', '/manifest.webmanifest', '/icon.svg', '/icon-180.png', '/icon-192.png',
+  '/pages/home.js', '/pages/history.js', '/pages/cook.js', '/pages/settings.js', '/pages/more.js', '/pages/network.js',
+  '/pages/pellets.js', '/pages/learning.js', '/pages/probes.js', '/pages/rules.js'];
 
-/* addAll is all-or-nothing: one file that 404s and the whole install rejects, the new worker never
-   activates, and the phone keeps being served the previous shell for ever. Cache them one at a
-   time so a missing file costs that file and nothing else. */
+/* addAll is all-or-nothing, so one file that 404s used to reject the whole install and the phone
+   kept the previous shell for ever. Caching each file separately and swallowing every failure
+   traded that for something worse: an install that "succeeded" with a hole in it. If the hole was
+   style.css, and the next load caught a slow tunnel, the app came up as unstyled HTML -- and since
+   activate had already deleted the previous cache, there was no older copy left to fall back on.
+   So the core is required and retried, and anything else may fail quietly. */
 self.addEventListener('install', (e) => {
   e.waitUntil((async () => {
     const c = await caches.open(VERSION);
-    await Promise.all(SHELL.map((u) => c.add(u).catch(() => {})));
+    for (const u of CORE) {
+      try { await c.add(u); } catch { await c.add(u); }   /* a second throw rejects the install */
+    }
+    await Promise.all(EXTRA.map((u) => c.add(u).catch(() => {})));
     await self.skipWaiting();
   })());
 });
+
+/* Do not throw away a working shell for one that is not finished. The old cache is only dropped
+   once this version actually holds everything the app needs to render. */
 self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil((async () => {
+    const c = await caches.open(VERSION);
+    const complete = (await Promise.all(CORE.map((u) => c.match(u)))).every(Boolean);
+    if (complete) {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k)));
+    }
+    await self.clients.claim();
+  })());
 });
 /* Network first, but only for as long as the network is worth waiting for.
  *
@@ -53,7 +76,18 @@ self.addEventListener('fetch', (e) => {
       const raced = await Promise.race([fromNet, new Promise((res) => setTimeout(() => res(null), NET_PATIENCE_MS))]);
       return raced || cached;
     }
-    const net = await fromNet;
+    let net = await fromNet;
+    if (!net) {
+      /* Nothing cached and the first attempt came to nothing. One more try before giving up:
+         failing a stylesheet leaves the app looking like raw HTML, which is worse than waiting. */
+      try {
+        const again = await fetch(e.request, { cache: 'reload' });
+        if (usable(again)) {
+          if (again.ok) caches.open(VERSION).then((c) => c.put(e.request, again.clone())).catch(() => {});
+          net = again;
+        }
+      } catch { /* still nothing */ }
+    }
     if (net) return net;
     /* Nothing cached and nothing usable from the network. For a page, the shell we already have
        beats the browser's error screen, which on a Home Screen app is a dead white rectangle with
