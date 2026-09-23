@@ -117,6 +117,34 @@ setInterval(() => {
 function resumeNow() {
   setTimeout(reconnectNow, 150);
   pollStatus();
+  checkVersion();
+}
+
+/* The daemon can be updated while this app is sitting in the background -- on a phone it may not be
+ * launched from cold for days -- and the modules already running are then older than the grill they
+ * are talking to. That is invisible and confusing: a setting that was fixed is still broken, and
+ * reloading is not something anyone thinks to do to an app. So the running version is compared with
+ * the daemon's whenever the app comes back to the front, not only when it starts.
+ *
+ * Reloading immediately would only fetch the shell the service worker already holds, so the new
+ * worker is given a moment to install and take over first; if it does not, the reload still gets
+ * fresh files, because the fetch handler prefers the network. */
+let versionCheckAt = 0;
+async function checkVersion() {
+  if (document.hidden || Date.now() - versionCheckAt < 30000) return;
+  versionCheckAt = Date.now();
+  let sys;
+  try { sys = await api('/system'); } catch { return; }            /* offline: keep what we have */
+  if (!sys?.version) return;
+  let seen = null;
+  try { seen = localStorage.getItem('pf_version'); localStorage.setItem('pf_version', sys.version); } catch { /* storage unavailable */ }
+  if (!seen || seen === sys.version) return;
+  try {
+    const regs = await navigator.serviceWorker?.getRegistrations?.() || [];
+    await Promise.all(regs.map((r) => r.update().catch(() => {})));
+    await Promise.race([navigator.serviceWorker?.ready, new Promise((r) => setTimeout(r, 3000))]);
+  } catch { /* no service worker: the reload is enough */ }
+  location.reload();
 }
 for (const ev of ['online', 'pageshow', 'focus']) window.addEventListener(ev, resumeNow);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) resumeNow(); });
@@ -552,11 +580,5 @@ setTimeout(fitViewport, 500);
   document.addEventListener('click', requestAlertPermission, { once: true });
   ensurePushSubscription();   /* keeps a refreshed subscription current without waiting for a tap */
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('/sw.js').catch(() => {});
-  // after a daemon upgrade the cached shell may be older than the server: reload once so modules match
-  try {
-    const sys = await api('/system');
-    let seen = null;
-    try { seen = localStorage.getItem('pf_version'); localStorage.setItem('pf_version', sys.version); } catch { /* storage unavailable */ }
-    if (seen && sys.version && seen !== sys.version) { const regs = await navigator.serviceWorker?.getRegistrations?.() || []; for (const r of regs) await r.update(); location.reload(); }
-  } catch { /* offline: keep the cached shell */ }
+  checkVersion();
 })();
