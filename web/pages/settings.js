@@ -1,6 +1,7 @@
 import { PF, el, api, patchSettings, toast, degUnit, confirmDialog, setBack, alertSupport, requestAlertPermission, showSystemNotification } from '../app.js';
 import { renderProbes } from './probes.js';
 import { renderRules } from './rules.js';
+import { icon as lucide } from '../icons.js';
 import { renderLearning } from './learning.js';
 import { renderPellets } from './pellets.js';
 import { renderNetwork } from './network.js';
@@ -166,6 +167,8 @@ const PAGES = [
 // look at (manual outputs, events, logs, system health). Sections follow the questions people ask:
 // how it cooks, what it is made of, what keeps it safe, how it tells me, how I reach it, the app itself.
 const SECTIONS = ['Cooking', 'Hardware', 'Safety', 'Notifications', 'Network', 'System'];
+/* The order a cook actually happens in. */
+const ORDER = { Cooking: ['startup', 'controller', 'smoke', 'lid', 'keepwarm', 'pellets'] };
 const LINKS = {};
 
 const get = (obj, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
@@ -324,8 +327,15 @@ async function controllerCard() {
 
 /* A collapsed section that still answers its own question from the summary line: you should be
    able to read what the controller is set to without opening anything. */
-const fold = (title, meta, body, open = false) =>
-  el('details', { class: 'fold', open }, el('summary', {}, el('span', {}, title), el('span', { class: 'fold-meta' }, meta || '')), body);
+/* Built from the same parts as a settings row -- icon tile, title, value, chevron -- so a section
+   you can open looks like the rows you tap, rather than a bordered box sitting on top of them. */
+const fold = (title, meta, body, icon, color, open = false) =>
+  el('details', { class: 'fold ios-fold', open },
+    el('summary', {},
+      icon ? el('span', { class: 'tile', style: color ? `--tile:${color}` : '' }, lucide(icon)) : null,
+      el('span', { class: 'body' }, el('span', { class: 't' }, title), meta ? el('span', { class: 's' }, meta) : null),
+      lucide('chevron-right', 'ic chev')),
+    el('div', { class: 'fold-body' }, body));
 
 const holdCycleFields = [
   I('HoldCycleTime', 'Control cycle (s)', 'One auger cycle while holding. The controller decides the feed once per cycle, so a shorter cycle corrects sooner but feeds less per pulse. Smoke has its own timings and is not affected.', { min: 5, max: 120 }),
@@ -364,16 +374,16 @@ async function controllerPage(view) {
   const sel = PF.settings?.controller?.selected || '';
   const cfg = PF.settings?.controller?.config?.[sel] || {};
   const pid = [cfg.PB != null ? `PB ${cfg.PB}` : null, cfg.Ti != null ? `Ti ${cfg.Ti}` : null, cfg.Td != null ? `Td ${cfg.Td}` : null].filter(Boolean).join(' ');
-  view.append(fold('Controller', `${sel}${pid ? ` · ${pid}` : ''}${tuned}`, ctl));
+  view.append(fold('Controller', `${sel}${pid ? ` · ${pid}` : ''}${tuned}`, ctl, 'sliders-horizontal', '#ff8a1f'));
 
   view.append(fold('Feed Cycle', `${cyc.HoldCycleTime ?? '—'} s · ${cyc.u_min ?? '—'}–${cyc.u_max ?? '—'} duty`,
-    pageCard({ title: '', sections: [{ id: 'cycle_data', title: '', fields: holdCycleFields }] })));
+    pageCard({ title: '', sections: [{ id: 'cycle_data', title: '', fields: holdCycleFields }] }), 'timer', '#ff9f0a'));
 
   view.append(fold('Learning', PF.settings?.learning?.enabled === false ? 'off' : 'on',
-    pageCard({ title: '', sections: [{ id: 'learning', title: '', fields: learningFields }] })));
+    pageCard({ title: '', sections: [{ id: 'learning', title: '', fields: learningFields }] }), 'brain', '#bf5af2'));
 
   view.append(fold('Local Weather', PF.settings?.weather?.enabled ? (PF.settings.weather.postal_code || 'on') : 'off',
-    pageCard({ title: '', sections: [{ id: 'weather', title: '', fields: weatherFields }] })));
+    pageCard({ title: '', sections: [{ id: 'weather', title: '', fields: weatherFields }] }), 'cloud-sun', '#64d2ff'));
 
   return renderLearning(view);
 }
@@ -412,7 +422,13 @@ export function renderSettings(view, rest) {
   }
   // index: iOS-style grouped lists, one row per page
   for (const sec of SECTIONS) {
-    const rows = pages.filter((p) => p.section === sec).map((p) => ({ href: `#/settings/${p.key}`, icon: p.icon, color: p.color, title: p.title, sub: p.sub }));
+    /* Cooking reads in the order a cook happens rather than the order the pages were written:
+       light it, hold it or smoke it, the things that happen during, and what is left afterwards.
+       Anything not named here follows, so a new page appears rather than disappearing. */
+    const order = ORDER[sec] || [];
+    const rank = (p) => { const i = order.indexOf(p.key); return i < 0 ? order.length : i; };
+    const rows = pages.filter((p) => p.section === sec).sort((a, b) => rank(a) - rank(b))
+      .map((p) => ({ href: `#/settings/${p.key}`, icon: p.icon, color: p.color, title: p.title, sub: p.sub }));
     for (const l of LINKS[sec] || []) rows.push(l);
     if (rows.length) view.append(listGroup(sec, rows));
   }
