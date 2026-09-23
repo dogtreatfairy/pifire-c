@@ -394,7 +394,29 @@ export function applyTheme() {
 // ---------- router ----------
 const pages = { home: renderHome, history: renderHistory, cook: renderCook, settings: renderSettings, more: renderMore, setup: (v) => renderNetwork(v, { captive: true }) };
 let teardown = null;
+/* The back affordance belongs to the navigation bar, not to the page. Putting it in the scrolling
+   content meant it slid away the moment you scrolled, which no native app does -- you should never
+   have to scroll back up to leave a page. Pages call this while rendering; the router clears it on
+   every navigation so it cannot outlive the page that asked for it. */
+export function setBack(href, label = 'Back') {
+  const b = document.getElementById('tb-back');
+  const brand = document.getElementById('tb-brand');
+  const lab = document.getElementById('tb-back-label');
+  if (!b) return;
+  if (lab) lab.textContent = label;
+  b.onclick = () => { location.hash = href; };
+  b.hidden = false;
+  if (brand) brand.hidden = true;
+}
+function clearBack() {
+  const b = document.getElementById('tb-back');
+  const brand = document.getElementById('tb-brand');
+  if (b) { b.hidden = true; b.onclick = null; }
+  if (brand) brand.hidden = false;
+}
+
 function route() {
+  clearBack();
   // captive-portal browsers land on /setup by path rather than by hash
   const hash = location.hash.replace(/^#\/?/, '') || (location.pathname === '/setup' ? 'setup' : 'home');
   const [page, ...rest] = hash.split('/');

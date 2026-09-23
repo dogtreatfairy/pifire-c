@@ -1,4 +1,4 @@
-import { PF, el, api, cmd, patchSettings, toast, onStatus, confirmDialog, dialog, fmtTime, degUnit, listGroup } from '../app.js';
+import { PF, el, api, cmd, patchSettings, toast, onStatus, confirmDialog, setBack, dialog, fmtTime, degUnit, listGroup } from '../app.js';
 import { fieldInput, readField } from './settings.js';
 import { renderNetwork } from './network.js';
 import { renderPellets } from './pellets.js';
@@ -14,7 +14,7 @@ export function renderMore(view, rest) {
   const page = rest[0];
   if (page && subpages[page]) {
     if (['hardware', 'network', 'remote', 'learning', 'pellets', 'probes'].includes(page)) return subpages[page]();
-    view.append(el('button', { class: 'btn ghost sm', onclick: () => (location.hash = '#/more') }, '‹ Back'));
+    setBack('#/more', 'More');
     return subpages[page](view, rest.slice(1));
   }
   view.append(

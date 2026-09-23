@@ -1,4 +1,4 @@
-import { PF, el, api, patchSettings, toast, degUnit, confirmDialog, alertSupport, requestAlertPermission, showSystemNotification } from '../app.js';
+import { PF, el, api, patchSettings, toast, degUnit, confirmDialog, setBack, alertSupport, requestAlertPermission, showSystemNotification } from '../app.js';
 import { renderProbes } from './probes.js';
 import { renderRules } from './rules.js';
 import { renderLearning } from './learning.js';
@@ -354,7 +354,7 @@ export function renderSettings(view, rest) {
   const pages = PAGES.filter((p) => !p.dc || dc);
   const page = rest?.[0];
   if (page) {
-    view.append(el('button', { class: 'btn ghost sm', onclick: () => (location.hash = '#/settings') }, '‹ Settings'));
+    setBack('#/settings', 'Settings');
     const pg = pages.find((x) => x.key === page);
     if (!pg) { view.append(el('div', { class: 'card muted' }, 'No such settings page')); return; }
     if (pg.custom) return Promise.resolve(pg.custom(view)).catch((e) => { toast(e.message, true); });

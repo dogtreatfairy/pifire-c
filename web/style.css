@@ -246,6 +246,18 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .edge-anchor { position: fixed; top: 0; left: 0; right: 0; height: 1px; background: var(--bg); z-index: 9999; pointer-events: none; }
 .topbar { position: relative; display: flex; align-items: center; gap: 10px; }
 .topbar .brand { margin-right: auto; min-width: 0; }
+/* The back affordance sits where the brand does and behaves like a navigation bar's: chevron,
+   destination, accent colour, and a target big enough to hit with a thumb. It is in the header, so
+   scrolling cannot take it away. */
+.tb-back {
+  margin-right: auto; min-width: 0; display: flex; align-items: center; gap: 2px;
+  background: none; border: 0; padding: 6px 10px 6px 0; margin-left: -4px;
+  color: var(--accent); font-size: 1.05rem; font-weight: 600; cursor: pointer;
+  min-height: 44px;   /* a thumb-sized target, whatever the label says */
+}
+.tb-back svg { width: 22px; height: 22px; flex: none; }
+.tb-back span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-back:active { opacity: .55; }
 .topbar .brand #grill-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tb-inds { display: flex; align-items: center; gap: 8px; flex: none; }
 .tb-ind { display: inline-flex; align-items: center; color: var(--muted); }
