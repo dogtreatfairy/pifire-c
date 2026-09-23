@@ -20,7 +20,7 @@ export function renderLearning(view, slots = {}) {
   const tuneCard = el('div', { class: 'card' });
   const ffCard = el('div', { class: 'card' });
   const recent = el('div', { class: 'list' });
-  const note = el('div', { class: 'card', id: 'learned-note' }, el('div', { class: 'muted' }, 'Tuning in use appears here for the adaptive controller.'));
+  const note = el('div', { class: 'card', id: 'learned-note' }, el('div', { class: 'muted' }, 'Reading the tuning in use…'));
   const tuningInto = slots.tuning || view;
   const learningInto = slots.learning || view;
   if (slots.note) slots.note.append(note);
@@ -254,6 +254,7 @@ export function renderLearning(view, slots = {}) {
     const t = s?.controller?.tuning;
     if (t) {
       note.replaceChildren(
+        el('h3', { style: 'margin:0 0 8px;font-size:.9rem' }, 'Tuning In Use'),
         el('div', { class: 'kv' },
           el('div', {}, 'Proportional Band'), el('div', {}, `${t.PB}${degUnit()}`),
           el('div', {}, 'Integral Time'), el('div', {}, `${t.Ti} s`),

@@ -1,4 +1,4 @@
-import { PF, el, api, patchSettings, toast, degUnit, confirmDialog, setBack, alertSupport, requestAlertPermission, showSystemNotification, ensurePushSubscription } from '../app.js';
+import { PF, el, api, patchSettings, toast, degUnit, confirmDialog, setBack, alertSupport, requestAlertPermission, showSystemNotification, ensurePushSubscription, onStatus } from '../app.js';
 import { renderProbes } from './probes.js';
 import { renderRules } from './rules.js';
 import { icon as lucide } from '../icons.js';
@@ -470,16 +470,27 @@ async function controllerPage(view) {
 
   const ctl = await controllerCard();
   const sel = PF.settings?.controller?.selected || '';
-  const cfg = PF.settings?.controller?.config?.[sel] || {};
-  const pid = [cfg.PB != null ? `PB ${cfg.PB}` : null, cfg.Ti != null ? `Ti ${cfg.Ti}` : null, cfg.Td != null ? `Td ${cfg.Td}` : null].filter(Boolean).join(' ');
 
   /* The three parts that report rather than configure -- which tuning is in force, the autotune and
      its library, what has been learned -- are built by the learning page and dropped into the
-     section each belongs to. */
+     section each belongs to. The tuning in force goes at the top of the Controller section, above
+     the boxes you type in, because it is the answer and they are only where it starts. */
   const noteInto = el('div'), tuningInto = el('div'), learningInto = el('div');
 
-  view.append(fold('Controller', `${sel}${pid ? ` · ${pid}` : ''}${tuned}`,
-    el('div', {}, ctl, noteInto), 'sliders-horizontal', '#ff8a1f'));
+  /* The summary line carries the numbers actually in force, not the ones typed into the form below
+     it. Reading "PB 80 Ti 400 Td 30" on a grill running 82/523/33 is worse than reading nothing:
+     the whole reason to put a value on a collapsed row is so it can be trusted without opening it. */
+  const SRC = { tuned: 'measured', learned: 'learned', typed: 'typed' };
+  const summarise = () => {
+    const t = PF.status?.controller?.tuning;
+    if (t) return `${sel} · PB ${t.PB} Ti ${t.Ti} Td ${t.Td} · ${SRC[t.src] || t.src}`;
+    const cfg = PF.settings?.controller?.config?.[sel] || {};
+    const pid = [cfg.PB != null ? `PB ${cfg.PB}` : null, cfg.Ti != null ? `Ti ${cfg.Ti}` : null, cfg.Td != null ? `Td ${cfg.Td}` : null].filter(Boolean).join(' ');
+    return `${sel}${pid ? ` · ${pid}` : ''}${tuned}`;
+  };
+  const ctlFold = fold('Controller', summarise(), el('div', {}, noteInto, ctl), 'sliders-horizontal', '#ff8a1f');
+  const offStatus = onStatus(() => { const l = ctlFold.querySelector('summary .s'); if (l) l.textContent = summarise(); });
+  view.append(ctlFold);
 
   view.append(fold('Auto Tuning', anchors
     ? `${anchors} temperature${anchors === 1 ? '' : 's'} measured${deep > 1 ? ` · ${deep} runs deep` : ''}`
@@ -496,7 +507,8 @@ async function controllerPage(view) {
   view.append(fold('Weather', PF.settings?.weather?.enabled ? (PF.settings.weather.postal_code || 'on') : 'off',
     pageCard({ title: '', sections: [{ id: 'weather', title: '', fields: weatherFields }] }), 'cloud-sun', '#64d2ff'));
 
-  return renderLearning(view, { note: noteInto, tuning: tuningInto, learning: learningInto });
+  const stop = renderLearning(view, { note: noteInto, tuning: tuningInto, learning: learningInto });
+  return () => { offStatus(); stop?.(); };
 }
 // Wi-Fi & hotspot: live connection and networks, then the hotspot settings
 function networkPage(view) {
