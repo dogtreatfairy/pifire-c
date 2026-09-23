@@ -334,11 +334,10 @@ legend { font-weight: 600; margin-bottom: 6px; }
 }
 .ios-fold > summary::-webkit-details-marker, .ios-fold > summary::after { display: none; content: none; }
 .ios-fold > summary:active { background: color-mix(in oklab, var(--text) 8%, transparent); }
-.ios-fold > summary .body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.ios-fold > summary .t { font-weight: 600; }
-.ios-fold > summary .s { color: var(--muted); font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ios-fold > summary .chev { flex: none; color: var(--muted); transition: transform .18s; }
+.ios-fold > summary .chev { transition: transform .18s; }
 .ios-fold[open] > summary .chev { transform: rotate(90deg); }
+/* the summary stacks its title over its value, where a row sets them side by side */
+.ios-fold > summary .body { display: flex; flex-direction: column; gap: 2px; }
 .ios-fold[open] > summary { border-bottom: 1px solid var(--glass-line); }
 /* the section's own content sits inside the same surface, so cards within it lose their frame */
 .ios-fold .fold-body { padding: 4px 12px 10px; }
@@ -472,13 +471,16 @@ body::before {
 .ios-list .row + .row { border-top: 1px solid var(--glass-line); }
 .ios-list .row:active { background: color-mix(in oklab, var(--text) 8%, transparent); }
 .ios-list .row.danger .t { color: var(--danger); }
-.ios-list .tile { flex: none; width: 32px; height: 32px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; color: #fff; background: linear-gradient(180deg, color-mix(in oklab, var(--tile, var(--accent)) 85%, white), var(--tile, var(--accent))); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35); }
-.ios-list .tile .ic { width: 18px; height: 18px; stroke-width: 2.2; }
-.ios-list .body { flex: 1; min-width: 0; }
-.ios-list .t { font-weight: 500; }
-.ios-list .s { font-size: .76rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* These describe the parts a settings row is made of, and a collapsible section is made of the same
+   parts, so both carry them. Scoping them to .ios-list alone was what left the fold's chevron with
+   no size at all: an unsized SVG in a flex row stretches to fill the box. */
+.ios-list .tile, .ios-fold .tile { flex: none; width: 32px; height: 32px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; color: #fff; background: linear-gradient(180deg, color-mix(in oklab, var(--tile, var(--accent)) 85%, white), var(--tile, var(--accent))); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35); }
+.ios-list .tile .ic, .ios-fold .tile .ic { width: 18px; height: 18px; stroke-width: 2.2; flex: none; }
+.ios-list .body, .ios-fold > summary .body { flex: 1; min-width: 0; }
+.ios-list .t, .ios-fold > summary .t { font-weight: 500; }
+.ios-list .s, .ios-fold > summary .s { font-size: .76rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ios-list .v { color: var(--muted); font-size: .9rem; }
-.ios-list .chev { width: 18px; height: 18px; color: var(--muted); flex: none; }
+.ios-list .chev, .ios-fold > summary .chev { width: 18px; height: 18px; color: var(--muted); flex: none; }
 .menu .btn { border-radius: var(--radius-s); }
 @supports not (backdrop-filter: blur(1px)) {
   .card, .hero, .tabbar, .topbar, .ios-list, .dialog { background: var(--surface); }
