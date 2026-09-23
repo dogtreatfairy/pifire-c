@@ -106,22 +106,19 @@ const PAGES = [
     I('sample_s', 'Sample every (s)', '', { min: 1, max: 60 }), I('retention_hours', 'Keep for (hours)', '', { min: 1 }), B('clear_on_startup', 'Clear the chart when a cook starts', ''),
   ] }] },
   // ---- Connectivity
-  { key: 'rules', title: 'Conditional Notifications', sub: 'Your own if-this-then-notify rules', section: 'Notifications', icon: 'git-branch', color: '#bf5af2', custom: renderRules },
-  { key: 'integrations', title: 'Home Assistant & Webhooks', sub: 'MQTT with Home Assistant discovery, JSON webhook', section: 'Notifications', icon: 'house', color: '#0a84ff', sections: [{ id: 'notify', fields: [
-    B('mqtt.enabled', 'MQTT', 'Publish state to a broker, with Home Assistant discovery'), X('mqtt.broker', 'Broker host', ''), I('mqtt.port', 'Broker port', '', { min: 1, max: 65535 }),
-    X('mqtt.username', 'Username', ''), { path: 'mqtt.password', label: 'Password', type: 'password' }, X('mqtt.id', 'Device ID', 'Topic prefix'), I('mqtt.update_sec', 'Publish every (s)', '', { min: 5 }),
-    B('webhook.enabled', 'Webhook', 'POST events as JSON to a URL'), X('webhook.url', 'Webhook URL', ''),
-  ] }] },
-  { key: 'push', title: 'Phone Notifications', sub: 'This device, Pushover, ntfy, predictive alerts', section: 'Notifications', icon: 'bell', color: '#ff453a', sections: [
-    { id: 'notify', title: 'Predictive Alerts', fields: [
-      { type: 'note', help: 'The grill estimates when each probe will reach its target from how fast it is climbing, and tells you before it gets there so you can be at the grill in time.' },
-      I('eta_warn_min', 'Tell me this long before a probe reaches its target (minutes)', '0 = off. Sent once per target, as soon as the live estimate has settled below this', { min: 0, max: 240 }),
-    ] },
-    { id: 'notify', title: 'Phone & Browser Alerts', fields: [
-      { type: 'note', help: 'Add PiFire to your Home Screen and open it from there, then allow notifications. Once this device is subscribed the grill can reach it through the browser maker\u2019s push service even with the app closed, so it no longer has to be running.' },
+  /* What to say, and when. The services below decide where it goes. */
+  { key: 'rules', title: 'Conditional Notifications', sub: 'What the grill tells you, and when', section: 'Notifications', icon: 'git-branch', color: '#bf5af2', custom: conditionalPage },
+  /* Where a notification goes. Each service is its own dropdown saying whether it is set up, so
+     the page is a short list of names rather than every field of every service at once. This is
+     not only a phone: a browser on a laptop subscribes the same way, and MQTT and a webhook go
+     nowhere near a phone at all. */
+  { key: 'services', title: 'Notification Services', sub: 'Where notifications are delivered', section: 'Notifications', icon: 'bell', color: '#ff453a', sections: [
+    { id: 'notify', title: 'This Device', collapsible: 'webpush.enabled', state: browserState, fields: [
+      { type: 'note', help: 'This browser, on this device. Allow notifications and subscribe, and the grill can reach it through the browser maker\u2019s push service even with PiFire closed. On an iPhone, add PiFire to your Home Screen and open it from there first. Each device subscribes separately.' },
       { type: 'pushstate' },
-      { type: 'action', label: 'Allow notifications on this device', endpoint: '' , client: 'alerts' },
+      { type: 'action', label: 'Allow notifications on this device', endpoint: '', client: 'alerts' },
       { type: 'action', label: 'Show a test notification', endpoint: '', client: 'alerttest' },
+      B('webpush.targets', 'Targets & timers', ''), B('webpush.alarms', 'Alarms & errors', ''), B('webpush.pellets', 'Pellets low', ''), B('webpush.tuning', 'Tuning runs', ''), B('webpush.system', 'Other system notices', ''),
     ] },
     { id: 'notify', title: 'Pushover', collapsible: 'pushover.enabled', fields: [
       { type: 'note', help: 'Install the Pushover app ($5 once), then paste your user key from the app and create an application token at pushover.net/apps/build.' },
@@ -133,11 +130,22 @@ const PAGES = [
       B('pushover.targets', 'Targets & timers', 'Target reached, the predictive warning, cook timer, recipe steps'), B('pushover.alarms', 'Alarms & errors', 'Probe limit alarms, flame-out, over-temperature'), B('pushover.pellets', 'Pellets low', ''), B('pushover.tuning', 'Tuning runs', 'Started, finished, or gave up; a run takes hours unattended'), B('pushover.system', 'Other system notices', ''),
       { type: 'action', label: 'Send a test notification', endpoint: '/notify/test/pushover' },
     ] },
-    { id: 'notify', title: 'ntfy (Free Alternative)', collapsible: 'ntfy.enabled', fields: [
-      { type: 'note', help: 'Install the ntfy app, subscribe to a private topic name, and enter it here. Use ntfy.sh or your own server.' },
+    { id: 'notify', title: 'ntfy', collapsible: 'ntfy.enabled', fields: [
+      { type: 'note', help: 'Free. Install the ntfy app, subscribe to a private topic name, and enter it here. Use ntfy.sh or your own server.' },
       B('ntfy.enabled', 'ntfy', ''), X('ntfy.server', 'Server', 'https://ntfy.sh or your own'), X('ntfy.topic', 'Topic', 'Pick something nobody would guess'), { path: 'ntfy.token', label: 'Access token', help: 'Only for protected topics', type: 'password' },
       B('ntfy.targets', 'Targets & timers', ''), B('ntfy.alarms', 'Alarms & errors', ''), B('ntfy.pellets', 'Pellets low', ''), B('ntfy.tuning', 'Tuning runs', 'Started, finished, or gave up'), B('ntfy.system', 'Other system notices', ''),
       { type: 'action', label: 'Send a test notification', endpoint: '/notify/test/ntfy' },
+    ] },
+    { id: 'notify', title: 'Home Assistant', collapsible: 'mqtt.enabled', fields: [
+      { type: 'note', help: 'Publishes the grill\u2019s state to an MQTT broker with Home Assistant discovery, so the grill and every probe appear as entities without configuring them by hand.' },
+      B('mqtt.enabled', 'MQTT', 'Publish state to a broker, with Home Assistant discovery'),
+      X('mqtt.broker', 'Broker host', ''), I('mqtt.port', 'Broker port', '', { min: 1, max: 65535 }),
+      X('mqtt.username', 'Username', ''), { path: 'mqtt.password', label: 'Password', type: 'password' },
+      X('mqtt.id', 'Device ID', 'Topic prefix'), I('mqtt.update_sec', 'Publish every (s)', '', { min: 5 }),
+    ] },
+    { id: 'notify', title: 'Webhook', collapsible: 'webhook.enabled', fields: [
+      { type: 'note', help: 'POSTs every event as JSON to a URL of your choosing \u2014 for anything that is not one of the services above.' },
+      B('webhook.enabled', 'Webhook', 'POST events as JSON to a URL'), X('webhook.url', 'Webhook URL', ''),
     ] },
   ] },
   { key: 'network', title: 'Wi-Fi & Hotspot', sub: 'Networks, connection, the setup hotspot', section: 'Network', icon: 'wifi', color: '#0a84ff', custom: networkPage },
@@ -169,8 +177,38 @@ const PAGES = [
 // how it cooks, what it is made of, what keeps it safe, how it tells me, how I reach it, the app itself.
 const SECTIONS = ['Cooking', 'Hardware', 'Safety', 'Notifications', 'Network', 'System'];
 /* The order a cook actually happens in. */
-const ORDER = { Cooking: ['startup', 'controller', 'smoke', 'lid', 'keepwarm', 'pellets'] };
+const ORDER = {
+  Cooking: ['startup', 'controller', 'smoke', 'lid', 'keepwarm', 'pellets'],
+  /* what the grill says, then where it goes */
+  Notifications: ['rules', 'services'],
+};
 const LINKS = {};
+
+/* Being able to reach this browser is not a setting: the browser grants permission and then holds
+   a subscription, and either can be withdrawn without PiFire being told. So the summary reports
+   what is true right now rather than what was last saved. */
+async function browserState() {
+  try {
+    const info = await api('/push');
+    if (!info.available) return { on: false, label: 'Unavailable' };
+    const reg = await navigator.serviceWorker?.getRegistration();
+    const sub = await reg?.pushManager?.getSubscription();
+    if (sub) return { on: true, label: 'Subscribed' };
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') return { on: false, label: 'Not subscribed' };
+    return { on: false, label: 'Not allowed' };
+  } catch { return { on: false, label: 'Unknown' }; }
+}
+
+/* Conditional notifications: the rules, and the one built-in rule that is not written as one --
+   the predictive warning, which needs the grill's own estimate of when a probe will arrive. It
+   belongs with what the grill says rather than with where it is sent. */
+async function conditionalPage(view) {
+  view.append(pageCard({ title: '', sections: [{ id: 'notify', title: 'Predictive Alerts', fields: [
+    { type: 'note', help: 'The grill estimates when each probe will reach its target from how fast it is climbing, and tells you before it gets there so you can be at the grill in time.' },
+    I('eta_warn_min', 'Tell me this long before a probe reaches its target (minutes)', '0 = off. Sent once per target, as soon as the live estimate has settled below this', { min: 0, max: 240 }),
+  ] }] }));
+  return renderRules(view);
+}
 
 const get = (obj, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
 const setDeep = (obj, path, v) => { const ks = path.split('.'); let o = obj; for (const k of ks.slice(0, -1)) o = o[k] ??= {}; o[ks.at(-1)] = v; };
@@ -305,8 +343,19 @@ function pageCard(pg) {
     if (sec.collapsible) {
       // open when the service is already switched on, so a configured sink stays visible
       const on = !!get(data, sec.collapsible);
-      form.append(el('details', { class: 'fold', open: on },
-        el('summary', {}, el('span', {}, sec.title || pg.title), el('span', { class: `fold-state ${on ? 'on' : ''}` }, on ? 'On' : 'Off')), card));
+      const state = el('span', { class: `fold-state ${on ? 'on' : ''}` }, on ? 'On' : 'Off');
+      const det = el('details', { class: 'fold', open: on },
+        el('summary', {}, el('span', {}, sec.title || pg.title), state), card);
+      /* Some services are not a switch. Being able to reach this browser is not something you turn
+         on in settings -- the browser grants it and then holds a subscription -- so the summary says
+         what is actually true rather than pretending there is a toggle behind it. */
+      if (sec.state) Promise.resolve(sec.state()).then((r) => {
+        if (!r) return;
+        state.textContent = r.label;
+        state.className = `fold-state ${r.on ? 'on' : ''}`;
+        if (r.on) det.open = true;
+      }).catch(() => {});
+      form.append(det);
     } else {
       if (sec.title !== '') form.append(el('h2', {}, sec.title || pg.title));
       form.append(card);
@@ -436,7 +485,7 @@ export function renderSettings(view, rest) {
     setBack('#/settings', 'Settings');
     /* Auger & Feed was split: the cycle and the duty limits only ever affected Hold, and the smoke
        timings only ever affected Smoke. The old address still works rather than dead-ending. */
-    const MOVED = { auger: 'controller' };
+    const MOVED = { auger: 'controller', push: 'services', integrations: 'services' };
     if (MOVED[page]) { location.replace(`#/settings/${MOVED[page]}`); return; }
     const pg = pages.find((x) => x.key === page);
     if (!pg) { view.append(el('div', { class: 'card muted' }, 'No such settings page')); return; }
