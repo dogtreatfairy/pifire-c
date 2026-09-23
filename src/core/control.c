@@ -200,15 +200,74 @@ static int controller_load(pf_control *c, const char *id)
 	return 0;
 }
 
-/* Throw away what was learned, or what was measured, or both -- and tell the controller, because it
- * holds its own copy: clearing only the stored copy would leave the old numbers running until the
- * next restart. `what` is a mask of PF_FORGET_*. */
-static void forget_learning(pf_control *c, unsigned what, const char *why)
+/* What would hold this set point if the grill were asked to hold it right now. The library first,
+ * because it is measured at the set point; then whatever the controller is carrying, which it
+ * reports in its own state; then the numbers that were typed. This is computed for every status
+ * publish so the app can say what is in force without waiting for the next cook to prove it. */
+static pf_ctrl_tuning ctrl_tuning(pf_control *c)
 {
-	if (what & PF_FORGET_REFINEMENT) pf_learning_forget();
-	if (what & PF_FORGET_TUNING) pf_learning_clear_tuning();
-	if (c->cinst && c->cops->forget) c->cops->forget(c->cinst, what);
-	if (what & PF_FORGET_TUNING)
+	pf_ctrl_tuning t = { 0 };
+	if (c->cfg.use_library && pf_learning_gains(c->setpoint_c, &t.PB_c, &t.Ti, &t.Td)) {
+		pf_strlcpy(t.src, "tuned", sizeof t.src);
+		t.valid = true;
+		return t;
+	}
+	char buf[512];
+	if (c->cinst && c->cops->state_json && c->cops->state_json(c->cinst, buf, sizeof buf) > 0) {
+		cJSON *j = cJSON_Parse(buf);
+		if (j) {
+			cJSON *pb = cJSON_GetObjectItem(j, "PB_c"), *ti = cJSON_GetObjectItem(j, "Ti"), *td = cJSON_GetObjectItem(j, "Td");
+			if (cJSON_IsNumber(pb) && pb->valuedouble > 0) {
+				t.PB_c = pb->valuedouble;
+				t.Ti = cJSON_IsNumber(ti) ? ti->valuedouble : 0;
+				t.Td = cJSON_IsNumber(td) ? td->valuedouble : 0;
+				pf_strlcpy(t.src, cJSON_IsTrue(cJSON_GetObjectItem(j, "learned")) ? "learned" : "typed", sizeof t.src);
+				t.valid = true;
+			}
+			cJSON_Delete(j);
+		}
+	}
+	if (!t.valid) {
+		double v[3];
+		typed_gains(c->cops ? c->cops->id : c->cfg.controller_id, v);
+		if (v[0] > 0) {
+			t.PB_c = pf_delta_to_c(v[0], c->cfg.units); t.Ti = v[1]; t.Td = v[2];
+			pf_strlcpy(t.src, "typed", sizeof t.src);
+			t.valid = true;
+		}
+	}
+	return t;
+}
+
+/* Clearing, in the three shapes it actually comes in. Each one has to reach the controller as well
+ * as the database, because the controller holds its own copy of both what it was given and what it
+ * worked out; clearing only the stored copy leaves the old numbers running until the next restart. */
+static void forget_learning(pf_control *c, int what, const char *why)
+{
+	unsigned ctrl = 0;
+	switch (what) {
+	case PF_CLEAR_LEARNING:
+		pf_learning_forget();
+		ctrl = PF_FORGET_REFINEMENT;
+		break;
+	case PF_CLEAR_TUNING:
+		/* Going back to the typed values means the refinements built on the measurement go too:
+		 * they were corrections to a number that is about to stop existing. */
+		pf_learning_clear_tuning();
+		pf_learning_forget();
+		ctrl = PF_FORGET_REFINEMENT | PF_FORGET_TUNING;
+		break;
+	case PF_CLEAR_FOR_BASELINE:
+		/* The library keeps what the run just measured -- that is the point of the run -- and
+		 * everything else the controller was carrying goes, so the baseline is what governs from
+		 * here rather than competing with a model fitted to some earlier cook. */
+		pf_learning_forget();
+		ctrl = PF_FORGET_REFINEMENT | PF_FORGET_TUNING;
+		break;
+	default: return;
+	}
+	if (c->cinst && c->cops->forget) c->cops->forget(c->cinst, ctrl);
+	if (what == PF_CLEAR_TUNING)
 		pf_events_emit("Tuning_Cleared", "Measured tuning cleared",
 		               "The tuning library is gone and the grill is back to the Proportional Band, Integral Time and Derivative Time typed on the controller page (%s).", why);
 	else
@@ -614,7 +673,7 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 		break;
 	}
 	case PF_CMD_FORGET_LEARNING:
-		forget_learning(c, (unsigned)cmd->aux, cmd->str[0] ? cmd->str : "asked for");
+		forget_learning(c, cmd->aux, cmd->str[0] ? cmd->str : "asked for");
 		break;
 	default: break;
 	}
@@ -776,8 +835,13 @@ static void learn_rise_track(pf_control *c, double now)
 		double K = u_mean > 0.05 ? span / u_mean : 0;
 		if (tau > 30 && tau < 3600 && K > 0) {
 			pf_learning_store_fopdt(K, tau, theta);
-			/* Nest-style: hand the fresh plant model straight to the controller so its gains track the grill */
-			if (pf_learning_enabled() && c->cinst && c->cops->apply_tuning) {
+			/* Nest-style: hand the fresh plant model straight to the controller so its gains track
+			 * the grill -- except during a tuning run. The startup at the head of a run is part of
+			 * the measurement, and the model fitted from it was being handed over as a learned
+			 * tuning there and then, which is how a single baseline run ended up running numbers it
+			 * had never measured, labelled "learned". The run still needs the fit: the relay result
+			 * is designed from it. It is the handing over that has to wait for the run to finish. */
+			if (pf_learning_enabled() && !pf_tuner_active(NULL, NULL, NULL) && c->cinst && c->cops->apply_tuning) {
 				pf_fopdt p = pf_learning_fopdt();
 				c->cops->apply_tuning(c->cinst, 0, 0, p.K, p.tau, p.theta);
 				event(PF_LVL_INFO, "TUNING_LEARNED", "Controller tuning updated from this startup's plant model");
@@ -1301,7 +1365,7 @@ void pf_control_reload_settings(pf_control *c)
 	                     (now_typed[0] != c->typed_gains[0] || now_typed[1] != c->typed_gains[1] ||
 	                      now_typed[2] != c->typed_gains[2]);
 	if (strcmp(old_id, c->cfg.controller_id)) controller_load(c, c->cfg.controller_id);
-	else if (typed_changed) forget_learning(c, PF_FORGET_REFINEMENT, "the starting values were changed");
+	else if (typed_changed) forget_learning(c, PF_CLEAR_LEARNING, "the starting values were changed");
 	else if (c->cinst && c->cops->configure) {
 		char *cfg = controller_config_json(c->cops->id, c->cfg.units);
 		c->cops->configure(c->cinst, cfg);
@@ -1549,6 +1613,7 @@ static void publish(pf_control *c, double now)
 	pf_strlcpy(s.error_msg, c->safety.error_msg, sizeof s.error_msg);
 	pf_strlcpy(s.controller_id, c->cops ? c->cops->id : "", sizeof s.controller_id);
 	s.ctrl_dbg = c->dbg;
+	s.tuning = ctrl_tuning(c);
 	s.ambient_c = c->ambient_c;
 	s.reignite_retries_left = c->safety.reignite_retries_left;
 	s.sensors = c->sensors;

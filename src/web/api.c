@@ -412,7 +412,7 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 	 * that were typed. */
 	if (post && (!strcmp(p, "/learning/forget") || !strcmp(p, "/tune/clear"))) {
 		pf_cmd c = { .type = PF_CMD_FORGET_LEARNING,
-		             .aux = p[1] == 'l' ? (int)PF_FORGET_REFINEMENT : (int)PF_FORGET_TUNING };
+		             .aux = p[1] == 'l' ? PF_CLEAR_LEARNING : PF_CLEAR_TUNING };
 		pf_strlcpy(c.str, "asked for", sizeof c.str);
 		pf_cmdq_push(&c);
 		reply_ok(resp);

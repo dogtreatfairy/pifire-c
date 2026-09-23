@@ -245,7 +245,23 @@ export function renderLearning(view, slots = {}) {
       el('div', { class: 'form-actions' },
         el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog('Clear learning?', 'The observations behind the feed-forward and the corrections the controller has settled on are cleared, and the grill starts learning again from the tuning it has measured. What autotune measured is kept.', 'Clear', true)) { await api('/learning/forget', { body: {} }); load(); } } }, 'Clear learning'))].filter(Boolean));
 
-    if (s?.controller?.note && s.controller.id === 'adaptive') note.replaceChildren(el('div', { class: 'kv' }, el('div', {}, 'Controller tuning in use'), el('div', {}, s.controller.note)));
+    /* What governs the set point right now, sent with every status rather than left over from the
+       last cycle the controller ran: between cooks the controller's own note is whatever was in
+       force during the last one, which straight after a tuning run is the one moment it is
+       certainly wrong. Where it came from is said in words, because "which of these three numbers
+       am I actually running" is the whole question this card exists to answer. */
+    const SRC = { tuned: 'measured by autotune', learned: 'learned from your cooks', typed: 'the values typed on this page' };
+    const t = s?.controller?.tuning;
+    if (t) {
+      note.replaceChildren(
+        el('div', { class: 'kv' },
+          el('div', {}, 'Proportional Band'), el('div', {}, `${t.PB}${degUnit()}`),
+          el('div', {}, 'Integral Time'), el('div', {}, `${t.Ti} s`),
+          el('div', {}, 'Derivative Time'), el('div', {}, `${t.Td} s`),
+          el('div', {}, 'From'), el('div', {}, SRC[t.src] || t.src)),
+        el('p', { class: 'muted', style: 'font-size:.8rem;margin:8px 0 0' },
+          s?.mode === 'Hold' ? `Holding ${s.setpoint}${degUnit()} on these now.` : `What would be used to hold ${s?.setpoint || ''}${s?.setpoint ? degUnit() : 'the set point'}.`));
+    }
 
     recent.innerHTML = '';
     for (const o of data.recent) recent.append(el('div', { class: 'item' }, el('div', {}, el('div', {}, `Hold ${o.setpoint}${degUnit()} · ambient ${o.ambient}${degUnit()} · feed ${(o.u * 100).toFixed(0)}%`), el('div', { class: 'meta' }, `${o.controller} · ${new Date(o.ts * 1000).toLocaleString()}`))));

@@ -30,8 +30,17 @@ typedef enum {
 	PF_CMD_AUTOTUNE_START,
 	PF_CMD_AUTOTUNE_STOP,
 	PF_CMD_TUNING_APPLY,   /* push the stored autotune / plant fit into the active controller */
-	PF_CMD_FORGET_LEARNING,/* aux = mask of PF_FORGET_* : the refinement, the measured tuning, or both */
+	PF_CMD_FORGET_LEARNING,/* aux = pf_clear_what */
 } pf_cmd_type;
+
+/* What a clearing is for. Each one names a thing that can be wrong rather than a set of flags,
+ * because which stored data and which half of the controller have to go is not obvious from the
+ * flags and was got wrong once already. */
+typedef enum {
+	PF_CLEAR_LEARNING = 1,   /* what the grill worked out for itself; what was measured stays */
+	PF_CLEAR_TUNING,         /* what was measured, so the typed values govern again */
+	PF_CLEAR_FOR_BASELINE,   /* a baseline has just been measured: everything else goes, it stays */
+} pf_clear_what;
 
 typedef struct {
 	pf_cmd_type type;

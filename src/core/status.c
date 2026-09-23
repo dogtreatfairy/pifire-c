@@ -129,6 +129,14 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 	cJSON_AddNumberToObject(ct, "ff", s->ctrl_dbg.ff);
 	cJSON_AddNumberToObject(ct, "error", r1(pf_delta_from_c(s->ctrl_dbg.error, units)));
 	cJSON_AddStringToObject(ct, "note", s->ctrl_dbg.note);
+	/* What is in force for the set point being asked for, whether or not the grill is holding. */
+	if (s->tuning.valid) {
+		cJSON *tn = cJSON_AddObjectToObject(ct, "tuning");
+		cJSON_AddNumberToObject(tn, "PB", r1(pf_delta_from_c(s->tuning.PB_c, units)));
+		cJSON_AddNumberToObject(tn, "Ti", round(s->tuning.Ti));
+		cJSON_AddNumberToObject(tn, "Td", round(s->tuning.Td));
+		cJSON_AddStringToObject(tn, "src", s->tuning.src);
+	}
 
 	cJSON *tmr = cJSON_AddObjectToObject(o, "timer");
 	cJSON_AddBoolToObject(tmr, "running", s->timer.running);

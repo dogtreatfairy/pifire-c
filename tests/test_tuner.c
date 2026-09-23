@@ -29,12 +29,18 @@
 static char cfg_path[256], db_path[256];
 static pf_control ctrl;
 static double now;
+/* The clock for the once-a-second services work. It lives out here, and is reset with `now` in
+ * setUp, because it used to be a static inside tick(): `now` restarts at 1000 for every test while
+ * that static kept the previous test's value, so after a long test the services block -- which is
+ * what drives the tuning run -- silently did nothing for the whole of the next one. A run started
+ * there would sit in "starting" for ever and measure nothing, which looked exactly like a broken
+ * tuner and was a broken stopwatch. */
+static double last_service;
 
 /* one simulated second of everything, including the once-a-second services work */
 static void tick(double dt)
 {
 	int steps = (int)(dt / 0.1 + 0.5);
-	static double last_service;
 	for (int i = 0; i < steps; i++) {
 		now += 0.1;
 		pf_sim_step(0.1);
@@ -74,6 +80,7 @@ void setUp(void)
 	pf_tuner_init();
 	pf_control_init(&ctrl, true);
 	now = 1000;
+	last_service = now;
 	pf_sim_reset(18.0);
 	tick(3);
 }
@@ -686,6 +693,46 @@ static void test_the_published_profile_is_the_whole_profile(void)
 	stop_and_wait_cold();   /* leave the grill as the next test expects to find it */
 }
 
+
+/* What the grill runs after a baseline is the baseline.
+ *
+ * Reported from a real run: a fresh baseline finished and the app still showed a tuning that
+ * matched nothing in the library, labelled "learned", after a single run that could not have
+ * learned anything. Two faults met. The startup at the head of the run fitted a plant model and
+ * handed it straight to the controller as a learned tuning, and nothing afterwards took it back --
+ * so the controller carried a number from a rise it had happened to watch, in preference to the
+ * measurement the run had just spent an hour making. */
+static void test_a_baseline_leaves_the_baseline_running(void)
+{
+	stop_and_wait_cold();
+	pf_learning_clear_anchors();
+
+	char err[160];
+	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(NULL, true, false, err, sizeof err));
+	run_to_completion();
+	tick(5);   /* the clearing is a command, handled on the next control cycle */
+
+	pf_tune_anchor an[PF_TUNE_ANCHORS];
+	int n = pf_learning_anchor_list(an, PF_TUNE_ANCHORS);
+	TEST_ASSERT_TRUE_MESSAGE(n >= 1, "the baseline should have measured something");
+
+	/* The controller must be carrying nothing of its own: no learned tuning from the rise, no
+	 * per-band corrections. The library is the answer, and it is the only answer. */
+	char buf[512] = "";
+	ctrl.cops->state_json(ctrl.cinst, buf, sizeof buf);
+	cJSON *j = cJSON_Parse(buf);
+	printf("after the baseline, the controller reports: %s\n", buf);
+	TEST_ASSERT_TRUE_MESSAGE(cJSON_IsFalse(cJSON_GetObjectItem(j, "learned")),
+	                         "a single baseline run should leave nothing labelled learned");
+	cJSON_Delete(j);
+
+	/* And what it would hold with is what was measured, to the degree. */
+	double PB = 0, Ti = 0, Td = 0;
+	TEST_ASSERT_TRUE(pf_learning_gains(an[0].setpoint_c, &PB, &Ti, &Td));
+	TEST_ASSERT_DOUBLE_WITHIN(0.01, an[0].PB_c, PB);
+	TEST_ASSERT_DOUBLE_WITHIN(0.5, an[0].Ti, Ti);
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -701,6 +748,7 @@ int main(void)
 	RUN_TEST(test_only_from_scratch_erases);
 	RUN_TEST(test_the_tuning_library_can_be_backed_up_and_restored);
 	RUN_TEST(test_a_profile_measures_its_baseline_first);
+	RUN_TEST(test_a_baseline_leaves_the_baseline_running);
 	RUN_TEST(test_the_published_profile_is_the_whole_profile);   /* last: it starts a run of its own */
 	return UNITY_END();
 }

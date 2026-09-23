@@ -6,6 +6,10 @@
 #include "probes/probes.h"
 #include <cJSON.h>
 
+/* The tuning that governs the set point being asked for: the library entry if there is one, else
+ * what the controller is carrying, else what was typed. */
+typedef struct { double PB_c, Ti, Td; char src[8]; bool valid; } pf_ctrl_tuning;
+
 typedef struct {
 	double t;                 /* monotonic */
 	double wall;              /* unix seconds */
@@ -33,6 +37,11 @@ typedef struct {
 	char error_msg[128];
 	char controller_id[32];
 	pf_ctrl_dbg ctrl_dbg;
+	/* The tuning that governs the set point being asked for, recomputed every publish rather than
+	 * left over from the last cycle the controller ran. The note inside ctrl_dbg is only written
+	 * while the grill is holding, so between cooks it showed whatever was in force during the last
+	 * one -- which after a tuning run is the one moment it is most certainly wrong. */
+	pf_ctrl_tuning tuning;
 	double ambient_c;
 	int reignite_retries_left;
 	pf_sensors sensors;
