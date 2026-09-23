@@ -154,6 +154,20 @@ void pf_alarms_clear(const char *key)
 	pthread_mutex_unlock(&g_mu);
 }
 
+void pf_alarms_retire(const char *key)
+{
+	pthread_mutex_lock(&g_mu);
+	alarm_t *a = find(key);
+	if (a && !a->retired) {
+		a->active = false;
+		a->acked = true;
+		a->retired = true;
+		if (a->cleared_ts == 0) a->cleared_ts = pf_wall();
+		g_gen++;
+	}
+	pthread_mutex_unlock(&g_mu);
+}
+
 void pf_alarms_note(const char *code, const char *name, int crit, unsigned sinks,
                     const char *title, const char *body)
 {

@@ -584,6 +584,30 @@ static void test_a_rule_that_stops_applying_retires_what_it_raised(void)
 	cJSON_Delete(st);
 }
 
+/* Even a critical one. An alarm that goes false is worth a record -- somebody should know it
+   happened and fixed itself -- but a rule that stopped being evaluated never went false: we
+   stopped looking. Keeping it left a hopper warning sitting in the list for ever, which is not a
+   record anybody can act on, and it is exactly what a low hopper stops being the moment the grill
+   stops burning pellets. */
+static void test_retiring_clears_even_a_critical_alarm(void)
+{
+	only_rule("{\"id\":\"hopcrit\",\"enabled\":true,\"only_while_cooking\":true,\"for_s\":0,"
+	          "\"select\":{\"domain\":\"hopper\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":[{\"trait\":\"level\",\"op\":\"<\",\"value\":10}]},"
+	          "\"title\":\"about to run out\",\"body\":\"\",\"level\":\"critical\",\"sinks\":[\"app\"],\"cooldown_s\":600}");
+	cJSON *st = status();
+	cJSON_ReplaceItemInObject(st, "hopper_pct", cJSON_CreateNumber(8));
+	pf_rules_tick(st, 1000);
+	TEST_ASSERT_EQUAL_INT(1, alarm_count());
+
+	/* the cook ends with the hopper still low, which is the ordinary case: nobody fills it first */
+	cJSON_ReplaceItemInObject(st, "mode", cJSON_CreateString("Stop"));
+	pf_rules_tick(st, 1010);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, alarm_count(),
+	                              "a critical alarm whose rule stopped applying must not sit in the list for ever");
+	cJSON_Delete(st);
+}
+
 /* A condition on the boundary of its threshold can come and go every few seconds. A phone that
    buzzes twenty times in ten minutes teaches its owner to ignore it, so it gets silenced. */
 static void test_a_chattering_condition_is_silenced(void)
@@ -738,6 +762,7 @@ int main(void)
 	RUN_TEST(test_a_condition_ends_when_it_stops_being_true);
 	RUN_TEST(test_acknowledgement_is_shared_and_respects_what_is_still_true);
 	RUN_TEST(test_a_rule_that_stops_applying_retires_what_it_raised);
+	RUN_TEST(test_retiring_clears_even_a_critical_alarm);
 	RUN_TEST(test_a_chattering_condition_is_silenced);
 	RUN_TEST(test_a_deadband_stops_a_wandering_reading_re_announcing);
 	RUN_TEST(test_without_a_deadband_it_still_chatters);

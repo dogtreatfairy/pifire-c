@@ -428,7 +428,7 @@ static void retire_rule(const char *id)
 		if (!st->used || strcmp(st->rule, id) || !st->raised) continue;
 		char key[96];
 		snprintf(key, sizeof key, "RULE_%.32s:%.32s", id, st->inst);
-		pf_alarms_clear(key);
+		pf_alarms_retire(key);
 		st->raised = false;
 		st->held_since = 0;
 		st->false_since = 0;

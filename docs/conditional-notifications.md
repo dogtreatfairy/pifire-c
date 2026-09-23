@@ -335,7 +335,7 @@ device clear it everywhere, and what makes an old entry unable to reappear as ne
 | Behaviour | Why |
 |---|---|
 | A condition that goes false removes its own entry | Nobody should have to tell a controller that the probe they just plugged back in is no longer missing |
-| A rule that is disabled, or whose cooking window ends, retires what it raised | A condition nobody is evaluating cannot be claimed to be true |
+| A rule that is disabled, or whose cooking window ends, retires what it raised — **including a critical one** | A condition nobody is evaluating cannot be claimed to be true. Retiring is not a return to normal: we never saw the condition end, we stopped looking, so there is no record worth keeping. A low hopper matters while the grill is burning pellets and stops mattering the moment it isn't |
 | A warning or worse that nobody acknowledged stays, marked as ended | Fixing something is not the same as having seen that it broke |
 | Acknowledgement lives in the daemon | One badge, one list, one "clear", across every device |
 | A standing condition is refreshed, not repeated | A condition that is *still* true is not news; `repeat_s` is the one deliberate exception |

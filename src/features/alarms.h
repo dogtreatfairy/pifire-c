@@ -42,6 +42,13 @@ bool pf_alarms_raise(const char *key, const char *code, const char *name, int cr
  * fixing itself; anything else simply goes. */
 void pf_alarms_clear(const char *key);
 
+/* The rule that raised this has stopped being evaluated -- switched off, or the cook it only
+ * watches during has ended. That is not a return to normal: we never saw the condition end, we
+ * stopped looking at it. So nothing is kept, not even a critical one, because a record saying
+ * "this was wrong when we last looked" is a record nobody can act on and it would sit in the list
+ * for ever. A low hopper matters while the grill is burning pellets; once it stops, it does not. */
+void pf_alarms_retire(const char *key);
+
 /* A moment rather than a condition: it has no return to normal and waits to be acknowledged. */
 void pf_alarms_note(const char *code, const char *name, int crit, unsigned sinks,
                     const char *title, const char *body);
