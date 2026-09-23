@@ -431,6 +431,14 @@
       "tuning": true,
       "system": false
     },
+    "webpush": {
+      "enabled": true,
+      "targets": true,
+      "alarms": true,
+      "pellets": true,
+      "tuning": true,
+      "system": false
+    },
     "eta_warn_min": 15,
     "rules": [
       {

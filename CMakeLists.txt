@@ -29,6 +29,20 @@ if(PF_WITH_CURL)
   pkg_check_modules(CURL REQUIRED IMPORTED_TARGET libcurl)
   list(APPEND PF_OPTIONAL_LIBS PkgConfig::CURL)
 endif()
+# Web push needs real crypto (P-256 ECDH and ECDSA, HKDF, AES-GCM). It is optional: without it the
+# daemon still builds and simply reports that this build cannot do web push, which keeps a machine
+# without OpenSSL headers buildable rather than broken.
+option(PF_WITH_WEBPUSH "Build web push support (needs libcrypto)" ON)
+if(PF_WITH_WEBPUSH)
+  pkg_check_modules(CRYPTO IMPORTED_TARGET libcrypto)
+  if(CRYPTO_FOUND)
+    list(APPEND PF_OPTIONAL_LIBS PkgConfig::CRYPTO)
+    add_compile_definitions(PF_HAVE_WEBPUSH=1)
+    message(STATUS "web push: enabled (libcrypto ${CRYPTO_VERSION})")
+  else()
+    message(STATUS "web push: disabled (libcrypto not found)")
+  endif()
+endif()
 if(PF_WITH_BLE)
   pkg_check_modules(SYSTEMD REQUIRED IMPORTED_TARGET libsystemd)
   list(APPEND PF_OPTIONAL_LIBS PkgConfig::SYSTEMD)
@@ -154,6 +168,7 @@ add_library(pfcore STATIC
   src/controllers/pid_variants.c
   src/controllers/adaptive.c
   src/features/alarms.c
+  src/features/webpush.c
   src/features/learning.c
   src/features/mqtt.c
   src/features/webhook.c
@@ -228,6 +243,7 @@ if(PF_BUILD_TESTS)
   pf_test(test_learning)
   pf_test(test_gfx)
   pf_test(test_qr)
+  pf_test(test_webpush)
   pf_test(test_rules)
   pf_test(test_adaptive)
   pf_test(test_chefiq)

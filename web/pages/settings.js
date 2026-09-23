@@ -1,4 +1,4 @@
-import { PF, el, api, patchSettings, toast, degUnit, confirmDialog, setBack, alertSupport, requestAlertPermission, showSystemNotification } from '../app.js';
+import { PF, el, api, patchSettings, toast, degUnit, confirmDialog, setBack, alertSupport, requestAlertPermission, showSystemNotification, ensurePushSubscription } from '../app.js';
 import { renderProbes } from './probes.js';
 import { renderRules } from './rules.js';
 import { icon as lucide } from '../icons.js';
@@ -112,13 +112,14 @@ const PAGES = [
     X('mqtt.username', 'Username', ''), { path: 'mqtt.password', label: 'Password', type: 'password' }, X('mqtt.id', 'Device ID', 'Topic prefix'), I('mqtt.update_sec', 'Publish every (s)', '', { min: 5 }),
     B('webhook.enabled', 'Webhook', 'POST events as JSON to a URL'), X('webhook.url', 'Webhook URL', ''),
   ] }] },
-  { key: 'push', title: 'Phone Notifications', sub: 'Predictive alerts, Pushover, ntfy', section: 'Notifications', icon: 'bell', color: '#ff453a', sections: [
+  { key: 'push', title: 'Phone Notifications', sub: 'This device, Pushover, ntfy, predictive alerts', section: 'Notifications', icon: 'bell', color: '#ff453a', sections: [
     { id: 'notify', title: 'Predictive Alerts', fields: [
       { type: 'note', help: 'The grill estimates when each probe will reach its target from how fast it is climbing, and tells you before it gets there so you can be at the grill in time.' },
       I('eta_warn_min', 'Tell me this long before a probe reaches its target (minutes)', '0 = off. Sent once per target, as soon as the live estimate has settled below this', { min: 0, max: 240 }),
     ] },
     { id: 'notify', title: 'Phone & Browser Alerts', fields: [
-      { type: 'note', help: 'On an iPhone these only arrive if PiFire has been added to the Home Screen and opened from there, and only while it is running or recently in the background. Once iOS closes it nothing gets through, which is what Pushover below is for.' },
+      { type: 'note', help: 'Add PiFire to your Home Screen and open it from there, then allow notifications. Once this device is subscribed the grill can reach it through the browser maker\u2019s push service even with the app closed, so it no longer has to be running.' },
+      { type: 'pushstate' },
       { type: 'action', label: 'Allow notifications on this device', endpoint: '' , client: 'alerts' },
       { type: 'action', label: 'Show a test notification', endpoint: '', client: 'alerttest' },
     ] },
@@ -176,6 +177,33 @@ const setDeep = (obj, path, v) => { const ks = path.split('.'); let o = obj; for
 
 export function fieldInput(f, value) {
   if (f.type === 'note') return el('p', { class: 'muted', style: 'font-size:.82rem;margin:2px 0 8px' }, f.help);
+  if (f.type === 'pushstate') {
+    /* Whether this device is actually reachable with the app closed, which is the only question
+       that matters and the one the permission prompt does not answer. */
+    const state = el('div', { class: 'help' }, 'Checking…');
+    const btn = el('button', { class: 'btn sm', type: 'button' }, 'Subscribe');
+    const refresh = async () => {
+      try {
+        const info = await api('/push');
+        if (!info.available) { state.textContent = 'This build of PiFire cannot do web push.'; btn.disabled = true; return; }
+        const reg = await navigator.serviceWorker?.getRegistration();
+        const sub = await reg?.pushManager?.getSubscription();
+        state.textContent = sub
+          ? `This device is subscribed. The grill can reach it with the app closed. ${info.devices} device${info.devices === 1 ? '' : 's'} subscribed in total.`
+          : 'Not subscribed yet. Allow notifications above, then subscribe.';
+        btn.textContent = sub ? 'Re-subscribe' : 'Subscribe';
+      } catch { state.textContent = 'Could not check with the grill.'; }
+    };
+    btn.onclick = async () => {
+      const sup = alertSupport();
+      if (!sup.ok) { toast(sup.why, true); return; }
+      const sub = await ensurePushSubscription();
+      toast(sub ? 'This device is subscribed' : 'Could not subscribe', !sub);
+      refresh();
+    };
+    refresh();
+    return el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'Reach this device with the app closed'), state), btn);
+  }
   if (f.client === 'alerts') {
     /* Asking the browser for permission has to happen from a tap, so it lives here rather than
        being something the app does on its own. The state line says plainly whether it can work. */

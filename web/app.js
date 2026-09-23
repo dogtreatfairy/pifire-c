@@ -266,8 +266,37 @@ export function alertSupport() {
 }
 
 export function requestAlertPermission() {
-  if ('Notification' in window && Notification.permission === 'default') return Notification.requestPermission().catch(() => 'default');
+  if ('Notification' in window && Notification.permission === 'default')
+    return Notification.requestPermission().then((p) => { if (p === 'granted') ensurePushSubscription(); return p; }).catch(() => 'default');
+  if (typeof Notification !== 'undefined' && Notification.permission === 'granted') ensurePushSubscription();
   return Promise.resolve(typeof Notification !== 'undefined' ? Notification.permission : 'denied');
+}
+
+/* Hand the grill a push subscription, which is the only thing that reaches this phone once iOS has
+   closed the app. Showing a notification from the running page stops the moment the app is
+   suspended -- seconds, on iOS -- so without this the browser option is decorative. Subscribing is
+   idempotent: the browser returns the subscription it already has, and the daemon keys on the
+   endpoint, so calling this on every launch keeps a refreshed subscription current. */
+export async function ensurePushSubscription() {
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return null;
+    const info = await api('/push');
+    if (!info.available || !info.key) return null;
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (sub && sub.options?.applicationServerKey) {
+      /* a subscription made against a different grill key cannot be decrypted by this one */
+      const cur = btoa(String.fromCharCode(...new Uint8Array(sub.options.applicationServerKey)))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      if (cur !== info.key) { try { await sub.unsubscribe(); } catch {} sub = null; }
+    }
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: info.key });
+    await api('/push/subscribe', { body: sub.toJSON ? sub.toJSON() : sub });
+    return sub;
+  } catch (e) {
+    return null;
+  }
 }
 // Short confirmations ("Saved") are banners only; errors also land in the centre.
 export function toast(msg, err = false) {
@@ -521,6 +550,7 @@ setTimeout(fitViewport, 500);
   setTimeout(installHint, 2500);
   refreshAlarms();
   document.addEventListener('click', requestAlertPermission, { once: true });
+  ensurePushSubscription();   /* keeps a refreshed subscription current without waiting for a tap */
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('/sw.js').catch(() => {});
   // after a daemon upgrade the cached shell may be older than the server: reload once so modules match
   try {

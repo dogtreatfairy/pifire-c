@@ -100,6 +100,39 @@ self.addEventListener('fetch', (e) => {
   })());
 });
 
+/* A push from the grill. This is the only path that reaches a phone with the app closed: the push
+   service wakes this worker, and the worker draws the notification. The payload is already
+   decrypted by the browser by the time it arrives here. */
+self.addEventListener('push', (e) => {
+  let d = { title: 'PiFire', body: '', code: '' };
+  try { if (e.data) d = { ...d, ...e.data.json() }; } catch { try { d.body = e.data ? e.data.text() : ''; } catch { /* nothing usable */ } }
+  e.waitUntil(self.registration.showNotification(d.title || 'PiFire', {
+    body: d.body || '',
+    /* one notification per kind, so a condition that keeps reporting replaces itself rather than
+       stacking up a column of identical rows */
+    tag: d.code || 'pifire',
+    renotify: true,
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    data: { code: d.code || '' },
+  }));
+});
+
+/* Apple can retire a subscription and expect a new one without the app being opened. */
+self.addEventListener('pushsubscriptionchange', (e) => {
+  e.waitUntil((async () => {
+    try {
+      const r = await fetch('/api/v1/push');
+      const { key } = await r.json();
+      if (!key) return;
+      const sub = await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+      await fetch('/api/v1/push/subscribe', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sub),
+      });
+    } catch { /* it will be re-made the next time the app is opened */ }
+  })());
+});
+
 /* Tapping a notification should bring the app forward rather than open a second copy. */
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();

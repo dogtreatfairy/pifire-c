@@ -17,6 +17,8 @@ typedef enum { PF_CRIT_INFO = 0, PF_CRIT_NORMAL, PF_CRIT_HIGH, PF_CRIT_CRITICAL 
 #define PF_SINK_NTFY     (1u << 2)
 #define PF_SINK_MQTT     (1u << 3)
 #define PF_SINK_WEBHOOK  (1u << 4)
+/* The browser's own notifications, delivered by the push service even with the app closed. */
+#define PF_SINK_WEBPUSH  (1u << 5)
 #define PF_SINK_ALL      0xFFFFFFFFu
 
 typedef struct {

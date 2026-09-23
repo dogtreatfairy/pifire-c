@@ -21,6 +21,7 @@
 #include "features/push.h"
 #include "features/rules.h"
 #include "features/alarms.h"
+#include "features/webpush.h"
 #include "features/tuner.h"
 #include "features/weather.h"
 #include "net/wifi.h"
@@ -256,6 +257,29 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 	/* The alarm table: one shared answer to what is wrong and what has not been looked at, so
 	 * clearing something on a phone clears it on the laptop too. */
 	if (get && !strcmp(p, "/alarms")) { reply(resp, 200, pf_alarms_json()); return; }
+	/* Web push: the browser needs this grill's public key to subscribe, and hands the subscription
+	 * back so the daemon can reach it with the app closed. */
+	if (get && !strcmp(p, "/push")) { reply(resp, 200, pf_webpush_json()); return; }
+	if (post && !strcmp(p, "/push/subscribe")) {
+		cJSON *b = req->body ? cJSON_Parse(req->body) : NULL;
+		if (!b) { reply_err(resp, 400, "expected a push subscription"); return; }
+		char err[160];
+		int rc = pf_webpush_subscribe(b, err, sizeof err);
+		cJSON_Delete(b);
+		if (rc) { reply_err(resp, 400, err); return; }
+		reply(resp, 200, pf_webpush_json());
+		return;
+	}
+	if (post && !strcmp(p, "/push/unsubscribe")) {
+		cJSON *b = req->body ? cJSON_Parse(req->body) : NULL;
+		char ep[512];
+		pf_strlcpy(ep, pf_json_str(b, "endpoint", ""), sizeof ep);
+		cJSON_Delete(b);
+		if (!ep[0]) { reply_err(resp, 400, "which subscription?"); return; }
+		pf_webpush_unsubscribe(ep);
+		reply(resp, 200, pf_webpush_json());
+		return;
+	}
 	/* A backup of what the grill has learned about itself: hours of its own time and a hopper of
 	 * pellets, living on an SD card. */
 	if (get && !strcmp(p, "/tune/export")) { reply(resp, 200, pf_learning_export()); return; }

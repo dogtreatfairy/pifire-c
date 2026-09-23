@@ -6,6 +6,7 @@
  * about-N-minutes-to-target, cook timer, recipe steps), alarms (limit alarms, grill errors), pellets
  * (hopper low) and system (autotune, tuning). Delivery runs on a worker thread with a retry. */
 #include "features/push.h"
+#include "features/webpush.h"
 #include "core/events.h"
 #include "core/log.h"
 #include "core/settings.h"
@@ -82,6 +83,10 @@ static void sink(const pf_event *e, void *ctx)
 	(void)ctx;
 	if ((e->sinks & PF_SINK_PUSHOVER) && pf_push_wanted("pushover", e->code)) enqueue("pushover", e->code, e->title, e->body, e->crit, false);
 	if ((e->sinks & PF_SINK_NTFY) && pf_push_wanted("ntfy", e->code)) enqueue("ntfy", e->code, e->title, e->body, e->crit, false);
+	/* Sent straight rather than queued: the push service is the thing that queues, and it holds the
+	 * message until the phone next has a network, which is the whole point of it. */
+	if ((e->sinks & PF_SINK_WEBPUSH) && pf_webpush_available() && pf_push_wanted("webpush", e->code))
+		pf_webpush_send(e->title, e->body, e->code, e->crit);
 }
 
 static size_t discard(char *p, size_t s, size_t n, void *ud) { (void)p; (void)ud; return s * n; }

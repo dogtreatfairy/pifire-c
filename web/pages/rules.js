@@ -6,7 +6,7 @@ import { icon as lucide } from '../icons.js';
 // trait added in C shows up in these dropdowns on the next load.
 
 const LEVELS = [['info', 'Info'], ['normal', 'Normal'], ['high', 'High'], ['critical', 'Critical']];
-const SINKS = [['app', 'In App'], ['pushover', 'Pushover'], ['ntfy', 'ntfy']];
+const SINKS = [['app', 'In App'], ['webpush', 'This Device'], ['pushover', 'Pushover'], ['ntfy', 'ntfy']];
 const ROLES = [['any', 'Any Probe'], ['Food', 'Food Probes'], ['Primary', 'The Pit Probe'], ['Aux', 'Aux Probes']];
 const LINKS = [['any', 'Wired & Bluetooth'], ['bluetooth', 'Bluetooth Only'], ['wired', 'Wired Only']];
 const OP_LABEL = {

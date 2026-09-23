@@ -441,6 +441,7 @@ static unsigned sink_mask(const cJSON *rule)
 		if (!strcmp(it->valuestring, "app")) m |= PF_SINK_APP;
 		else if (!strcmp(it->valuestring, "pushover")) m |= PF_SINK_PUSHOVER;
 		else if (!strcmp(it->valuestring, "ntfy")) m |= PF_SINK_NTFY;
+		else if (!strcmp(it->valuestring, "webpush")) m |= PF_SINK_WEBPUSH;
 		else if (!strcmp(it->valuestring, "mqtt")) m |= PF_SINK_MQTT;
 		else if (!strcmp(it->valuestring, "webhook")) m |= PF_SINK_WEBHOOK;
 	}

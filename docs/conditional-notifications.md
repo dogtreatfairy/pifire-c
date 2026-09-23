@@ -350,3 +350,42 @@ device clear it everywhere, and what makes an old entry unable to reappear as ne
 phone that was asleep gets the current state instead of a replay of what it missed.
 
 Rules may set `clear_after_s` to wait before declaring a condition over, the mirror of `for_s`.
+
+---
+
+## 13. Web push: reaching a phone with the app closed
+
+Every other way the daemon reaches a phone needs something of ours running. A banner needs the page
+open. `showNotification()` from the page needs the app alive, which on iOS means a few seconds after
+you switch away and no longer — the web app is suspended, the WebSocket dies, and nothing arrives.
+That is why the browser option looked broken while Pushover worked: Pushover is a native app with a
+real push token and does not care whether PiFire is running.
+
+**Web push** (RFC 8030 / 8291 / 8292) is the one path that does not depend on us. The daemon posts
+an encrypted message to the push service named in the subscription — Apple's, for an iPhone — and
+the phone wakes the service worker to draw it.
+
+* **Nothing has to be reachable from outside.** The push is *outbound* from the grill. A home router
+  with nothing forwarded is fine.
+* **The app must be served over https**, because a browser will not hand out a push subscription to
+  an insecure page. Tailscale already provides that.
+* **The payload is encrypted for the subscription** that will receive it, so the push service
+  forwards bytes it cannot read.
+* **The VAPID key pair identifies this grill**, so a subscription obtained from it cannot be pushed
+  to by anyone else. It is generated once and kept: changing it invalidates every subscription.
+
+`webpush` is a sink like `pushover` and `ntfy`, so a rule chooses it by name and the existing
+category switches apply. Pushover and ntfy are untouched and remain the better bet for anything
+critical — a native app's delivery is at least as good, and does not depend on a browser keeping its
+subscription alive.
+
+### Why the encryption is tested rather than trusted
+
+A single wrong byte produces a message the phone discards in silence — no error, at either end.
+RFC 8291 section 5 publishes a worked example with fixed keys, a fixed salt, the plaintext and the
+exact body they must produce, so `tests/test_webpush.c` seals that example and compares. It matches
+byte for byte, which is what says the ECDH, the HKDF chain, the AES-128-GCM and the header layout
+are all right.
+
+Web push is optional at build time. Without libcrypto the daemon still builds and reports that this
+build cannot do it, rather than offering a button that quietly does nothing.

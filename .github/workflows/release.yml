@@ -28,7 +28,7 @@ jobs:
           VER="${GITHUB_REF_NAME#v}"
           docker run --rm --platform ${{ matrix.platform }} -v "$PWD":/src -w /src -e VER="$VER" -e ARCH=${{ matrix.arch }} ${{ matrix.image }} bash -euc '
             apt-get update -qq
-            apt-get install -y -qq --no-install-recommends cmake gcc make pkg-config libsqlite3-dev libmosquitto-dev libcurl4-openssl-dev libsystemd-dev gzip tar binutils >/dev/null
+            apt-get install -y -qq --no-install-recommends cmake gcc make pkg-config libsqlite3-dev libmosquitto-dev libcurl4-openssl-dev libssl-dev libsystemd-dev gzip tar binutils >/dev/null
             cmake -B build -DCMAKE_BUILD_TYPE=Release -DPF_BUILD_TESTS=OFF -DPF_VERSION="$VER"
             cmake --build build -j"$(nproc)"
             tools/package.sh "$ARCH" "$VER"
