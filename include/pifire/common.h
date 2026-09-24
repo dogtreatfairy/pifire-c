@@ -50,6 +50,34 @@ static inline void pf_tuning_from_plant(double K, double tau, double theta,
 	if (Td) *Td = theta / 3.0;
 }
 
+/* What a relay test measured, turned into a tuning by the rule written for exactly that
+ * measurement (Tyreus-Luyben).
+ *
+ * The relay gives two numbers and two only: the ultimate gain Ku and the period Pu of the limit
+ * cycle it drove the grill into. Both are read straight off the swing, and neither needs anything
+ * known beforehand. Tyreus-Luyben is the conservative of the classical rules -- Ziegler-Nichols
+ * hunts on a process as lag-dominant as a barrel of air -- and it suits a controller whose
+ * feed-forward already carries the steady load, so the integral only has to trim.
+ *
+ * This replaced routing a relay result through the three-parameter model below. The model needs a
+ * static gain the relay cannot see, and then splits the measured phase lag between a time constant
+ * and a dead time; the band SIMC returns is proportional to that dead time. Two runs on the same
+ * grill a day apart measured periods of about 370 s and 603 s, and the split turned that into dead
+ * times of 99 s and 168 s and bands of 82 F and 150 F -- while the relay's own answer for the
+ * second run was 93 F, thirteen per cent from the first. A tuning that swings by nearly a factor
+ * of two because the limit cycle was slower is not a measurement of the grill, and the number that
+ * moved was never one the relay measured. */
+static inline void pf_tuning_from_relay(double Ku, double Pu, double *PB_c, double *Ti, double *Td)
+{
+	if (PB_c) *PB_c = 0;
+	if (Ti) *Ti = 0;
+	if (Td) *Td = 0;
+	if (!(Ku > 0) || !(Pu > 0)) return;
+	if (PB_c) *PB_c = 2.2 / Ku;      /* Kc = Ku / 2.2 */
+	if (Ti) *Ti = 2.2 * Pu;
+	if (Td) *Td = Pu / 6.3;
+}
+
 /* A relay test fixes one point on the frequency response: at the frequency of the limit cycle the
  * grill's phase lag is 180 degrees and its gain is 1/Ku. That is two equations, and a first order
  * plus dead time model has three unknowns, so the static gain has to come from elsewhere: the
