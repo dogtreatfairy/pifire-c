@@ -490,15 +490,29 @@ h2 { font-size: .74rem; letter-spacing: .09em; margin: 16px 0 6px; }
  */
 .sticky-head, .view > h2, .ios-group > h2, .ios-fold > summary {
   position: sticky; top: 0; z-index: 3;
-  background: var(--bg); border-bottom: 1px solid var(--line);
-  margin: 0; padding: 9px 2px 7px;
+  background: var(--bg); margin: 0; padding: 9px 2px 7px;
 }
+/* A rule belongs where two things meet, not under everything.
+ *
+ * A small upper-case label introduces the rows beneath it and needs no line of its own: the rows
+ * already separate themselves, and a rule under the label drew a second line right above the
+ * section's own top edge -- which is the stray line under the hopper headings.
+ *
+ * A section you can open is different. Its header has to be told apart from whatever content ended
+ * above it, so the rule goes ON TOP of every header; and while it is open it also has to be told
+ * apart from its own content, so it gains one underneath as well. Closed sections in a row are
+ * then separated by a single line each, and an open one is bracketed: rule, header, rule, content,
+ * and the next header's rule closes it. */
+.ios-fold > summary { border-top: 1px solid var(--line); }
+.ios-fold[open] > summary { border-bottom: 1px solid var(--line); }
+/* the first section on a page needs no line above it: there is nothing above it */
+.view > .ios-fold:first-child > summary, .view > :first-child.ios-fold > summary { border-top: 0; }
 .view > h2, .ios-group > h2, .row.between:has(> h2) > h2 { font-size: .72rem; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
 /* A heading with an action beside it -- Recipes and New, Probes and Add -- is still a heading, so
    the band is the row and the button sits on it rather than floating over its rule. */
 .row.between:has(> h2) {
   position: sticky; top: 0; z-index: 3; background: var(--bg);
-  border-bottom: 1px solid var(--line); margin: 0 0 2px; padding: 6px 2px; gap: 10px;
+  margin: 0 0 2px; padding: 6px 2px; gap: 10px;
 }
 .row.between > h2 { position: static; border: 0; padding: 0; margin: 0; }
 /* A card whose whole content is a list is a frame around rows that already separate themselves
@@ -545,7 +559,7 @@ h2 { font-size: .74rem; letter-spacing: .09em; margin: 16px 0 6px; }
 .ios-fold > summary .chev { transition: transform .15s; }
 .ios-fold[open] > summary .chev { transform: rotate(90deg); }
 .ios-fold > summary .body { display: flex; flex-direction: column; gap: 1px; }
-.ios-fold .fold-body { padding: 10px 0 16px; }
+.ios-fold .fold-body { padding: 10px 0 20px; }
 .ios-fold .fold-body > .card, .ios-fold .fold-body .card { background: transparent; border: 0; box-shadow: none; padding-left: 0; padding-right: 0; }
 .ios-fold .fold-body h2 { position: static; border: 0; padding: 0; margin: 12px 0 6px; }
 

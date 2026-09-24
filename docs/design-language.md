@@ -81,6 +81,12 @@ label sits close to what it labels, in small upper case. Numbers are tabular so 
 a reading does not jitter as it changes. The test is how much of a list you can take in without
 scrolling, because scrolling is what costs you your place.
 
+**A rule belongs where two things meet.** A section header carries its rule on top, separating it
+from whatever ended above it, and gains one underneath only while it is open, separating it from
+its own content. A small upper-case label carries none: the rows beneath it already separate
+themselves, and a rule under a label that sits above a card draws a second line right against the
+card's own edge.
+
 **A section header holds its place, and every heading is the same thing.** A label over a list, a
 title on a page, a heading with an action beside it, and the header of a section you can open are
 all one recipe: a full-width band on the page background with a rule under it, pinned to the top of
