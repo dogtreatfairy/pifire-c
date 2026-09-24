@@ -283,12 +283,21 @@ cJSON *pf_db_history_query(double from, double to, int res_s)
 			cur_target = cJSON_AddArrayToObject(po, "target");
 			idx = 0;
 		}
-		/* align to the time axis: fill nulls for buckets this label has no data in */
+		/* Align to the time axis, and stay on it.
+		 *
+		 * A probe reading can exist in a bucket the main history has no row for -- the two tables
+		 * are pruned separately, and one can lose a bucket the other keeps -- and this used to
+		 * append the value anyway, which made that probe's series longer than the axis. A chart
+		 * cannot draw a series longer than its x values: it is the fault behind a graph that works
+		 * for weeks and then, for no visible reason, does not. A value with no bucket on the axis
+		 * is dropped; the series is exactly as long as the axis, always. */
 		while (idx < nt && cJSON_GetArrayItem(t, idx)->valuedouble < b - 0.5) {
 			cJSON_AddItemToArray(cur_temp, cJSON_CreateNull());
 			cJSON_AddItemToArray(cur_target, cJSON_CreateNumber(0));
 			idx++;
 		}
+		if (idx >= nt) continue;                                            /* past the end of the axis */
+		if (cJSON_GetArrayItem(t, idx)->valuedouble > b + 0.5) continue;    /* no bucket here to hold it */
 		if (sqlite3_column_type(st, 2) == SQLITE_NULL) cJSON_AddItemToArray(cur_temp, cJSON_CreateNull());
 		else cJSON_AddItemToArray(cur_temp, cJSON_CreateNumber(sqlite3_column_double(st, 2)));
 		cJSON_AddItemToArray(cur_target, cJSON_CreateNumber(sqlite3_column_double(st, 3)));

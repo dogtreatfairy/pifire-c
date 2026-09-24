@@ -865,6 +865,52 @@ static void test_a_biased_swing_is_refused(void)
 	                               "a swing parked on one side of the set point must not be filed");
 }
 
+
+/* What a tune is for: holding without overshooting.
+ *
+ * Tyreus-Luyben is the conservative of the relay rules and the integral time it returns is long,
+ * which is the whole point on a grill -- a barrel that takes minutes to answer punishes an eager
+ * controller with a climb straight past the target. This measures that rather than assuming it:
+ * step the grill up and watch the peak. */
+static double step_overshoot(double from_f, double to_f)
+{
+	pf_cmd c = { .type = PF_CMD_MODE, .mode = PF_MODE_HOLD, .num = from_f };
+	pf_cmdq_push(&c);
+	for (int i = 0; i < 120 * 60 && !ctrl.target_reached; i += 10) tick(10);
+	tick(15 * 60);
+	pf_cmd up = { .type = PF_CMD_SETPOINT, .num = to_f };
+	pf_cmdq_push(&up);
+	double peak = 0;
+	for (int i = 0; i < 90 * 60; i += 5) {
+		tick(5);
+		double over = pf_from_c(ctrl.pit_c, PF_UNITS_F) - to_f;
+		if (over > peak) peak = over;
+	}
+	return peak;
+}
+
+static void test_a_tuned_grill_does_not_overshoot_a_step(void)
+{
+	stop_and_wait_cold();
+	pf_learning_clear_anchors();
+	double before = step_overshoot(225, 300);
+	stop_and_wait_cold();
+
+	char err[160];
+	cJSON *one = cJSON_Parse("[300]");
+	TEST_ASSERT_EQUAL_INT(0, pf_tuner_start(one, false, false, err, sizeof err));
+	cJSON_Delete(one);
+	run_to_completion();
+	stop_and_wait_cold();
+
+	double after = step_overshoot(225, 300);
+	printf("overshoot on a 75 F step: %.1f F untuned, %.1f F tuned\n", before, after);
+	/* The measurement has to buy something: no worse than before, and within a few degrees of the
+	 * target in absolute terms, which is what a cook notices. */
+	TEST_ASSERT_TRUE_MESSAGE(after <= before + 1.0, "tuning must not make the overshoot worse");
+	TEST_ASSERT_TRUE_MESSAGE(after < 12.0, "a tuned grill should settle without a large overshoot");
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -879,6 +925,7 @@ int main(void)
 	RUN_TEST(test_relay_recovers_from_a_badly_centred_swing);
 	RUN_TEST(test_single_adds_and_full_profile_replaces);
 	RUN_TEST(test_guided_tune_improves_holding);
+	RUN_TEST(test_a_tuned_grill_does_not_overshoot_a_step);
 	RUN_TEST(test_a_baseline_refines_rather_than_replacing);
 	RUN_TEST(test_only_from_scratch_erases);
 	RUN_TEST(test_the_tuning_library_can_be_backed_up_and_restored);

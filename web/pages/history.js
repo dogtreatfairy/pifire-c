@@ -41,20 +41,25 @@ export function renderHistory(view) {
     render(h);
   }
   function render(h) {
-    const t = h.t;
+    const t = h.t || [];
+    /* Every series has to be exactly as long as the time axis. The daemon guarantees it, but a
+       chart that silently stops working is expensive to diagnose and cheap to prevent: anything
+       longer is cut, anything shorter is padded with gaps, and a payload that cannot be drawn at
+       all leaves a message rather than a dead canvas. */
+    const fit = (arr) => { const a = Array.isArray(arr) ? arr.slice(0, t.length) : []; while (a.length < t.length) a.push(null); return a; };
     const series = [{ label: 'Time' }];
     const data = [t];
-    const sp = h.setpoint.map((v) => (v > 0 ? v : null));
+    const sp = fit(h.setpoint).map((v) => (v > 0 ? v : null));
     let ci = 0;
-    const names = Object.keys(h.probes);
+    const names = Object.keys(h.probes || {});
     const primary = PF.status?.probes.find((p) => p.role === 'Primary')?.label;
     names.sort((a, b) => (a === primary ? -1 : b === primary ? 1 : 0));
     for (const label of names) {
       const color = COLORS[ci++ % COLORS.length];
       const pr = PF.status?.probes.find((p) => p.label === label);
       series.push({ label: pr?.name || label, stroke: color, width: label === primary ? 2.5 : 1.5, spanGaps: false, value: (u, v) => (v == null ? '—' : `${v.toFixed(0)}${degUnit()}`) });
-      data.push(h.probes[label].temp);
-      const tg = h.probes[label].target.map((v) => (v > 0 ? v : null));
+      data.push(fit(h.probes[label].temp));
+      const tg = fit(h.probes[label].target).map((v) => (v > 0 ? v : null));
       if (tg.some((v) => v != null)) { series.push({ label: `${pr?.name || label} target`, stroke: color, dash: [4, 4], width: 1, value: (u, v) => (v == null ? '—' : `${v.toFixed(0)}`) }); data.push(tg); }
     }
     if (sp.some((v) => v != null)) { series.push({ label: 'Set point', stroke: '#f4f4f5', dash: [6, 4], width: 1.2, value: (u, v) => (v == null ? '—' : `${v.toFixed(0)}`) }); data.push(sp); }
@@ -69,8 +74,18 @@ export function renderHistory(view) {
       scales: { x: { time: true }, y: { range: (u, min, max) => [Math.max(0, Math.floor((min - 10) / 25) * 25), Math.ceil((max + 10) / 25) * 25] } },
       legend: { live: true },
     };
-    if (plot) plot.destroy();
-    plot = new uPlot(opts, data, chartEl);
+    if (plot) { plot.destroy(); plot = null; }   /* never leave a destroyed plot behind to be reused */
+    try {
+      plot = new uPlot(opts, data, chartEl);
+      chartEl.classList.remove('chart-empty');
+    } catch (e) {
+      plot = null;
+      chartEl.replaceChildren(el('div', { class: 'muted', style: 'padding:24px 0;text-align:center' },
+        'The chart could not be drawn from this data. It will try again on the next update.'));
+      console.error('[history]', e);
+    }
+    if (!t.length) chartEl.replaceChildren(el('div', { class: 'muted', style: 'padding:24px 0;text-align:center' },
+      'Nothing was logged in this window. The grill records while it is running; it stops when you do, to spare the card.'));
     stats.innerHTML = '';
     for (const label of names) {
       const arr = h.probes[label].temp.filter((v) => v != null);
