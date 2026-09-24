@@ -43,6 +43,10 @@ cJSON *pf_webpush_json(void);   /* what the app shows: how many devices, and thi
  * subscription is dead, and it is dropped rather than retried for ever. */
 void pf_webpush_send(const char *title, const char *body, const char *code, int crit);
 
+/* The same send, but synchronous and honest about the result: how many devices took it, and for
+ * the ones that did not, what the push service said. A test that cannot fail is not a test. */
+int pf_webpush_send_now(const char *title, const char *body, const char *code, int crit, char *err, size_t n);
+
 /* Is this a contact a push service will accept: a mailto: with a real domain, or an https: URL.
  * Apple refuses anything else with 403 and says nothing about which claim it disliked. */
 bool pf_webpush_contact_ok(const char *contact);

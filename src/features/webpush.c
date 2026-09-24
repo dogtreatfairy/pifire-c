@@ -40,6 +40,7 @@ int pf_webpush_unsubscribe(const char *endpoint) { (void)endpoint; return -1; }
 bool pf_webpush_contact_ok(const char *c) { (void)c; return false; }
 int pf_webpush_count(void) { return 0; }
 void pf_webpush_send(const char *title, const char *body, const char *code, int crit) { (void)title; (void)body; (void)code; (void)crit; }
+int pf_webpush_send_now(const char *t, const char *b, const char *c, int cr, char *err, size_t n) { (void)t; (void)b; (void)c; (void)cr; if (err && n) snprintf(err, n, "this build has no web push support"); return 0; }
 int pf_webpush_seal_for_test(const char *p256dh_b64, const char *auth_b64, const char *as_priv_b64,
                              const char *salt_b64, const char *plaintext, char *out_b64, size_t cap)
 {
@@ -604,7 +605,7 @@ static size_t sink_keep(void *p, size_t sz, size_t n, void *u)
 }
 
 /* Returns the HTTP status, or 0 if it could not be sent at all. */
-static long post_one(const sub_t *s, const unsigned char *body, size_t len)
+static long post_one(const sub_t *s, const unsigned char *body, size_t len, char *why, size_t whyn)
 {
 	char jwt[1200];
 	if (vapid_jwt(s->endpoint, jwt, sizeof jwt) != 0) return 0;
@@ -633,15 +634,21 @@ static long post_one(const sub_t *s, const unsigned char *body, size_t len)
 	long status = 0;
 	if (rc == CURLE_OK) curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
 	else LOGW(TAG, "push failed: %s", curl_easy_strerror(rc));
-	if (status >= 400 && reply.buf[0]) LOGW(TAG, "push service refused it: %s", reply.buf);
+	if (status >= 400 && reply.buf[0]) {
+		LOGW(TAG, "push service refused it: %s", reply.buf);
+		if (why && whyn) pf_strlcpy(why, reply.buf, whyn);
+	}
 	curl_slist_free_all(h);
 	curl_easy_cleanup(c);
 	return status;
 }
 
-void pf_webpush_send(const char *title, const char *body, const char *code, int crit)
+/* Send to every subscription. `err` (optional) collects what the push service said about the ones
+ * that refused, so a test can report it; the return is how many took it. */
+static int send_all(const char *title, const char *body, const char *code, int crit, char *err, size_t errn)
 {
-	if (!g_vapid) return;
+	if (err && errn) err[0] = 0;
+	if (!g_vapid) { if (err) snprintf(err, errn, "web push is not set up on this grill"); return 0; }
 
 	char json[512];
 	cJSON *o = cJSON_CreateObject();
@@ -651,7 +658,7 @@ void pf_webpush_send(const char *title, const char *body, const char *code, int 
 	cJSON_AddNumberToObject(o, "crit", crit);
 	char *txt = cJSON_PrintUnformatted(o);
 	cJSON_Delete(o);
-	if (!txt) return;
+	if (!txt) return 0;
 	pf_strlcpy(json, txt, sizeof json);
 	free(txt);
 
@@ -662,24 +669,41 @@ void pf_webpush_send(const char *title, const char *body, const char *code, int 
 	memcpy(snap, g_subs, sizeof snap);
 	pthread_mutex_unlock(&g_mu);
 
+	int ok = 0;
 	for (int i = 0; i < MAX_SUBS; i++) {
 		if (!snap[i].used) continue;
 		unsigned char out[1024];
 		size_t len = 0;
 		if (encrypt_for(snap[i].ua_public, snap[i].auth, (const unsigned char *)json, strlen(json), out, sizeof out, &len) != 0) {
 			LOGW(TAG, "could not encrypt for a subscription");
+			if (err && errn && !err[0]) snprintf(err, errn, "a subscription could not be encrypted for");
 			continue;
 		}
-		long st = post_one(&snap[i], out, len);
+		char why[240] = "";
+		long st = post_one(&snap[i], out, len, why, sizeof why);
 		/* 404 and 410 are the push service saying the subscription is finished -- the app was
 		 * deleted, or the browser threw it away. Keeping it means failing for ever. */
 		if (st == 404 || st == 410) {
 			LOGI(TAG, "a device's subscription has expired; forgetting it");
 			pf_webpush_unsubscribe(snap[i].endpoint);
+			if (err && errn && !err[0]) snprintf(err, errn, "that device's subscription had expired; subscribe it again");
 		} else if (st < 200 || st >= 300) {
 			LOGW(TAG, "push rejected with %ld", st);
-		}
+			if (err && errn && !err[0])
+				snprintf(err, errn, "the push service refused it (%ld)%s%s", st, why[0] ? ": " : "", why[0] ? why : "");
+		} else ok++;
 	}
+	return ok;
+}
+
+void pf_webpush_send(const char *title, const char *body, const char *code, int crit)
+{
+	send_all(title, body, code, crit, NULL, 0);
+}
+
+int pf_webpush_send_now(const char *title, const char *body, const char *code, int crit, char *err, size_t n)
+{
+	return send_all(title, body, code, crit, err, n);
 }
 
 #endif

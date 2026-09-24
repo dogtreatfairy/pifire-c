@@ -115,6 +115,10 @@ const PAGES = [
       { type: 'pushstate' },
       { type: 'action', label: 'Allow notifications on this device', endpoint: '', client: 'alerts' },
       { type: 'action', label: 'Show a test notification', endpoint: '', client: 'alerttest' },
+      /* The one above asks the browser to draw a notification locally, which proves the permission
+         and nothing else. This one goes out through the push service and back to the device, which
+         is the path that matters and the path that was silently failing. */
+      { type: 'action', label: 'Send a push to this device', endpoint: '/notify/test/webpush' },
       /* Apple refuses a push whose sender gives no valid contact -- 403, every time, silently --
          and it is the one push service that checks. Blank uses the project's address. */
       X('webpush.contact', 'Contact for the push service', 'A mailto: or https: address, as the push standard requires. Apple rejects notifications without a valid one. Blank uses the PiFire project address'),

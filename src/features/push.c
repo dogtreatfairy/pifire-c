@@ -203,8 +203,22 @@ static int deliver_ntfy(const item_t *it, char *err, size_t errn)
 	return 0;
 }
 
+/* Web push has no delivery function of its own here: it encrypts per subscription and posts to
+ * whatever service each device came from, which webpush.c owns. What it does have, and what this
+ * gives it, is a way to be TESTED -- the button that used to say "show a test notification" only
+ * asked the browser to draw one locally, which proves nothing about whether the grill can reach a
+ * phone that is asleep. Apple refused every real push for weeks behind that button. */
+static int deliver_webpush(const item_t *it, char *err, size_t errn)
+{
+	if (!pf_webpush_available()) { snprintf(err, errn, "this build has no web push support"); return -1; }
+	if (pf_webpush_count() < 1) { snprintf(err, errn, "no device has subscribed to browser notifications yet"); return -1; }
+	int sent = pf_webpush_send_now(it->title, it->body, it->code, it->crit, err, errn);
+	return sent > 0 ? 0 : -1;
+}
+
 static int deliver(const item_t *it, char *err, size_t errn)
 {
+	if (!strcmp(it->sink, "webpush")) return deliver_webpush(it, err, errn);
 	return !strcmp(it->sink, "pushover") ? deliver_pushover(it, err, errn) : deliver_ntfy(it, err, errn);
 }
 
@@ -252,7 +266,7 @@ void pf_push_shutdown(void)
 
 int pf_push_test(const char *sink_name, char *err, size_t n)
 {
-	if (strcmp(sink_name, "pushover") && strcmp(sink_name, "ntfy")) { snprintf(err, n, "unknown sink"); return -1; }
+	if (strcmp(sink_name, "pushover") && strcmp(sink_name, "ntfy") && strcmp(sink_name, "webpush")) { snprintf(err, n, "unknown sink"); return -1; }
 	item_t it = { .crit = PF_CRIT_NORMAL, .force = true };
 	pf_strlcpy(it.sink, sink_name, sizeof it.sink);
 	pf_strlcpy(it.code, "Test_Notify", sizeof it.code);
