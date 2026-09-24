@@ -58,6 +58,16 @@ export const ICONS = {
 "zap": "<path d=\"M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z\" />"
 };
 
+/* What each mode looks like, everywhere it appears: the header readout, the control bar on Home,
+ * the settings rows. A mode that is crosshairs in one place and a dial in another is two modes as
+ * far as anyone glancing at it is concerned. */
+export const MODE_ICON = {
+  Stop: 'circle-stop', Monitor: 'glasses', Prime: 'chevrons-right',
+  Startup: 'flame', Reignite: 'flame',
+  Smoke: 'cloud', Hold: 'target', Shutdown: 'power',
+  Manual: 'sliders-horizontal', Error: 'triangle-alert', Tuning: 'activity',
+};
+
 /** Build a Lucide icon element. */
 export function icon(name, cls = 'ic') {
   const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');

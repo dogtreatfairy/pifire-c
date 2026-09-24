@@ -384,6 +384,19 @@ static void fmt_eta(char *out, size_t n, double secs)
 	if (m >= 60) snprintf(out, n, "%dh%02d", (m / 60) % 100, m % 60); else snprintf(out, n, "%dm", m % 60);
 }
 
+/* A one-pixel outline that follows the same corner as the block it surrounds.
+ *
+ * Every selection on this panel is a rounded block with an outline around it, and the outline was
+ * a square frame: at each corner it stepped outside the shape it was meant to trace. On an orange
+ * row against a dark card nobody saw it; on the red Stop row, where the outline is white, it read
+ * as a stray box drawn around the word. One shape for all of them, so a selected row looks like a
+ * selected row wherever it is. */
+static void pf_sel_ring(pf_gfx *g, int x, int y, int w, int h, int r, uint16_t edge, uint16_t fill)
+{
+	pf_gfx_rrect(g, x, y, w, h, r, edge);
+	pf_gfx_rrect(g, x + 1, y + 1, w - 2, h - 2, r > 1 ? r - 1 : r, fill);
+}
+
 static void draw_probe_col(pf_gfx *g, const cJSON *p, const char *units, bool blink, int x, int y, int w)
 {
 	const cJSON *tv = cJSON_GetObjectItem((cJSON *)p, "temp");
@@ -517,10 +530,7 @@ static void render_list(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 		 * the opposite colour, and text chosen for the fill. A slightly lighter shade of grey --
 		 * which is what this used to be in places -- disappears completely outdoors. */
 		uint16_t rowfill = items[i].danger ? g->th.danger : g->th.accent;
-		if (is) {
-			pf_gfx_rrect(g, 6, y + 1, W - 12, rowh - 3, 7, rowfill);
-			pf_gfx_frame(g, 6, y + 1, W - 12, rowh - 3, on_fill_text(g, rowfill));
-		}
+		if (is) pf_sel_ring(g, 6, y + 1, W - 12, rowh - 3, 7, on_fill_text(g, rowfill), rowfill);
 		int ty = y + (rowh - pf_gfx_line_height(B, px)) / 2;
 		uint16_t c = is ? on_fill_text(g, rowfill) : items[i].danger ? g->th.danger : g->th.text;
 		pf_gfx_text(g, B, px, 16, ty, items[i].label, c);
@@ -687,8 +697,8 @@ static void render_manual(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 		bool on = pf_json_bool((cJSON *)s, keys[i], false);
 		bool is = ui->manual_focus == i;
 		uint16_t fill = on ? (i == 0 ? g->th.auger : i == 1 ? g->th.fan : g->th.igniter) : g->th.card2;
-		pf_gfx_rrect(g, 6, y, W - 12, rowh, 6, fill);
-		if (is) pf_gfx_frame(g, 6, y, W - 12, rowh, g->th.text);
+		if (is) pf_sel_ring(g, 6, y, W - 12, rowh, 6, g->th.text, fill);
+		else pf_gfx_rrect(g, 6, y, W - 12, rowh, 6, fill);
 		uint16_t tc = on ? g->th.accent_text : is ? g->th.text : g->th.muted;
 		int px = rowh >= 30 ? 18 : 15;
 		pf_gfx_text(g, B, px, 14, y + (rowh - pf_gfx_line_height(B, px)) / 2, names[i], tc);
@@ -753,8 +763,8 @@ static void render_margins(pf_gfx *g, const pf_ui_state *ui)
 	for (int b2 = 0; b2 < 2; b2++) {
 		bool sel = ui->margin_focus == 4 + b2;
 		int bw = 62, bh = 26, bx = W / 2 - 66 + b2 * 70, by = H / 2 - 6;
-		pf_gfx_rrect(g, bx, by, bw, bh, 6, sel ? g->th.accent : g->th.card2);
-		if (sel) pf_gfx_frame(g, bx, by, bw, bh, on_fill_text(g, g->th.accent));
+		if (sel) pf_sel_ring(g, bx, by, bw, bh, 6, on_fill_text(g, g->th.accent), g->th.accent);
+		else pf_gfx_rrect(g, bx, by, bw, bh, 6, g->th.card2);
 		pf_gfx_text_center(g, B, 14, bx + bw / 2, by + (bh - pf_gfx_line_height(B, 14)) / 2,
 		                   BTN[b2], sel ? g->th.accent_text : g->th.text);
 	}

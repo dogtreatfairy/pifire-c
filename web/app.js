@@ -3,7 +3,7 @@ import { renderHome } from './pages/home.js';
 import { renderHistory } from './pages/history.js';
 import { renderCook } from './pages/cook.js';
 import { renderSettings } from './pages/settings.js';
-import { icon as lucide, brandIcon } from './icons.js';
+import { icon as lucide, brandIcon, MODE_ICON } from './icons.js';
 import { renderMore } from './pages/more.js';
 import { renderNetwork } from './pages/network.js';
 
@@ -576,7 +576,13 @@ onStatus((s) => {
      the grill is deliberately swinging either side of its target. Name what it is actually doing. */
   const tuning = !!(s.tuning?.running || s.autotune?.active);
   if (tuning && home) value = `${fmtTemp(s.tuning?.setpoint ?? s.setpoint)}${degUnit()}`;
-  rdMode.textContent = tuning ? 'Auto Tuning' : s.mode;
+  const modeName = tuning ? 'Auto Tuning' : s.mode;
+  document.getElementById('rd-name').textContent = modeName;
+  /* The same mark the mode carries everywhere else, so the plate reads as part of the interface
+     rather than as a label that happens to be near it. */
+  const ico = document.getElementById('rd-ico');
+  const want = MODE_ICON[tuning ? 'Tuning' : s.mode];
+  if (ico && ico.dataset.icon !== want) { ico.dataset.icon = want || ''; ico.replaceChildren(want ? lucide(want) : ''); }
   rdVal.textContent = value;
   rdVal.hidden = !value;
   readout.dataset.mode = tuning ? 'Tuning' : s.mode;

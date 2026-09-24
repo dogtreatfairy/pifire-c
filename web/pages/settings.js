@@ -21,7 +21,7 @@ const PAGES = [
   // ---- Grill
   /* Named for the mode it governs. Everything here decides how the grill holds a temperature: the
      controller, its tuning, and the cycle the auger feeds on. None of it touches Smoke. */
-  { key: 'controller', title: 'Hold Mode', sub: 'The controller that holds a temperature, its tuning, and the feed cycle', section: 'Cooking', icon: 'gauge', color: '#ff8a1f', custom: controllerPage },
+  { key: 'controller', title: 'Hold Mode', sub: 'The controller that holds a temperature, its tuning, and the feed cycle', section: 'Cooking', icon: 'target', color: '#ff8a1f', custom: controllerPage },
   { key: 'hardware', title: 'Grill Hardware', sub: 'Board, pins, display, hopper sensor', section: 'Hardware', icon: 'cpu', color: '#64d2ff', custom: (v) => import('./more.js').then((m) => m.hardware(v)) },
   { key: 'probes', title: 'Probes', sub: 'Wired and Bluetooth probes, profiles, tuner', section: 'Hardware', icon: 'thermometer', color: '#ff453a', custom: renderProbes },
   { key: 'startup', title: 'Startup & Shutdown', sub: 'Ignition, what happens after startup, cool-down', section: 'Cooking', icon: 'power', color: '#30d158', sections: [
@@ -518,7 +518,7 @@ async function controllerPage(view) {
   view.append(fold('Auto Tuning', anchors
     ? `${anchors} temperature${anchors === 1 ? '' : 's'} measured${deep > 1 ? ` · ${deep} runs deep` : ''}`
     : 'nothing measured yet',
-    tuningInto, 'target', '#0a84ff'));
+    tuningInto, 'activity', '#0a84ff'));
 
   view.append(fold('Learning', PF.settings?.learning?.enabled === false ? 'off' : 'on',
     el('div', {}, pageCard({ title: '', sections: [{ id: 'learning', title: '', fields: learningFields }] }), learningInto),

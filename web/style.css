@@ -197,11 +197,15 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .hbar { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 6px; align-items: stretch; margin-bottom: 4px; }
 .hbar .mode { display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-weight: 700; font-size: .9rem; background: var(--surface2); border-radius: 10px; padding: 7px 8px; }
 .hbar .mode::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--dotc, var(--muted)); flex: none; }
-.hbar .out { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: .78rem; font-weight: 600; letter-spacing: .04em; color: var(--muted); background: var(--surface2); border-radius: 10px; padding: 7px 4px; }
-.hbar .out::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--line); flex: none; }
-.hbar .out.on { color: var(--text); }
-.hbar .out.on::before { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
-.hbar .out[data-k="fan"].on::before { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+/* The whole puck lights up, the way the panel's tiles do: a running output is not a dot beside a
+   word, it is the word itself in the colour of the thing that is running. Green fan, blue auger,
+   orange igniter, on both screens. */
+.hbar .out { display: inline-flex; align-items: center; justify-content: center; font-size: .78rem; font-weight: 700;
+  letter-spacing: .06em; color: var(--muted); background: var(--surface2); border-radius: var(--radius-s); padding: 8px 4px; }
+.hbar .out[data-k="fan"] { --outc: var(--ok); --outink: #04210d; }
+.hbar .out[data-k="auger"] { --outc: var(--info); --outink: #041018; }
+.hbar .out[data-k="igniter"] { --outc: var(--accent); --outink: #140c00; }
+.hbar .out.on { background: var(--outc); color: var(--outink); }
 .hero .label { font-size: .8rem; color: var(--muted); margin-top: 8px; }
 .hero .big { font-size: clamp(76px, 24vw, 120px); font-weight: 600; line-height: 1; letter-spacing: -3px; font-variant-numeric: tabular-nums; }
 .hero .big small { font-size: .32em; font-weight: 400; color: var(--muted); letter-spacing: 0; vertical-align: top; margin-left: 2px; }
@@ -214,7 +218,17 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .pcell .n { font-size: .74rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pcell .t { font-size: 1.9rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.15; }
 .pcell .tg { font-size: .74rem; color: var(--accent); }
-.pcell.hit .t, .pcell.hit .tg { color: var(--ok); }
+/* A probe that has arrived flashes, exactly as it does on the panel: the whole card fills with the
+   colour of how far past its target it is -- done, five degrees over, ten -- half a beat in every
+   beat and a half. A number that has changed colour is easy to miss across a garden; one that
+   blinks is not. */
+.pcell.hit { border-color: var(--hitc); animation: pf-hit 1.5s steps(1, end) infinite; }
+.pcell.hit.done { --hitc: var(--ok); --hitink: #04210d; }
+.pcell.hit.over { --hitc: var(--accent); --hitink: #140c00; }
+.pcell.hit.way { --hitc: var(--danger); --hitink: #fff; }
+.pcell.hit .t, .pcell.hit .tg, .pcell.hit .n, .pcell.hit .amb { color: inherit; }
+@keyframes pf-hit { 50% { background: var(--hitc); color: var(--hitink); } }
+@media (prefers-reduced-motion: reduce) { .pcell.hit { animation: none; background: var(--hitc); color: var(--hitink); } }
 .pcell.invalid .t { color: var(--muted); }
 
 /* ---- home: gauge, countdown, P-mode chip, control bar ---- */
@@ -264,15 +278,20 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .tb-back span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tb-back:active { opacity: .55; }
 .topbar .brand #grill-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tb-inds { display: flex; align-items: center; gap: 8px; flex: none; }
-.tb-ind { display: inline-flex; align-items: center; color: var(--muted); }
+/* Every mark on the right sits in the same cell and is drawn to the same size, so the row reads as
+   one strip rather than three things that happen to be adjacent. */
+.tb-inds { display: flex; align-items: center; gap: 4px; flex: none; }
+.tb-ind { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; color: var(--muted); }
 .tb-ind.ok { color: var(--ok); } .tb-ind.warn { color: var(--warn); } .tb-ind.bad { color: var(--danger); } .tb-ind.muted { color: var(--line); }
-.tb-ind svg { width: 18px; height: 18px; }
+.tb-ind svg { width: 19px; height: 19px; }
 .tb-ind .sig.wifi { color: var(--text); }
 .tb-tag { font-size: .6rem; font-weight: 800; letter-spacing: .06em; border: 1px solid currentColor; border-radius: 3px; padding: 1px 3px; }
 /* industrial readout: a segmented mode plate and the number, square and tabular */
 .readout { display: inline-flex; align-items: stretch; height: 28px; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; flex: none; font-variant-numeric: tabular-nums; }
-.readout .rd-mode { display: flex; align-items: center; padding: 0 7px; font-size: .62rem; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; background: var(--surface2); color: var(--muted); }
+.readout .rd-mode { display: flex; align-items: center; gap: 5px; padding: 0 8px; font-size: .62rem; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; background: var(--surface2); color: var(--muted); }
+.readout .rd-ico { display: inline-flex; align-items: center; }
+.readout .rd-ico svg { width: 13px; height: 13px; stroke-width: 2.4; }
+.readout .rd-ico:empty { display: none; }
 .readout .rd-val { display: flex; align-items: center; padding: 0 8px; font-size: .95rem; font-weight: 700; color: var(--text); }
 .readout .rd-val[hidden] { display: none; }
 .readout[data-mode="Hold"] .rd-mode { background: var(--ok); color: #04210d; }
@@ -382,9 +401,9 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .pill.sm { padding: 2px 8px; font-size: .7rem; }
 .pcell .n .ic.bt { margin-right: 3px; }
 /* Bluetooth signal bars: 4 bars, lit ones in the current text colour */
-.sig { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 11px; vertical-align: -1px; }
-.sig i { display: block; width: 3px; border-radius: 1px; background: var(--line); }
-.sig i:nth-child(1) { height: 4px; } .sig i:nth-child(2) { height: 6px; } .sig i:nth-child(3) { height: 8.5px; } .sig i:nth-child(4) { height: 11px; }
+.sig { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; vertical-align: -1px; }
+.sig i { display: block; width: 3.5px; border-radius: 1px; background: var(--line); }
+.sig i:nth-child(1) { height: 5px; } .sig i:nth-child(2) { height: 8px; } .sig i:nth-child(3) { height: 11px; } .sig i:nth-child(4) { height: 14px; }
 .sig i.on { background: currentColor; }
 .sig.s1 i.on { background: var(--danger); } .sig.s2 i.on { background: var(--warn); }
 .pcell .n .sig { margin-right: 4px; color: var(--info); }
@@ -548,8 +567,8 @@ h2 { font-size: .74rem; letter-spacing: .09em; margin: 16px 0 6px; }
 .ios-list .tile .ic, .ios-fold .tile .ic { width: 16px; height: 16px; stroke-width: 2.2; flex: none; }
 /* A brand mark is its own tile: it carries the shape and the colour, so the coloured square behind
    it would only fight it. The corner radius is kept so it sits in the same grid as the others. */
-.ios-list .tile.brand, .ios-fold .tile.brand { background: transparent; box-shadow: none; overflow: hidden; }
-.ios-list .tile.brand .ic, .ios-fold .tile.brand .ic { width: 26px; height: 26px; border-radius: 6px; }
+.ios-list .tile.brand, .ios-fold .tile.brand { background: transparent; box-shadow: none; overflow: hidden; border-radius: 6px; }
+.ios-list .tile.brand .ic, .ios-fold .tile.brand .ic { width: 26px; height: 26px; }
 .ios-list .body, .ios-fold > summary .body { flex: 1; min-width: 0; }
 .ios-list .t, .ios-fold > summary .t { font-weight: 500; font-size: .95rem; }
 .ios-list .s, .ios-fold > summary .s { font-size: .74rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -607,9 +626,9 @@ main.view > :first-child { margin-top: 12px; }
 .topbar { background: var(--bg); }
 .topbar { transform: none; isolation: auto; -webkit-font-smoothing: auto; height: var(--top-h); box-sizing: border-box; padding-top: calc(env(safe-area-inset-top) + 12px); padding-bottom: 12px; }
 .topbar .brand { font-size: 1.2rem; }
-.topbar-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-.bell { position: relative; width: 36px; height: 36px; border: 0; background: transparent; color: var(--text); padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; }
-.bell svg { width: 22px; height: 22px; }
+.topbar-right { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.bell { position: relative; width: 30px; height: 30px; border: 0; background: transparent; color: var(--text); padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; }
+.bell svg { width: 19px; height: 19px; }
 .bell.has-error { color: var(--danger); }
 .bell .badge { position: absolute; top: 1px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--danger); color: #fff; font-size: .62rem; font-weight: 700; line-height: 16px; text-align: center; }
 /* banners under the header */

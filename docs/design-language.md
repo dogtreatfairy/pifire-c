@@ -105,6 +105,29 @@ the top of the screen, and two stacked is a header for a header.
 Sheets follow one shape: what it is about at the top with its current value, the choices in the
 middle as full-width cards, and the commit row at the foot.
 
+## The same thing looks the same on both screens
+
+A mode has one mark wherever it appears — the header readout, the control bar on Home, the settings
+row: **Hold is crosshairs, Smoke is a cloud**, Startup a flame, Shutdown a power symbol. One map in
+`web/icons.js` feeds all of them, because a mode that is crosshairs in one place and a dial in
+another is two modes to anyone glancing at it.
+
+**An output that is running lights up whole.** FAN green, AUGER blue, IGN orange — the tile fills
+with the colour on both the panel and the phone, rather than a small dot beside a word. **A probe
+that has reached its target flashes**, in the colour of how far past it has gone: done, a step over
+(5 °F / 3 °C), two steps over. The same thresholds on both screens, so a probe that is amber on the
+grill is amber on the phone.
+
+**A brand mark keeps its own shape.** A logo is drawn as its owner draws it — Pushover's disc,
+ntfy's softer rectangle — at the same size as every other tile and with no coloured square behind
+it. Cropping them all to one silhouette was tried and looked worse: a mark you recognise beats a
+column that lines up.
+
+**Selection has one shape.** On the panel a selected row is a filled rounded block with an outline
+that follows the same corner. It used to be a square frame around a rounded fill, which stepped
+outside the shape at every corner — invisible on an orange row against a dark card, and a stray box
+around the red Stop row.
+
 ## The panel
 
 An industrial HMI read at arm's length in sunlight, not a shrunken phone. A filled mode banner

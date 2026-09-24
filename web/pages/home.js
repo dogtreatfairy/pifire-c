@@ -1,7 +1,7 @@
 import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, numberDialog, dialog, confirmDialog, patchSettings, toast } from '../app.js';
 import { targetDialog, limitsDialog } from './cook.js';
 import { btIcon, isWireless, sigBars, fmtEta, battIcon } from './probes.js';
-import { icon as lucide } from '../icons.js';
+import { icon as lucide, MODE_ICON } from '../icons.js';
 
 // Home: status row (AUG/FAN/IGN, P-mode), the gauge with the grill temperature (reads 0 while stopped),
 // target line, run timer + hopper, the PiFire-style control bar, probe cells, and manual output switches
@@ -12,7 +12,10 @@ const presetsC = [70, 80, 95, 107, 120, 135, 150, 175, 205];
 const presets = () => (PF.units === 'C' ? presetsC : presetsF);
 const gaugeMax = () => (PF.units === 'C' ? 320 : 600);
 
-const LUCIDE = { play: 'play', stop: 'square', glasses: 'glasses', target: 'target', prime: 'chevrons-right', smoke: 'cloud', power: 'power', chevron: 'chevron-up', wrench: 'wrench' };
+/* The control bar names actions, and two of those actions are modes: holding and smoking. Those two
+   take their marks from the one map every surface uses, so the button you press here is the icon
+   you see in the header, in Settings and on the panel. */
+const LUCIDE = { play: 'play', stop: 'square', glasses: 'glasses', target: MODE_ICON.Hold, prime: 'chevrons-right', smoke: MODE_ICON.Smoke, power: MODE_ICON.Shutdown, chevron: 'chevron-up', wrench: 'wrench' };
 const icon = (name) => lucide(LUCIDE[name] || name);
 
 // ---- gauge (270° ring, temperature inside)
@@ -268,7 +271,12 @@ export function renderHome(view) {
     probes.style.gridTemplateColumns = `repeat(${Math.max(1, food.length)}, 1fr)`;
     for (const p of food) {
       const hit = p.target > 0 && p.valid && p.temp >= p.target;
-      probes.append(el('div', { class: `pcell ${p.valid ? '' : 'invalid'} ${hit ? 'hit' : ''}`, onclick: () => probePopup(p.label) },
+      /* The same thresholds the panel uses, so a probe that is amber on the grill is amber on the
+         phone: done, a step over, two steps over -- five degrees a step, three in Celsius. */
+      const step = PF.units === 'C' ? 3 : 5;
+      const over = hit ? p.temp - p.target : 0;
+      const level = !hit ? '' : over >= 2 * step ? 'way' : over >= step ? 'over' : 'done';
+      probes.append(el('div', { class: `pcell ${p.valid ? '' : 'invalid'} ${hit ? 'hit' : ''} ${level}`, onclick: () => probePopup(p.label) },
         el('div', { class: 'n' }, p.wireless ? [btIcon(), sigBars(p.signal || 0, p.rssi ? `${p.rssi} dBm` : 'no link'), p.battery >= 0 ? battIcon(p.battery) : null, ' '] : null, p.name), el('div', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
         p.ambient_label ? el('div', { class: 'amb' }, `Ambient ${p.ambient == null ? '—' : fmtTemp(p.ambient) + '°'}`) : null,
         el('div', { class: `tg ${p.target > 0 ? '' : 'muted'}` }, p.target > 0 ? `Target ${fmtTemp(p.target)}°${!hit && p.eta_s > 0 ? ` · ${fmtEta(p.eta_s)}` : ''}` : 'Set target')));
