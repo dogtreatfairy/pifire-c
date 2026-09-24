@@ -60,6 +60,35 @@ digits it could contain, never from the digits currently in it, or it changes si
 warms through a boundary. Times are `1:15` under an hour and `1:02:30` above it. A measurement that
 would fit in a sentence still goes on its own line or in a table, never inline in prose.
 
+## The scale
+
+Every measurement comes from one small set of steps, declared at the top of `web/style.css`. Sizes
+chosen by eye, one rule at a time, are how a list ends up with rows of 46, 47 and 48 pixels and
+buttons of 35 and 51 on the same page; a fixed scale is how the systems this borrows from — Radix,
+shadcn, Material — stay even without anyone measuring. **If a value is not on the scale, either it
+is wrong or the scale needs another step**, and adding one is a decision written down here rather
+than a number typed into a rule.
+
+| | steps |
+|---|---|
+| Space | `--sp-1` 4px · `--sp-2` 8 · `--sp-3` 12 · `--sp-4` 16 · `--sp-5` 20 · `--sp-6` 24 |
+| Radius | `--r-sm` 6px · `--r-md` 8 · `--r-lg` 10 · `--r-pill` 999 |
+| Type | `--fs-xs` .72rem · `--fs-sm` .82 · `--fs-md` .95 · `--fs-lg` 1.05 · `--fs-xl` 1.3 |
+| Weight | `--fw-normal` 400 · `--fw-medium` 500 · `--fw-semi` 600 · `--fw-bold` 700 |
+| Controls | `--h-row` 46px · `--h-control` 35 · `--h-field` 41 |
+| Rules | `--bw` 1px, everywhere |
+| Inset | `--pad-x` 12px: how far text sits from the edge of anything that holds it |
+
+Colour is semantic, never literal: `--bg`, `--surface`, `--surface2`, `--line`, `--text`, `--muted`,
+and the five meanings in the table further down. A rule that names a hex value is a rule that will
+be wrong in the other theme.
+
+**One grid.** Every row, every section header and every open section starts and ends on the same two
+columns, and a header *is* a row — same height, same padding, same icon position, differing only in
+which way the chevron points. An open section's surface is drawn with an inset shadow rather than a
+border, because a border is a pixel of width and would shift everything inside it. These are worth
+checking with a ruler rather than an eye.
+
 ## The phone
 
 An app shell: only `<main>` scrolls, the bars are pinned inside a viewport-fixed body, and the safe
@@ -87,6 +116,20 @@ visibly *inside* something, because everything else on these pages puts content 
 section whose body is loose text between two hairlines does not read as a section at all, and you
 cannot see where it ends and the next header begins. Opening one draws the card: the header becomes
 its top plate, a shade above the body, and the whole thing stands off the rows around it.
+
+**One grid, and opening something moves nothing.** Every row, every section header and every open
+section starts and ends on the same two pixel columns, and a header is a row: the same height, the
+same padding, the same icon position, differing only in which way the chevron points. An open
+section's surface is drawn with an inset shadow rather than a border, because a border is a pixel of
+width and would shift everything inside it. The measurements that matter are worth checking with a
+ruler rather than an eye: rows were coming out 46, 47 and 48 pixels tall on one page, small buttons
+35 and 51, selects a pixel taller than the inputs beside them.
+
+**Every form ends in a footer, and a footer looks the same wherever it is**: the container's own
+width, a rule across the top, the actions on the right with the committing one last. A row of
+buttons floating in the middle of a card's padding is not a footer, it is some buttons. The space
+below it matches the space above the first field — inner containers contribute no padding of their
+own, or the two stack and the bottom ends up twice the top.
 
 **A rule belongs where two things meet.** A section header carries its rule on top, separating it
 from whatever ended above it, and gains one underneath only while it is open, separating it from

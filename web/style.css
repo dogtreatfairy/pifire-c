@@ -153,7 +153,14 @@ small, .muted { color: var(--muted); }
 .field.inline input:not([type="checkbox"]) { width: 130px; text-align: right; }
 fieldset { border: 0; padding: 0; margin: 0; }
 legend { font-weight: 600; margin-bottom: 6px; }
-.form-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 10px; }
+/* Every form ends in a footer, and a footer looks the same wherever it is: the container's own
+   width, a rule across the top of it, the actions to the right with the committing one last. A row
+   of buttons floating in the middle of a card's padding is not a footer, it is some buttons. */
+.form-actions, .dialog .btnrow {
+  display: flex; justify-content: flex-end; align-items: center; gap: var(--sp-2);
+  margin: var(--sp-3) calc(var(--pad-x) * -1) 0; padding: var(--sp-3) var(--pad-x) 0;
+  border-top: var(--bw) solid var(--line);
+}
 .num-input { display: flex; align-items: center; gap: 8px; }
 .num-input input { flex: 1; min-width: 0; width: auto; text-align: center; font-size: 1.4rem; }
 .num-input .btn { flex: none; width: 48px; padding: 0; }
@@ -441,9 +448,37 @@ legend { font-weight: 600; margin-bottom: 6px; }
   --glass-line: light-dark(var(--glass-line-l), var(--glass-line-d));
   --glass-shine: light-dark(var(--glass-shine-l), var(--glass-shine-d));
   --glass-shadow: light-dark(var(--glass-shadow-l), var(--glass-shadow-d));
-  --radius: 10px; --radius-s: 8px;
+  /* ---- the scale -------------------------------------------------------
+   * Every measurement in this interface comes from here. Sizes chosen by eye,
+   * one rule at a time, are how a list ends up with rows of 46, 47 and 48
+   * pixels and buttons of 35 and 51; a small fixed set of steps is how the
+   * design systems this borrows from (Radix, shadcn, Material) stay even
+   * without anyone measuring. If a value is not on the scale, either it is
+   * wrong or the scale needs another step -- and adding one is a decision,
+   * written here, not a number typed into a rule.
+   *
+   * Space is a 4 px rhythm. Radii are three steps and a pill. Type is five
+   * steps, all in rem so the system text size is honoured. Controls have
+   * fixed heights so a row, a button and a field never disagree by a pixel.
+   */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px;
+  --r-sm: 6px; --r-md: 8px; --r-lg: 10px; --r-pill: 999px;
+  --fs-xs: .72rem; --fs-sm: .82rem; --fs-md: .95rem; --fs-lg: 1.05rem; --fs-xl: 1.3rem;
+  --fw-normal: 400; --fw-medium: 500; --fw-semi: 600; --fw-bold: 700;
+  --lh-tight: 1.2; --lh-base: 1.45;
+  --track-label: .09em;   /* letter-spacing for the small upper-case labels */
+  --h-row: 46px;          /* a list row, and a section header, which is a row */
+  --h-control: 35px;      /* a small button */
+  --h-field: 41px;        /* an input, and a select, which must match it */
+  --bw: 1px;              /* every rule and every outline in the interface */
+  /* How far text sits from the edge of whatever holds it -- a row, a card, a section, a label.
+     One value, so a title in a list and a title inside an open section start on the same column,
+     and nothing reads as though it were pressed against the side of its container. */
+  --pad-x: var(--sp-3);
+  /* the older names, kept because the whole stylesheet is written in them */
+  --radius: var(--r-lg); --radius-s: var(--r-md);
   --tab-h: 56px;
-  --row-h: 46px;
+  --row-h: var(--h-row);
 }
 /* numbers line up in columns and stop jittering as they change */
 body { font-variant-numeric: tabular-nums; }
@@ -452,13 +487,13 @@ body { background: var(--bg); position: relative; }
 body::before { content: none; }
 
 /* A section label is a label: small, upper case, quiet, and close to what it labels. */
-h2 { font-size: .74rem; letter-spacing: .09em; margin: 16px 0 6px; }
+h2 { font-size: var(--fs-xs); letter-spacing: var(--track-label); margin: var(--sp-4) 0 var(--sp-2); }
 
 .card, .hero {
   background: var(--glass); border: 1px solid var(--glass-line); border-radius: var(--radius);
-  box-shadow: none; position: relative; overflow: visible; padding: 12px 14px; margin-bottom: 10px;
+  box-shadow: none; position: relative; overflow: visible; padding: var(--sp-3) var(--pad-x); margin-bottom: var(--sp-2);
 }
-.card.tight { padding: 9px 11px; border-radius: var(--radius-s); }
+.card.tight { padding: var(--sp-2) var(--pad-x); }
 .topbar { background: var(--bg); border-bottom: 1px solid var(--glass-line); }
 
 /* The tab bar is a bar. A floating pill costs the width of its margins on both sides and the gap
@@ -472,7 +507,7 @@ h2 { font-size: .74rem; letter-spacing: .09em; margin: 16px 0 6px; }
 .tabbar a svg { width: 21px; height: 21px; }
 /* the active tab is marked by a rule at its edge, the way a selected channel is marked on a panel */
 .tabbar a.active { background: transparent; box-shadow: inset 0 2px 0 var(--accent); }
-.view { padding-bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 20px); }
+.view { padding-left: 10px; padding-right: 10px; padding-bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 20px); }
 .toast { bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 16px); background: var(--surface2); border-color: var(--glass-line); box-shadow: none; }
 @media (min-width: 900px) {
   .tabbar { inset: 0 auto 0 0; width: 84px; height: 100dvh; border-top: 0; border-right: 1px solid var(--glass-line); border-radius: 0;
@@ -495,7 +530,10 @@ h2 { font-size: .74rem; letter-spacing: .09em; margin: 16px 0 6px; }
 .pill { background: var(--surface2); box-shadow: none; border-radius: var(--radius-s); }
 .dialog { background: var(--surface); border: 1px solid var(--glass-line); box-shadow: none; border-radius: var(--radius); }
 .dialog::backdrop { background: rgba(0, 0, 0, .55); backdrop-filter: none; -webkit-backdrop-filter: none; }
+/* A field is a field: the same height whether it holds typing or a choice. A select renders a pixel
+   taller than an input left to itself, which is enough to see in a column of them. */
 .field input:not([type="checkbox"]), .field select, .field textarea { background: light-dark(#fff, #0f1114); border-color: var(--glass-line); border-radius: var(--radius-s); }
+.field input:not([type="checkbox"]), .field select { height: var(--h-field); }
 .switch span { background: light-dark(rgba(0, 0, 0, .14), rgba(255, 255, 255, .14)); }
 .progress { background: light-dark(rgba(0, 0, 0, .08), rgba(255, 255, 255, .08)); }
 
@@ -514,7 +552,7 @@ h2 { font-size: .74rem; letter-spacing: .09em; margin: 16px 0 6px; }
  */
 .sticky-head, .view > h2, .ios-group > h2, .ios-fold > summary {
   position: sticky; top: 0; z-index: 3;
-  background: var(--bg); margin: 0; padding: 9px 2px 7px;
+  background: var(--bg); margin: 0; padding: 9px var(--pad-x) 7px;
 }
 /* A rule belongs where two things meet, not under everything.
  *
@@ -532,16 +570,16 @@ h2 { font-size: .74rem; letter-spacing: .09em; margin: 16px 0 6px; }
    shaded a step up from the body so the two read as one object rather than a chip on a box. */
 .ios-fold[open] > summary {
   border-top: 0; border-bottom: 1px solid var(--line); background: var(--surface2);
-  border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0; padding-left: 12px;
+  border-radius: var(--radius) var(--radius) 0 0;
 }
 /* the first section on a page needs no line above it: there is nothing above it */
 .view > .ios-fold:first-child > summary, .view > :first-child.ios-fold > summary { border-top: 0; }
-.view > h2, .ios-group > h2, .row.between:has(> h2) > h2 { font-size: .72rem; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.view > h2, .ios-group > h2, .row.between:has(> h2) > h2 { font-size: var(--fs-xs); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--muted); }
 /* A heading with an action beside it -- Recipes and New, Probes and Add -- is still a heading, so
    the band is the row and the button sits on it rather than floating over its rule. */
 .row.between:has(> h2) {
   position: sticky; top: 0; z-index: 3; background: var(--bg);
-  margin: 0 0 2px; padding: 6px 2px; gap: 10px;
+  margin: 0 0 2px; padding: 6px var(--pad-x); gap: 10px;
 }
 .row.between > h2 { position: static; border: 0; padding: 0; margin: 0; }
 /* A card whose whole content is a list is a frame around rows that already separate themselves
@@ -554,16 +592,18 @@ h2 { font-size: .74rem; letter-spacing: .09em; margin: 16px 0 6px; }
 /* a heading is quiet next to what follows it, so the run of them down a page never competes with
    the readings themselves */
 .ios-group { margin: 0 0 18px; }
-.ios-group .foot { margin: 6px 2px 0; font-size: .74rem; color: var(--muted); }
+.ios-group .foot { margin: 6px var(--pad-x) 0; font-size: .74rem; color: var(--muted); }
 
 /* Lists are rows separated by rules, edge to edge, rather than cards floating on a background.
    The frame around a list costs two rules and the space either side of them and says nothing the
    separation between rows does not already say. */
 .ios-list { background: transparent; border: 0; border-radius: 0; box-shadow: none; overflow: visible; position: relative; }
-.ios-list .row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 2px;
-  border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
-  min-height: var(--row-h); -webkit-tap-highlight-color: transparent; }
-.ios-list .row + .row { border-top: 1px solid var(--line); }
+/* One box for every row: the same height whether or not it carries a subtitle, and its own rule on
+   top, so a list reads as evenly spaced rules and the first one is the list's top edge. Rows used to
+   come out 46, 47 and 48 pixels tall on the same page depending on what was in them. */
+.ios-list .row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px var(--pad-x);
+  border: 0; border-top: 1px solid var(--line); background: transparent; color: inherit; font: inherit;
+  text-align: left; cursor: pointer; min-height: var(--row-h); -webkit-tap-highlight-color: transparent; }
 .ios-list .row:active { background: color-mix(in oklab, var(--text) 10%, transparent); }
 .ios-list .row.danger .t { color: var(--danger); }
 /* Icon tiles are flat squares in one colour: an identifier, not an ornament. */
@@ -575,11 +615,15 @@ h2 { font-size: .74rem; letter-spacing: .09em; margin: 16px 0 6px; }
 .ios-list .tile.brand, .ios-fold .tile.brand { background: transparent; box-shadow: none; overflow: hidden; border-radius: 6px; }
 .ios-list .tile.brand .ic, .ios-fold .tile.brand .ic { width: 26px; height: 26px; }
 .ios-list .body, .ios-fold > summary .body { flex: 1; min-width: 0; }
-.ios-list .t, .ios-fold > summary .t { font-weight: 500; font-size: .95rem; }
-.ios-list .s, .ios-fold > summary .s { font-size: .74rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ios-list .v { color: var(--muted); font-size: .88rem; }
+.ios-list .t, .ios-fold > summary .t { font-weight: var(--fw-medium); font-size: var(--fs-md); }
+.ios-list .s, .ios-fold > summary .s { font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ios-list .v { color: var(--muted); font-size: var(--fs-sm); }
 .ios-list .chev, .ios-fold > summary .chev { width: 16px; height: 16px; color: var(--muted); flex: none; }
 .menu .btn { border-radius: var(--radius-s); }
+/* A small button is a small button wherever it sits: the same height, on one line, centred rather
+   than stretched by whatever flex row it happens to be in. They were coming out 51 px in a probe
+   card and 36 px beside a heading. */
+.btn.sm { min-height: var(--h-control); align-self: center; white-space: nowrap; }
 
 /* A section you can open is a row until you open it, and then it is a card.
  *
@@ -590,12 +634,19 @@ h2 { font-size: .74rem; letter-spacing: .09em; margin: 16px 0 6px; }
  * the header becomes its top plate, the body sits on its surface, and the whole thing stands off
  * the rows around it. */
 .ios-fold { background: transparent; border: 0; border-radius: 0; box-shadow: none; overflow: visible; position: relative; margin: 0; }
+/* The surface is drawn with an inset shadow rather than a border, and the contents keep the same
+   2 px inset every row uses, so opening a section moves nothing: the header's icon, its title and
+   its value stay on the exact pixel column they were on when it was shut. A border here cost a
+   pixel of width and the card's own padding cost ten more, which is visible the moment an open
+   section sits under a closed one. */
 .ios-fold[open] {
-  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
-  margin: 10px 0; overflow: visible;
+  background: var(--surface); box-shadow: 0 0 0 1px var(--line) inset; border: 0;
+  border-radius: var(--radius); margin: 10px 0; overflow: visible;
 }
+/* A section header is a row: same padding, same height, same everything but the chevron's
+   direction. It was three pixels taller, which shows the moment one sits above the other. */
 .ios-fold > summary {
-  display: flex; align-items: center; gap: 10px; min-height: var(--row-h);
+  display: flex; align-items: center; gap: 10px; min-height: var(--row-h); padding: 6px var(--pad-x);
   cursor: pointer; list-style: none; font-weight: 400; -webkit-tap-highlight-color: transparent;
 }
 .ios-fold > summary::-webkit-details-marker, .ios-fold > summary::after { display: none; content: none; }
@@ -603,8 +654,16 @@ h2 { font-size: .74rem; letter-spacing: .09em; margin: 16px 0 6px; }
 .ios-fold > summary .chev { transition: transform .15s; }
 .ios-fold[open] > summary .chev { transform: rotate(90deg); }
 .ios-fold > summary .body { display: flex; flex-direction: column; gap: 1px; }
-.ios-fold .fold-body { padding: 10px 12px 14px; }
-.ios-fold .fold-body > .card, .ios-fold .fold-body .card { background: transparent; border: 0; box-shadow: none; padding-left: 0; padding-right: 0; }
+/* The body is inset the same amount all the way round, and whatever ends it does not add its own
+   margin on the way out: a card's bottom margin plus the body's padding plus the action row's own
+   spacing stacked up into a band of empty card below the Save button and almost nothing above it. */
+.ios-fold .fold-body { padding: var(--sp-3) var(--pad-x); }
+.ios-fold .fold-body > :last-child, .ios-fold .fold-body form:last-child > :last-child { margin-bottom: 0; }
+/* A card inside a section is not a card: the section is. It keeps no frame, no surface and no
+   spacing of its own, because the body already provides all three -- stacked, they put twice as
+   much room under the last button as above the first field. */
+.ios-fold .fold-body > .card, .ios-fold .fold-body .card {
+  background: transparent; border: 0; box-shadow: none; padding: 0; margin: 0; }
 .ios-fold .fold-body h2 { position: static; border: 0; padding: 0; margin: 12px 0 6px; }
 
 /* =====================================================================
