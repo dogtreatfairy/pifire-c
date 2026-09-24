@@ -9,9 +9,22 @@
 
 enum { PF_AFTER_NONE = 0, PF_AFTER_KEEPWARM = 1, PF_AFTER_SHUTDOWN = 2 };
 
+/* A step in a cook: a temperature on the way to the target with a name on it -- "Flip" at 120,
+ * "Wrap" at 165 -- which says something once, when it is crossed going up. It is what every probe
+ * app worth using has: the target is where the meat comes off, and the steps are what you have to
+ * be at the grill for before then. Held in settings so they survive a restart mid-cook. */
+#define PF_MAX_STEPS 4
+typedef struct {
+	char name[24];
+	double temp_c;
+	bool fired;
+} pf_notify_step;
+
 typedef struct {
 	char label[PF_LABEL_LEN];
 	double target_c;        /* 0 = none */
+	pf_notify_step steps[PF_MAX_STEPS];
+	int nsteps;
 	int after;              /* PF_AFTER_* */
 	double limit_high_c, limit_low_c;   /* 0 = disabled */
 	bool high_tripped, low_tripped;

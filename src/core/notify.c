@@ -2,6 +2,7 @@
 #include "core/events.h"
 #include "core/settings.h"
 #include "core/log.h"
+#include "core/util.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -140,6 +141,37 @@ static const char *after_text(int after)
 	return after == PF_AFTER_SHUTDOWN ? " Shutting down." : after == PF_AFTER_KEEPWARM ? " Switching to keep-warm." : "";
 }
 
+/* Steps live in settings (`notify.probe_steps.<label>`), not in the notify state, so they survive a
+ * restart part way through a cook -- which is exactly when losing them would matter. What does not
+ * survive is whether one has already spoken: that is a latch here, re-seeded whenever the list
+ * changes, so editing a step arms it again and a restart mid-cook does not shout twice about a
+ * temperature already passed. The daemon holds Celsius; the settings file holds the user's units,
+ * which is how every other temperature in it is stored. */
+static void load_steps(pf_notify_probe *p, pf_units units)
+{
+	char path[128];
+	snprintf(path, sizeof path, "notify.probe_steps.%s", p->label);
+	cJSON *arr = pf_set_dup(path);
+	pf_notify_step keep[PF_MAX_STEPS];
+	int nkeep = p->nsteps;
+	memcpy(keep, p->steps, sizeof keep);
+	p->nsteps = 0;
+	cJSON *it;
+	cJSON_ArrayForEach(it, arr) {
+		if (p->nsteps >= PF_MAX_STEPS) break;
+		double t = pf_json_num(it, "temp", 0);
+		if (!(t > 0)) continue;
+		pf_notify_step *st = &p->steps[p->nsteps++];
+		pf_strlcpy(st->name, pf_json_str(it, "name", "Step"), sizeof st->name);
+		st->temp_c = pf_to_c(t, units);
+		/* an unchanged step keeps whatever it had already said */
+		st->fired = false;
+		for (int k = 0; k < nkeep; k++)
+			if (fabs(keep[k].temp_c - st->temp_c) < 0.01 && !strcmp(keep[k].name, st->name)) { st->fired = keep[k].fired; break; }
+	}
+	cJSON_Delete(arr);
+}
+
 void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now, pf_units units)
 {
 	bool cooking = mode == PF_MODE_STARTUP || mode == PF_MODE_REIGNITE || mode == PF_MODE_SMOKE || mode == PF_MODE_HOLD;
@@ -166,6 +198,18 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 				p->eta_s = -1;
 				if (p->after != PF_AFTER_NONE) { n->pending_action = p->after; p->after = PF_AFTER_NONE; }
 			} else if (do_eta) recalc_eta(p);
+		}
+		/* A step speaks once, going up, and only while there is a cook to speak about. It resets
+		 * when the probe falls back below it by a couple of degrees, so a probe pulled out and put
+		 * back does not re-announce, but a genuinely new cook does. */
+		load_steps(p, units);
+		for (int k = 0; k < p->nsteps; k++) {
+			pf_notify_step *st = &p->steps[k];
+			if (!st->fired && cooking && t >= st->temp_c) {
+				st->fired = true;
+				pf_events_emit("Probe_Step", st->name, "%s reached %.0f%s for %s (%.0f%s).",
+				               name, pf_from_c(st->temp_c, units), u, st->name, pf_from_c(t, units), u);
+			} else if (st->fired && t < st->temp_c - pf_delta_to_c(2, units)) st->fired = false;
 		}
 		if (p->limit_high_c > 0) {
 			if (t > p->limit_high_c && !p->high_tripped) { p->high_tripped = true; pf_events_emit("Probe_Temp_Limit_Alarm", "High temperature alarm", "%s is above %.0f%s (%.0f%s).", name, pf_from_c(p->limit_high_c, units), u, pf_from_c(t, units), u); }

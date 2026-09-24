@@ -1,4 +1,4 @@
-import { PF, el, api, cmd, patchSettings, toast, onStatus, confirmDialog, setBack, dialog, fmtTime, degUnit, listGroup } from '../app.js';
+import { PF, el, api, cmd, patchSettings, toast, onStatus, confirmDialog, setBack, dialog, fmtTime, degUnit, listGroup, fold, actionBtn } from '../app.js';
 import { fieldInput, readField } from './settings.js';
 import { renderNetwork } from './network.js';
 import { renderPellets } from './pellets.js';
@@ -14,19 +14,12 @@ export function renderMore(view, rest) {
   const page = rest[0];
   if (page && subpages[page]) {
     if (['hardware', 'network', 'remote', 'learning', 'pellets', 'probes'].includes(page)) return subpages[page]();
-    setBack('#/more', 'More');
+    setBack('#/settings', 'Settings');
     return subpages[page](view, rest.slice(1));
   }
-  view.append(
-    listGroup('Tools', [
-      { href: '#/more/manual', icon: 'wrench', color: '#ff9f0a', title: 'Manual Outputs', sub: 'Switch the auger, fan and igniter by hand' },
-    ]),
-    listGroup('Diagnostics', [
-      { href: '#/more/events', icon: 'scroll-text', color: '#ffd60a', title: 'Events', sub: 'Alerts and mode changes' },
-      { href: '#/more/logs', icon: 'file-text', color: '#8e8e93', title: 'Logs', sub: 'Daemon log' },
-      { href: '#/more/system', icon: 'monitor', color: '#8e8e93', title: 'System Health', sub: 'Version, uptime, temperatures, restart, power off' },
-      { href: '#/more/about', icon: 'info', color: '#8e8e93', title: 'About', sub: '' },
-    ]));
+  /* There is no More any more: its pages are the Diagnostics group at the foot of Settings. The
+     address still resolves so a bookmark or an old link lands somewhere. */
+  location.replace('#/settings');
 }
 
 function events(view) {
@@ -254,8 +247,61 @@ export async function hardware(view) {
   const displayCard = moduleCard('Display', man.modules.display, 'display', dispCfg);
   const distCard = moduleCard('Hopper level sensor', man.modules.distance, 'dist', distCfg);
 
+  /* Probe hardware is hardware. It lived on the Probes page, which is about the probes themselves --
+     what each one is called, what it is for, which profile converts it -- while this is the ADC,
+     RTD and thermocouple boards they are wired to, chosen once when the grill is built. */
+  const pmods = man.modules.probes;
+  const moduleOf = (d) => pmods[d.module] || Object.values(pmods).find((m) => m.filename === d.module);
+  const wirelessMod = (m) => !!m?.device_specific?.config?.some((c) => c.type === 'bt_address');
+  const probeCard = el('div', {});
+  const renderProbeHw = () => {
+    probeCard.innerHTML = '';
+    map.probe_devices.forEach((d, i) => {
+      const m = moduleOf(d);
+      const fields = [];
+      for (const c of m?.device_specific?.config || []) {
+        if (c.hidden) continue;
+        const v = d.config?.[c.label] ?? c.default;
+        const input = c.type === 'list'
+          ? el('select', { onchange: (e) => ((d.config ??= {})[c.label] = e.target.value) }, c.list_values.map((lv, k) => el('option', { value: String(lv), selected: String(v) === String(lv) }, c.list_labels?.[k] ?? String(lv))))
+          : el('input', { type: 'text', inputmode: c.type === 'bt_address' ? 'text' : 'decimal', value: v ?? '', onchange: (e) => ((d.config ??= {})[c.label] = c.type === 'int' || c.type === 'float' ? Number(e.target.value) : e.target.value.trim()) });
+        fields.push(el('div', { class: 'field inline' }, el('div', {}, el('label', {}, c.friendly_name), c.description ? el('div', { class: 'help' }, c.description) : null), input));
+      }
+      const n = map.probe_info.filter((p) => p.device === d.device).length;
+      fields.push(el('div', { class: 'form-actions' },
+        actionBtn('delete', 'Remove', { onclick: async () => {
+          if (!await confirmDialog('Remove device?', `${d.device} and its ${n} probe${n === 1 ? '' : 's'}`, 'Remove', true)) return;
+          map.probe_devices.splice(i, 1);
+          map.probe_info = map.probe_info.filter((p) => p.device !== d.device);
+          renderProbeHw();
+        } })));
+      probeCard.append(fold(d.device, `${m?.friendly_name || d.module} · ${n} probe${n === 1 ? '' : 's'}`, fields,
+        wirelessMod(m) ? 'bluetooth' : 'cpu', wirelessMod(m) ? '#0a84ff' : '#64d2ff'));
+    });
+    const wired = Object.entries(pmods).filter(([, m]) => !wirelessMod(m));
+    const sel = el('select', {}, wired.map(([id, m]) => el('option', { value: id }, m.friendly_name)));
+    probeCard.append(el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'Add device')), sel),
+      el('div', { class: 'form-actions' }, actionBtn('add', 'Add', { onclick: () => {
+        const id = sel.value, m = pmods[id];
+        const cfg = {}; for (const c of m.device_specific?.config || []) cfg[c.label] = c.default;
+        map.probe_devices.push({ device: `${id.toUpperCase()}_${map.probe_devices.length + 1}`, module: m.filename, ports: m.device_specific?.ports || [], config: cfg });
+        renderProbeHw();
+      } })));
+  };
+  renderProbeHw();
+
   renderBoard();
-  view.append(el('h2', {}, 'Board'), boardCard, el('h2', {}, 'Display'), displayCard, el('h2', {}, 'Hopper sensor'), distCard,
+  /* A section says what it is SET TO, not what it is about -- the way a settings row reads
+     "Language  English". "Panel, rotation, theme" describes a category nobody needed describing;
+     what you want off a closed row is which board this grill is, which panel is fitted, whether a
+     hopper sensor is there at all. */
+  const nameOf = (mods_, key) => mods_[mods[key]]?.friendly_name || 'None';
+  const nDev = map.probe_devices.length;
+  view.append(
+    fold('Board', null, boardCard, 'cpu', '#64d2ff', false, boards[boards[plat.current] ? plat.current : 'custom'].friendly_name),
+    fold('Display', null, displayCard, 'monitor', '#5e5ce6', false, nameOf(man.modules.display, 'display')),
+    fold('Hopper Sensor', null, distCard, 'ruler', '#ac8e68', false, nameOf(man.modules.distance, 'dist')),
+    fold('Probe Hardware', null, probeCard, 'thermometer', '#ff453a', false, `${nDev} device${nDev === 1 ? '' : 's'}`),
     el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'button', onclick: async () => {
       try {
         plat.system_type = plat.system_type || 'rpi';

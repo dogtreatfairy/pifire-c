@@ -365,7 +365,7 @@ export async function renderRules(view) {
   const data = await api('/rules');
   let rules = data.rules || [];
 
-  const list = el('div', { class: 'list' });
+  const list = el('div', { class: 'ios-list' });
   const save = async () => {
     try {
       await patchSettings('notify', { rules });
@@ -391,14 +391,19 @@ export async function renderRules(view) {
     for (const r of [...rules].sort(byUrgencyThenName)) {
       const sw = el('label', { class: 'switch', onclick: (e) => e.stopPropagation() },
         el('input', { type: 'checkbox', checked: r.enabled !== false, onchange: async (e) => { r.enabled = e.target.checked; await save(); } }), el('span'));
-      list.append(el('div', { class: `item rule-row ${r.enabled === false ? 'off' : ''}` },
-        el('button', { class: 'rule-main', type: 'button', onclick: () => edit(r, false) },
-          el('div', { class: 'row', style: 'gap:8px' }, el('strong', {}, r.name || r.id),
-            el('span', { class: `pill sm lvl-${r.level || 'normal'}` }, (r.level || 'normal').toUpperCase())),
-          el('div', { class: 'meta' }, summarise(r))),
-        sw));
+      /* The same row every list in the app uses: what it is called and what it watches, its
+         urgency, and the one control you actually touch -- on or off. The conditions are behind the
+         row, where they are edited once and then left alone. */
+      list.append(el('div', { class: `prow rule-row ${r.enabled === false ? 'off' : ''}` },
+        el('div', { class: 'row' },
+          el('button', { class: 'rule-main', type: 'button', onclick: () => edit(r, false) },
+            el('span', { class: 'body' },
+              el('span', { class: 't' }, r.name || r.id,
+                el('span', { class: `pill sm lvl-${r.level || 'normal'}` }, (r.level || 'normal').toUpperCase())),
+              el('span', { class: 's' }, summarise(r)))),
+          sw)));
     }
-    if (!rules.length) list.append(el('div', { class: 'muted', style: 'padding:12px' }, 'No conditional notifications yet.'));
+    if (!rules.length) list.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No conditional notifications yet.'));
   };
   draw();
 

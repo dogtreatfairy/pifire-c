@@ -814,8 +814,163 @@
         "repeat_s": 900,
         "only_while_cooking": true,
         "deadband": 4
+      },
+      {
+        "id": "grill-over",
+        "name": "Grill Over Temperature",
+        "enabled": true,
+        "select": {
+          "domain": "grill",
+          "match": "any"
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "entity": "grill",
+              "trait": "mode",
+              "op": "is",
+              "value": "Hold"
+            },
+            {
+              "entity": "grill",
+              "trait": "over",
+              "op": ">",
+              "value": 30
+            }
+          ]
+        },
+        "title": "{grill} is over temperature",
+        "body": "{grill_temp} against a {setpoint} target.",
+        "level": "high",
+        "sinks": [
+          "app",
+          "webpush",
+          "pushover",
+          "ntfy"
+        ],
+        "for_s": 60,
+        "cooldown_s": 600,
+        "repeat_s": 0,
+        "only_while_cooking": true,
+        "deadband": 3
+      },
+      {
+        "id": "grill-under",
+        "name": "Grill Under Temperature",
+        "enabled": true,
+        "select": {
+          "domain": "grill",
+          "match": "any"
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "entity": "grill",
+              "trait": "mode",
+              "op": "is",
+              "value": "Hold"
+            },
+            {
+              "entity": "grill",
+              "trait": "over",
+              "op": "<",
+              "value": -30
+            }
+          ]
+        },
+        "title": "{grill} is under temperature",
+        "body": "{grill_temp} against a {setpoint} target.",
+        "level": "high",
+        "sinks": [
+          "app",
+          "webpush",
+          "pushover",
+          "ntfy"
+        ],
+        "for_s": 60,
+        "cooldown_s": 600,
+        "repeat_s": 0,
+        "only_while_cooking": true,
+        "deadband": 3
+      },
+      {
+        "id": "grill-emergency",
+        "name": "Emergency Shutdown",
+        "enabled": true,
+        "select": {
+          "domain": "grill",
+          "match": "any"
+        },
+        "when": {
+          "op": "any",
+          "conditions": [
+            {
+              "entity": "grill",
+              "trait": "error",
+              "op": "is",
+              "value": "E01_OVERTEMP"
+            }
+          ]
+        },
+        "title": "{grill} shut itself down",
+        "body": "Over temperature at {grill_temp}. The fire is out and the fan is cooling it.",
+        "level": "critical",
+        "sinks": [
+          "app",
+          "webpush",
+          "pushover",
+          "ntfy"
+        ],
+        "for_s": 0,
+        "cooldown_s": 0,
+        "repeat_s": 0,
+        "only_while_cooking": false,
+        "deadband": 0
+      },
+      {
+        "id": "grill-flameout",
+        "name": "Flame Out",
+        "enabled": true,
+        "select": {
+          "domain": "grill",
+          "match": "any"
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "entity": "grill",
+              "trait": "mode",
+              "op": "is",
+              "value": "Hold"
+            },
+            {
+              "entity": "grill",
+              "trait": "over",
+              "op": "<",
+              "value": -50
+            }
+          ]
+        },
+        "title": "{grill} may have gone out",
+        "body": "Down to {grill_temp} from a {setpoint} target.",
+        "level": "critical",
+        "sinks": [
+          "app",
+          "webpush",
+          "pushover",
+          "ntfy"
+        ],
+        "for_s": 60,
+        "cooldown_s": 600,
+        "repeat_s": 0,
+        "only_while_cooking": true,
+        "deadband": 3
       }
-    ]
+    ],
+    "probe_steps": {}
   },
   "weather": {
     "enabled": false,

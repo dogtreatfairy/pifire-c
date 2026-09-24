@@ -1,6 +1,7 @@
-import { PF, el, api, toast, dialog, confirmDialog } from '../app.js';
+import { PF, el, api, toast, dialog, confirmDialog, actionBtn, itemRow, iconBtn, addRow, iconField } from '../app.js';
+import { icon as lucide } from '../icons.js';
 
-async function profileDialog(p = {}) {
+async function profileDialog(p = {}, isCur = false) {
   return dialog((close) => {
     const brand = el('input', { type: 'text', value: p.brand || '', required: true, placeholder: 'e.g. Bear Mountain' });
     const wood = el('input', { type: 'text', value: p.wood || '', placeholder: 'e.g. Hickory' });
@@ -8,11 +9,12 @@ async function profileDialog(p = {}) {
     const comments = el('textarea', { rows: 2 }, p.comments || '');
     return el('form', { onsubmit: (e) => { e.preventDefault(); close({ id: p.id, brand: brand.value.trim(), wood: wood.value.trim(), rating: Number(rating.value), comments: comments.value }); } },
       el('h3', {}, p.id ? 'Edit pellets' : 'New pellets'),
-      el('div', { class: 'field' }, el('label', {}, 'Brand'), brand),
-      el('div', { class: 'field' }, el('label', {}, 'Wood'), wood),
+      el('div', { class: 'field' }, el('label', {}, 'Brand'), iconField('package', brand)),
+      el('div', { class: 'field' }, el('label', {}, 'Wood'), iconField('flame', wood)),
       el('div', { class: 'field' }, el('label', {}, 'Rating'), rating),
       el('div', { class: 'field' }, el('label', {}, 'Notes'), comments),
-      el('div', { class: 'btnrow' }, el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'), el('button', { class: 'btn primary', type: 'submit' }, 'Save')));
+      p.id && !isCur ? el('div', { class: 'form-actions' }, actionBtn('load', 'Load These Pellets', { size: '', class: 'primary', onclick: () => close('load') }, 'package')) : null,
+      el('div', { class: 'btnrow' }, actionBtn('cancel', 'Cancel', { size: '', onclick: () => close(undefined) }), el('button', { class: 'btn primary', type: 'submit' }, lucide('check', 'ic btn-ic'), el('span', {}, 'Save'))));
   });
 }
 
@@ -23,12 +25,12 @@ async function profileDialog(p = {}) {
 export function renderPellets(view, slots = {}) {
   const current = el('div', { class: 'card' });
   const hopper = slots.hopper || el('div', { class: 'card' });
-  const list = el('div', { class: 'list' });
+  const list = el('div', {});
   const log = el('div', { class: 'list' });
   if (!slots.hopper) view.append(el('h2', {}, 'Hopper'), hopper);
   view.append(el('h2', {}, 'Loaded Pellets'), current,
-    el('div', { class: 'row between' }, el('h2', {}, 'Pellet Profiles'), el('button', { class: 'btn sm', onclick: async () => { const r = await profileDialog(); if (r) { await api('/pellets/profile', { body: r }).catch((e) => toast(e.message, true)); load(); } } }, 'Add')),
-    el('div', { class: 'card' }, list), el('h2', {}, 'Log'), el('div', { class: 'card' }, log));
+    el('h2', {}, 'Pellet Profiles'),
+    list, el('h2', {}, 'Log'), el('div', { class: 'card' }, log));
 
   async function load() {
     const d = await api('/pellets');
@@ -80,15 +82,22 @@ export function renderPellets(view, slots = {}) {
     else hopper.append(el('p', { class: 'help', style: 'margin:0' }, 'No hopper sensor configured (Hardware setup \u2192 distance sensor).'));
 
     list.innerHTML = '';
+    /* The Payment Methods shape: what each bag is, a Default-style badge on the one that is loaded,
+       and the bin at the end. Tapping the row edits it; loading it is the primary action inside. */
+    const inner = el('div', { class: 'ios-list' });
     for (const p of d.profiles) {
       const isCur = p.id === d.current.id;
-      list.append(el('div', { class: 'item' },
-        el('div', {}, el('div', {}, `${p.brand} ${p.wood}`, isCur ? el('span', { class: 'pill', style: 'margin-left:8px' }, 'loaded') : null), el('div', { class: 'meta' }, `${'★'.repeat(p.rating)}${p.comments ? ' · ' + p.comments : ''}`)),
-        el('div', { class: 'btnrow' },
-          isCur ? null : el('button', { class: 'btn sm primary', onclick: async () => { await api('/pellets/load', { body: { id: p.id } }); toast('Pellets loaded'); load(); } }, 'Load'),
-          el('button', { class: 'btn sm ghost', onclick: async () => { const r = await profileDialog(p); if (r) { await api('/pellets/profile', { body: r }); load(); } } }, 'Edit'),
-          isCur ? null : el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog('Delete profile?', `${p.brand} ${p.wood}`, 'Delete', true)) { await api('/pellets/delete', { body: { id: p.id } }).catch((e) => toast(e.message, true)); load(); } } }, 'Delete'))));
+      inner.append(itemRow({
+        icon: 'package', color: isCur ? '#30d158' : '#ac8e68',
+        title: `${p.brand} ${p.wood}`.trim(),
+        meta: `${'\u2605'.repeat(p.rating)}${p.comments ? ' \u00b7 ' + p.comments : ''}`,
+        badge: isCur ? 'Loaded' : null,
+        onclick: async () => { const r = await profileDialog(p, isCur); if (r === 'load') { await api('/pellets/load', { body: { id: p.id } }); toast('Pellets loaded'); load(); } else if (r) { await api('/pellets/profile', { body: r }); load(); } },
+        actions: isCur ? [] : [iconBtn('trash-2', 'Delete', { class: 'danger', onclick: async (e) => { e.stopPropagation(); if (await confirmDialog('Delete profile?', `${p.brand} ${p.wood}`, 'Delete', true)) { await api('/pellets/delete', { body: { id: p.id } }).catch((x) => toast(x.message, true)); load(); } } })],
+      }));
     }
+    if (!d.profiles.length) inner.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No pellet profiles.'));
+    list.replaceChildren(inner, addRow('Add Pellets', async () => { const r = await profileDialog(); if (r && r !== 'load') { await api('/pellets/profile', { body: r }).catch((e) => toast(e.message, true)); load(); } }));
     log.innerHTML = '';
     for (const e of d.log) log.append(el('div', { class: 'item' }, el('div', {}, el('div', {}, `${e.text} — ${e.brand} ${e.wood}`), el('div', { class: 'meta' }, `${new Date(e.ts * 1000).toLocaleString()}${e.hopper_pct >= 0 ? ` · hopper ${e.hopper_pct}%` : ''}`))));
     if (!d.log.length) log.append(el('div', { class: 'muted' }, 'No entries yet'));

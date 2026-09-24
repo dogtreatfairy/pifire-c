@@ -1,5 +1,6 @@
-import { PF, el, api, patchSettings, toast, confirmDialog, dialog, degUnit } from '../app.js';
-import { icon as lucide } from '../icons.js';
+import { PF, el, api, cmd, patchSettings, toast, confirmDialog, dialog, degUnit, segmented, actionBtn, itemRow, iconBtn, addRow, iconField, listGroup } from '../app.js';
+import { targetDialog, limitsDialog, stepsDialog } from './cook.js';
+import { icon as lucide, MODE_ICON } from '../icons.js';
 
 // One place for everything probe-related: the probe table (tap a row to edit), adding probes to free
 // ADC ports or pairing Bluetooth probes, the ADC/RTD hardware, and the Steinhart-Hart profiles + tuner.
@@ -28,7 +29,15 @@ export function isWireless(deviceName) {
   return !!d && WIRELESS_MODULES.includes(d.module);
 }
 
-export async function renderProbes(view) {
+/* Two halves of one subject, and the split is what you are doing, not which probe it is about.
+ *
+ *   setup (Settings -> Probes): connect and pair, name, say what each is for, assign its curve.
+ *   cooking (the Probes tab):   what everything reads, targets, step alerts and alarms.
+ *
+ * They share the probe list and the editor because they are the same objects; what differs is what
+ * each row says and what it offers. */
+export async function renderProbes(view, opts = {}) {
+  const setup = !!opts.setup;
   const man = await api('/manifest');
   const mods = man.modules.probes;
   const moduleOf = (d) => mods[d.module] || Object.values(mods).find((m) => m.filename === d.module);
@@ -50,34 +59,78 @@ export async function renderProbes(view) {
   const freePorts = (except) => map.probe_devices.flatMap((d) => (d.ports || []).filter((port) => !map.probe_info.some((p) => p !== except && p.device === d.device && p.port === port)).map((port) => ({ device: d.device, port, wireless: WIRELESS_MODULES.includes(d.module) })));
 
   // ---- editor
+  /* One column, grouped into what the probe IS, what it is WIRED TO, and where it SHOWS -- the
+     order you would think about it in. Three choices get a segmented control rather than a dropdown
+     you have to open to see the options. A field that only applies to one type appears only for
+     that type. The destructive action is a row of its own, in red, away from the pair that commits.
+     It was a stack of ten unlabelled rows with Remove, Cancel and Save crammed on one line. */
   const editProbe = (p, isNew = false) => dialog((close) => {
     const draft = { ...p };
-    const f = (label, input) => el('div', { class: 'field inline' }, el('label', {}, label), input);
+    const live = () => PF.status?.probes?.find((x) => x.label === p.label);
+    const f = (label, input, help) => el('div', { class: 'field inline' },
+      el('div', {}, el('label', {}, label), help ? el('div', { class: 'help' }, help) : null), input);
+    const tog = (label, key, help) => el('label', { class: 'toggle' },
+      el('div', {}, label, help ? el('div', { class: 'help' }, help) : null),
+      el('span', { class: 'switch' }, el('input', { type: 'checkbox', checked: !!draft[key], onchange: (e) => (draft[key] = e.target.checked) }), el('span')));
+
     const ports = [...freePorts(p), ...(p.device ? [{ device: p.device, port: p.port, wireless: isWireless(p.device) }] : [])];
-    const portSel = el('select', { onchange: (e) => { [draft.device, draft.port] = e.target.value.split('|'); } }, ports.map((o) => el('option', { value: `${o.device}|${o.port}`, selected: o.device === p.device && o.port === p.port }, `${o.wireless ? '⌁ ' : ''}${o.device} · ${o.port}`)));
-    const tog = (label, key, help) => el('div', { class: 'toggle' }, el('div', {}, label, help ? el('div', { class: 'help' }, help) : null), el('label', { class: 'switch' }, el('input', { type: 'checkbox', checked: !!draft[key], onchange: (e) => (draft[key] = e.target.checked) }), el('span')));
-    return el('div', {}, el('h3', {}, isNew ? 'New probe' : p.name),
-      f('Name', el('input', { type: 'text', value: draft.name, onchange: (e) => (draft.name = e.target.value.trim()) })),
-      f('Type', el('select', { onchange: (e) => (draft.type = e.target.value) }, [['Primary', 'Primary (pit)'], ['Food', 'Food'], ['Aux', 'Aux / ambient']].map(([v, l]) => el('option', { value: v, selected: draft.type === v }, l)))),
-      f('Port', portSel),
-      f('Profile', el('select', { onchange: (e) => (draft.profile = e.target.value) }, Object.values(profiles).map((pr) => el('option', { value: pr.id, selected: (draft.profile?.id || draft.profile) === pr.id }, pr.name)))),
-      tog('Enabled', 'enabled'), tog('Show on Home screen', 'show_on_home', 'Also on the grill display'), tog('Ambient reference', 'ambient', 'Aux only: used by learning and cold start'),
-      el('div', { class: 'btnrow', style: 'margin-top:12px' },
-        // the confirm dialog replaces this one, so the removal saves itself instead of returning through close()
-        isNew ? null : el('button', { class: 'btn ghost', type: 'button', onclick: async () => {
+    const portSel = el('select', { onchange: (e) => { [draft.device, draft.port] = e.target.value.split('|'); } },
+      ports.map((o) => el('option', { value: `${o.device}|${o.port}`, selected: o.device === p.device && o.port === p.port }, `${o.device} \u00b7 ${o.port}`)));
+    const profSel = el('select', { onchange: (e) => (draft.profile = e.target.value) },
+      Object.values(profiles).map((pr) => el('option', { value: pr.id, selected: (draft.profile?.id || draft.profile) === pr.id }, pr.name)));
+
+    /* Only an Aux probe can be the ambient reference, so the switch is only there when the type says
+       so -- rather than sitting greyed out, or on, under a note explaining when it counts. */
+    const auxOnly = el('div');
+    const paintAux = () => { auxOnly.innerHTML = ''; if (draft.type === 'Aux') auxOnly.append(tog('Ambient reference', 'ambient', 'Used by learning and cold start')); };
+    const typeSeg = segmented([['Primary', 'Grill'], ['Food', 'Food'], ['Aux', 'Aux']], draft.type || 'Food', (v) => { draft.type = v; paintAux(); });
+    paintAux();
+
+    const wireless = isWireless(p.device);
+    const l = live();
+    return el('div', { class: 'sheet' },
+      el('div', { class: 'sheet-head' },
+        el('div', {}, el('h3', {}, isNew ? 'New Probe' : p.name),
+          el('div', { class: 'help' }, wireless ? 'Bluetooth' : 'Wired')),
+        isNew || !l?.valid ? null : el('div', { class: 'sheet-now' }, `${l.temp}${degUnit()}`)),
+
+      el('div', { class: 'sheet-body' },
+        el('h2', {}, 'Identity'),
+        f('Name', iconField('thermometer', el('input', { type: 'text', value: draft.name, onchange: (e) => (draft.name = e.target.value.trim()) }))),
+        f('Type', typeSeg),
+
+        el('h2', {}, 'Connection'),
+        f('Port', portSel),
+        wireless ? null : f('Profile', profSel, 'Converts resistance to temperature'),
+
+        el('h2', {}, 'Visibility'),
+        tog('Enabled', 'enabled'),
+        tog('Show on Home', 'show_on_home', 'Home screen and the grill display'),
+        auxOnly,
+
+      isNew ? null : el('div', { class: 'form-actions' },
+        actionBtn('delete', wireless ? 'Unpair' : 'Remove', { onclick: async () => {
           close(undefined);
-          if (isWireless(p.device)) {
+          if (wireless) {
             // one physical probe = one device with its meat and ambient sensors: they go together
             const sibs = map.probe_info.filter((x) => x.device === p.device);
-            if (await confirmDialog('Remove probe?', `${sibs.map((x) => x.name).join(' and ')} (the whole ${p.device} probe, unpaired)`, 'Remove', true)) {
+            if (await confirmDialog('Unpair probe?', `${sibs.map((x) => x.name).join(' and ')}`, 'Unpair', true)) {
               map.probe_info = map.probe_info.filter((x) => x.device !== p.device);
               const di = map.probe_devices.findIndex((d) => d.device === p.device); if (di >= 0) map.probe_devices.splice(di, 1);
               await save();
             }
-          } else if (await confirmDialog('Remove probe?', p.name, 'Remove', true)) { const i = map.probe_info.indexOf(p); if (i >= 0) map.probe_info.splice(i, 1); await save(); }
-        } }, isWireless(p.device) ? 'Unpair probe' : 'Remove'),
-        el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'),
-        el('button', { class: 'btn primary', type: 'button', onclick: () => { if (!draft.name) { toast('Name required', true); return; } Object.assign(p, draft); close('saved'); } }, 'Save')));
+          } else if (await confirmDialog('Remove probe?', p.name, 'Remove', true)) {
+            const i = map.probe_info.indexOf(p); if (i >= 0) map.probe_info.splice(i, 1); await save();
+          }
+        } }))),
+
+      /* dismissive left, committing right: see docs/design-language.md */
+      el('div', { class: 'form-actions' },
+        actionBtn('cancel', 'Cancel', { size: '', onclick: () => close(undefined) }),
+        actionBtn('save', 'Save', { size: '', onclick: () => {
+          if (!draft.name) { toast('Name required', true); return; }
+          Object.assign(p, draft); close('saved');
+        } })));
   }).then(async (r) => { if (r) await save(); });
 
   // ---- add: free wired port, or pair a Bluetooth probe
@@ -85,7 +138,7 @@ export async function renderProbes(view) {
     const free = freePorts(null).filter((o) => !o.wireless);
     const btMods = Object.entries(mods).filter(([, m]) => wirelessMod(m));
     return el('div', {}, el('h3', {}, 'Add probe'),
-      el('div', { class: 'help' }, free.length ? 'Free wired ports' : 'No free wired ports (add an ADC under Probe hardware)'),
+      el('div', { class: 'help' }, free.length ? 'Free wired ports' : 'No free wired ports \u2014 add a device under Settings \u2192 Grill Hardware \u2192 Probe Hardware'),
       el('div', { class: 'opts' }, ...free.map((o) => el('button', { class: 'btn', type: 'button', onclick: () => { close(); const n = map.probe_info.length + 1; const p = { type: 'Food', label: `Probe${n}`, name: `Probe ${n}`, profile: 'TWPS00', device: o.device, port: o.port, enabled: true, show_on_home: true }; map.probe_info.push(p); editProbe(p, true).then(() => { if (!map.probe_info.includes(p)) return; }); } }, `${o.device} · ${o.port}`))),
       el('div', { class: 'help' }, 'Bluetooth'),
       el('div', { class: 'opts' }, ...btMods.map(([id, m]) => el('button', { class: 'btn', type: 'button', onclick: () => { close(); pairBluetooth(id, m); } }, btIcon(), ` Pair ${m.friendly_name}`))),
@@ -138,77 +191,171 @@ export async function renderProbes(view) {
     await save();
   };
 
-  // ---- table
-  const table = el('div', { class: 'list ptable' });
+  // ---- the probes themselves, one list per role
+  const table = el('div', {});
+  let showDisabled = false;
+  /* The step you are waiting for is what you want off the row; once they are all done the target
+     is again the only thing left to say. */
+  const nextStep = (live) => {
+    const st = (live.steps || []).find((x) => !x.done);
+    return st ? `${st.name} at ${st.temp}${degUnit()}` : null;
+  };
   const renderTable = () => {
     table.innerHTML = '';
     /* Grouped the way the probes are used, and named for the type that puts them there: the pit,
-       the food, then everything measuring air rather than meat -- the ambient sensor built into a
-       Bluetooth probe, and any probe reading the weather. The grouping is the type, so a probe
-       filed in the wrong place is a probe set to the wrong type, visible at a glance. */
-    const GROUPS = [['Primary', 'Primary'], ['Food', 'Food'], ['Aux', 'Aux']];
+       the food, then everything measuring air rather than meat. Each group is a labelled list of
+       its own -- the same shape Settings uses -- rather than a heading row inside one long table,
+       where the three groups ran together and you could not see where one ended. */
+    const GROUPS = [['Primary', 'Grill'], ['Food', 'Food'], ['Aux', 'Aux & Ambient']];
+    /* A disabled probe is not part of the cook, so it is not in the way of one. It is still here
+       when you go looking for it -- that is what the count at the foot is for -- but a page about
+       what the grill is measuring should not be padded out with what it is not. */
+    const off = map.probe_info.filter((p) => p.enabled === false);
+    const shown = setup || showDisabled ? map.probe_info : map.probe_info.filter((p) => p.enabled !== false);
     for (const [role, heading] of GROUPS) {
-      const members = map.probe_info.filter((p) => (p.type || 'Food') === role);
+      const members = shown.filter((p) => (p.type || 'Food') === role);
       if (!members.length) continue;
-      table.append(el('div', { class: 'probe-group-row' }, heading));
-      for (const p of members) renderRow(p);
+      const list = el('div', { class: 'ios-list' });
+      table.append(el('h2', {}, heading), list);
+      for (const p of members) renderRow(list, p);
+    }
+    if (!map.probe_info.length) table.append(el('p', { class: 'help' }, 'No probes yet.'));
+    else if (!shown.length) table.append(el('p', { class: 'help' }, 'Every probe is disabled.'));
+    if (off.length && !setup) {
+      table.append(el('button', { class: 'btn ghost block', type: 'button', onclick: () => { showDisabled = !showDisabled; renderTable(); } },
+        lucide(showDisabled ? 'eye-off' : 'eye', 'ic btn-ic'),
+        el('span', {}, showDisabled ? 'Hide disabled' : `Show ${off.length} disabled`)));
     }
 
-    function renderRow(p) {
+    /* One row per probe, and everything you do to a probe is on it: the reading, its target and its
+       alarms, and its settings behind the chevron. The targets used to be cards on the Cook page
+       while the settings were a list here, so one probe appeared in two places and neither showed
+       the whole of it. */
+    function renderRow(list, p) {
       const live = PF.status?.probes?.find((x) => x.label === p.label);
-      table.append(el('button', { class: `item prow-btn ${p.enabled ? '' : 'off'}`, type: 'button', onclick: () => editProbe(p) },
-        el('div', { class: 'pcol' }, el('div', { class: 'row', style: 'gap:6px' }, isWireless(p.device) ? btIcon() : null, isWireless(p.device) && live ? sigBars(live.signal || 0, live.rssi ? `${live.rssi} dBm` : 'no link') : null, el('strong', {}, p.name), el('span', { class: 'pill sm' }, p.type)),
-          el('div', { class: 'meta' }, `${p.device} · ${p.port} · ${profName(p)}${p.show_on_home === false ? ' · hidden on Home' : ''}`)),
-        el('div', { class: 'pval' }, p.enabled ? (live?.valid ? `${live.temp}${degUnit()}` : '—') : 'off')));
-    }
-    if (!map.probe_info.length) table.append(el('div', { class: 'muted' }, 'No probes yet.'));
-  };
-
-  // ---- hardware: wired ADC / RTD / thermocouple devices
-  const hwCard = el('div', { class: 'card' });
-  const renderHw = () => {
-    hwCard.innerHTML = '';
-    map.probe_devices.forEach((d, i) => {
-      const m = moduleOf(d);
-      const fs = el('fieldset', { class: 'field' }, el('legend', {}, wirelessMod(m) ? btIcon() : null, ` ${d.device} — ${m?.friendly_name || d.module}`));
-      for (const c of m?.device_specific?.config || []) {
-        if (c.hidden) continue;
-        const v = d.config?.[c.label] ?? c.default;
-        const input = c.type === 'list' ? el('select', { onchange: (e) => ((d.config ??= {})[c.label] = e.target.value) }, c.list_values.map((lv, k) => el('option', { value: String(lv), selected: String(v) === String(lv) }, c.list_labels?.[k] ?? String(lv))))
-          : el('input', { type: 'text', inputmode: c.type === 'bt_address' ? 'text' : 'decimal', value: v ?? '', onchange: (e) => ((d.config ??= {})[c.label] = c.type === 'int' || c.type === 'float' ? Number(e.target.value) : e.target.value.trim()) });
-        fs.append(el('div', { class: 'field inline' }, el('div', {}, el('label', {}, c.friendly_name), el('div', { class: 'help' }, c.description)), input));
+      const wireless = isWireless(p.device);
+      const tgt = live?.target > 0;
+      if (setup) {
+        list.append(itemRow({
+          icon: wireless ? 'bluetooth' : 'thermometer', color: wireless ? '#0a84ff' : '#ff453a',
+          title: p.name,
+          meta: wireless ? `${p.device} \u00b7 ${p.port}` : `${p.device} \u00b7 ${p.port} \u00b7 ${profName(p)}`,
+          badge: p.enabled === false ? 'Off' : null,
+          onclick: () => editProbe(p),
+        }));
+        return;
       }
-      fs.append(el('button', { class: 'btn sm ghost', type: 'button', onclick: async () => { if (await confirmDialog('Remove device?', `${d.device} and its probes`, 'Remove', true)) { map.probe_devices.splice(i, 1); map.probe_info = map.probe_info.filter((p) => p.device !== d.device); await save(); } } }, 'Remove device'));
-      hwCard.append(fs);
-    });
-    const wired = Object.entries(mods).filter(([, m]) => !wirelessMod(m));
-    const sel = el('select', {}, wired.map(([id, m]) => el('option', { value: id }, m.friendly_name)));
-    hwCard.append(el('div', { class: 'row', style: 'margin-top:8px' }, sel, el('button', { class: 'btn sm', type: 'button', onclick: () => {
-      const id = sel.value, m = mods[id];
-      const cfg = {}; for (const c of m.device_specific?.config || []) cfg[c.label] = c.default;
-      map.probe_devices.push({ device: `${id.toUpperCase()}_${map.probe_devices.length + 1}`, module: m.filename, ports: m.device_specific?.ports || [], config: cfg });
-      renderAll();
-    } }, 'Add device')),
-    el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'button', onclick: save }, 'Save hardware')));
+      list.append(el('div', { class: `prow ${p.enabled ? '' : 'off'}` },
+        el('button', { class: 'row prow-main', type: 'button', onclick: () => editProbe(p) },
+          el('span', { class: 'body' },
+            el('span', { class: 't' },
+              wireless ? btIcon() : null,
+              wireless && live ? sigBars(live.signal || 0, live.rssi ? `${live.rssi} dBm` : 'no link') : null,
+              wireless && live?.battery >= 0 ? battIcon(live.battery) : null,
+              p.name),
+            /* What the probe is doing, not how it is wired. The port and the profile were here, and
+             they are set once when the grill is built and then never looked at again; what changes
+             during a cook is whether it is reading, what the target is and how long is left. The
+             wiring is inside, where it is wanted about once. */
+          el('span', { class: 's' }, !p.enabled ? 'Disabled'
+              : p.type === 'Primary'
+                ? (PF.status?.mode === 'Hold' ? `Holding ${PF.status.setpoint}${degUnit()}` : live?.valid ? `${PF.status?.mode || 'Reading'}` : 'No reading')
+              : tgt ? `Target ${live.target}${degUnit()}${live.eta_s > 0 && live.temp < live.target ? ` \u00b7 ${fmtEta(live.eta_s)} left` : live.temp >= live.target ? ' \u00b7 reached' : ''}`
+              : live?.valid ? nextStep(live) || 'Reading' : 'No reading'),
+            /* A wired probe's curve, named and labelled, under the live line rather than instead
+               of it: it is worth being able to see at a glance which probe is on which profile
+               without opening each one. A Bluetooth probe reports degrees and has none. */
+            wireless ? null : el('span', { class: 's' }, `Profile: ${profName(p)}`)),
+          el('span', { class: 'v' }, p.enabled ? (live?.valid ? `${live.temp}${degUnit()}` : '\u2014') : 'off'),
+          lucide('chevron-right', 'ic chev')),
+        /* The pit probe has neither of these. Its target is the set point, which is what Hold mode
+           is for, and a second place to type one would be a second answer to the same question.
+           Its alarms are conditional notifications -- "Grill Stalled Hot", "Grill Stalled Cold" --
+           which compare it with the set point and so keep working when the set point changes,
+           where a fixed limit typed once would not. */
+        p.type === 'Primary' ? null : el('div', { class: 'prow-acts' },
+          actionBtn('target', tgt ? 'Change Target' : 'Set Target', { size: 'xs', onclick: async () => {
+            const r = await targetDialog({ ...p, ...live }); if (r) cmd({ cmd: 'target', label: p.label, ...r });
+          } }, MODE_ICON.Hold),
+          actionBtn('steps', 'Steps', { size: 'xs', class: 'ghost', onclick: () => stepsDialog({ ...p, ...live }) }, 'flag'))));
+    }
   };
 
-  // ---- profiles + tuner
-  const profCard = el('div', { class: 'card' });
+  const renderAll = () => { renderTable(); };
+  renderAll();
+  view.append(
+    el('h2', {}, 'Probes'),
+    setup ? el('p', { class: 'help' }, 'Connect a probe, name it, say what it is for and which profile converts it.') : null,
+    table,
+    addRow(setup ? 'Connect a Probe' : 'Add or Pair a Probe', addProbe),
+    setup ? listGroup('Profiles', [
+      { href: '#/settings/probeprofiles', icon: 'activity', color: '#ff9f0a', title: 'Probe Profiles', sub: 'Curves you assign to probes, and the 3-point tuner' },
+    ]) : null);
+}
+
+/* Probe profiles have a settings page of their own.
+ *
+ * They were under the probes, and they are not something you do while cooking: a profile is the
+ * curve that turns a resistance into a temperature, chosen once per kind of probe. Keeping them
+ * here leaves the Probes tab about the probes -- what they read, what they are aiming at -- and
+ * puts the curve where the rest of the once-only setup lives. */
+export async function renderProbeProfiles(view) {
+  const profiles = PF.settings.probe_settings.probe_profiles;
+  const map = structuredClone(PF.settings.probe_settings.probe_map);
+  const profCard = el('div', {});
   const profs = structuredClone(profiles);
-  const num = (v, f) => el('input', { type: 'text', inputmode: 'decimal', value: v, style: 'width:140px;font-family:ui-monospace,monospace', onchange: (e) => f(Number(e.target.value)) });
+  const num = (v, f) => el('input', { class: 'mono', type: 'text', inputmode: 'decimal', value: v, onchange: (e) => f(Number(e.target.value)) });
   const renderProfiles = () => {
     profCard.innerHTML = '';
-    profCard.append(el('p', { class: 'help' }, 'Steinhart–Hart: 1/T = A + B·ln(R) + C·ln(R)³, with the divider resistor of the ADC port.'));
-    for (const pr of Object.values(profs)) {
-      profCard.append(el('details', { class: 'field' }, el('summary', {}, pr.name),
-        el('div', { class: 'field inline' }, el('label', {}, 'Name'), el('input', { type: 'text', value: pr.name, onchange: (e) => (pr.name = e.target.value) })),
-        el('div', { class: 'field inline' }, el('label', {}, 'A'), num(pr.A, (v) => (pr.A = v))),
-        el('div', { class: 'field inline' }, el('label', {}, 'B'), num(pr.B, (v) => (pr.B = v))),
-        el('div', { class: 'field inline' }, el('label', {}, 'C'), num(pr.C, (v) => (pr.C = v)))));
+    /* A table of what you own, and it becomes cards on a phone: every value keeps its column name,
+       so "0.000247" is still labelled A at 402 px. Opening a row gives its fields over a footer
+       that saves or deletes that profile alone. */
+    const used = (id) => map.probe_info.filter((p) => (p.profile?.id ?? p.profile) === id).length;
+    const entries = Object.values(profs);
+    /* Saved things, listed like saved cards: what it is called, who depends on it, and the bin at
+       the end for the ones nothing is using. The coefficients are inside. */
+    const inner = el('div', { class: 'ios-list' });
+    for (const pr of entries) {
+      const n = used(pr.id);
+      inner.append(itemRow({
+        icon: 'thermometer', color: n ? '#ff453a' : '#8e8e93',
+        title: pr.name,
+        meta: n ? `${n} probe${n === 1 ? '' : 's'}` : 'Not in use',
+        badge: null,
+        onclick: () => editProfile(pr, n),
+        actions: n ? [] : [iconBtn('trash-2', 'Delete', { class: 'danger', onclick: async (e) => {
+          e.stopPropagation();
+          if (!await confirmDialog('Delete profile?', pr.name, 'Delete', true)) return;
+          delete profs[pr.id]; await saveProfiles(); renderProfiles();
+        } })],
+      }));
     }
-    profCard.append(el('div', { class: 'form-actions' },
-      el('button', { class: 'btn', type: 'button', onclick: tuner }, 'Tune from 3 readings'),
-      el('button', { class: 'btn primary', type: 'button', onclick: async () => { try { await patchSettings('probe_settings', { probe_profiles: profs }); toast('Profiles saved'); } catch (e) { toast(e.message, true); } } }, 'Save profiles')));
+    if (!entries.length) inner.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No profiles.'));
+    profCard.replaceChildren(inner, addRow('Tune a New Probe', tuner));
+  };
+  const editProfile = (pr, n) => dialog((close) => el('div', { class: 'sheet' },
+    el('div', { class: 'sheet-head' },
+      el('div', {}, el('h3', {}, pr.name), el('div', { class: 'help' }, `${n} probe${n === 1 ? '' : 's'} using this`))),
+    el('div', { class: 'sheet-body' },
+      el('h2', {}, 'Profile'),
+      el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'Name')), el('input', { type: 'text', value: pr.name, onchange: (e) => (pr.name = e.target.value) })),
+      el('h2', {}, 'Steinhart\u2013Hart coefficients'),
+      el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'A')), num(pr.A, (v) => (pr.A = v))),
+      el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'B')), num(pr.B, (v) => (pr.B = v))),
+      el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'C')), num(pr.C, (v) => (pr.C = v))),
+      n ? null : el('div', { class: 'form-actions' },
+        actionBtn('delete', 'Delete Profile', { onclick: async () => {
+          if (!await confirmDialog('Delete profile?', pr.name, 'Delete', true)) return;
+          delete profs[pr.id]; close(); await saveProfiles(); renderProfiles();
+        } }))),
+    el('div', { class: 'form-actions' },
+      actionBtn('cancel', 'Cancel', { size: '', onclick: () => close(undefined) }),
+      actionBtn('save', 'Save', { size: '', onclick: () => close('save') }))))
+    .then(async (r) => { if (r === 'save') { await saveProfiles(); renderProfiles(); } });
+
+  const saveProfiles = async () => {
+    try { await patchSettings('probe_settings', { probe_profiles: profs }); toast('Saved'); }
+    catch (e) { toast(e.message, true); }
   };
   async function tuner() {
     const pts = [{ temp: '', ohms: '' }, { temp: '', ohms: '' }, { temp: '', ohms: '' }];
@@ -233,15 +380,13 @@ export async function renderProbes(view) {
       const id = result.name.replace(/[^A-Za-z0-9-]/g, '') || 'custom';
       profs[id] = { id, name: result.name, A: r.A, B: r.B, C: r.C };
       renderProfiles();
-      toast(`Solved: check temps ${r.check.join(' / ')}${degUnit()} — press Save profiles to keep it`);
+      toast(`Solved: check temps ${r.check.join(' / ')}${degUnit()} \u2014 open the profile and Save to keep it`);
     } catch (e) { toast(e.message, true); }
   }
 
-  const renderAll = () => { renderTable(); renderHw(); };
-  renderAll(); renderProfiles();
+  renderProfiles();
   view.append(
-    el('div', { class: 'row between' }, el('h2', {}, 'Probes'), el('button', { class: 'btn sm primary', type: 'button', onclick: addProbe }, '+ Add probe')),
-    el('div', { class: 'card tight' }, table),
-    el('h2', {}, 'Probe hardware'), hwCard,
-    el('h2', {}, 'Probe profiles'), profCard);
+    el('h2', {}, 'Probe Profiles'),
+    el('p', { class: 'help' }, 'Steinhart\u2013Hart: 1/T = A + B\u00b7ln(R) + C\u00b7ln(R)\u00b3. Assign one to a probe from its row on the Probes tab.'),
+    profCard);
 }

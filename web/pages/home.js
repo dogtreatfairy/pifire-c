@@ -1,5 +1,5 @@
-import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, numberDialog, dialog, confirmDialog, patchSettings, toast } from '../app.js';
-import { targetDialog, limitsDialog } from './cook.js';
+import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, numberDialog, dialog, confirmDialog, patchSettings, toast, actionBtn } from '../app.js';
+import { targetDialog, limitsDialog, timerDialog, stepsDialog } from './cook.js';
 import { btIcon, isWireless, sigBars, fmtEta, battIcon } from './probes.js';
 import { icon as lucide, MODE_ICON } from '../icons.js';
 
@@ -148,29 +148,66 @@ function controlBar(s) {
 }
 
 // Probe popup: live reading, target (tap to set, doneness presets), high/low alerts (alerts only)
+/* What you open a probe for, in the order you want it.
+ *
+ * Tapping a probe during a cook is almost never about how it is configured -- it is to set a target,
+ * to put an alarm on it, or to start a timer. So the reading is the header, the three things you
+ * came to do are first, and the detail follows. Its settings are on the Probes tab, one layer
+ * further in, where they are wanted about once. */
 function probePopup(label) {
   const p = () => PF.status?.probes?.find((x) => x.label === label);
   return dialog((close) => {
-    const wrap = el('div');
+    const wrap = el('div', { class: 'sheet' });
     const render = () => {
       const q = p(); if (!q) { close(); return; }
+      const hit = q.target > 0 && q.valid && q.temp >= q.target;
       wrap.innerHTML = '';
-      wrap.append(el('h3', {}, isWireless(q.device) ? btIcon() : null, ' ', q.name),
-        el('div', { class: 'ppop-temp' }, q.valid ? fmtTemp(q.temp) : '—', el('small', {}, degUnit())),
-        el('div', { class: 'kv' },
-          el('div', {}, 'Target'), el('div', {}, q.target > 0 ? `${fmtTemp(q.target)}${degUnit()}` : '—'),
-          q.ambient_label ? el('div', {}, 'Ambient') : null, q.ambient_label ? el('div', {}, q.ambient == null ? '—' : `${fmtTemp(q.ambient)}${degUnit()}`) : null,
-          q.target > 0 ? el('div', {}, 'Time to target') : null, q.target > 0 ? el('div', {}, q.valid && q.temp >= q.target ? 'reached' : q.eta_s > 0 ? `about ${fmtEta(q.eta_s)}` : 'estimating…') : null,
-          q.wireless ? el('div', {}, 'Signal') : null, q.wireless ? el('div', { class: 'row', style: 'gap:6px' }, sigBars(q.signal || 0), q.rssi ? `${q.rssi} dBm` : 'no link') : null,
-          q.wireless && q.battery >= 0 ? el('div', {}, 'Battery') : null, q.wireless && q.battery >= 0 ? el('div', {}, battIcon(q.battery)) : null,
-          el('div', {}, 'Alert above'), el('div', {}, q.limit_high > 0 ? `${fmtTemp(q.limit_high)}${degUnit()}` : 'off'),
-          el('div', {}, 'Alert below'), el('div', {}, q.limit_low > 0 ? `${fmtTemp(q.limit_low)}${degUnit()}` : 'off')),
-        el('div', { class: 'btnrow', style: 'margin-top:12px' },
-          el('button', { class: 'btn primary', type: 'button', onclick: async () => { const r = await targetDialog(q); if (r) { cmd({ cmd: 'target', label: q.label, ...r }); setTimeout(render, 600); } } }, q.target > 0 ? 'Change target' : 'Set target'),
-          el('button', { class: 'btn', type: 'button', onclick: async () => { const r = await limitsDialog(q); if (r) { cmd({ cmd: 'limits', label: q.label, ...r }); setTimeout(render, 600); } } }, 'Alerts')),
-        el('div', { class: 'btnrow', style: 'margin-top:8px' },
-          q.target > 0 ? el('button', { class: 'btn ghost', type: 'button', onclick: () => { cmd({ cmd: 'target', label: q.label, target: 0, after: 0 }); setTimeout(render, 600); } }, 'Clear target') : null,
-          el('button', { class: 'btn ghost', type: 'button', onclick: () => close() }, 'Close')));
+      wrap.append(
+        el('div', { class: 'sheet-head' },
+          el('div', {},
+            el('h3', {}, q.wireless ? btIcon() : null, ' ', q.name),
+            el('div', { class: 'help row', style: 'gap:8px' },
+              q.wireless ? sigBars(q.signal || 0, q.rssi ? `${q.rssi} dBm` : 'no link') : null,
+              q.wireless && q.battery >= 0 ? battIcon(q.battery) : null,
+              q.valid ? (q.target > 0 ? (hit ? 'at target' : q.eta_s > 0 ? `${fmtEta(q.eta_s)} to target` : 'estimating…') : 'reading') : 'no reading')),
+          el('div', { class: 'sheet-now' }, q.valid ? fmtTemp(q.temp) : '—', el('small', {}, degUnit()))),
+
+        el('div', { class: 'sheet-body' },
+          /* The pit probe is not a food probe: what it is aiming at is the set point, set by Hold,
+             and what shouts about it is a conditional notification comparing it with that set
+             point. Offering a second target here would be a second answer to one question. */
+          q.role === 'Primary'
+            ? el('div', { class: 'btnrow' },
+                actionBtn('hold', 'Hold Mode', { size: '', class: 'primary', onclick: () => { close(); location.hash = '#/settings/controller'; } }, MODE_ICON.Hold),
+                actionBtn('rules', 'Alarm Rules', { size: '', onclick: () => { close(); location.hash = '#/settings/rules'; } }, 'bell'),
+                actionBtn('timer', 'Timer', { size: '', onclick: async () => { const r = await timerDialog(); if (r) cmd({ cmd: 'timer', op: 'start', ...r }); } }, 'timer'))
+            : el('div', { class: 'btnrow' },
+                actionBtn('target', q.target > 0 ? 'Change Target' : 'Set Target', { size: '', class: 'primary', onclick: async () => { const r = await targetDialog(q); if (r) { cmd({ cmd: 'target', label: q.label, ...r }); setTimeout(render, 600); } } }, MODE_ICON.Hold),
+                actionBtn('steps', 'Steps', { size: '', onclick: async () => { await stepsDialog(q); setTimeout(render, 600); } }, 'flag'),
+                actionBtn('alarms', 'Alarms', { size: '', onclick: async () => { const r = await limitsDialog(q); if (r) { cmd({ cmd: 'limits', label: q.label, ...r }); setTimeout(render, 600); } } }, 'bell'),
+                actionBtn('timer', 'Timer', { size: '', onclick: async () => { const r = await timerDialog(); if (r) cmd({ cmd: 'timer', op: 'start', ...r }); } }, 'timer')),
+          q.role !== 'Primary' && q.target > 0 ? el('div', { class: 'form-actions' },
+            actionBtn('delete', 'Clear Target', { onclick: () => { cmd({ cmd: 'target', label: q.label, target: 0, after: 0 }); setTimeout(render, 600); } })) : null,
+
+          q.steps?.length ? el('h2', {}, 'Steps') : null,
+          q.steps?.length ? el('div', { class: 'kv' }, ...q.steps.flatMap((st) => [
+            el('div', {}, st.done ? '\u2713 ' + st.name : st.name),
+            el('div', {}, `${st.temp}${degUnit()}`)])) : null,
+          el('h2', {}, 'Detail'),
+          el('div', { class: 'kv' },
+            el('div', {}, q.role === 'Primary' ? 'Set point' : 'Target'),
+            el('div', {}, q.role === 'Primary'
+              ? (PF.status?.mode === 'Hold' ? `${fmtTemp(PF.status.setpoint)}${degUnit()}` : PF.status?.mode || '—')
+              : q.target > 0 ? `${fmtTemp(q.target)}${degUnit()}` : '—'),
+            q.ambient_label ? el('div', {}, 'Ambient') : null, q.ambient_label ? el('div', {}, q.ambient == null ? '—' : `${fmtTemp(q.ambient)}${degUnit()}`) : null,
+            q.role === 'Primary' ? null : el('div', {}, 'Alarm above'),
+            q.role === 'Primary' ? null : el('div', {}, q.limit_high > 0 ? `${fmtTemp(q.limit_high)}${degUnit()}` : 'off'),
+            q.role === 'Primary' ? null : el('div', {}, 'Alarm below'),
+            q.role === 'Primary' ? null : el('div', {}, q.limit_low > 0 ? `${fmtTemp(q.limit_low)}${degUnit()}` : 'off')),
+          q.role === 'Primary' ? el('p', { class: 'help' }, 'Over- and under-temperature alarms for the pit are conditional notifications, so they follow the set point when it changes.') : null),
+
+        el('div', { class: 'form-actions' },
+          actionBtn('cancel', 'Close', { size: '', onclick: () => close() })));
     };
     render();
     return wrap;

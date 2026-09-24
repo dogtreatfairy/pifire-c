@@ -204,6 +204,17 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 		cJSON_AddNumberToObject(po, "target", p->target_c > 0 ? r1(conv(p->target_c, units)) : 0);
 		cJSON_AddNumberToObject(po, "after", s->notify[i].after);
 		cJSON_AddNumberToObject(po, "eta_s", s->notify[i].eta_s);
+		/* the steps, with what each has already said, so the app can tick them off */
+		if (s->notify[i].nsteps > 0) {
+			cJSON *steps = cJSON_AddArrayToObject(po, "steps");
+			for (int k = 0; k < s->notify[i].nsteps; k++) {
+				cJSON *st = cJSON_CreateObject();
+				cJSON_AddStringToObject(st, "name", s->notify[i].steps[k].name);
+				cJSON_AddNumberToObject(st, "temp", r1(conv(s->notify[i].steps[k].temp_c, units)));
+				cJSON_AddBoolToObject(st, "done", s->notify[i].steps[k].fired);
+				cJSON_AddItemToArray(steps, st);
+			}
+		}
 		cJSON_AddNumberToObject(po, "limit_high", s->notify[i].limit_high_c > 0 ? r1(conv(s->notify[i].limit_high_c, units)) : 0);
 		cJSON_AddNumberToObject(po, "limit_low", s->notify[i].limit_low_c > 0 ? r1(conv(s->notify[i].limit_low_c, units)) : 0);
 		cJSON_AddNumberToObject(po, "ohms", round(p->ohms));

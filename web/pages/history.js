@@ -1,4 +1,4 @@
-import { PF, el, api, onStatus, degUnit, segmented, toast, confirmDialog } from '../app.js';
+import { PF, el, api, onStatus, degUnit, segmented, toast, confirmDialog, actionBtn } from '../app.js';
 
 const COLORS = ['#ff8a1f', '#5ac8fa', '#4cd964', '#ff2d55', '#af52de', '#ffcc00', '#34aadc'];
 
@@ -14,7 +14,7 @@ export function renderHistory(view) {
   let viewing = null; // cook file being viewed, or null for live
   const title = el('div', { class: 'help' });
   view.append(el('div', { class: 'row between', style: 'margin-bottom:8px' }, el('h2', { style: 'margin:0' }, 'History'), el('a', { class: 'btn sm', href: '/api/v1/cooklog', download: 'pifire-cooklog.json', title: 'Current or last cook: samples, controller terms, settings, learning state' }, 'Export analysis log')), el('div', { class: 'card' }, header, title, chartEl), stats,
-    el('div', { class: 'btnrow' }, el('button', { class: 'btn ghost', onclick: async () => { if (await confirmDialog('Clear history?', 'Removes all stored samples.', 'Clear', true)) { await api('/history/clear', { body: {} }); load(); } } }, 'Clear history')),
+    el('div', { class: 'btnrow' }, actionBtn('delete', 'Clear History', { size: '', onclick: async () => { if (await confirmDialog('Clear history?', 'Removes all stored samples.', 'Clear', true)) { await api('/history/clear', { body: {} }); load(); } } })),
     el('h2', {}, 'Cook files'), el('div', { class: 'card' }, cooks));
 
   async function loadCooks() {
@@ -28,7 +28,7 @@ export function renderHistory(view) {
         el('div', { class: 'btnrow' },
           el('a', { class: 'btn sm ghost', href: `/api/v1/cookfiles/${c.id}`, download: `${c.name.replace(/[^\w.-]+/g, '_')}.json` }, 'Download'),
           el('a', { class: 'btn sm ghost', href: `/api/v1/cookfiles/${c.id}/log`, download: `cooklog_${c.name.replace(/[^\w.-]+/g, '_')}.json`, title: 'Full analysis log: samples with controller terms, settings, learning state' }, 'Analysis log'),
-          el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog('Delete cook file?', c.name, 'Delete', true)) { await api(`/cookfiles/${c.id}/delete`, { body: {} }); loadCooks(); } } }, 'Delete'))));
+          actionBtn('delete', 'Delete', { onclick: async () => { if (await confirmDialog('Delete cook file?', c.name, 'Delete', true)) { await api(`/cookfiles/${c.id}/delete`, { body: {} }); loadCooks(); } } }))));
     }
     if (!list.length) cooks.append(el('div', { class: 'muted' }, 'Cook files are saved automatically when a cook ends.'));
   }

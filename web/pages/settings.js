@@ -1,5 +1,4 @@
-import { PF, el, api, patchSettings, toast, degUnit, confirmDialog, setBack, alertSupport, requestAlertPermission, showSystemNotification, ensurePushSubscription, onStatus } from '../app.js';
-import { renderProbes } from './probes.js';
+import { PF, el, api, patchSettings, toast, degUnit, confirmDialog, setBack, alertSupport, requestAlertPermission, showSystemNotification, ensurePushSubscription, onStatus, fold } from '../app.js';
 import { renderRules } from './rules.js';
 import { icon as lucide, brandIcon, tileStyle, MODE_ICON } from '../icons.js';
 import { renderLearning } from './learning.js';
@@ -22,8 +21,9 @@ const PAGES = [
   /* Named for the mode it governs. Everything here decides how the grill holds a temperature: the
      controller, its tuning, and the cycle the auger feeds on. None of it touches Smoke. */
   { key: 'controller', title: 'Hold Mode', sub: 'Controller, tuning, feed cycle', section: 'Cooking', icon: MODE_ICON.Hold, color: '#ff8a1f', custom: controllerPage },
+  { key: 'probesetup', title: 'Probes', sub: 'Connect, name and assign profiles', section: 'Hardware', icon: 'thermometer', color: '#ff453a', custom: (v) => import('./probes.js').then((m) => m.renderProbes(v, { setup: true })) },
+  { key: 'probeprofiles', title: 'Probe Profiles', sub: 'Steinhart\u2013Hart curves you assign to probes', section: 'Hardware', icon: 'activity', color: '#ff9f0a', custom: (v) => import('./probes.js').then((m) => m.renderProbeProfiles(v)) },
   { key: 'hardware', title: 'Grill Hardware', sub: 'Board, pins, display, hopper sensor', section: 'Hardware', icon: 'cpu', color: '#64d2ff', custom: (v) => import('./more.js').then((m) => m.hardware(v)) },
-  { key: 'probes', title: 'Probes', sub: 'Wired and Bluetooth probes, profiles, tuner', section: 'Hardware', icon: 'thermometer', color: '#ff453a', custom: renderProbes },
   { key: 'startup', title: 'Startup & Shutdown', sub: 'Ignition, next mode, cool-down', section: 'Cooking', icon: MODE_ICON.Shutdown, color: '#30d158', sections: [
     { id: 'startup', title: 'Startup', fields: [
       I('duration', 'Startup time (s)', 'Igniter and startup feed run for this long', { min: 60, max: 900 }),
@@ -179,14 +179,29 @@ const PAGES = [
 // Every concern has exactly one home. Settings = what you configure; More = what you do and what you
 // look at (manual outputs, events, logs, system health). Sections follow the questions people ask:
 // how it cooks, what it is made of, what keeps it safe, how it tells me, how I reach it, the app itself.
-const SECTIONS = ['Cooking', 'Hardware', 'Safety', 'Notifications', 'Network', 'System'];
+/* Diagnostics last: what you look at when something is wrong, after everything you configure.
+   It used to be a tab of its own called More, which is a name for "the rest of it" rather than for
+   anything, and it held one row -- Manual Outputs -- that only applies in Monitor mode and is
+   already on Home when you are in it. */
+const SECTIONS = ['Cooking', 'Hardware', 'Safety', 'Notifications', 'Network', 'System', 'Diagnostics'];
 /* The order a cook actually happens in. */
 const ORDER = {
   Cooking: ['startup', 'controller', 'smoke', 'lid', 'keepwarm', 'pellets'],
   /* what the grill says, then where it goes */
   Notifications: ['rules', 'services'],
 };
-const LINKS = {};
+const LINKS = {
+  /* Probes has a tab of its own, so this is a pointer to it rather than a second copy: one page,
+     reachable from the place habit sends you as well as from the bar. Taking the row away entirely
+     left no route to pairing a probe from Settings at all. */
+
+  Diagnostics: [
+    { href: '#/more/events', icon: 'scroll-text', color: '#ffd60a', title: 'Events', sub: 'Alerts and mode changes' },
+    { href: '#/more/logs', icon: 'file-text', color: '#8e8e93', title: 'Logs', sub: 'Daemon log' },
+    { href: '#/more/system', icon: 'monitor', color: '#8e8e93', title: 'System Health', sub: 'Version, uptime, temperatures, restart, power off' },
+    { href: '#/more/about', icon: 'info', color: '#8e8e93', title: 'About', sub: 'Version and licences' },
+  ],
+};
 
 /* Being able to reach this browser is not a setting: the browser grants permission and then holds
    a subscription, and either can be withdrawn without PiFire being told. So the summary reports
@@ -440,13 +455,6 @@ async function controllerCard(tuned, onClear) {
    able to read what the controller is set to without opening anything. */
 /* Built from the same parts as a settings row -- icon tile, title, value, chevron -- so a section
    you can open looks like the rows you tap, rather than a bordered box sitting on top of them. */
-const fold = (title, meta, body, icon, color, open = false) =>
-  el('details', { class: 'fold ios-fold', open },
-    el('summary', {},
-      icon ? el('span', { class: 'tile', style: tileStyle(color) }, lucide(icon)) : null,
-      el('span', { class: 'body' }, el('span', { class: 't' }, title), meta ? el('span', { class: 's' }, meta) : null),
-      lucide('chevron-right', 'ic chev')),
-    el('div', { class: 'fold-body' }, body));
 
 const holdCycleFields = [
   I('HoldCycleTime', 'Control cycle (s)', 'One auger cycle while holding. Shorter corrects sooner, feeds less per pulse. Smoke has its own timings.', { min: 5, max: 120 }),
@@ -544,8 +552,8 @@ const hopperFields = [
   /* The low-pellet warning is a conditional notification like everything else, so it is set up
      where the others are rather than having a second switch here that disagrees with it. */
   { type: 'note', help: 'Levels and delivery live in Notifications \u2192 Conditional Notifications.' },
-  I('empty', 'Sensor reading when empty (cm)', 'Distance from the sensor to the bottom of the hopper', { min: 1 }),
-  I('full', 'Sensor reading when full (cm)', 'Distance from the sensor to a full load', { min: 0 }),
+  I('empty', 'Empty reading (cm)', 'Sensor to the bottom of the hopper', { min: 1 }),
+  I('full', 'Full reading (cm)', 'Sensor to a full load', { min: 0 }),
 ];
 function pelletsPage(view) {
   const hopper = el('div', { class: 'card' });
@@ -581,6 +589,7 @@ export function renderSettings(view, rest) {
     /* Auger & Feed was split: the cycle and the duty limits only ever affected Hold, and the smoke
        timings only ever affected Smoke. The old address still works rather than dead-ending. */
     const MOVED = { auger: 'controller', push: 'services', integrations: 'services' };
+    if (page === 'probes') { location.replace('#/probes'); return; }   // Probes is its own tab
     if (MOVED[page]) { location.replace(`#/settings/${MOVED[page]}`); return; }
     const pg = pages.find((x) => x.key === page);
     if (!pg) { view.append(el('div', { class: 'card muted' }, 'No such settings page')); return; }

@@ -1,5 +1,5 @@
-import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, dialog, numberDialog, toast, confirmDialog, segmented } from '../app.js';
-import { fmtEta, battIcon } from './probes.js';
+import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, dialog, numberDialog, toast, confirmDialog, segmented, actionBtn, itemRow, iconBtn, addRow, patchSettings } from '../app.js';
+import { fmtEta } from './probes.js';
 
 /* Doneness presets, in °F and converted for °C users.
  *
@@ -89,6 +89,57 @@ export async function targetDialog(p) {
   });
 }
 
+/* The steps on the way to the target: a temperature with a name on it that says something once,
+ * when it is crossed. It is what MEATER, Chef iQ and Combustion all give you and what actually
+ * gets meat cooked properly -- the target is where it comes off, and a step is what you have to be
+ * at the grill for before then. Four is enough for flip, wrap, probe-tender and a spare. */
+const STEP_PRESETS = [['Flip', 120], ['Wrap', 165], ['Spritz', 150], ['Probe Tender', 198]];
+
+export async function stepsDialog(p) {
+  const key = p.label;
+  const cur = (PF.settings?.notify?.probe_steps?.[key] || []).map((s) => ({ ...s }));
+  return dialog((close) => {
+    const wrap = el('div', { class: 'sheet-body' });
+    const draw = () => {
+      wrap.innerHTML = '';
+      const inner = el('div', { class: 'ios-list' });
+      for (const [i, st] of cur.entries()) {
+        inner.append(itemRow({
+          icon: 'bell', color: '#bf5af2', title: st.name,
+          meta: `${st.temp}${degUnit()}`,
+          onclick: async () => {
+            const v = await numberDialog(st.name, st.temp, { min: 32, max: 400, step: 5 });
+            if (v != null) { st.temp = v; draw(); }
+          },
+          actions: [iconBtn('trash-2', 'Remove', { class: 'danger', onclick: (e) => { e.stopPropagation(); cur.splice(i, 1); draw(); } })],
+        }));
+      }
+      if (!cur.length) inner.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No steps. Add one to be told when to flip, wrap or spritz.'));
+      const left = STEP_PRESETS.filter(([n]) => !cur.some((s) => s.name === n));
+      wrap.append(inner,
+        cur.length >= 4 ? null : el('div', { class: 'chiprow' }, left.map(([n, t]) =>
+          el('button', { class: 'chip-btn', type: 'button', onclick: () => { cur.push({ name: n, temp: PF.units === 'C' ? Math.round((t - 32) * 5 / 9) : t }); draw(); } }, `+ ${n}`))),
+        cur.length >= 4 ? null : addRow('Custom Step', async () => {
+          const v = await numberDialog('Alert at', PF.units === 'C' ? 60 : 140, { min: 32, max: 400, step: 5 });
+          if (v != null) { cur.push({ name: 'Alert', temp: v }); draw(); }
+        }));
+    };
+    draw();
+    return el('div', { class: 'sheet' },
+      el('div', { class: 'sheet-head' }, el('div', {}, el('h3', {}, 'Step Alerts'), el('div', { class: 'help' }, p.name))),
+      wrap,
+      el('div', { class: 'form-actions' },
+        actionBtn('cancel', 'Cancel', { size: '', onclick: () => close(undefined) }),
+        actionBtn('save', 'Save', { size: '', onclick: () => close(cur) })));
+  }).then(async (steps) => {
+    if (!steps) return;
+    const all = { ...(PF.settings?.notify?.probe_steps || {}) };
+    if (steps.length) all[key] = steps; else delete all[key];
+    try { await patchSettings('notify', { probe_steps: all }); toast('Steps saved'); }
+    catch (e) { toast(e.message, true); }
+  });
+}
+
 export async function limitsDialog(p) {
   return dialog((close) => {
     const hi = el('input', { type: 'text', inputmode: 'decimal', value: p.limit_high || '', placeholder: 'off' });
@@ -102,7 +153,7 @@ export async function limitsDialog(p) {
   });
 }
 
-async function timerDialog() {
+export async function timerDialog() {
   return dialog((close) => {
     let after = 0;
     const mins = el('input', { type: 'text', inputmode: 'numeric', value: 30, 'aria-label': 'Minutes' });
@@ -149,7 +200,7 @@ async function recipeDialog(r) {
         box.append(el('div', { class: 'btnrow' },
           el('button', { class: 'btn sm ghost', type: 'button', disabled: i === 0, onclick: () => { [rec.steps[i - 1], rec.steps[i]] = [rec.steps[i], rec.steps[i - 1]]; render(); } }, '↑'),
           el('button', { class: 'btn sm ghost', type: 'button', disabled: i === rec.steps.length - 1, onclick: () => { [rec.steps[i + 1], rec.steps[i]] = [rec.steps[i], rec.steps[i + 1]]; render(); } }, '↓'),
-          el('button', { class: 'btn sm ghost', type: 'button', onclick: () => { rec.steps.splice(i, 1); render(); } }, 'Remove')));
+          actionBtn('delete', '', { onclick: () => { rec.steps.splice(i, 1); render(); } })));
         stepsEl.append(box);
       });
       stepsEl.append(el('button', { class: 'btn sm', type: 'button', onclick: () => { rec.steps.push({ mode: 'Hold', setpoint: 225, timer_min: 0, probe: '', probe_temp: 0, pause: false, message: '' }); render(); } }, 'Add step'));
@@ -164,7 +215,6 @@ async function recipeDialog(r) {
 }
 
 export function renderCook(view) {
-  const probes = el('div');
   const timerCard = el('div', { class: 'card' });
   const alerts = el('div', { class: 'list' });
   const recipeCard = el('div', { class: 'card' });
@@ -173,7 +223,7 @@ export function renderCook(view) {
   const recipeSection = el('div', { hidden: !showRecipes },
     el('div', { class: 'row between' }, el('h2', {}, 'Recipes'), el('button', { class: 'btn sm', onclick: async () => { const r = await recipeDialog(); if (r) { await api('/recipes', { body: r }).catch((e) => toast(e.message, true)); loadRecipes(); } } }, 'New')),
     el('div', { class: 'card' }, recipeList));
-  view.append(el('h2', {}, 'Timer'), timerCard, el('h2', {}, 'Probes'), probes,
+  view.append(el('h2', {}, 'Timer'), timerCard,
     recipeCard, recipeSection,
     el('h2', {}, 'Recent alerts'), el('div', { class: 'card' }, alerts));
 
@@ -185,7 +235,7 @@ export function renderCook(view) {
         el('div', { class: 'btnrow' },
           el('button', { class: 'btn sm primary', onclick: async () => { if (await confirmDialog(`Run ${r.name}?`, 'The recipe takes over the grill from its first step.', 'Run')) cmd({ cmd: 'recipe', op: 'start', id: r.id }); } }, 'Run'),
           el('button', { class: 'btn sm ghost', onclick: async () => { const e = await recipeDialog(r); if (e) { await api('/recipes', { body: e }).catch((x) => toast(x.message, true)); loadRecipes(); } } }, 'Edit'),
-          el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog('Delete recipe?', r.name, 'Delete', true)) { await api(`/recipes/${r.id}/delete`, { body: {} }); loadRecipes(); } } }, 'Delete'))));
+          actionBtn('delete', 'Delete', { onclick: async () => { if (await confirmDialog('Delete recipe?', r.name, 'Delete', true)) { await api(`/recipes/${r.id}/delete`, { body: {} }); loadRecipes(); } } }))));
     }
     if (!list.length) recipeList.append(el('div', { class: 'muted' }, 'No recipes. A recipe is a list of steps: Startup → Hold 225 until probe 165 → Shutdown.'));
   }).catch(() => {});
@@ -221,31 +271,6 @@ export function renderCook(view) {
       timerCard.append(el('button', { class: 'btn block', onclick: async () => { const r = await timerDialog(); if (r) cmd({ cmd: 'timer', op: 'start', ...r }); } }, 'Set a timer'));
     }
 
-    probes.innerHTML = '';
-    /* Grouped by what each probe is for: the pit, then the food, then anything measuring the air
-       or the outside. Without the headings a long list of probes is just a wall of numbers. */
-    const GROUPS = [['Primary', 'Grill'], ['Food', 'Food'], ['Aux', 'Aux & Ambient']];
-    for (const [role, heading] of GROUPS) {
-      const members = (s.probes || []).filter((p) => p.enabled && (p.role || 'Food') === role);
-      if (!members.length) continue;
-      const grid = el('div', { class: 'grid2' });
-      probes.append(el('h3', { class: 'probe-group' }, heading), grid);
-      for (const p of members) renderProbe(grid, p);
-    }
-
-    function renderProbe(into, p) {
-      const hit = p.target > 0 && p.valid && p.temp >= p.target;
-      const eta = p.target > 0 && p.eta_s >= 0 ? `${fmtEta(p.eta_s)} to target` : '';
-      into.append(el('div', { class: `probe ${p.role === 'Primary' ? 'primary' : ''} ${p.valid ? '' : 'invalid'} ${hit ? 'hit' : ''}`, style: 'min-height:130px' },
-        el('div', { class: 'name' }, el('span', {}, p.name),
-          el('span', {}, p.wireless && p.battery >= 0 ? battIcon(p.battery) : null, p.limit_high || p.limit_low ? '⚠ alarm' : '')),
-        el('div', { class: 'temp' }, p.valid ? fmtTemp(p.temp) : '—', el('small', {}, degUnit())),
-        el('div', { class: 'tgt' }, p.target > 0 ? `Target ${fmtTemp(p.target)}${degUnit()} · ${AFTER.find((a) => a[0] === p.after)?.[1]}` : 'No target'),
-        eta ? el('div', { class: 'tgt eta' }, eta) : null,
-        el('div', { class: 'btnrow', style: 'margin-top:8px' },
-          el('button', { class: 'btn sm', onclick: async (e) => { e.stopPropagation(); const r = await targetDialog(p); if (r) cmd({ cmd: 'target', label: p.label, ...r }); } }, p.target > 0 ? 'Change' : 'Set target'),
-          el('button', { class: 'btn sm ghost', onclick: async (e) => { e.stopPropagation(); const r = await limitsDialog(p); if (r) cmd({ cmd: 'limits', label: p.label, ...r }); } }, 'Alarms'))));
-    }
     if (PF.alertGen !== lastAlertGen) { lastAlertGen = PF.alertGen; loadAlerts(); }
   };
   update(PF.status);

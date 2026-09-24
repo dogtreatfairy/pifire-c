@@ -2,6 +2,7 @@
 import { renderHome } from './pages/home.js';
 import { renderHistory } from './pages/history.js';
 import { renderCook } from './pages/cook.js';
+import { renderProbes } from './pages/probes.js';
 import { renderSettings } from './pages/settings.js';
 import { icon as lucide, brandIcon, MODE_ICON, tileStyle } from './icons.js';
 import { renderMore } from './pages/more.js';
@@ -418,6 +419,117 @@ export function toggleRow(label, checked, onchange, help) {
     el('div', {}, el('div', {}, label), help ? el('div', { class: 'help' }, help) : null),
     el('span', { class: 'switch' }, input, el('span')));
 }
+/* A section you can open: the one shape for this in the whole app.
+ *
+ * Built from the same parts as a row you tap -- icon tile, title, value, chevron -- so a section
+ * header and a list row line up, and opening one draws the card under it without touching the
+ * header. Settings had this and every other page grew its own, which is how the probes page ended
+ * up with bare <details> carrying the browser's triangle next to headings that did not match
+ * anything else.
+ *
+ * `meta` is the line under the title: what the row is worth knowing at a glance while shut. */
+export function fold(title, meta, body, icon, color, open = false, value = null) {
+  return el('details', { class: 'fold ios-fold', open },
+    el('summary', {},
+      icon ? el('span', { class: 'tile', style: tileStyle(color) }, lucide(icon)) : null,
+      el('span', { class: 'body' }, el('span', { class: 't' }, title), meta ? el('span', { class: 's' }, meta) : null),
+      /* What it is SET TO, at the right of its own row -- the way a settings row reads
+         "Language   English  >". A value belongs on the right, not folded into the subtitle. */
+      value != null ? el('span', { class: 'v' }, value) : null,
+      lucide('chevron-right', 'ic chev')),
+    el('div', { class: 'fold-body' }, body));
+}
+
+/* A button that leads with its mark.
+ *
+ * A modern interface says what a control does with a shape and a colour before it says it with a
+ * word: a trash can for delete, a pencil for edit, a plus for add. The colour carries the same
+ * message -- red destroys, the accent commits, grey backs out -- so the three are never confused
+ * at a glance, and the mark makes the word almost redundant on a narrow screen.
+ *
+ * `kind` is one of the verbs below; anything else is a plain button with whatever icon is named. */
+const VERB = {
+  add: { icon: 'plus', cls: '' },
+  edit: { icon: 'pencil', cls: '' },
+  delete: { icon: 'trash-2', cls: 'danger' },
+  save: { icon: 'check', cls: 'primary' },
+  cancel: { icon: 'x', cls: 'ghost' },
+};
+export function actionBtn(kind, label, attrs = {}, iconOverride) {
+  const v = VERB[kind] || { icon: iconOverride || kind, cls: '' };
+  const cls = ['btn', attrs.size || 'sm', v.cls, attrs.class].filter(Boolean).join(' ');
+  const { size, class: _c, ...rest } = attrs;
+  return el('button', { type: 'button', ...rest, class: cls }, lucide(iconOverride || v.icon, 'ic btn-ic'), label ? el('span', {}, label) : null);
+}
+
+/* A text input with its own mark inside it. */
+export function iconField(icon, input) {
+  return el('div', { class: 'field-ic' }, lucide(icon, 'ic'), input);
+}
+
+/* A saved thing, listed the way a saved card is: a mark for what it is, its name, one line of
+ * detail, a badge if it is the one in use, and the action you take on it as a bare icon at the end.
+ * The whole row opens it. This is the Payment Methods shape -- "Visa •••• 4242 / Expires 12/25"
+ * with a Default badge and a bin at the right -- and it suits anything kept in a collection.
+ *
+ * { icon, color, title, meta, badge, onclick, actions: [node] }
+ */
+export function itemRow(o) {
+  return el('div', { class: `irow ${o.badge ? 'current' : ''}` },
+    el('button', { class: 'irow-main', type: 'button', onclick: o.onclick },
+      o.icon ? el('span', { class: 'tile', style: tileStyle(o.color) }, lucide(o.icon)) : null,
+      el('span', { class: 'body' },
+        el('span', { class: 't' }, o.title, o.badge ? el('span', { class: 'badge-pill' }, o.badge) : null),
+        o.meta ? el('span', { class: 's' }, o.meta) : null),
+      lucide('chevron-right', 'ic chev')),
+    o.actions?.length ? el('div', { class: 'irow-acts' }, o.actions) : null);
+}
+
+/* An action with no label: a bare mark with a thumb-sized target around it, for the end of a row
+   where the row itself already says what the thing is. */
+export function iconBtn(icon, title, attrs = {}) {
+  const { class: cls, ...rest } = attrs;
+  return el('button', { type: 'button', title, 'aria-label': title, ...rest, class: `btn icon ${cls || ''}` }, lucide(icon, 'ic btn-ic'));
+}
+
+/* The way to add another one: a full-width outlined button at the FOOT of the list it adds to,
+   where the eye ends up after reading what is already there. */
+export function addRow(label, onclick) {
+  return el('button', { class: 'btn ghost block', type: 'button', onclick }, lucide('plus', 'ic btn-ic'), el('span', {}, label));
+}
+
+/* A table that becomes cards on a phone.
+ *
+ * Several of the same thing -- tuning anchors, probe profiles, bags of pellets -- read best as a
+ * table with a header row, and a table is unusable at 402 px. So each row carries its own column
+ * names: on a wide screen the header row shows and the per-cell labels are hidden, and on a phone
+ * the header goes and every value sits under its own small caption, four to a line. One set of
+ * markup, two layouts, and the same information either way.
+ *
+ * columns: [{ key, label }]   rows: [{ <key>: value, _actions?: [node], _onclick?: fn }]
+ */
+export function dataTable(columns, rows, opts = {}) {
+  const t = el('div', { class: 'dtable', style: `--dt-cols:${columns.length}` });
+  t.append(el('div', { class: 'dt-head' }, columns.map((c) => el('span', {}, c.label))));
+  for (const r of rows) {
+    const cells = columns.map((c) => el('span', { class: 'dt-cell' },
+      el('i', { class: 'dt-k' }, c.label),
+      el('b', { class: 'dt-v' }, r[c.key] == null || r[c.key] === '' ? '—' : r[c.key])));
+    const body = r._onclick
+      ? el('button', { class: 'dt-cells', type: 'button', onclick: r._onclick }, cells, lucide('chevron-right', 'ic chev'))
+      : el('div', { class: 'dt-cells' }, cells);
+    t.append(el('div', { class: 'dt-row' }, body, r._actions ? el('div', { class: 'dt-acts' }, r._actions) : null));
+  }
+  if (!rows.length) t.append(el('p', { class: 'help' }, opts.empty || 'Nothing here yet.'));
+  return t;
+}
+
+/* A heading with an action beside it: "Probe Profiles" and an Add button. One recipe, so every
+   manager on every page has its bar in the same place and the same shape. */
+export function sectionBar(title, ...actions) {
+  return el('div', { class: 'row between' }, el('h2', {}, title), ...actions.filter(Boolean));
+}
+
 export function segmented(options, value, onchange) {
   const wrap = el('div', { class: 'segmented' });
   for (const [v, label] of options) {
@@ -448,11 +560,10 @@ export function applyTheme() {
   const t = PF.settings?.globals?.theme || 'dark';
   document.documentElement.dataset.theme = t === 'auto' ? '' : t;
   document.querySelector('meta[name=theme-color]').content = t === 'light' ? '#f3f3f5' : '#111214';
-  document.getElementById('grill-name').textContent = PF.settings?.globals?.grill_name || 'PiFire';
 }
 
 // ---------- router ----------
-const pages = { home: renderHome, history: renderHistory, cook: renderCook, settings: renderSettings, more: renderMore, setup: (v) => renderNetwork(v, { captive: true }) };
+const pages = { home: renderHome, history: renderHistory, cook: renderCook, probes: renderProbes, settings: renderSettings, more: renderMore, setup: (v) => renderNetwork(v, { captive: true }) };
 let teardown = null;
 /* The back affordance belongs to the navigation bar, not to the page. Putting it in the scrolling
    content meant it slid away the moment you scrolled, which no native app does -- you should never
@@ -465,16 +576,10 @@ export function setBack(href, label = 'Back') {
   if (lab) lab.textContent = label;
   b.onclick = () => { location.hash = href; };
   b.hidden = false;
-  /* Back takes the name's place: they share the left slot, and a navigation bar says where you came
-     from rather than what the machine is called. The readout in the middle is unaffected. */
-  const brand = document.getElementById('tb-brand');
-  if (brand) brand.hidden = true;
 }
 function clearBack() {
   const b = document.getElementById('tb-back');
-  const brand = document.getElementById('tb-brand');
   if (b) { b.hidden = true; b.onclick = null; }
-  if (brand) brand.hidden = false;
 }
 
 function route() {
@@ -560,22 +665,18 @@ onStatus((s) => {
   lastNet = s.net || {};
   paintNet();
 
-  // mode and the number that matters: the target or countdown on Home, the grill temperature elsewhere
-  const home = document.documentElement.dataset.page === 'home';
+  /* The mode, and the temperature the grill is at. The same two things on every page: this used to
+     show the set point (or a countdown) on Home and the actual temperature everywhere else, so the
+     same plate in the same place meant two different things depending on which tab you were on.
+     The target and the countdown are both on Home already, beside the gauge that gives them
+     context. */
   const readout = document.getElementById('readout');
   const rdMode = document.getElementById('rd-mode'), rdVal = document.getElementById('rd-val');
-  let value = '';
-  if (!home) {
-    const primary = s.probes?.find((p) => p.role === 'Primary');
-    value = s.mode === 'Stop' ? `0${degUnit()}` : primary?.valid ? `${fmtTemp(primary.temp)}${degUnit()}` : '—';
-  } else if (s.mode === 'Startup' || s.mode === 'Reignite' || s.mode === 'Shutdown' || s.mode === 'Prime') {
-    const waiting = (s.mode === 'Startup' || s.mode === 'Reignite') && s.coldstart?.active && !s.coldstart?.reached && s.timers.mode_remaining <= 0;
-    value = fmtDur(waiting ? s.coldstart.remaining : s.timers.mode_remaining);
-  } else if (s.mode === 'Hold') value = `${fmtTemp(s.setpoint)}${degUnit()}`;
+  const primary = s.probes?.find((p) => p.role === 'Primary');
+  const value = s.mode === 'Stop' ? `0${degUnit()}` : primary?.valid ? `${fmtTemp(primary.temp)}${degUnit()}` : '—';
   /* A tuning run holds set points like any cook, so the mode alone says Hold and gives no hint that
      the grill is deliberately swinging either side of its target. Name what it is actually doing. */
   const tuning = !!(s.tuning?.running || s.autotune?.active);
-  if (tuning && home) value = `${fmtTemp(s.tuning?.setpoint ?? s.setpoint)}${degUnit()}`;
   const modeName = tuning ? 'Auto Tuning' : s.mode;
   document.getElementById('rd-name').textContent = modeName;
   /* The same mark the mode carries everywhere else, so the plate reads as part of the interface

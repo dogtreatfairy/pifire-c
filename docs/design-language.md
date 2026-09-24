@@ -204,6 +204,149 @@ Durations and easing come from tokens, and everything stops under `prefers-reduc
 one exception, spelled out in the rule itself: a probe past its target is *saying* something by
 flashing, so with motion turned down it becomes the colour it was flashing to, said once.
 
+## Mobile first
+
+**The test is an iPhone 17 Pro: 402 × 874 points.** If it is not readable and well organised there,
+it is not finished. Desktop matters but comes second. Almost every layout fault found in this
+project was invisible above 900 px and obvious at 402: buttons hanging out of the card holding them,
+three footer buttons running off the left edge of the screen, a label folded onto five lines beside
+a narrow input, a sheet 836 px tall in an 874 px viewport with its Save button below the fold.
+
+Chrome's window here often refuses to be resized, so the way to check is to load the app in a
+same-origin **iframe of exactly 402 × 874** and measure inside it: media queries and layout then
+resolve against a true phone viewport. Nothing may extend past the viewport, and nothing may sit
+outside the container that holds it.
+
+**Every section has a header, a body and a footer, and a footprint you can see.** A label above it,
+its content, its actions in a footer with a rule across the top, and an edge that says where it
+ends. Content that merges into whatever follows is not a section.
+
+## Navigation
+
+Five tabs: **Cook · Probes · Home · History · Settings**, with **Home in the middle, raised out of
+the bar as a circle** carrying the end of a barrel grill — the barrel, the seam where the lid
+closes, and the grate. It is the page you open the app to look at, so it sits where a thumb reaches
+without moving, and it is the one shape in the app that is its own rather than a fifth identical
+icon. The bar is still a bar; one thing rises out of it.
+
+There is no "More". Its pages are the **Diagnostics** group at the foot of Settings, because "more"
+names the leftovers rather than anything. Manual outputs left that group entirely: they apply in
+Monitor mode and Home already carries them when you are in it.
+
+**A probe appears in one place.** Everything you do to a probe is on its row in the Probes tab: the
+reading, the target and its alarms, and its settings behind the chevron. The targets were cards on
+Cook while the settings were a list under Settings, so one probe was in two places and neither
+showed the whole of it.
+
+## Sheets
+
+A sheet is three parts: a **header that stays**, a **body that scrolls**, a **footer that stays**.
+`.sheet-head`, `.sheet-body`, then the footer. It is capped at 88 % of the viewport height, so on a
+phone the title never scrolls away and the committing button is never below the fold.
+
+Inside the body: **one column**, related fields grouped under a small label, and a field that only
+applies in one case appears only in that case — the ambient-reference switch shows for an Aux probe
+and is not there otherwise. **Three choices get a segmented control, not a dropdown** you must open
+to see what the options are (NN/g: a dropdown for two or three options hides them for no reason).
+The destructive action is a row of its own, in red, above the footer — never in the row that
+commits.
+
+## Actions carry a mark and a colour
+
+A modern interface says what a control does with a shape and a colour before it says it with a word.
+Every action button leads with its icon — **a trash can for delete, a pencil for edit, a plus for
+add, a tick for save, a cross for cancel** — and the colour carries the same message:
+
+| | |
+|---|---|
+| **Destructive** | red (`.btn.danger`): delete, remove, unpair, clear, erase |
+| **Affirmative** | the accent (`.btn.primary`): save, add, load, start |
+| **Everything else** | the plain button, or `.btn.ghost` for cancel and backing out |
+
+`actionBtn(kind, label, attrs, icon)` in `web/app.js` is where the pairing lives, so a delete cannot
+be built grey and a cancel cannot be built orange. On a narrow screen the mark carries the meaning
+when the label is the first thing to be cut.
+
+## Information has an order
+
+Group what belongs together and then put the groups in the order the thing actually happens, not the
+order the pages were written. Settings reads as a cook does: **Startup & Shutdown, then Hold, then
+Smoke, then Lid-Open, then Keep Warm, then Pellets** — light it, hold it or smoke it, what happens
+during, what is left afterwards. The same rule governs a page's own sections: the probe editor is
+Identity, then Connection, then Visibility, because that is the order you would think about a probe
+in. A list the user scans for something wrong is ordered by urgency instead; a history is newest
+first, because there the time is the subject.
+
+## What a row shows, and what is one layer in
+
+**The surface carries the live state; the configuration you set once lives inside.** Anything with
+many fields — a probe, a probe profile, a tuning anchor, a hardware device, a notification rule — is
+listed by what changes and what you check, not by how it is set up.
+
+| Thing | The row shows | Behind it |
+|---|---|---|
+| Probe | reading, signal and battery, target and time left | port, device, profile, type, visibility |
+| Probe profile | name, how many probes use it | the Steinhart–Hart coefficients |
+| Tuning anchor | set point, runs behind it, the weather it was measured in | PB, Ti, Td, Ku, Pu |
+| Hardware section | what it is **set to** — the board, the panel, the sensor | every option for it |
+| Notification rule | name, urgency, one line of what it watches, its switch | the condition tree |
+| Pellet profile | brand, wood, rating, whether it is loaded | notes, and the actions |
+
+The test is a saved credit card: it is listed as "Visa •••• 4242, expires 12/25, Default", never as
+the entry form that created it.
+
+**Tapping goes to what you probably wanted.** Tapping a probe on the dashboard offers a target, an
+alarm and a timer, because that is why you tapped it during a cook; its settings are a further step
+in, on the Probes tab. The ADC port and the profile were once the probe's subtitle, advertising
+themselves all cook to say something that had not changed since the grill was built.
+
+## The pit probe is not a food probe
+
+The pit probe has **no target of its own and no fixed alarms**. What it is aiming at is the set
+point, which is what Hold mode is for, and offering a second place to type one would be a second
+answer to the same question. Its over- and under-temperature alarms are **conditional
+notifications** comparing it with the set point, so they keep meaning the same thing when the set
+point changes; a limit typed once would not. Its row and its sheet point at Hold Mode and at the
+rules instead of duplicating either.
+
+A food probe keeps both: a target is the whole point of it, and a fixed alarm either side is
+meaningful on something that only goes one way.
+
+## The row vocabulary
+
+Four shapes, and everything in the app is one of them.
+
+**A settings row** — icon tile, title, optional subtitle, and **what it is set to on the right**,
+then the chevron: `Board   PiFire Compact PWM PCB  ›`. The value goes on the right, not folded into
+the subtitle, because that is where the eye looks for the answer to "what is this at?".
+
+**A saved-item row** — the shape a saved card has: a mark for what it is, its name, one line of
+detail, a **badge** when it is the one in use (`Loaded`, the equivalent of `Default`), and the
+action on it as a **bare icon** at the end. The row itself opens it.
+
+**A toggle row** — title, optional one-line subtitle, and the switch. Nothing else; whatever the
+switch governs is behind the row.
+
+**A data row** — for several of the same measured thing, where the columns matter: a table on a wide
+screen, and on a phone each row becomes a card of captioned values. Use it when the values line up
+and want comparing (the tuning library), not for a collection of saved things, which wants the
+saved-item row.
+
+**Adding another one is a full-width outlined button at the foot of the list it adds to**, not a
+small button in the heading — that is where the eye ends up after reading what is already there.
+
+**An input may carry its own mark**, inside it and ahead of the text, so the field says what it is
+for before its label is read.
+
+## Managers
+
+Anything the user keeps several of — probe profiles, pellet profiles, probe hardware — is a
+**manager**: a section bar with the name and an Add button, then one row per item showing what it is
+and what it is worth knowing (how many probes use this profile; the coefficients; whether these
+pellets are loaded). Opening a row shows its fields over a footer that saves or deletes **that item
+alone**. A stack of bare disclosures under one Save button does not say which item a field belongs
+to or what saving will affect.
+
 ## The phone
 
 An app shell: only `<main>` scrolls, the bars are pinned inside a viewport-fixed body, and the safe
@@ -322,14 +465,17 @@ Anything whose effect is visible on the panel — colour order, margins, theme, 
 effect the moment it changes, with no restart. A setting you have to reboot to test is a setting
 nobody finds.
 
-## The header, in three slots
+## The header, in two slots
 
-What the grill is **called** on the left, what it is **doing** in the middle, how you are **reaching
-it** on the right. The readout is centred on the bar itself rather than balanced between its
-neighbours, so the number a glance goes to is in the same place whatever sits beside it; the left
-slot is capped in width and ellipsises rather than pushing into it. On a sub-page the back
-affordance takes the name's place, because a navigation bar says where you came from rather than
-what the machine is called.
+What the grill is **doing** on the left — the mode plate and the temperature it is actually at — and
+how you are **reaching it** on the right. The bar is as tall as the plate it carries and no taller.
+
+The readout shows the **same two things on every page**. It used to show the set point (or a
+countdown) on Home and the real temperature everywhere else, so one plate in one place meant two
+different things depending on which tab you were on; the target and the countdown are both on Home
+already, beside the gauge that gives them context. The grill's name is gone from the bar: it is not
+a reading, it never changes, and it was taking the position a glance goes to first. On a sub-page
+the back affordance sits to the left of the readout.
 
 ## One indicator, one question
 

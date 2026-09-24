@@ -4,6 +4,7 @@
 #include "pifire/common.h"
 #include "pifire/controller.h"
 #include "probes/probes.h"
+#include "core/notify.h"
 #include <cJSON.h>
 
 /* The tuning that governs the set point being asked for: the library entry if there is one, else
@@ -45,7 +46,11 @@ typedef struct {
 	double ambient_c;
 	int reignite_retries_left;
 	pf_sensors sensors;
-	struct { int after; double eta_s, limit_high_c, limit_low_c; } notify[PF_MAX_PROBES]; /* parallel to sensors.p */
+	struct {
+		int after; double eta_s, limit_high_c, limit_low_c;
+		/* the named temperatures on the way to the target, and what each has already said */
+		int nsteps; struct { char name[24]; double temp_c; bool fired; } steps[PF_MAX_STEPS];
+	} notify[PF_MAX_PROBES]; /* parallel to sensors.p */
 	struct { bool running, paused; double remaining, duration; int after; } timer;
 	struct { bool active, waiting; char name[64]; int step, nsteps; pf_mode step_mode; double remaining_s; char message[128]; } recipe;
 	bool autotune_active; int autotune_crossings; double u_ff;

@@ -183,7 +183,6 @@ small, .muted { color: var(--muted); }
   padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: color-mix(in oklab, var(--bg) 88%, transparent);
   border-bottom: 1px solid var(--line);
 }
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: var(--fs-lg); }
 .view { flex: 1; padding: 12px 16px calc(var(--tab-h) + env(safe-area-inset-bottom) + 16px); max-width: 980px; width: 100%; margin: 0 auto; }
 .tabbar {
   position: fixed; inset: auto 0 0 0; z-index: 5; display: flex; justify-content: space-around;
@@ -217,7 +216,9 @@ small, .muted { color: var(--muted); }
 .card.tight { padding: 10px 12px; }
 .row { display: flex; align-items: center; gap: 10px; }
 .row.between { justify-content: space-between; }
-.grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+/* Wide enough for a card that carries two small buttons: at 150 px the pair could not fit and
+   pushed itself out through the side of the card. */
+.grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: var(--sp-2); }
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: var(--r-pill); font-size: var(--fs-sm); font-weight: 600; background: var(--surface2); }
 .pill-mode { background: var(--surface2); }
 .pill-mode[data-mode="Hold"] { background: color-mix(in oklab, var(--ok) 25%, var(--surface2)); }
@@ -233,8 +234,11 @@ small, .muted { color: var(--muted); }
 .btn.block { width: 100%; }
 .btn.sm { padding: 8px 12px; min-height: 36px; font-size: var(--fs-md); }
 .btn:disabled { opacity: .45; cursor: default; }
-.btnrow { display: flex; gap: 10px; }
-.btnrow .btn { flex: 1; }
+/* A row of buttons wraps rather than overflowing. A flex child will not shrink below its content
+   width unless it is told it may, and `white-space: nowrap` on a small button made that width a
+   hard floor -- which is how two buttons ended up hanging outside the probe card holding them. */
+.btnrow { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.btnrow .btn { flex: 1 1 auto; min-width: 0; }
 
 .toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
 .toggle:first-of-type { border-top: 0; }
@@ -267,7 +271,9 @@ small, .muted { color: var(--muted); }
 .progress > div { height: 100%; background: var(--accent); transition: width var(--dur-3) linear; }
 
 /* ---- probes ---- */
-.probe { background: var(--surface2); border-radius: var(--r-md); padding: 10px 12px; min-height: 92px; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; }
+.probe { background: var(--surface2); border-radius: var(--r-md); padding: var(--sp-2) var(--pad-x); min-height: 130px;
+  display: flex; flex-direction: column; gap: var(--sp-1); cursor: pointer; min-width: 0; }
+.probe .btnrow { margin-top: auto; padding-top: var(--sp-2); }
 .probe .name { font-size: var(--fs-sm); color: var(--muted); display: flex; justify-content: space-between; }
 .probe .temp { font-size: var(--fs-2xl); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .probe .temp small { font-size: var(--fs-md); font-weight: 500; color: var(--muted); }
@@ -292,24 +298,61 @@ small, .muted { color: var(--muted); }
 }
 .field input:focus-visible, .field select:focus-visible { outline: 2px solid var(--accent); border-color: transparent; }
 .field input:user-invalid { border-color: var(--danger); }
-.field.inline { flex-direction: row; align-items: center; justify-content: space-between; }
-.field.inline input:not([type="checkbox"]) { width: 130px; text-align: right; }
+/* A field is its label, its help, then its control -- mobile first.
+ *
+ * This is how a form is supposed to read and what every guide says to do on a phone, and the app
+ * was doing the opposite: label and control side by side, so a <select> holding "Simulator / Test
+ * Only" took the whole row and squeezed its label into a column one word wide, with the help text
+ * under it running down the screen a word at a time. A number field with three lines of help did
+ * the same thing more quietly.
+ *
+ * Side by side is a luxury of width, so it is switched on further down for a wide window only, and
+ * even there a <select> or a <textarea> keeps the row under its label because it holds a sentence. */
+/* An input can carry a mark of its own, inside it and ahead of the text -- the way a name field
+   shows a person and an email field an envelope. It says what the field is for before the label is
+   read, and it costs no height. */
+.field-ic { position: relative; display: flex; align-items: center; }
+.field-ic > .ic { position: absolute; left: 12px; width: 17px; height: 17px; color: var(--muted); pointer-events: none; }
+.field-ic > input { padding-left: 38px !important; }
+
+.field.inline { flex-direction: column; align-items: stretch; gap: var(--sp-1); }
+.field.inline > div:first-child { flex: none; min-width: 0; }
+.field.inline input:not([type="checkbox"]), .field.inline > select, .field.inline > textarea { width: 100%; text-align: left; }
 fieldset { border: 0; padding: 0; margin: 0; }
 legend { font-weight: 600; margin-bottom: 6px; }
 /* Every form ends in a footer, and a footer looks the same wherever it is: the container's own
    width, a rule across the top of it, the actions to the right with the committing one last. A row
    of buttons floating in the middle of a card's padding is not a footer, it is some buttons. */
+/* A footer wraps. Three buttons in a hopper footer ran off the left edge of a phone and two of
+   them could not be reached at all, because a flex row that only justifies to the end pushes its
+   overflow backwards out of the container. Once there are three, they share the width evenly, or
+   wrapping leaves a staircase down the right-hand side. A footer of one or two -- Cancel and Save,
+   which is nearly all of them -- keeps its buttons their own size, at the end. */
 .form-actions, .dialog .btnrow {
-  display: flex; justify-content: flex-end; align-items: center; gap: var(--sp-2);
+  display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--sp-2);
   margin: var(--sp-3) calc(var(--pad-x) * -1) 0; padding: var(--sp-3) var(--pad-x) 0;
   border-top: var(--bw) solid var(--line);
 }
+.form-actions:has(> .btn:nth-child(3)) > .btn { flex: 1 1 8rem; }
+/* A footer inside a card pulls its rule out to the card's own edges, which is why it carries a
+   negative margin. At page level there is no card to hang it on, so the same rule dragged the Save
+   row two pixels off the side of the screen. */
+main.view > .form-actions { margin-left: 0; margin-right: 0; padding-left: var(--pad-x); padding-right: var(--pad-x); }
+
 .num-input { display: flex; align-items: center; gap: 8px; }
 .num-input input { flex: 1; min-width: 0; width: auto; text-align: center; font-size: var(--fs-xl); }
 .num-input .btn { flex: none; width: 48px; padding: 0; }
 
 /* ---- dialog ---- */
-.dialog { border: 0; border-radius: var(--r-lg); background: var(--surface); color: var(--text); padding: 18px; width: min(92vw, 420px); }
+/* A sheet on a phone: a header that stays, a body that scrolls, a footer that stays. It used to be
+   one block 836 px tall in an 874 px viewport, so the title scrolled away and Save was somewhere
+   below the fold. */
+.dialog {
+  border: 0; border-radius: var(--r-lg); background: var(--surface); color: var(--text);
+  padding: var(--sp-4) var(--pad-x); width: min(92vw, 420px);
+  max-height: 88dvh; display: flex; flex-direction: column; overflow: hidden;
+}
+.dialog > * { min-height: 0; }
 .dialog::backdrop { background: rgba(0,0,0,.55); }
 .dialog h3 { margin-bottom: 10px; }
 .dialog .opts { display: grid; gap: 8px; margin: 12px 0; }
@@ -412,14 +455,10 @@ legend { font-weight: 600; margin-bottom: 6px; }
 /* a solid 1 px plate at the very top: WebKit samples the edge when compositing and can smear it */
 .edge-anchor { position: fixed; top: 0; left: 0; right: 0; height: 1px; background: var(--bg); z-index: 9999; pointer-events: none; }
 .topbar { position: relative; display: flex; align-items: center; gap: 10px; }
-.topbar .brand { min-width: 0; font-size: var(--fs-lg); }
-/* The readout is centred on the bar, not between its neighbours: absolutely placed horizontally and
-   left in the flow vertically, because half of a header padded by the safe area is under the status
-   bar, not in the middle of the row. */
-.topbar .readout { position: absolute; left: 50%; transform: translateX(-50%); }
-/* The left slot is capped so a long destination cannot reach the middle: it ellipsises instead,
-   and the state of the grill keeps its place. */
-.topbar-left { display: flex; align-items: center; gap: 10px; min-width: 0; max-width: 36%; margin-right: auto; }
+/* The readout sits at the left of the bar, after the back affordance when there is one. It was
+   absolutely centred while the grill's name held the left slot; the name is not a reading and the
+   mode and temperature are, so they take the place a glance goes to first. */
+.topbar .readout { margin-right: auto; }
 /* The back affordance sits where the brand does and behaves like a navigation bar's: chevron,
    destination, accent colour, and a target big enough to hit with a thumb. It is in the header, so
    scrolling cannot take it away. */
@@ -431,7 +470,6 @@ legend { font-weight: 600; margin-bottom: 6px; }
 }
 .tb-back svg { width: 22px; height: 22px; flex: none; }
 .tb-back span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.topbar .brand #grill-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Every mark on the right sits in the same cell and is drawn to the same size, so the row reads as
    one strip rather than three things that happen to be adjacent. */
 .tb-inds { display: flex; align-items: center; gap: 4px; flex: none; }
@@ -456,7 +494,9 @@ legend { font-weight: 600; margin-bottom: 6px; }
 /* a tuning run is a mode of its own as far as the reader is concerned, so it gets its own colour */
 .readout[data-mode="Tuning"] .rd-mode { background: var(--info); color: var(--on-info); }
 /* conditional notifications: the rule table and its editor */
-.rule-row { display: flex; align-items: center; gap: 10px; }
+.rule-row > .row { gap: var(--sp-3); padding-right: var(--pad-x); }
+.rule-row .rule-main { flex: 1; min-width: 0; display: flex; align-items: center; min-height: var(--h-row); padding: 6px var(--pad-x); }
+.rule-row .switch { flex: none; }
 .rule-row.off { opacity: .55; }
 .rule-main { flex: 1; min-width: 0; text-align: left; background: none; border: 0; color: inherit; padding: 0; }
 .pill.lvl-info { background: var(--surface2); color: var(--muted); }
@@ -661,10 +701,114 @@ h2 { font-size: var(--fs-xs); letter-spacing: var(--track-label); margin: var(--
 .help:last-child { margin-bottom: 0; }
 .subhead { font-size: var(--fs-sm); font-weight: var(--fw-semi); margin: var(--sp-4) 0 var(--sp-2); }
 .subhead:first-child { margin-top: 0; }
-.readout { font-variant-numeric: tabular-nums; }
 .readout-xl { font-size: var(--fs-2xl); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; line-height: var(--lh-tight); }
 .readout-lg { font-size: var(--fs-xl); font-weight: var(--fw-semi); font-variant-numeric: tabular-nums; line-height: var(--lh-tight); }
 .readout-md { font-size: var(--fs-lg); font-weight: var(--fw-semi); }
+
+/* Home is the middle of the bar and rises out of it.
+ *
+ * It is the one page you open the app to see, so it sits under the thumb and is drawn as the end of
+ * a barrel grill rather than as a fifth identical icon. The circle overlaps the bar's top edge; the
+ * ring around it is the page colour, which reads as the bar being notched to let it through. */
+.tabbar { overflow: visible; }
+.tabbar a.tab-home { position: relative; justify-content: flex-end; padding-bottom: 6px; }
+.tabbar a.tab-home > svg { display: none; }
+.tab-home-btn {
+  position: absolute; left: 50%; top: -24px; transform: translateX(-50%);
+  width: 54px; height: 54px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--surface2); color: var(--muted);
+  border: 4px solid var(--bg);
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+.tab-home-btn svg { width: 26px; height: 26px; }
+.tabbar a.tab-home.active .tab-home-btn { background: var(--accent); color: var(--on-accent); }
+/* the raised button is the marker; the rule along the edge would be hidden behind it anyway */
+.tabbar a.tab-home.active { box-shadow: none; }
+@media (min-width: 900px) {
+  /* down the side there is no middle to rise out of: it is a row like the others, marked the same */
+  .tab-home-btn { position: static; transform: none; width: 34px; height: 34px; border: 0; background: transparent; color: inherit; }
+  .tab-home-btn svg { width: 21px; height: 21px; }
+  .tabbar a.tab-home { justify-content: center; padding-bottom: 0; }
+  .tabbar a.tab-home.active .tab-home-btn { background: transparent; color: var(--accent); }
+  .tabbar a.tab-home.active { box-shadow: inset 2px 0 0 var(--accent); }
+}
+
+/* A probe row: the probe itself, and the two things you do to it while a cook is running. The row
+   is the same height and column as every other list row; the actions sit under it on their own line
+   so the reading is never crowded and the buttons never hang off the side on a phone. */
+.prow { border-top: var(--bw) solid var(--line); }
+.prow:first-child { border-top: 0; }
+.prow.off { opacity: .55; }
+.prow-main { border-top: 0 !important; }
+.prow-acts { display: flex; gap: var(--sp-2); padding: 0 var(--pad-x) var(--sp-2); }
+.prow-acts .btn { flex: 1 1 8rem; max-width: 16rem; }
+
+/* Wide enough for the pair to sit on one line. A number keeps its own small box, right-aligned so
+   a column of them lines up; anything that holds a sentence still gets the row under its label. */
+@media (min-width: 900px) {
+  .field.inline { flex-direction: row; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+  .field.inline > div:first-child { flex: 1; }
+  .field.inline input:not([type="checkbox"]) { width: 130px; text-align: right; }
+  .field.inline:has(> select), .field.inline:has(> textarea) { flex-direction: column; align-items: stretch; }
+}
+
+/* A saved thing in a list: identity on the left, its state as a badge, its action as a bare mark. */
+.irow { display: flex; align-items: center; gap: var(--sp-2); border-top: var(--bw) solid var(--line);
+  padding-right: var(--sp-2); }
+.irow:first-child { border-top: 0; }
+.irow-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px;
+  min-height: var(--h-row); padding: 6px var(--pad-x); background: none; border: 0; color: inherit;
+  font: inherit; text-align: left; cursor: pointer; }
+.irow-main .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.irow-main .t { font-weight: var(--fw-medium); font-size: var(--fs-md); display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.irow-main .s { font-size: var(--fs-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.irow-main .chev { width: 16px; height: 16px; color: var(--muted); flex: none; }
+.irow-acts { display: flex; align-items: center; gap: var(--sp-1); flex: none; }
+/* the one in use says so, the way a saved card says Default */
+.badge-pill { font-size: var(--fs-3xs); font-weight: var(--fw-bold); letter-spacing: var(--track-label);
+  text-transform: uppercase; color: var(--accent-ink); border: var(--bw) solid var(--accent);
+  border-radius: var(--r-pill); padding: 1px 7px; flex: none; }
+/* an action that is only its mark, with a thumb-sized target around it */
+.btn.icon { min-height: var(--h-touch); width: var(--h-touch); padding: 0; background: transparent;
+  border-color: transparent; color: var(--muted); }
+.btn.icon .btn-ic { width: 18px; height: 18px; }
+.btn.icon.danger { background: transparent; border-color: transparent; color: var(--danger-ink); }
+/* the add button at the foot of the list it adds to */
+.ios-group .foot .btn.block { margin-top: var(--sp-2); }
+
+/* The responsive table. Mobile first: a row is a card of captioned values, four to a line. */
+.dtable { display: flex; flex-direction: column; }
+.dt-head { display: none; }
+.dt-row { border-top: var(--bw) solid var(--line); }
+.dt-row:first-child { border-top: 0; }
+.dt-cells {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(5rem, 1fr));
+  gap: var(--sp-2) var(--sp-3); width: 100%; padding: var(--sp-3) var(--pad-x);
+  background: none; border: 0; color: inherit; font: inherit; text-align: left; align-items: start;
+}
+/* The chevron is not a column: it is pinned to the right of the row, clear of the grid, so the
+   values keep their places and it stays where the thumb expects it. */
+button.dt-cells { cursor: pointer; position: relative; padding-right: calc(var(--pad-x) + 18px); }
+button.dt-cells > .chev { position: absolute; right: var(--pad-x); top: 50%; transform: translateY(-50%);
+  width: 16px; height: 16px; color: var(--muted); }
+.dt-cell { min-width: 0; }
+.dt-k { display: block; font-style: normal; font-size: var(--fs-xs); color: var(--muted);
+  text-transform: uppercase; letter-spacing: var(--track-label); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.dt-v { display: block; font-size: var(--fs-md); font-weight: var(--fw-medium);
+  overflow: hidden; text-overflow: ellipsis; }
+.dt-acts { display: flex; flex-wrap: wrap; gap: var(--sp-2); padding: 0 var(--pad-x) var(--sp-3); }
+.dt-acts .btn { flex: 1 1 8rem; max-width: 16rem; }
+@media (min-width: 900px) {
+  /* room for a real table: one header row, and the captions inside the cells go away */
+  .dt-head { display: grid; grid-template-columns: repeat(var(--dt-cols), 1fr); gap: var(--sp-3);
+    padding: var(--sp-2) var(--pad-x); font-size: var(--fs-xs); color: var(--muted);
+    text-transform: uppercase; letter-spacing: var(--track-label); border-bottom: var(--bw) solid var(--line); }
+  .dt-cells { grid-template-columns: repeat(var(--dt-cols), 1fr); align-items: center; }
+  .dt-k { display: none; }
+  .dt-acts { padding: 0 var(--pad-x) var(--sp-2); }
+}
 
 /* ---- lists and sections ------------------------------------------------
  *
@@ -725,7 +869,16 @@ h2 { font-size: var(--fs-xs); letter-spacing: var(--track-label); margin: var(--
 /* Lists are rows separated by rules, edge to edge, rather than cards floating on a background.
    The frame around a list costs two rules and the space either side of them and says nothing the
    separation between rows does not already say. */
-.ios-list { background: transparent; border: 0; border-radius: 0; box-shadow: none; overflow: visible; position: relative; }
+/* A group of rows is an inset card: a small label outside it, then a rounded panel holding the
+   rows, hairlines between them and an edge all the way round. That edge is the "footprint" -- it is
+   what says where one group ends and the next begins, and it is what every native settings screen
+   does. Edge-to-edge rows on the page background had no such edge. */
+.ios-list, .dtable {
+  background: var(--surface); border: 0; border-radius: var(--r-lg);
+  box-shadow: 0 0 0 var(--bw) var(--line) inset; overflow: hidden; position: relative;
+  margin-bottom: var(--sp-4);
+}
+.ios-list .row:first-child, .dt-row:first-child { border-top: 0; }
 /* One box for every row: the same height whether or not it carries a subtitle, and its own rule on
    top, so a list reads as evenly spaced rules and the first one is the list's top edge. Rows used to
    come out 46, 47 and 48 pixels tall on the same page depending on what was in them. */
@@ -739,17 +892,34 @@ h2 { font-size: var(--fs-xs); letter-spacing: var(--track-label); margin: var(--
 .ios-list .tile .ic, .ios-fold .tile .ic { width: 16px; height: 16px; stroke-width: 2.2; flex: none; }
 /* A brand mark is its own tile: it carries the shape and the colour, so the coloured square behind
    it would only fight it. The corner radius is kept so it sits in the same grid as the others. */
-.ios-list .tile.brand, .ios-fold .tile.brand { background: transparent; box-shadow: none; overflow: hidden; border-radius: var(--r-sm); }
+/* A brand tile has no fill, so it takes the page's text colour rather than the ink meant for a
+   filled swatch -- a monochrome mark like Tailscale's was being drawn in the near-black that goes
+   on top of a coloured tile, which on a dark background is nothing at all. */
+.ios-list .tile.brand, .ios-fold .tile.brand {
+  background: transparent; box-shadow: none; overflow: hidden; border-radius: var(--r-sm);
+  color: var(--text);
+}
 .ios-list .tile.brand .ic, .ios-fold .tile.brand .ic { width: 26px; height: 26px; }
-.ios-list .body, .ios-fold > summary .body { flex: 1; min-width: 0; }
-.ios-list .t, .ios-fold > summary .t { font-weight: var(--fw-medium); font-size: var(--fs-md); }
+/* Title over subtitle, in a list row as well as in a section header. Only the fold had the column
+   rule, so a row built from spans laid its title and its subtitle out side by side and the value
+   landed on top of them. */
+.ios-list .body, .ios-fold > summary .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ios-list .v { flex: none; }
+.ios-list .t, .ios-fold > summary .t { font-weight: var(--fw-medium); font-size: var(--fs-md);
+  display: flex; align-items: center; gap: 6px; min-width: 0; }
 .ios-list .s, .ios-fold > summary .s { font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ios-list .v { color: var(--muted); font-size: var(--fs-sm); }
+.ios-list .v, .ios-fold > summary .v { color: var(--muted); font-size: var(--fs-sm); flex: none;
+  max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ios-list .chev, .ios-fold > summary .chev { width: 16px; height: 16px; color: var(--muted); flex: none; }
 .menu .btn { border-radius: var(--r-md); }
 /* A small button is a small button wherever it sits: the same height, on one line, centred rather
    than stretched by whatever flex row it happens to be in. They were coming out 51 px in a probe
    card and 36 px beside a heading. */
+/* A button that carries a mark sets it against the label at the size of the text beside it. */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.btn-ic { width: 15px; height: 15px; flex: none; }
+.btn.sm .btn-ic, .btn.xs .btn-ic { width: 14px; height: 14px; }
+
 .btn.sm { min-height: var(--h-control); align-self: center; white-space: nowrap; }
 /* A control drawn smaller than a thumb still has to be hittable by one. Material asks for 48 dp and
    WCAG 2.5.8 for 24 CSS px; the visible button stays at --h-control, which is what keeps a list
@@ -810,7 +980,10 @@ h2 { font-size: var(--fs-xs); letter-spacing: var(--track-label); margin: var(--
    - blur lives on a pseudo-element layer, not on the element holding the
      text (iOS renders text inside backdrop-filter layers soft)
    ===================================================================== */
-:root { --vh: 100dvh; --top-h: calc(env(safe-area-inset-top) + 60px); }
+/* The bar is as tall as the plate it carries and no taller: the readout is 28 px, so 8 px above and
+   below it is the whole bar. It was 60 px for a 28 px plate, which on a phone is a band of empty
+   header above every page. */
+:root { --vh: 100dvh; --top-h: calc(env(safe-area-inset-top) + 44px); }
 html { height: 100%; overflow: hidden; }
 body { position: fixed; inset: 0; height: auto; min-height: 0; overflow: hidden; display: block; overscroll-behavior: none; }
 .topbar { position: absolute; top: 0; left: 0; right: 0; z-index: 6; margin: 0; }
@@ -836,8 +1009,7 @@ main.view > :first-child { margin-top: 12px; }
 }
 .topbar::before, .tabbar::before, .card::before, .hero::before, .ios-list::before, .dialog::before, .cgroup::before, .pcell::before, .toast::before { content: none; }
 .topbar { background: var(--bg); }
-.topbar { transform: none; isolation: auto; -webkit-font-smoothing: auto; height: var(--top-h); box-sizing: border-box; padding-top: calc(env(safe-area-inset-top) + 12px); padding-bottom: 12px; }
-.topbar .brand { font-size: var(--fs-lg); }
+.topbar { transform: none; isolation: auto; -webkit-font-smoothing: auto; height: var(--top-h); box-sizing: border-box; padding-top: calc(env(safe-area-inset-top) + var(--sp-2)); padding-bottom: var(--sp-2); }
 .topbar-right { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 .bell { position: relative; width: 30px; height: 30px; border: 0; background: transparent; color: var(--text); padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; }
 .bell svg { width: 19px; height: 19px; }
@@ -891,8 +1063,13 @@ main.view > :first-child { margin-top: 12px; }
 .probe .tgt.eta { color: var(--accent-ink); margin-top: 2px; }
 
 /* ---- target sheet: choose a cut, then a doneness, and see what to pull at ---- */
-.sheet { display: flex; flex-direction: column; gap: 12px; min-width: min(92vw, 380px); }
-.sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+/* Header, body, footer -- the three parts of every sheet, each with its own edge. */
+.sheet { display: flex; flex-direction: column; gap: var(--sp-3); min-height: 0; max-height: 100%; }
+.sheet > .sheet-head { flex: none; }
+.sheet > .sheet-body { flex: 1 1 auto; overflow-y: auto; min-height: 0; margin: 0 calc(var(--pad-x) * -1); padding: 0 var(--pad-x); }
+.sheet > .form-actions, .sheet > .btnrow { flex: none; }
+.sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3);
+  padding-bottom: var(--sp-3); border-bottom: var(--bw) solid var(--line); margin: 0 calc(var(--pad-x) * -1); padding-left: var(--pad-x); padding-right: var(--pad-x); }
 .sheet-head h3 { font-size: var(--fs-lg); }
 .sheet-head .muted { font-size: var(--fs-sm); margin-top: 2px; }
 .sheet-now { text-align: right; font-size: var(--fs-xl); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }

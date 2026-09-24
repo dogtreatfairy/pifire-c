@@ -1,4 +1,4 @@
-import { PF, el, api, patchSettings, toast, onStatus, confirmDialog, numberDialog, degUnit, fmtDur } from '../app.js';
+import { PF, el, api, patchSettings, toast, onStatus, confirmDialog, numberDialog, dialog, degUnit, fmtDur, actionBtn, dataTable } from '../app.js';
 
 const PHASE_TEXT = {
   starting: 'Starting the grill',
@@ -54,6 +54,26 @@ export function renderLearning(view, slots = {}) {
     try { await api('/tune/start', { body }); toast('Tuning started'); } catch (e) { toast(e.message, true); }
     loadTune();
   }
+
+  /* The numbers behind one measured temperature, for when you do want them. */
+  const anchorSheet = (a) => dialog((close) => el('div', { class: 'sheet' },
+    el('div', { class: 'sheet-head' },
+      el('div', {}, el('h3', {}, `${a.setpoint}${degUnit()}`),
+        el('div', { class: 'help' }, `${a.runs || 1} run${(a.runs || 1) === 1 ? '' : 's'}`)),
+      a.ambient != null ? el('div', { class: 'sheet-now' }, `${a.ambient}${degUnit()}`, el('small', {}, 'ambient')) : null),
+    el('div', { class: 'sheet-body' },
+      el('h2', {}, 'Tuning'),
+      el('div', { class: 'kv' },
+        el('div', {}, 'Proportional Band'), el('div', {}, `${a.PB}${degUnit()}`),
+        el('div', {}, 'Integral Time'), el('div', {}, `${a.Ti} s`),
+        el('div', {}, 'Derivative Time'), el('div', {}, `${a.Td} s`)),
+      el('h2', {}, 'Measurement'),
+      el('div', { class: 'kv' },
+        el('div', {}, 'Ultimate gain'), el('div', {}, a.Ku ? a.Ku.toFixed(4) : '\u2014'),
+        el('div', {}, 'Period'), el('div', {}, a.Pu ? `${Math.round(a.Pu)} s` : '\u2014'),
+        el('div', {}, 'Wind'), el('div', {}, a.wind_kmh ? `${a.wind_kmh} km/h` : '\u2014'))),
+    el('div', { class: 'form-actions' },
+      actionBtn('cancel', 'Close', { size: '', onclick: () => close() }))));
 
   function renderTune() {
     if (!tune) return;
@@ -120,7 +140,7 @@ export function renderLearning(view, slots = {}) {
          asked for by name rather than being the side effect of running a tune. */
       if (have) {
         tuneCard.append(el('button', {
-          class: 'btn ghost block', disabled: busy, style: 'margin-top:8px',
+          class: 'btn danger block', disabled: busy, style: 'margin-top:8px',
           onclick: () => start({ full_profile: true, from_scratch: true }, {
             title: 'Erase and start over?',
             text: 'Deletes every measurement, then runs the baseline. No undo.',
@@ -136,13 +156,20 @@ export function renderLearning(view, slots = {}) {
       /* These are the numbers to keep. They go straight into the controller's own Proportional
          Band, Integral Time and Derivative Time boxes, so a tune never has to be repeated just to
          get back to a known-good setting. */
-      const tbl = el('div', { class: 'tunetable' },
-        el('div', { class: 'th' }, 'Set point'), el('div', { class: 'th' }, 'PB'), el('div', { class: 'th' }, 'Ti'), el('div', { class: 'th' }, 'Td'), el('div', { class: 'th' }, 'Runs'));
-      for (const a of anchors) {
-        /* The run count is what makes refinement visible: a number three runs agree on is worth
-           more than one measured on a single windy afternoon, and they look identical otherwise. */
-        tbl.append(el('div', {}, `${a.setpoint}${degUnit()}`), el('div', {}, `${a.PB}${degUnit()}`), el('div', {}, `${a.Ti} s`), el('div', {}, `${a.Td} s`), el('div', {}, `${a.runs || 1}`));
-      }
+      /* The run count is what makes refinement visible: a number three runs agree on is worth more
+         than one measured on a single windy afternoon, and they look identical otherwise. */
+      const tbl = dataTable(
+        /* Which temperatures are measured and how well, not the numbers themselves. The three
+           numbers matter when you want to write them down or type them into another grill, which is
+           occasionally; what you look at is whether 250 is measured and how many runs agree.
+           Tapping a row opens the numbers and the weather they were measured in. */
+        [{ key: 'sp', label: 'Set point' }, { key: 'runs', label: 'Runs' }, { key: 'amb', label: 'Measured at' }],
+        anchors.map((a) => ({
+          sp: `${a.setpoint}${degUnit()}`,
+          runs: String(a.runs || 1),
+          amb: a.ambient != null ? `${a.ambient}${degUnit()}${a.wind_kmh ? ` \u00b7 ${a.wind_kmh} km/h` : ''}` : '\u2014',
+          _onclick: () => anchorSheet(a),
+        })));
       const lines = anchors.map((a) => `${a.setpoint}${degUnit()}: PB ${a.PB}${degUnit()}, Ti ${a.Ti} s, Td ${a.Td} s`
         + (a.ambient != null ? ` (measured at ${a.ambient}${degUnit()} out${a.wind_kmh ? `, ${a.wind_kmh} km/h` : ''})` : ''));
       /* The library is a model of the grill across its range, not a list of separate answers, and
@@ -235,7 +262,7 @@ export function renderLearning(view, slots = {}) {
       // other clearing -- throwing the measurements away and going back to the typed values -- sits
       // under Auto Tuning, beside the library it removes.
       el('div', { class: 'form-actions' },
-        el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog('Clear learning?', 'Clears the observations and the controller\'s own corrections. Measured tuning is kept.', 'Clear', true)) { await api('/learning/forget', { body: {} }); load(); } } }, 'Clear learning'))].filter(Boolean));
+        actionBtn('delete', 'Clear Learning', { onclick: async () => { if (await confirmDialog('Clear learning?', 'Clears the observations and the controller\'s own corrections. Measured tuning is kept.', 'Clear', true)) { await api('/learning/forget', { body: {} }); load(); } } }))].filter(Boolean));
 
     /* What governs the set point right now, sent with every status rather than left over from the
        last cycle the controller ran: between cooks the controller's own note is whatever was in

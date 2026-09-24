@@ -1787,6 +1787,12 @@ static void publish(pf_control *c, double now)
 		s.notify[i].eta_s = p ? p->eta_s : -1;
 		s.notify[i].limit_high_c = p ? p->limit_high_c : 0;
 		s.notify[i].limit_low_c = p ? p->limit_low_c : 0;
+		s.notify[i].nsteps = p ? p->nsteps : 0;
+		for (int k = 0; p && k < p->nsteps && k < PF_MAX_STEPS; k++) {
+			pf_strlcpy(s.notify[i].steps[k].name, p->steps[k].name, sizeof s.notify[i].steps[k].name);
+			s.notify[i].steps[k].temp_c = p->steps[k].temp_c;
+			s.notify[i].steps[k].fired = p->steps[k].fired;
+		}
 	}
 	s.timer.running = c->notify.timer.running;
 	s.timer.paused = c->notify.timer.paused;
