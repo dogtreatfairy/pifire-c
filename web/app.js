@@ -161,7 +161,7 @@ async function pollStatus() {
 let lostTimer = null;
 function setConnected(on) {
   PF.connected = on;
-  document.getElementById('conn-dot').classList.toggle('on', on);
+  paintLink();
   // the banner only appears after the link has been down for a while (a reconnect takes < 1 s and must not flash)
   clearTimeout(lostTimer);
   clearInterval(pollTimer); pollTimer = null;
@@ -494,6 +494,32 @@ function route() {
 window.addEventListener('hashchange', route);
 
 // ---------- header control strip and alert banner ----------
+/* One indicator for one question: can this app reach the grill, and by what road.
+ *
+ * There used to be two, a green dot beside the name and a Tailscale mark beside it, and they
+ * answered the same question twice. Now there is a single mark. It is the Tailscale logo when this
+ * browser is talking to the grill through the tailnet -- which is decided by the address in the
+ * address bar, not by the grill merely having Tailscale installed, because the two are different
+ * facts and only the first is about this connection. Otherwise it is a plain network glyph. Green
+ * when the live link is up, red when it is not. */
+let lastNet = {};
+function overTailscale(net) {
+  const ts = net && net.tailscale;
+  if (!ts) return false;
+  const host = location.hostname.toLowerCase();
+  const name = (ts.name || '').toLowerCase();
+  return (name && (host === name || host === name.split('.')[0])) || /\.ts\.net$/.test(host) || /^100\./.test(host);
+}
+function paintLink() {
+  const l = document.getElementById('ind-link');
+  if (!l) return;
+  const ts = overTailscale(lastNet);
+  l.className = `tb-ind ${PF.connected ? 'ok' : 'bad'}`;
+  l.title = PF.connected
+    ? (ts ? `Connected through Tailscale${lastNet.tailscale && lastNet.tailscale.name ? ' · ' + lastNet.tailscale.name : ''}` : 'Connected to the grill')
+    : 'Not connected to the grill';
+  l.replaceChildren(ts ? brandIcon('tailscale') : lucide('network'));
+}
 const bars = (n, cls) => el('span', { class: `sig s${n} ${cls}` }, [1, 2, 3, 4].map((i) => el('i', { class: i <= n ? 'on' : '' })));
 const wifiBars = (pct) => (!pct ? 0 : pct >= 75 ? 4 : pct >= 55 ? 3 : pct >= 35 ? 2 : 1);
 
@@ -515,14 +541,8 @@ onStatus((s) => {
     wifi.replaceChildren(el('span', { class: 'tb-tag' }, 'LAN'));
   } else wifi.hidden = true;
 
-  // Tailscale, only once the grill has actually joined a tailnet
-  const ts = document.getElementById('ind-ts');
-  if (net.tailscale) {
-    ts.hidden = false;
-    ts.className = `tb-ind ${net.tailscale.online ? 'ok' : 'muted'}`;
-    ts.title = `Tailscale: ${net.tailscale.online ? 'connected' : 'offline'}${net.tailscale.name ? ' · ' + net.tailscale.name : ''}`;
-    ts.replaceChildren(brandIcon('tailscale'));
-  } else ts.hidden = true;
+  lastNet = net;
+  paintLink();
 
   // mode and the number that matters: the target or countdown on Home, the grill temperature elsewhere
   const home = document.documentElement.dataset.page === 'home';

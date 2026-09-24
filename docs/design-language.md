@@ -125,6 +125,16 @@ Anything whose effect is visible on the panel — colour order, margins, theme, 
 effect the moment it changes, with no restart. A setting you have to reboot to test is a setting
 nobody finds.
 
+## One indicator, one question
+
+The header carries one mark for "can this app reach the grill, and by what road". It is the
+Tailscale logo when this browser is talking to the grill through the tailnet — decided by the
+address in the address bar, not by the grill merely having Tailscale installed, because those are
+different facts and only the first is about this connection — and a plain network glyph otherwise.
+Green when the live link is up, red when it is not. There were two marks for this once, a coloured
+dot beside the name and a Tailscale icon next to it, which answered the same question twice and
+disagreed about how to say it.
+
 ## Telling the user something
 
 In-app alerts are iOS-style banners under the header, backed by a notification centre behind the
