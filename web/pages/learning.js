@@ -92,7 +92,9 @@ export function renderLearning(view, slots = {}) {
         const p = tune.profile || [];
         const nruns = (tune.anchors || []).reduce((m, a) => Math.max(m, a.runs || 1), 0);
         const have = (tune.anchors || []).length > 0;
-        tuneCard.append(
+        /* `append` is the DOM's, not el()'s, so a null child would be written out as the word
+           "null" -- which is exactly what an empty library showed under the Measure button. */
+        tuneCard.append(...[
           el('p', { class: 'muted', style: 'font-size:.85rem;margin-top:10px' },
             p.length > 1
               ? `Measures ${p.map((v) => `${v}${degUnit()}`).join(', ')} in that order, and records the weather it measured them in. The first is the baseline, measured where the grill has the most room to swing either side of its centre.`
@@ -122,7 +124,7 @@ export function renderLearning(view, slots = {}) {
               text: 'Everything the grill has measured about itself is thrown away before the run begins, and there is no undo. Do this when the grill itself has changed — a new gasket, a rebuild, a move — rather than to take another measurement. Back the library up first if you might want it.',
               danger: true,
             }),
-          }, 'Start From Scratch') : null);
+          }, 'Start From Scratch') : null].filter(Boolean));
       } else {
         tuneCard.append(
           el('p', { class: 'muted', style: 'font-size:.85rem;margin-top:10px' },

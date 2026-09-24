@@ -475,15 +475,52 @@ h2 { font-size: .74rem; letter-spacing: .09em; margin: 16px 0 6px; }
 .switch span { background: light-dark(rgba(0, 0, 0, .14), rgba(255, 255, 255, .14)); }
 .progress { background: light-dark(rgba(0, 0, 0, .08), rgba(255, 255, 255, .08)); }
 
-/* ---- lists and sections ---- */
-.ios-group { margin: 4px 0 14px; }
-.ios-group > h2 { margin: 0 2px 5px; font-size: .72rem; }
-.ios-group .foot { margin: 5px 2px 0; font-size: .74rem; color: var(--muted); }
-.ios-list { background: var(--glass); border: 1px solid var(--glass-line); border-radius: var(--radius); box-shadow: none; overflow: hidden; position: relative; }
-.ios-list .row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px 7px 12px;
+/* ---- lists and sections ------------------------------------------------
+ *
+ * One recipe for every heading in the app, whether it is a label over a list, a title on a page, or
+ * the header of a section you can open. Each is a full-width band on the page background with a
+ * rule under it, it holds the top of the screen while you read what it introduces, and the next one
+ * pushes it off. Nothing is a box inside a box: a header that carries its own frame, its own
+ * corners and its own shade reads as something bolted onto the page rather than part of it, which
+ * is exactly what it looked like when the section was a card and the header was a chip inside it.
+ *
+ * Two things this depends on: no ancestor may clip its contents (`overflow: hidden` would make the
+ * section its own scrollport and the header would never move), and the scrolling area has to begin
+ * where the header bar ends, or a strip of content shows through above the pinned header.
+ */
+.sticky-head, .view > h2, .ios-group > h2, .ios-fold > summary {
+  position: sticky; top: 0; z-index: 3;
+  background: var(--bg); border-bottom: 1px solid var(--line);
+  margin: 0; padding: 9px 2px 7px;
+}
+.view > h2, .ios-group > h2, .row.between:has(> h2) > h2 { font-size: .72rem; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+/* A heading with an action beside it -- Recipes and New, Probes and Add -- is still a heading, so
+   the band is the row and the button sits on it rather than floating over its rule. */
+.row.between:has(> h2) {
+  position: sticky; top: 0; z-index: 3; background: var(--bg);
+  border-bottom: 1px solid var(--line); margin: 0 0 2px; padding: 6px 2px; gap: 10px;
+}
+.row.between > h2 { position: static; border: 0; padding: 0; margin: 0; }
+/* A card whose whole content is a list is a frame around rows that already separate themselves
+   with a rule, so it draws two more lines and the space either side of them for nothing. */
+.card:has(> .list:only-child) { background: transparent; border: 0; padding: 0; }
+
+/* Headings inside an open section do not stick: the section's own header is already holding the
+   top of the screen, and two of them stacked is a header for a header. */
+.ios-fold .fold-body .row.between:has(> h2) { position: static; border: 0; padding: 0; margin: 10px 0 4px; }
+/* a heading is quiet next to what follows it, so the run of them down a page never competes with
+   the readings themselves */
+.ios-group { margin: 0 0 18px; }
+.ios-group .foot { margin: 6px 2px 0; font-size: .74rem; color: var(--muted); }
+
+/* Lists are rows separated by rules, edge to edge, rather than cards floating on a background.
+   The frame around a list costs two rules and the space either side of them and says nothing the
+   separation between rows does not already say. */
+.ios-list { background: transparent; border: 0; border-radius: 0; box-shadow: none; overflow: visible; position: relative; }
+.ios-list .row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 2px;
   border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
   min-height: var(--row-h); -webkit-tap-highlight-color: transparent; }
-.ios-list .row + .row { border-top: 1px solid var(--glass-line); }
+.ios-list .row + .row { border-top: 1px solid var(--line); }
 .ios-list .row:active { background: color-mix(in oklab, var(--text) 10%, transparent); }
 .ios-list .row.danger .t { color: var(--danger); }
 /* Icon tiles are flat squares in one colour: an identifier, not an ornament. */
@@ -497,36 +534,20 @@ h2 { font-size: .74rem; letter-spacing: .09em; margin: 16px 0 6px; }
 .ios-list .chev, .ios-fold > summary .chev { width: 16px; height: 16px; color: var(--muted); flex: none; }
 .menu .btn { border-radius: var(--radius-s); }
 
-/* A section header holds its place.
- *
- * Open a section, scroll into it, and the header stays against the top of the list until the next
- * section arrives and pushes it off -- so you always know which section you are reading, and
- * getting back out is one tap on something already under your thumb rather than a scroll back up.
- * This is why the fold cannot clip its own contents: `overflow: hidden` on the section would make
- * the section its own scrollport and the header would never move at all. */
-.ios-fold { background: var(--glass); border: 1px solid var(--glass-line); border-radius: var(--radius);
-  box-shadow: none; overflow: visible; position: relative; margin-bottom: 10px; }
+/* A section you can open is the same header with a row's contents on it. */
+.ios-fold { background: transparent; border: 0; border-radius: 0; box-shadow: none; overflow: visible; position: relative; margin: 0; }
 .ios-fold > summary {
-  /* `top: 0` is the top of the scrolling area's CONTENT box, which the padding above has already
-     placed just below the header bar. Chrome measures a sticky offset from there, not from the
-     scrollport edge, so anything else pins the header that far again below the bar and leaves a
-     strip of content scrolling past above it. */
-  position: sticky; top: 0; z-index: 3;
-  display: flex; align-items: center; gap: 10px; padding: 7px 10px 7px 12px; min-height: var(--row-h);
-  background: var(--surface2); border-radius: calc(var(--radius) - 1px); cursor: pointer; list-style: none;
-  font-weight: 400; -webkit-tap-highlight-color: transparent;
+  display: flex; align-items: center; gap: 10px; min-height: var(--row-h);
+  cursor: pointer; list-style: none; font-weight: 400; -webkit-tap-highlight-color: transparent;
 }
-.ios-fold[open] > summary { border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0; border-bottom: 1px solid var(--glass-line); }
 .ios-fold > summary::-webkit-details-marker, .ios-fold > summary::after { display: none; content: none; }
-.ios-fold > summary:active { background: color-mix(in oklab, var(--text) 10%, var(--surface2)); }
+.ios-fold > summary:active { background: color-mix(in oklab, var(--text) 8%, var(--bg)); }
 .ios-fold > summary .chev { transition: transform .15s; }
 .ios-fold[open] > summary .chev { transform: rotate(90deg); }
 .ios-fold > summary .body { display: flex; flex-direction: column; gap: 1px; }
-.ios-fold .fold-body { padding: 2px 12px 8px; }
+.ios-fold .fold-body { padding: 10px 0 16px; }
 .ios-fold .fold-body > .card, .ios-fold .fold-body .card { background: transparent; border: 0; box-shadow: none; padding-left: 0; padding-right: 0; }
-.ios-fold .fold-body h2 { margin-top: 8px; }
-/* Plain sections, on the pages built from headings rather than folds, behave the same way. */
-.view > h2 { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 6px 0 5px; }
+.ios-fold .fold-body h2 { position: static; border: 0; padding: 0; margin: 12px 0 6px; }
 
 /* =====================================================================
    Standalone (Home Screen) app fixes

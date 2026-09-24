@@ -81,12 +81,20 @@ label sits close to what it labels, in small upper case. Numbers are tabular so 
 a reading does not jitter as it changes. The test is how much of a list you can take in without
 scrolling, because scrolling is what costs you your place.
 
-**A section header holds its place.** Open a section and scroll into it: the header stays against
-the top of the list until the next section arrives and pushes it off. You always know which section
-you are reading, and closing it again is one tap on something already under your thumb. Technically
-this means the fold cannot clip its own contents, and the scrolling area begins exactly where the
+**A section header holds its place, and every heading is the same thing.** A label over a list, a
+title on a page, a heading with an action beside it, and the header of a section you can open are
+all one recipe: a full-width band on the page background with a rule under it, pinned to the top of
+the screen while you read what it introduces, pushed off by the next one. Nothing is a box inside a
+box — a header with its own frame, its own corners and its own shade reads as something bolted onto
+the page rather than part of it, which is exactly how it looked when a section was a card and its
+header was a chip inside it. For the same reason a list is rows separated by rules rather than a
+card floating on a background, and a card that holds nothing but a list is not a card at all.
+
+Two things this depends on: no ancestor may clip its contents (`overflow: hidden` makes the section
+its own scrollport and the header never moves), and the scrolling area begins exactly where the
 header bar ends — any padding between them is a window that content shows through above the pinned
-header.
+header. Headings *inside* an open section do not stick: the section's own header is already holding
+the top of the screen, and two stacked is a header for a header.
 
 Sheets follow one shape: what it is about at the top with its current value, the choices in the
 middle as full-width cards, and the commit row at the foot.
