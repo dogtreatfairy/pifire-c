@@ -16,10 +16,16 @@ async function profileDialog(p = {}) {
   });
 }
 
-export function renderPellets(view) {
+/* `slots.hopper` is where the hopper's own block goes: what the sensor reads, the two buttons that
+   teach it the ends of its scale, and nothing about pellet brands. It used to sit inside the Loaded
+   Pellets card, which is about which pellets are in the grill and how many have been burned -- a
+   different subject that happens to be on the same page. A control belongs to the thing it acts on. */
+export function renderPellets(view, slots = {}) {
   const current = el('div', { class: 'card' });
+  const hopper = slots.hopper || el('div', { class: 'card' });
   const list = el('div', { class: 'list' });
   const log = el('div', { class: 'list' });
+  if (!slots.hopper) view.append(el('h2', {}, 'Hopper'), hopper);
   view.append(el('h2', {}, 'Loaded Pellets'), current,
     el('div', { class: 'row between' }, el('h2', {}, 'Pellet Profiles'), el('button', { class: 'btn sm', onclick: async () => { const r = await profileDialog(); if (r) { await api('/pellets/profile', { body: r }).catch((e) => toast(e.message, true)); load(); } } }, 'Add')),
     el('div', { class: 'card' }, list), el('h2', {}, 'Log'), el('div', { class: 'card' }, log));
@@ -29,30 +35,49 @@ export function renderPellets(view) {
     current.innerHTML = '';
     const h = d.hopper;
     current.append(el('div', { class: 'row between' },
-      el('div', {}, el('div', { style: 'font-size:1.2rem;font-weight:600' }, d.current.brand ? `${d.current.brand} ${d.current.wood}` : 'None selected'), el('div', { class: 'muted', style: 'font-size:.8rem' }, `≈ ${(d.current.est_usage_g / 453.6).toFixed(2)} lb (${d.current.est_usage_g.toFixed(0)} g) used since loading`)),
-      h.enabled ? el('div', { class: 'stat' }, el('div', { class: 'v' }, h.pct >= 0 ? `${h.pct}%` : '—'), el('div', { class: 'l' }, 'hopper')) : null));
+      el('div', {}, el('div', { style: 'font-size:1.2rem;font-weight:600' }, d.current.brand ? `${d.current.brand} ${d.current.wood}` : 'None selected'),
+        el('div', { class: 'muted', style: 'font-size:.8rem' }, `≈ ${(d.current.est_usage_g / 453.6).toFixed(2)} lb (${d.current.est_usage_g.toFixed(0)} g) used since loading`))));
+
+    hopper.innerHTML = '';
+    /* A scale needs two distinct ends. Set both to the same distance, or set empty nearer than
+       full, and the level stops reading altogether -- which is honest, but the page used to say
+       only "—" and leave the reason in the log. */
+    const fullCm = Number(PF.settings?.pelletlevel?.full), emptyCm = Number(PF.settings?.pelletlevel?.empty);
+    const scale = emptyCm > fullCm;
+    if (h.enabled && !scale) {
+      hopper.append(el('div', { class: 'notice warn' },
+        `Empty (${emptyCm} cm) has to be further from the sensor than full (${fullCm} cm), or there is no scale to read the level against. Measure the other end, or type the two distances below.`));
+    }
     if (h.enabled) {
       const cal = async (as) => {
         const what = as === 'full' ? 'full' : 'empty';
         if (!await confirmDialog(`Call this ${what}?`,
           `The sensor takes a reading now and that distance becomes ${what === 'full' ? 'the top' : 'the bottom'} of the scale. Do it with the hopper actually ${what === 'full' ? 'filled' : 'empty'}: the number depends on where the sensor sits and how the pellets heap up, which is why it is measured rather than typed.`,
           `Set ${what}`)) return;
-        try { await api('/pellets/calibrate', { body: { as } }); toast(`Measuring ${what}…`); setTimeout(load, 3000); }
-        catch (e) { toast(e.message, true); }
+        try {
+          await api('/pellets/calibrate', { body: { as } });
+          toast(`Measuring ${what}…`);
+          setTimeout(async () => { await slots.onCalibrated?.(); load(); }, 3000);
+        } catch (e) { toast(e.message, true); }
       };
-      current.append(
-        el('div', { class: 'progress' }, el('div', { style: `width:${Math.max(0, h.pct)}%` })),
-        el('div', { class: 'muted', style: 'font-size:.76rem;margin-top:6px' },
-          `${h.cm > 0 ? `${h.cm.toFixed(1)} cm to the pellets. ` : ''}Full at ${PF.settings?.pelletlevel?.full ?? '—'} cm, empty at ${PF.settings?.pelletlevel?.empty ?? '—'} cm.`),
-        /* Calibration is two measurements, taken when the hopper is in the state being named. The
-           dismissive end of the scale is on the left and the committing one on the right nowhere
-           here -- these are two equal actions, so they read in the order you would do them. */
+      hopper.append(
+        el('div', { class: 'row between' },
+          /* With no scale the percentage is the last one worked out against a scale that no longer
+             exists, so it is not shown: a number contradicting the warning above it is worse than
+             no number, and the reading in centimetres is still true. */
+          el('div', { style: 'font-size:1.6rem;font-weight:600' }, scale && h.pct >= 0 ? `${h.pct}%` : '—'),
+          el('div', { class: 'muted', style: 'font-size:.78rem;text-align:right' },
+            h.cm > 0 ? `${h.cm.toFixed(1)} cm to the pellets` : 'no reading',
+            el('div', {}, `full ${PF.settings?.pelletlevel?.full ?? '—'} cm · empty ${PF.settings?.pelletlevel?.empty ?? '—'} cm`))),
+        el('div', { class: 'progress' }, el('div', { style: `width:${scale ? Math.max(0, h.pct) : 0}%` })),
+        /* Two measurements, each taken with the hopper in the state being named, in the order you
+           would do them: fill it and say so, run it out and say so. */
         el('div', { class: 'form-actions' },
-          el('button', { class: 'btn sm ghost', onclick: () => cal('empty') }, 'Set Current As Empty'),
+          el('button', { class: 'btn sm ghost', onclick: async () => { await api('/pellets/check', { body: {} }); toast('Checking hopper…'); setTimeout(load, 2500); } }, 'Check Level Now'),
           el('button', { class: 'btn sm ghost', onclick: () => cal('full') }, 'Set Current As Full'),
-          el('button', { class: 'btn sm ghost', onclick: async () => { await api('/pellets/check', { body: {} }); toast('Checking hopper…'); setTimeout(load, 2500); } }, 'Check Level Now')));
+          el('button', { class: 'btn sm ghost', onclick: () => cal('empty') }, 'Set Current As Empty')));
     }
-    else current.append(el('p', { class: 'muted', style: 'font-size:.8rem' }, 'No hopper sensor configured (Hardware setup → distance sensor).'));
+    else hopper.append(el('p', { class: 'muted', style: 'font-size:.8rem;margin:0' }, 'No hopper sensor configured (Hardware setup \u2192 distance sensor).'));
 
     list.innerHTML = '';
     for (const p of d.profiles) {

@@ -98,12 +98,7 @@ const PAGES = [
   ] }] },
   // ---- Cook
   { key: 'keepwarm', title: 'Keep Warm', sub: 'After a probe reaches its target', section: 'Cooking', icon: 'flame', color: '#ff6b35', sections: [{ id: 'keep_warm', fields: [T('temp', 'Keep-warm temperature', ''), B('s_plus', 'Use Smoke+ while keeping warm', '')] }] },
-  { key: 'pellets', title: 'Pellets & Hopper', sub: 'Loaded pellets, brands, low-pellet warnings, hopper sensor', section: 'Cooking', icon: 'package', color: '#ac8e68', after: renderPellets, sections: [{ id: 'pelletlevel', title: 'Hopper', fields: [
-    /* The low-pellet warning is a conditional notification like everything else, so it is set up
-       where the others are rather than having a second switch here that disagrees with it. */
-    { type: 'note', help: 'Low-hopper warnings are conditional notifications: see Notifications \u2192 Conditional Notifications, where "Hopper Low" and "Hopper Critical" set the levels and where they are sent.' },
-    I('empty', 'Sensor reading when empty (cm)', 'Distance from the sensor to the bottom of the hopper', { min: 1 }), I('full', 'Sensor reading when full (cm)', '', { min: 0 }),
-  ] }] },
+  { key: 'pellets', title: 'Pellets & Hopper', sub: 'Loaded pellets, brands, low-pellet warnings, hopper sensor', section: 'Cooking', icon: 'package', color: '#ac8e68', custom: pelletsPage },
   { key: 'history', title: 'Data & History', sub: 'Chart sampling and retention', section: 'System', icon: 'database', color: '#5e5ce6', sections: [{ id: 'history', fields: [
     I('sample_s', 'Sample every (s)', '', { min: 1, max: 60 }), I('retention_hours', 'Keep for (hours)', '', { min: 1 }), B('clear_on_startup', 'Clear the chart when a cook starts', ''),
   ] }] },
@@ -319,6 +314,8 @@ export function readField(f, form) {
 
 function pageCard(pg) {
   const wrap = el('div');
+  /* Also hung on the element below, so a page whose settings are changed by something other than
+     this form -- the hopper measuring itself, say -- can redraw the fields from what was stored. */
   const rerender = () => { wrap.innerHTML = ''; build(); };
   const build = () => {
   for (const sec of pg.sections) {
@@ -381,6 +378,7 @@ function pageCard(pg) {
   }
   };
   build();
+  wrap.rerender = rerender;
   return wrap;
 }
 
@@ -510,6 +508,32 @@ async function controllerPage(view) {
   const stop = renderLearning(view, { note: noteInto, tuning: tuningInto, learning: learningInto });
   return () => { offStatus(); stop?.(); };
 }
+/* Pellets & Hopper: two subjects, each whole.
+ *
+ * The hopper is a sensor and a scale -- what it reads now, the two buttons that teach it the ends
+ * of that scale, and the numbers those produce. The pellets are a brand, how much of them has been
+ * burned, and the list to choose from. The level used to be printed inside the loaded-pellets card
+ * with the calibration buttons under it, which put a control for the sensor inside a card about
+ * which wood is in the grill. */
+const hopperFields = [
+  /* The low-pellet warning is a conditional notification like everything else, so it is set up
+     where the others are rather than having a second switch here that disagrees with it. */
+  { type: 'note', help: 'Low-hopper warnings are conditional notifications: see Notifications \u2192 Conditional Notifications, where "Hopper Low" and "Hopper Critical" set the levels and where they are sent.' },
+  I('empty', 'Sensor reading when empty (cm)', 'Distance from the sensor to the bottom of the hopper', { min: 1 }),
+  I('full', 'Sensor reading when full (cm)', 'Distance from the sensor to a full load', { min: 0 }),
+];
+function pelletsPage(view) {
+  const hopper = el('div', { class: 'card' });
+  const fields = pageCard({ sections: [{ id: 'pelletlevel', title: '', fields: hopperFields }] });
+  view.append(el('h2', {}, 'Hopper'), hopper, fields);
+  /* Measuring an end of the scale writes the same setting the boxes below hold, so those boxes are
+     redrawn from what was stored. Two places showing one number, disagreeing, is the whole reason
+     anyone stops trusting a screen. */
+  return renderPellets(view, { hopper, onCalibrated: async () => {
+    try { PF.settings = await api('/settings'); fields.rerender(); } catch { /* the boxes redraw on the next visit */ }
+  } });
+}
+
 // Wi-Fi & hotspot: live connection and networks, then the hotspot settings
 function networkPage(view) {
   // the hotspot's live state, its settings and its start/stop button belong together

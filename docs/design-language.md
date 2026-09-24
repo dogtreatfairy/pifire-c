@@ -129,6 +129,21 @@ What reaches a phone is decided by the rule that fired, not by a second layer of
 names its own services and its own urgency; the category switches exist for the daemon's own
 chatter and must not silently swallow anything a person wrote.
 
+## Where a control goes
+
+**A control belongs to the thing it acts on**, in the section that owns that subject, not in
+whichever card happens to be nearest on the page. The hopper's calibration buttons once sat inside
+the Loaded Pellets card, which is about which brand is in the grill and how much of it has burned:
+a different subject that happened to share a page. A page that covers two subjects gives each its
+own section, whole — the hopper's reading, its buttons and its two distances together; the brand,
+the usage and the profile list together.
+
+Before building a control, argue against it: where else does this number appear, and can the two
+disagree? What happens when the input is nonsense? Does this duplicate something that already
+exists? Each of those questions has caught a real fault here — a measured value that left the typed
+box beside it showing the old number, and a calibration that could kill the reading altogether with
+nothing on screen to say why.
+
 ## One question, one control
 
 A new capability that overlaps something the app already does is folded into that control, never
