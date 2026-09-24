@@ -528,7 +528,12 @@ h2 { font-size: .74rem; letter-spacing: .09em; margin: 16px 0 6px; }
  * then separated by a single line each, and an open one is bracketed: rule, header, rule, content,
  * and the next header's rule closes it. */
 .ios-fold > summary { border-top: 1px solid var(--line); }
-.ios-fold[open] > summary { border-bottom: 1px solid var(--line); }
+/* Open, the header is the card's top plate: the card's own border stands above it, and it is
+   shaded a step up from the body so the two read as one object rather than a chip on a box. */
+.ios-fold[open] > summary {
+  border-top: 0; border-bottom: 1px solid var(--line); background: var(--surface2);
+  border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0; padding-left: 12px;
+}
 /* the first section on a page needs no line above it: there is nothing above it */
 .view > .ios-fold:first-child > summary, .view > :first-child.ios-fold > summary { border-top: 0; }
 .view > h2, .ios-group > h2, .row.between:has(> h2) > h2 { font-size: .72rem; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
@@ -576,8 +581,19 @@ h2 { font-size: .74rem; letter-spacing: .09em; margin: 16px 0 6px; }
 .ios-list .chev, .ios-fold > summary .chev { width: 16px; height: 16px; color: var(--muted); flex: none; }
 .menu .btn { border-radius: var(--radius-s); }
 
-/* A section you can open is the same header with a row's contents on it. */
+/* A section you can open is a row until you open it, and then it is a card.
+ *
+ * Closed, it belongs to the list: a plain row with a rule above it, like every other row. Open, its
+ * contents need to be visibly INSIDE something, because the rest of the interface puts content in
+ * cards and a section whose body is loose text between two hairlines does not read as a section at
+ * all -- you cannot see where it ends and the next header begins. So opening one draws the card:
+ * the header becomes its top plate, the body sits on its surface, and the whole thing stands off
+ * the rows around it. */
 .ios-fold { background: transparent; border: 0; border-radius: 0; box-shadow: none; overflow: visible; position: relative; margin: 0; }
+.ios-fold[open] {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  margin: 10px 0; overflow: visible;
+}
 .ios-fold > summary {
   display: flex; align-items: center; gap: 10px; min-height: var(--row-h);
   cursor: pointer; list-style: none; font-weight: 400; -webkit-tap-highlight-color: transparent;
@@ -587,7 +603,7 @@ h2 { font-size: .74rem; letter-spacing: .09em; margin: 16px 0 6px; }
 .ios-fold > summary .chev { transition: transform .15s; }
 .ios-fold[open] > summary .chev { transform: rotate(90deg); }
 .ios-fold > summary .body { display: flex; flex-direction: column; gap: 1px; }
-.ios-fold .fold-body { padding: 10px 0 20px; }
+.ios-fold .fold-body { padding: 10px 12px 14px; }
 .ios-fold .fold-body > .card, .ios-fold .fold-body .card { background: transparent; border: 0; box-shadow: none; padding-left: 0; padding-right: 0; }
 .ios-fold .fold-body h2 { position: static; border: 0; padding: 0; margin: 12px 0 6px; }
 

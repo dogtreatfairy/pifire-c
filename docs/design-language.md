@@ -81,6 +81,13 @@ label sits close to what it labels, in small upper case. Numbers are tabular so 
 a reading does not jitter as it changes. The test is how much of a list you can take in without
 scrolling, because scrolling is what costs you your place.
 
+**A section you can open is a row until you open it, and then it is a card.** Closed, it belongs to
+the list: a plain row with a rule above it, like every other row. Open, its contents have to be
+visibly *inside* something, because everything else on these pages puts content in a card — a
+section whose body is loose text between two hairlines does not read as a section at all, and you
+cannot see where it ends and the next header begins. Opening one draws the card: the header becomes
+its top plate, a shade above the body, and the whole thing stands off the rows around it.
+
 **A rule belongs where two things meet.** A section header carries its rule on top, separating it
 from whatever ended above it, and gains one underneath only while it is open, separating it from
 its own content. A small upper-case label carries none: the rows beneath it already separate
