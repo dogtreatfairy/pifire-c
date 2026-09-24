@@ -120,10 +120,11 @@ typedef struct {
 		double rise_t0, rise_T0_c, rise_u_sum; int rise_n; double rise_t28, rise_t63; bool rise_active;
 	} learn;
 	/* relay autotune (core-owned; controller update() is bypassed while active) */
-#define PF_AT_MAX 12        /* half-cycles kept: seven crossings normally, more if it has not settled */
-#define PF_AT_MIN_CROSS 7   /* the fewest crossings that can produce a result */
+#define PF_AT_MAX 14        /* half-cycles kept: seven crossings normally, more while the relay is being conditioned */
+#define PF_AT_MIN_CROSS 5   /* the fewest crossings that can produce a result: two full cycles after the centring */
 	struct {
 		bool active; int phase; double u_center, h, hyst_c, start_t, last_cross_t;
+
 		/* `halves` holds the time between successive crossings. A full oscillation is one half
 		 * plus the next, which is not the same as twice either one: a grill heats far faster
 		 * than it cools, so its limit cycle is lopsided. */
@@ -141,6 +142,13 @@ typedef struct {
 		 * computed from the size of the swing, so it has to be the delivered size, not the
 		 * requested one. */
 		double hi_sum, lo_sum; int hi_n, lo_n;
+		/* The feed delivered over the full cycle just finished. At a limit cycle the average of a
+		 * relay's output over one period is the load the plant actually needs, so this is the
+		 * grill's own answer to "what does it take to hold this?" and where the centre belongs. */
+		double cyc_sum; int cyc_n;
+		double worst_split;     /* the most lopsided full cycle seen, as time-high / time-low */
+		int adjusts;            /* times the relay has been re-conditioned (centre or swing) */
+		int adjust_at_cross;    /* the crossing it was last conditioned at: what follows is the measurement */
 		char note[64];
 	} autotune;
 	/* sensors */

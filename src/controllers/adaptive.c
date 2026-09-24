@@ -440,15 +440,18 @@ static void apply_tuning(void *self, double Ku, double Pu, double K, double tau,
 	ad_t *s = self;
 	double PB, Ti, Td;
 	const char *src;
-	/* One path. Whatever measured the grill, what arrives here is the grill's model, and the same
-	 * rule turns it into a tuning. Ku and Pu say only which measurement it came from, and so how
-	 * far the result is trusted: a relay test drives the plant deliberately, a startup rise is
-	 * whatever the cook happened to do. */
-	if (!(K > 0) || !(tau > 0) || !(theta > 0)) return;
+	/* Each measurement is designed from by the rule written for it. A relay test measured an
+	 * ultimate gain and a period, and Tyreus-Luyben turns exactly those two numbers into a tuning.
+	 * A startup rise was fitted to a model, and SIMC designs from a model. Routing the relay
+	 * through the model as well meant borrowing a static gain it never saw and splitting its phase
+	 * lag between a time constant and a dead time -- and the band that came out was proportional to
+	 * that dead time, which moved by two thirds between two runs on the same grill. */
 	bool relay = Ku > 0 && Pu > 0;
 	src = relay ? "relay" : "model";
-	s->theta = clampd(theta, THETA_MIN, THETA_MAX);
-	pf_tuning_from_plant(K, tau, theta, &PB, &Ti, &Td);
+	if (theta > 0) s->theta = clampd(theta, THETA_MIN, THETA_MAX);
+	if (relay) pf_tuning_from_relay(Ku, Pu, &PB, &Ti, &Td);
+	else if (K > 0 && tau > 0 && theta > 0) pf_tuning_from_plant(K, tau, theta, &PB, &Ti, &Td);
+	else return;
 	if (!(PB > 0) || !(Ti > 0)) return;
 	/* The configured PB, Ti and Td are where the grill starts, not a leash on what it learns. A
 	 * relay test drives the plant deliberately and measures it, and the answer can be several

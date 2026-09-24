@@ -30,6 +30,8 @@ static void learn_reset_window(pf_control *c, double now);
 static void learn_rise_begin(pf_control *c, double now);
 static void autotune_start(pf_control *c, double now);
 static void autotune_finish(pf_control *c, bool ok, const char *why);
+static double autotune_output(const pf_control *c);
+static void autotune_size(pf_control *c);
 static void autotune_cycle(const pf_control *c, int i, double *period, double *amp);
 static bool autotune_settled(const pf_control *c);
 
@@ -259,9 +261,16 @@ static void forget_learning(pf_control *c, int what, const char *why)
 		break;
 	case PF_CLEAR_FOR_BASELINE:
 		/* The library keeps what the run just measured -- that is the point of the run -- and
-		 * everything else the controller was carrying goes, so the baseline is what governs from
-		 * here rather than competing with a model fitted to some earlier cook. */
-		pf_learning_forget();
+		 * everything the controller was carrying goes, so the baseline governs from here rather
+		 * than competing with a model fitted to some earlier cook.
+		 *
+		 * The steady-state observations stay. They are not a refinement of the tuning: they measure
+		 * how much fuel this grill burns to hold a temperature, which a new proportional band does
+		 * not change, and the next tuning run needs them -- they are where the static gain comes
+		 * from, and they put the grill on its proper operating point before the relay starts.
+		 * Clearing them here cost a real measurement: the run that followed had no feed-forward at
+		 * all, settled differently, and came back with a limit cycle two thirds slower than the
+		 * run before it. */
 		ctrl = PF_FORGET_REFINEMENT | PF_FORGET_TUNING;
 		break;
 	default: return;
@@ -272,7 +281,8 @@ static void forget_learning(pf_control *c, int what, const char *why)
 		               "The tuning library is gone and the grill is back to the Proportional Band, Integral Time and Derivative Time typed on the controller page (%s).", why);
 	else
 		pf_events_emit("Learning_Cleared", "Learning cleared",
-		               "The grill starts learning again from the tuning it has (%s).", why);
+		               "The grill starts learning again from the tuning it has (%s).%s", why,
+		               what == PF_CLEAR_FOR_BASELINE ? " What it has measured about its fuel use is kept." : "");
 }
 
 static void controller_fill_defaults(void)
@@ -805,10 +815,23 @@ static void learn_track_steady(pf_control *c, double now)
 	}
 }
 
-/* passive FOPDT: watch the rise from STARTUP entry until the pit first settles near the set point */
+/* passive FOPDT: watch the rise from STARTUP entry until the pit first settles near the set point.
+ *
+ * Only from a cold grill. The two-point method reads a step response, and a step starts from rest:
+ * light a barrel that is still 100 degrees warm from the last cook and the rise it makes is the
+ * tail of the previous one, fitted as though it were the whole thing. The time constant comes out
+ * short, the dead time long, and the model is wrong in a way nothing downstream can detect. Two
+ * tuning runs on the same grill disagreed by nearly a factor of two, and one of them had been lit
+ * warm. What the grill is cannot depend on how warm it happened to be when somebody pressed
+ * start. */
 static void learn_rise_begin(pf_control *c, double now)
 {
-	c->learn.rise_active = pf_learning_enabled() && c->pit_valid;
+	double amb = isnan(c->ambient_c) ? pf_to_c(70, PF_UNITS_F) : c->ambient_c;
+	bool cold = c->pit_valid && c->pit_c < amb + pf_delta_to_c(30, PF_UNITS_F) && c->pit_c < pf_to_c(150, PF_UNITS_F);
+	if (pf_learning_enabled() && c->pit_valid && !cold)
+		LOGI(TAG, "startup began at %.0f C with ambient %.0f C: too warm to fit the grill's model from it",
+		     c->pit_c, amb);
+	c->learn.rise_active = pf_learning_enabled() && c->pit_valid && cold;
 	c->learn.rise_t0 = 0; c->learn.rise_T0_c = c->pit_c; c->learn.rise_u_sum = 0; c->learn.rise_n = 0;   /* clock starts at ignition, see learn_rise_track */
 	c->learn.rise_t28 = c->learn.rise_t63 = 0;
 }
@@ -893,37 +916,39 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 	double Ku = 4.0 * h_eff / (M_PI * (denom > 0.1 ? denom : A));
 	pf_autotune_result r = { .Ku = Ku, .Pu = Pu, .amplitude_c = A };
 
-	/* Turn the measurement into the grill's model rather than straight into a tuning. The static
-	 * gain is the one thing a relay test cannot see, so it comes from the feed-forward fit, which
-	 * measures the steady feed this grill needs per degree across cooks, and failing that from the
-	 * last startup rise. The model is then filed like any other, and the tuning comes out of it by
-	 * the same rule a passively fitted model does. */
+	/* The tuning comes out of what the relay measured, and nothing else.
+	 *
+	 * It used to be routed through the three-parameter model: borrow a static gain the relay cannot
+	 * see, split the measured phase lag into a time constant and a dead time, then design from
+	 * those. SIMC's band is proportional to that dead time, and the split is decided almost
+	 * entirely by the period of the limit cycle. Two runs on this grill a day apart measured
+	 * periods of 370 s and 603 s -- which the split turned into dead times of 99 s and 168 s, and
+	 * bands of 82 F and 150 F, while the relay's own rule put the second run at 93 F. */
+	pf_tuning_from_relay(Ku, Pu, &r.PB_c, &r.Ti, &r.Td);
+	if (!(r.PB_c > 0) || !(r.Ti > 0)) {
+		pf_events_emit("Autotune_Failed", "Autotune stopped", "The oscillation could not be turned into a tuning.");
+		return;
+	}
+	/* The model is still worth having -- the controller looks ahead by the dead time, and the app
+	 * shows the grill it measured -- so it is filed as a by-product when the relay and a static
+	 * gain can describe one together. It no longer decides the tuning. */
 	pf_ff_fit ff = pf_learning_fit();
 	pf_fopdt plant = pf_learning_fopdt();
 	double K = ff.n >= 3 && ff.b > 1e-5 ? 1.0 / ff.b : plant.valid ? plant.K : 0;
 	double tau = 0, theta = 0;
-	const char *K_src = ff.n >= 3 && ff.b > 1e-5 ? "feed-forward" : "startup rise";
 	if (K > 0 && pf_plant_from_relay(Ku, Pu, K, &tau, &theta)) {
 		pf_learning_store_fopdt(K, tau, theta);
-		pf_tuning_from_plant(K, tau, theta, &r.PB_c, &r.Ti, &r.Td);
-		LOGI(TAG, "relay -> plant: K %.0f C per unit feed (%s), tau %.0f s, theta %.0f s", K, K_src, tau, theta);
-	} else if (plant.valid) {
-		/* the relay and the static gain cannot describe a plant together; keep what is known */
-		pf_tuning_from_plant(plant.K, plant.tau, plant.theta, &r.PB_c, &r.Ti, &r.Td);
-		LOGW(TAG, "relay result does not describe a first-order plant with K %.0f; keeping the fitted model", K);
-	}
-	if (!(r.PB_c > 0) || !(r.Ti > 0)) {
-		pf_events_emit("Autotune_Failed", "Autotune stopped",
-		               "The oscillation could not be turned into a model of the grill. Let it run an ordinary cook or two first, so the feed it needs per degree is known.");
-		return;
+		LOGI(TAG, "relay -> plant: K %.0f C per unit feed (%s), tau %.0f s, theta %.0f s", K,
+		     ff.n >= 3 && ff.b > 1e-5 ? "feed-forward" : "startup rise", tau, theta);
 	}
 	pf_learning_store_autotune(&r);
 	bool applied = false;
 	if (pf_learning_enabled() && c->cinst && c->cops->apply_tuning) {
-		/* hand over the model, not the raw oscillation: the controller designs from the same three
-		 * numbers whichever measurement produced them */
+		/* the oscillation itself, so the controller designs from the measurement rather than from
+		 * a model fitted around it */
 		pf_fopdt m = pf_learning_fopdt();
-		if (m.valid) { c->cops->apply_tuning(c->cinst, Ku, Pu, m.K, m.tau, m.theta); applied = true; }
+		c->cops->apply_tuning(c->cinst, Ku, Pu, m.valid ? m.K : 0, m.valid ? m.tau : 0, m.valid ? m.theta : 0);
+		applied = true;
 	}
 	pf_events_emit("Autotune_Done", "Autotune complete",
 	               "Ku %.3f (swing ±%.2f duty), period %.0f s over %d cycle%s%s, amplitude ±%.1f. PB %.0f (%s), Ti %.0f s%s.",
@@ -991,12 +1016,7 @@ static void autotune_start(pf_control *c, double now)
 	 * little fuel has almost no room below it: asking for a swing that gets clamped on one side
 	 * gives a lopsided input and an ultimate gain that is too high. Shrink the swing instead, and
 	 * only if that leaves too little to measure, move the centre up to make room. */
-	double h = fmin(0.15, fmin(c->autotune.u_center - c->cfg.u_min, c->cfg.u_max - c->autotune.u_center));
-	if (h < 0.05) {
-		c->autotune.u_center = pf_clamp(c->cfg.u_min + 0.05, c->cfg.u_min + 0.05, c->cfg.u_max - 0.05);
-		h = fmin(0.05, fmin(c->autotune.u_center - c->cfg.u_min, c->cfg.u_max - c->autotune.u_center));
-	}
-	c->autotune.h = h;
+	autotune_size(c);
 	c->autotune.hyst_c = 1.0;
 	c->autotune.start_t = now;
 	c->autotune.last_cross_t = now;
@@ -1004,7 +1024,7 @@ static void autotune_start(pf_control *c, double now)
 	c->autotune.err_at_move = c->pit_c - c->setpoint_c;
 	c->autotune.peak_max = c->autotune.peak_min = c->pit_c;
 	pf_events_emit("Autotune_Started", "Autotune running", "The grill will oscillate a few degrees around %.0f for 15-40 minutes. Do not cook food during the test.", pf_from_c(c->setpoint_c, c->cfg.units));
-	pf_cycle_begin(&c->cycle, &c->ccfg, now, c->autotune.u_center + c->autotune.h * c->autotune.phase);
+	pf_cycle_begin(&c->cycle, &c->ccfg, now, autotune_output(c));
 	c->u_raw = c->u_applied = c->cycle.u_applied;
 }
 
@@ -1032,6 +1052,30 @@ static bool autotune_settled(const pf_control *c)
 	return fabs(p1 - p2) <= 0.25 * pmax && fabs(a1 - a2) <= 0.30 * amax;
 }
 
+/* the feed this half of the swing asks for: up from the centre, or down from it */
+static double autotune_output(const pf_control *c)
+{
+	return c->autotune.u_center + c->autotune.h * c->autotune.phase;
+}
+
+/* Size the swing around the centre -- the same step up as down.
+ *
+ * Stepping up harder than down was tried, to get more authority on a grill holding near its minimum
+ * feed, and it costs the one property the whole test depends on: an uneven relay produces an uneven
+ * limit cycle, whose mean sits off the set point even when the centre is exactly the load. Measured
+ * in the simulator it left the swing averaging 255 F on a 250 F set point, which is the same three
+ * to five degrees of bias that stretched a real run's period and doubled the band it returned. A
+ * symmetric swing about the right centre averages out on the set point, which is what makes the
+ * period and the amplitude describe the grill there. At a low set point there is little room below
+ * the centre and the swing is small and slow; that is the honest price, and slow is recoverable
+ * where biased is not. */
+static void autotune_size(pf_control *c)
+{
+	double h = fmin(0.15, fmin(c->autotune.u_center - c->cfg.u_min, c->cfg.u_max - c->autotune.u_center));
+	if (h < 0.03) h = 0.03;
+	c->autotune.h = h;
+}
+
 /* returns the relay output for this cycle */
 static double autotune_step(pf_control *c, double now)
 {
@@ -1050,18 +1094,97 @@ static double autotune_step(pf_control *c, double now)
 			c->autotune.lo_peak[k] = c->autotune.peak_min;
 		}
 		c->autotune.crossings++;
+		LOGI(TAG, "autotune crossing %d: that half took %.0f s, pit %.1f to %.1f C, feed %.3f",
+		     c->autotune.crossings, now - c->autotune.last_cross_t, c->autotune.peak_min, c->autotune.peak_max,
+		     autotune_output(c));
 		c->autotune.last_cross_t = now;
 		c->autotune.peak_max = c->autotune.peak_min = c->pit_c;
+
+		/* Condition the relay first, then measure with it.
+		 *
+		 * A relay test is only as good as the limit cycle it produces, and the cycle is only about
+		 * the grill if it is centred on the set point and no bigger than it needs to be. Two things
+		 * are therefore corrected from each completed cycle, before anything is measured:
+		 *
+		 *   The CENTRE. Over one full cycle the average feed delivered is the load the grill needs
+		 *   at that temperature, whatever the centre was set to, so the centre moves to that
+		 *   average. Feed a little too much and the pit lives above the set point, coming down only
+		 *   on the low half: the halves stop being equal, the period stretches and the swing
+		 *   widens, all of which the describing function reads as a grill that answers feed weakly.
+		 *   A real run did exactly this -- 20 minutes above the set point against 8 below, peaks of
+		 *   +12.9 and -5.7 F, a period two thirds longer than the same grill measured a day
+		 *   earlier, and a band of 150 F where 82 F had been holding it.
+		 *
+		 *   The SWING. For a relay the oscillation is proportional to h, so h is scaled to land the
+		 *   amplitude on a target a few times the hysteresis band: wide enough to measure against
+		 *   the noise, narrow enough that the grill is barely disturbed and the food, if any, does
+		 *   not care.
+		 *
+		 * Cycles recorded before a material change belong to a different experiment and are thrown
+		 * away. The conditioning is capped so the test always terminates, and everything measured
+		 * afterwards comes from one relay, centred, on the set point. */
+		double A_target = fmax(3.0 * c->autotune.hyst_c, pf_delta_to_c(2.5, PF_UNITS_F));
+		/* Conditioning belongs to the start of the run: after this the relay is left alone and what
+		 * it does is the measurement. */
+		if (c->autotune.crossings >= 2 && c->autotune.crossings <= 8 &&
+		    (c->autotune.crossings % 2) == 0 && c->autotune.cyc_n > 4) {
+			int nx = c->autotune.crossings;
+			double load = c->autotune.cyc_sum / c->autotune.cyc_n;
+			double t_hi = c->autotune.halves[nx - 1], t_lo = c->autotune.halves[nx - 2];
+			if (c->autotune.phase > 0) { double sw = t_hi; t_hi = t_lo; t_lo = sw; }
+			if (t_hi > 0 && t_lo > 0) {
+				double split = t_hi > t_lo ? t_hi / t_lo : t_lo / t_hi;
+				if (split > c->autotune.worst_split) c->autotune.worst_split = split;
+			}
+			double top = fmax(c->autotune.hi_peak[nx - 1], c->autotune.hi_peak[nx - 2]);
+			double bot = fmin(c->autotune.lo_peak[nx - 1], c->autotune.lo_peak[nx - 2]);
+			double A = (top - bot) / 2.0;
+
+			/* The first full cycle already answers the question -- its average feed is the load --
+			 * so that correction is taken whole. Every later one is a trim, capped at half the
+			 * swing so a single noisy cycle cannot move the experiment far, and each one costs two
+			 * more cycles before the result may be read. */
+			double aim = pf_clamp(load, c->cfg.u_min + 0.02, c->cfg.u_max - 0.02);
+			double lim = c->autotune.adjusts == 0 ? 1.0 : c->autotune.h / 2;
+			double c_step = pf_clamp(aim - c->autotune.u_center, -lim, lim);
+			double centre = pf_clamp(c->autotune.u_center + c_step, c->cfg.u_min + 0.02, c->cfg.u_max - 0.02);
+			/* The swing itself is left alone. Trimming it towards a gentler amplitude was tried and
+			 * costs more than it buys: a smaller swing is a relay with less authority, and one
+			 * whose low half no longer cools the grill does not oscillate at all, it just sits
+			 * above the set point -- which is the failure this whole exercise is about. The size of
+			 * the swing does not bias the answer, only the centre does, so the centre is what is
+			 * corrected and the amplitude is reported for the record. */
+			(void)A_target;
+			bool material = fabs(c_step) > 0.15 * c->autotune.h;
+			if (material && c->autotune.adjusts < 2) {
+				c->autotune.u_center = centre;
+				autotune_size(c);
+				c->autotune.adjusts++;
+				/* Nothing recorded is thrown away -- the run is slow enough that starting the count
+				 * again would spend an hour -- but the result may not be taken from cycles that
+				 * straddle the change, so the finish waits for two whole cycles after it. */
+				c->autotune.adjust_at_cross = c->autotune.crossings;
+				c->autotune.hi_sum = c->autotune.lo_sum = 0; c->autotune.hi_n = c->autotune.lo_n = 0;
+				LOGI(TAG, "autotune centring %d: the cycle averaged %.3f feed and swung %.1f C; centre %.3f, swing +/-%.3f",
+				     c->autotune.adjusts, load, A, c->autotune.u_center, c->autotune.h);
+			} else if (fabs(c_step) > 0.003) {
+				c->autotune.u_center = centre;   /* a trim this small leaves the record standing */
+			}
+			c->autotune.cyc_sum = 0; c->autotune.cyc_n = 0;
+		}
+
 		/* Stop once the oscillation has settled, not merely once enough of it has gone by. A limit
 		 * cycle that is still growing describes the transient, not the plant, and averaging it
-		 * yields a period that belongs to no real oscillation. Give it room to settle, and take
-		 * what it has at the cap either way. */
+		 * yields a period that belongs to no real oscillation. The cycles that follow the last
+		 * centring are the measurement, so two of those are required before any of it counts. */
 		if (c->autotune.crossings >= PF_AT_MIN_CROSS &&
+		    c->autotune.crossings >= c->autotune.adjust_at_cross + 2 &&
 		    (autotune_settled(c) || c->autotune.crossings >= PF_AT_MAX)) {
 			autotune_finish(c, true, "");
 			return c->autotune.u_center;
 		}
 	}
+
 	/* Two ways the swing can be centred wrong, and both say the same thing. The pit runs far past
 	 * the set point because even the low half of the relay is still feeding the fire, or a
 	 * half-cycle simply never ends because the pit is parked on one side. Rather than give up,
@@ -1094,11 +1217,10 @@ static double autotune_step(pf_control *c, double now)
 			 * the pit to come back rather than spending the budget on a centre that cannot change */
 			c->autotune.last_recentre_t = now;
 			c->autotune.err_at_move = e;
-			return c->autotune.u_center + c->autotune.h * c->autotune.phase;
+			return autotune_output(c);
 		}
 		c->autotune.u_center = moved;
-		c->autotune.h = fmin(0.15, fmin(c->autotune.u_center - c->cfg.u_min, c->cfg.u_max - c->autotune.u_center));
-		if (c->autotune.h < 0.05) c->autotune.h = 0.05;
+		autotune_size(c);
 		c->autotune.recentres++;
 		c->autotune.err_at_move = e;
 		c->autotune.last_recentre_t = now;
@@ -1110,13 +1232,13 @@ static double autotune_step(pf_control *c, double now)
 		LOGW(TAG, "autotune: %s after %.0f s, re-centring the swing on %.2f duty (%d)",
 		     ran_away ? "pit ran away from the set point" : "no crossing", now - c->autotune.last_cross_t,
 		     c->autotune.u_center, c->autotune.recentres);
-		return c->autotune.u_center + c->autotune.h * c->autotune.phase;
+		return autotune_output(c);
 	}
 	/* Only give up on a runaway once there is nothing left to try. Falling out of the block above
 	 * merely because the grill has not had time to answer the last move is not a failure. */
 	if (ran_away && c->autotune.recentres >= 8) { autotune_finish(c, false, "The pit would not stay near the set point."); return c->cfg.u_min; }
 	if (now - c->autotune.last_cross_t > 1800) { autotune_finish(c, false, "The grill would not oscillate around the set point."); return c->autotune.u_center; }
-	return c->autotune.u_center + c->autotune.h * c->autotune.phase;
+	return autotune_output(c);
 }
 
 static void run_hold_cycle(pf_control *c, double now)
@@ -1166,6 +1288,7 @@ static void run_hold_cycle(pf_control *c, double now)
 	if (c->autotune.active) {
 		if (c->autotune.phase > 0) { c->autotune.hi_sum += c->u_applied; c->autotune.hi_n++; }
 		else { c->autotune.lo_sum += c->u_applied; c->autotune.lo_n++; }
+		c->autotune.cyc_sum += c->u_applied; c->autotune.cyc_n++;
 	}
 	learn_track_steady(c, now);
 	if (c->learn.rise_active) { c->learn.rise_u_sum += c->u_applied; c->learn.rise_n++; }

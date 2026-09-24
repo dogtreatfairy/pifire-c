@@ -35,39 +35,65 @@ into a limit cycle at the frequency where the grill's own phase lag reaches 180�
   are the approach. If it has not settled by twelve crossings the result is taken anyway and the
   event says it was still drifting.
 
-### One model, one rule
+### The relay's own answer
 
-`Ku` and `Pu` do not become a tuning directly. They become the grill's **model**, and the tuning
-comes out of that, so the two ways of measuring a grill meet before they reach the controller
-rather than after.
+A relay test measures two numbers and two only: the ultimate gain `Ku` and the period `Pu` of the
+limit cycle it drives the grill into. Both are read straight off the swing. The tuning comes from
+those, by the rule written for exactly that measurement — **Tyreus-Luyben**, in
+`pf_tuning_from_relay`:
 
-A relay test fixes one point on the frequency response: at the frequency of the limit cycle the
-grill's phase lag is 180° and its gain is `1/Ku`. That is two equations against three unknowns, so
-the static gain has to come from elsewhere, and the feed-forward already measures it: the steady
-feed this grill needs per degree is `b`, so `K = 1/b`. With `K` known the rest follows exactly,
+    Kc = Ku / 2.2,   PB = 2.2 / Ku,   Ti = 2.2·Pu,   Td = Pu / 6.3
+
+Tyreus-Luyben is the conservative of the classical relay rules — Ziegler-Nichols hunts on a process
+as lag-dominant as a barrel of air — and it suits a controller whose feed-forward already carries
+the steady load, so the integral only has to trim.
+
+It used to go the long way round: `Ku` and `Pu` were turned into a three-parameter model and SIMC
+designed from that. The model needs a static gain the relay cannot see, borrowed from the
+feed-forward or from a startup rise, and then splits the measured phase lag between a time constant
+and a dead time — and SIMC's band is proportional to that dead time. The split is decided almost
+entirely by the period. Two runs on the same grill a day apart measured periods of 370 s and 603 s,
+which became dead times of 99 s and 168 s and bands of 82 °F and 150 °F, while the relay's own rule
+put the second run at 93 °F. A tuning that swings by nearly a factor of two because the limit cycle
+was slower is not a measurement of the grill, and the number that moved was never one the relay had
+measured.
+
+The model is still identified and filed, because the controller looks ahead by the dead time and
+the app shows the grill it measured, but it no longer decides the tuning:
 
     tau   = √((K·Ku)² − 1) / ω,     theta = (π − atan(ω·tau)) / ω,     ω = 2π/Pu
 
-and the result is filed as the plant model like any startup rise. If the feed-forward has not
-learned yet the last fitted `K` is used, and if the numbers cannot describe such a plant at all
-(`K·Ku ≤ 1`, which would mean more gain at the oscillation frequency than standing still) the run
-says so rather than inventing a tuning.
+with `K` from the feed-forward fit (`K = 1/b`) or the last cold startup rise.
 
-The model becomes PB, Ti and Td by **SIMC** (Skogestad), closed-loop time constant equal to the
-dead time, in `pf_tuning_from_plant`:
+### The swing has to sit on the set point
 
-    Kc = tau / (K·(tc + theta)),   Ti = min(tau, 4(tc + theta)),   Td = theta/3,   tc = theta
+Everything above is only about the grill if the limit cycle is centred on the temperature being
+measured. Feed a little too much at the centre and the pit lives above the set point, coming down
+only on the low half: the halves stop being equal, the period stretches and the swing widens, all
+of which the describing function reads as a grill that answers feed weakly. A real run did exactly
+this — 20 minutes above 250 °F against 8 below, peaks of +12.9 and −5.7 °F — and came back with
+150 °F where 82 °F had been holding the same grill.
 
-SIMC is a PI rule for a plant that really is first order and a PID rule for one with a second lag.
-A grill is the second kind, since firepot, barrel and probe each lag, but fitting three numbers to
-it lumps those together and calls most of them dead time; a derivative of about a third of that
-recovers what the lumping hid, and without it the pit overshoots and sits there.
+The correction needs nothing new. **Over one full cycle the average feed delivered is the load the
+grill needs at that temperature**, whatever the centre was set to, so after each completed cycle the
+centre moves to that average: the first correction whole, later ones capped at half the swing so a
+single noisy cycle cannot move the experiment far. Each correction costs two more cycles before the
+result may be read, so what is measured always comes from a settled, centred relay. From a
+deliberately overfed start the simulator now holds its swing on 248.9 °F of a 250 °F set point,
+three minutes either side, where the same test off centre sat five degrees high.
 
-This replaced two rules that disagreed. The relay path used Tyreus-Luyben and the model path used
-SIMC, the controller applied a further 1.5× detune to one of them and clamped its integral time to
-a band around a configured guess, and the two results were then averaged together. One measurement
-meant two tunings, and which one the grill ran depended on whether the library happened to cover
-the set point being held.
+The swing is symmetric — the same step up as down. Stepping up harder was tried, to get more
+authority on a grill holding near its minimum feed, and it costs precisely the property this
+depends on: an uneven relay makes an uneven cycle, whose mean sits off the set point even when the
+centre is exactly the load. A low set point with little room below therefore gets a small, slow
+swing, which is the honest price; slow is recoverable, biased is not.
+
+Two more things the measurement must not depend on. The grill's model is fitted **only from a cold
+start**, because the two-point method reads a step response and a step begins at rest: lighting a
+barrel still hot from the last cook fits the tail of that cook as though it were the whole rise.
+And a baseline run does not clear the steady-state observations, which measure how much fuel the
+grill burns to hold a temperature — a new proportional band does not change that, and the next run
+needs them to settle onto its operating point before the relay starts.
 
 Rules written against how far the grill is from its target stay quiet while a measurement runs. The relay is deliberately driving the pit either side of the set point, so "running hot" would be reporting the tuner's own doing several times per set point. The pit temperature itself is still a fact and still testable. It drives the grill only through the ordinary command queue and reads only the published status, so it can do nothing a patient person with the web app could not do, and Stop always wins. The grill should be empty, and a run will not start while one is cooking.
 

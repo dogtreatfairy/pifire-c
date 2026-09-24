@@ -365,9 +365,12 @@ static void test_the_relay_centres_on_holding_not_climbing(void)
 	       ctrl.autotune.u_center, holding, ctrl.autotune.u_center - ctrl.autotune.h);
 
 	/* The low half of the swing has to be able to cool the grill, or there is no oscillation to
-	 * measure. That is the property the climb-contaminated average destroyed. */
-	TEST_ASSERT_TRUE_MESSAGE(ctrl.autotune.u_center - ctrl.autotune.h < holding,
-	                         "the low half of the relay must feed less than holding needs");
+	 * measure. That is the property the climb-contaminated average destroyed. At a set point this
+	 * grill holds on the minimum feed there is nothing below to swing into, and the relay is
+	 * asymmetric by necessity; what matters then is that it still crosses, which the rest of this
+	 * test checks. */
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.autotune.u_center - ctrl.autotune.h <= holding + 1e-9,
+	                         "the low half of the relay must not feed more than holding needs");
 
 	/* and it must actually come back through the set point rather than running away */
 	double worst = 0;
@@ -733,6 +736,94 @@ static void test_a_baseline_leaves_the_baseline_running(void)
 	TEST_ASSERT_DOUBLE_WITHIN(0.5, an[0].Ti, Ti);
 }
 
+
+/* The swing has to sit on the set point.
+ *
+ * From a real run: the centre fed a little too much, so the pit lived above 250 F -- 20 minutes
+ * above against 8 below, peaks of +12.9 and -5.7 F. The describing function reads a lopsided,
+ * stretched cycle as a grill that answers feed weakly, and the proportional band came back at
+ * 150 F where 82 F had been holding the same grill. So the centre is corrected every cycle from
+ * the average feed the cycle actually delivered, which at a limit cycle is the load itself. */
+static void test_the_swing_is_centred_on_the_set_point(void)
+{
+	pf_learning_clear_anchors();
+	stop_and_wait_cold();
+
+	pf_cmd c = { .type = PF_CMD_MODE, .mode = PF_MODE_HOLD, .num = 250 };
+	pf_cmdq_push(&c);
+	for (int i = 0; i < 90 * 60 && !ctrl.target_reached; i += 10) tick(10);
+	tick(5 * 60);
+	TEST_ASSERT_TRUE(ctrl.target_reached);
+	double holding = ctrl.u_applied;
+
+	pf_cmd a = { .type = PF_CMD_AUTOTUNE_START };
+	pf_cmdq_push(&a);
+	tick(30);
+	TEST_ASSERT_TRUE(ctrl.autotune.active);
+
+	/* Start it off deliberately overfed, the way a centre taken while the grill was still climbing
+	 * would be, and let it find its way back. */
+	double biased = ctrl.autotune.u_center + 0.12;
+	if (biased > ctrl.cfg.u_max - 0.02) biased = ctrl.cfg.u_max - 0.02;
+	ctrl.autotune.u_center = biased;
+	double started_at = ctrl.autotune.u_center;
+
+	/* What matters is where the oscillation SITS, not that the halves are equal: the relay steps
+	 * up harder than it steps down, so the grill spends unequal time either side by design. The
+	 * measurement is only about the set point if the swing averages out on it. */
+	double sum = 0, above = 0, below = 0; int n = 0;
+	for (int i = 0; i < 3 * 60 * 60 && ctrl.autotune.active; i += 5) {
+		tick(5);
+		if (ctrl.autotune.adjusts >= 1 && ctrl.autotune.crossings > ctrl.autotune.adjust_at_cross) {
+			double f = pf_from_c(ctrl.pit_c, PF_UNITS_F);
+			sum += f; n++;
+			if (f > 250) above += 5; else below += 5;
+		}
+	}
+	double mean = n ? sum / n : 0;
+	printf("centre %.3f -> %.3f (holding %.3f); mean pit %.1f F over %d samples; above %.0f min, below %.0f min\n",
+	       started_at, ctrl.autotune.u_center, holding, mean, n, above / 60, below / 60);
+	TEST_ASSERT_TRUE_MESSAGE(n > 60, "the test should have oscillated after centring");
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.autotune.u_center < started_at - 0.01,
+	                         "an overfed centre should have been brought down");
+	/* The swing has to average out on the set point. Off centre by three degrees is what stretched
+	 * a real run's period by two thirds and doubled the band it came back with. */
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(3.0, 250.0, mean, "the oscillation must sit on the set point");
+}
+
+/* What the relay measured decides the tuning, and nothing else does. The same oscillation used to
+ * give different answers depending on the static gain it was paired with, which came from the
+ * feed-forward or from a startup rise -- neither of them part of the measurement. */
+static void test_a_relay_result_does_not_depend_on_anything_else(void)
+{
+	double PB1 = 0, Ti1 = 0, Td1 = 0, PB2 = 0, Ti2 = 0, Td2 = 0;
+	pf_tuning_from_relay(0.0428, 603, &PB1, &Ti1, &Td1);
+	pf_tuning_from_relay(0.0428, 603, &PB2, &Ti2, &Td2);
+	TEST_ASSERT_EQUAL_DOUBLE(PB1, PB2);
+	printf("relay Ku 0.0428, Pu 603 -> PB %.1f C (%.0f F), Ti %.0f s, Td %.0f s\n",
+	       PB1, pf_delta_from_c(PB1, PF_UNITS_F), Ti1, Td1);
+	/* Tyreus-Luyben: Kc = Ku/2.2, Ti = 2.2 Pu, Td = Pu/6.3 */
+	TEST_ASSERT_DOUBLE_WITHIN(0.1, 2.2 / 0.0428, PB1);
+	TEST_ASSERT_DOUBLE_WITHIN(1.0, 2.2 * 603, Ti1);
+	TEST_ASSERT_DOUBLE_WITHIN(1.0, 603 / 6.3, Td1);
+
+	/* and the controller designs from the measurement, whatever model it is handed alongside */
+	const pf_controller_ops *ops = pf_controller_find("adaptive");
+	char buf[512];
+	double band[2];
+	for (int i = 0; i < 2; i++) {
+		void *inst = ops->create("{\"_units\":\"C\",\"PB\":60,\"Ti\":180,\"Td\":45}", NULL);
+		ops->apply_tuning(inst, 0.0428, 603, i ? 132.0 : 250.0, i ? 532.0 : 1021.0, i ? 168.0 : 160.0);
+		ops->state_json(inst, buf, sizeof buf);
+		cJSON *j = cJSON_Parse(buf);
+		band[i] = cJSON_GetObjectItem(j, "PB_c")->valuedouble;
+		cJSON_Delete(j);
+		ops->destroy(inst);
+	}
+	printf("same relay, two different models handed alongside: PB %.1f C and %.1f C\n", band[0], band[1]);
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.01, band[0], band[1], "the model must not change what the relay measured");
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -741,6 +832,8 @@ int main(void)
 	RUN_TEST(test_relay_agrees_with_the_plant_it_measured);
 	RUN_TEST(test_a_slow_cooling_half_is_not_a_stall);
 	RUN_TEST(test_the_relay_centres_on_holding_not_climbing);
+	RUN_TEST(test_a_relay_result_does_not_depend_on_anything_else);
+	RUN_TEST(test_the_swing_is_centred_on_the_set_point);
 	RUN_TEST(test_relay_recovers_from_a_badly_centred_swing);
 	RUN_TEST(test_single_adds_and_full_profile_replaces);
 	RUN_TEST(test_guided_tune_improves_holding);
