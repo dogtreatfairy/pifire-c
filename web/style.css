@@ -1069,6 +1069,15 @@ main.view > :first-child { margin-top: 12px; }
 .probe .tgt.eta { color: var(--accent-ink); margin-top: 2px; }
 
 /* ---- target sheet: choose a cut, then a doneness, and see what to pull at ---- */
+/* The way out. In a sheet header it sits at the end of the row; in a plain dialog it floats at the
+   top corner, above whatever is there, because that dialog was not built expecting it. */
+.dlg-x { flex: none; align-self: flex-start; width: var(--h-touch); height: var(--h-touch);
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 0; color: var(--muted); cursor: pointer; padding: 0; }
+.dlg-x .ic { width: 20px; height: 20px; }
+.dialog > .dlg-x { position: absolute; top: var(--sp-1); right: var(--sp-1); z-index: 2; }
+.dialog { position: relative; }
+
 /* Header, body, footer -- the three parts of every sheet, each with its own edge. */
 .sheet { display: flex; flex-direction: column; gap: var(--sp-3); min-height: 0; max-height: 100%; }
 .sheet > .sheet-head { flex: none; }

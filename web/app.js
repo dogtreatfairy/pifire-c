@@ -381,7 +381,24 @@ export function dialog(build) {
   const close = (v) => { d.close(); d._resolve?.(v); };
   return new Promise((resolve) => {
     d._resolve = resolve;
-    d.append(build(close));
+    const content = build(close);
+    d.append(content);
+    /* There is always a way out.
+     *
+     * showModal() makes the rest of the page inert, so a dialog you cannot dismiss is not a stuck
+     * dialog, it is a stuck app -- the tab bar stops answering and nothing moves. Escape needs a
+     * keyboard and the backdrop is a sliver beside a full-height sheet on a phone, so neither is a
+     * way out there. Every dialog therefore gets a close mark, in its header if it has one and
+     * floating at the top corner if it does not, put here rather than in each caller so that one
+     * added later cannot forget it. */
+    if (!content.querySelector?.('[data-dlg-close]')) {
+      const x = el('button', {
+        class: 'dlg-x', type: 'button', 'aria-label': 'Close', 'data-dlg-close': '',
+        onclick: () => close(undefined),
+      }, lucide('x', 'ic'));
+      const head = content.querySelector?.('.sheet-head');
+      if (head) head.append(x); else d.append(x);
+    }
     // the close event is queued asynchronously; ignore one that belongs to a previous dialog
     // when a new one has already been opened in its place
     d.onclose = () => { if (!d.open) d._resolve?.(undefined); };

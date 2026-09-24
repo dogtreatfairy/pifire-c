@@ -244,6 +244,13 @@ A sheet is three parts: a **header that stays**, a **body that scrolls**, a **fo
 `.sheet-head`, `.sheet-body`, then the footer. It is capped at 88 % of the viewport height, so on a
 phone the title never scrolls away and the committing button is never below the fold.
 
+**There is always a way out, and it is not the backdrop.** `showModal()` makes the rest of the page
+inert, so a dialog you cannot dismiss is not a stuck dialog, it is a stuck app: the tab bar stops
+answering and nothing moves. Escape needs a keyboard and the backdrop is a sliver beside a
+full-height sheet on a phone, so neither is an exit there. **Every dialog carries a close mark** —
+in its header if it has one, floating at the top corner if it does not — and it is added by the
+`dialog()` helper rather than by each caller, so one written later cannot forget it.
+
 **A dialog that is not a sheet scrolls as a whole.** A dialog taller than the screen that hides its
 overflow is a trap: its buttons are below the fold and there is nothing to scroll, so the only way
 out is the sliver of backdrop beside it. That is what the conditional-notification editor was on a
