@@ -64,9 +64,29 @@ would fit in a sentence still goes on its own line or in a table, never inline i
 
 An app shell: only `<main>` scrolls, the bars are pinned inside a viewport-fixed body, and the safe
 area insets place them. Home fits one screen without scrolling. The mode lives in the header pill
-and nowhere else. Settings is an index of grouped inset lists with icon tiles, one page per group,
-never one long page. No menu item appears in two places: Settings is what you configure, More is
-what you do and what you look at.
+and nowhere else. Settings is an index of grouped lists with icon tiles, one page per group, never
+one long page. No menu item appears in two places: Settings is what you configure, More is what you
+do and what you look at.
+
+**The surface is matte.** Nothing is translucent and nothing is blurred. The app once had a glass
+look — frosted panels, a specular top edge, a floating pill tab bar — and it was handsome, but on a
+control panel the surface behind a reading carries no information, and a number that has to compete
+with a blurred picture of itself is harder to take at a glance. Flat surfaces, one-pixel rules,
+small corners (10 px, 8 px for the small ones), and a tab bar that is a bar rather than a pill
+floating over its own margins. Colour is reserved for meaning: the accent, the state colours, and
+the icon tile that says what a row is about.
+
+**Space is not free.** Rows are 46 px, not 56. Padding is what a thumb needs and no more. A section
+label sits close to what it labels, in small upper case. Numbers are tabular so columns line up and
+a reading does not jitter as it changes. The test is how much of a list you can take in without
+scrolling, because scrolling is what costs you your place.
+
+**A section header holds its place.** Open a section and scroll into it: the header stays against
+the top of the list until the next section arrives and pushes it off. You always know which section
+you are reading, and closing it again is one tap on something already under your thumb. Technically
+this means the fold cannot clip its own contents, and the scrolling area begins exactly where the
+header bar ends — any padding between them is a window that content shows through above the pinned
+header.
 
 Sheets follow one shape: what it is about at the top with its current value, the choices in the
 middle as full-width cards, and the commit row at the foot.
