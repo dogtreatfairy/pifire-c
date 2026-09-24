@@ -248,9 +248,15 @@ away from it either.
 
 `pushScreen()` covers the content **between the bars**, so the mode readout and the tabs stay
 exactly where they were: you have gone somewhere inside the app rather than had a panel thrown over
-it. It pushes a history entry, so **the back gesture unwinds it**, its own back arrow closes it, and
+it. It pushes a history entry, so **the back gesture unwinds it**, the back arrow closes it, and
 **tapping a tab closes it and navigates**. All three are one event to the caller: the promise
 resolves.
+
+**One navigation bar, and one back affordance, at every depth.** The app header already has one and
+a place for it, so a pushed screen takes it over for as long as it is up — relabelled with where it
+came from — and puts it back exactly as it found it. A screen that draws its own gives you
+`‹ Settings` and `‹ Probes` stacked down the page: a navigation stack rendered twice, which belongs
+to no app. A tab root shows no back at all.
 
 A dialog is for a question — a confirmation, a dial pad. **Navigating away closes any dialog still
 open**, because a box left hanging over the new page is the surest sign you are looking at a

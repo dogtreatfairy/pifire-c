@@ -392,10 +392,11 @@ export function pushScreen(build, opts = {}) {
   const host = document.getElementById('sheet');
   const id = ++sheetSeq;
   return new Promise((resolve) => {
-    let pending, done = false;
+    let pending, done = false, restoreBack = null;
     const finish = () => {
       if (done) return;
       done = true;
+      restoreBack?.();
       window.removeEventListener('popstate', finish);
       window.removeEventListener('hashchange', onNav);
       host.hidden = true;
@@ -410,11 +411,22 @@ export function pushScreen(build, opts = {}) {
       if (history.state?.pfScreen === id) history.back();   /* -> popstate -> finish */
       else finish();
     };
+    /* One navigation bar, not two. The app header already has a back affordance and a place for it;
+       a screen that draws its own ends up with "< Settings  < Probes" stacked down the page, which
+       is a navigation stack rendered twice and belongs to no app. So the screen takes over the
+       header's back arrow for as long as it is up, labelled with where it came from, and puts it
+       back exactly as it found it. */
+    const b = document.getElementById('tb-back');
+    const lab = document.getElementById('tb-back-label');
+    const prev = { hidden: b?.hidden, onclick: b?.onclick, label: lab?.textContent };
+    restoreBack = () => {
+      if (!b) return;
+      if (prev.hidden) { b.hidden = true; b.onclick = null; }
+      else { b.hidden = false; b.onclick = prev.onclick; if (lab) lab.textContent = prev.label; }
+    };
+    setBack(() => close(undefined), opts.back || 'Back');
+
     host.innerHTML = '';
-    host.append(el('div', { class: 'screen-bar' },
-      el('button', { class: 'tb-back', type: 'button', onclick: () => close(undefined) },
-        lucide('chevron-left', 'ic'), el('span', {}, opts.back || 'Back')),
-      opts.title ? el('span', { class: 'screen-title' }, opts.title) : null));
     host.append(build(close));
     host.hidden = false;
     history.pushState({ pfScreen: id }, '');
@@ -634,12 +646,14 @@ let teardown = null;
    content meant it slid away the moment you scrolled, which no native app does -- you should never
    have to scroll back up to leave a page. Pages call this while rendering; the router clears it on
    every navigation so it cannot outlive the page that asked for it. */
+/* `href` may be a hash to go to, or a function to run -- a pushed screen closes itself rather than
+   navigating, and it uses the same one affordance to do it. */
 export function setBack(href, label = 'Back') {
   const b = document.getElementById('tb-back');
   const lab = document.getElementById('tb-back-label');
   if (!b) return;
   if (lab) lab.textContent = label;
-  b.onclick = () => { location.hash = href; };
+  b.onclick = typeof href === 'function' ? href : () => { location.hash = href; };
   b.hidden = false;
 }
 function clearBack() {

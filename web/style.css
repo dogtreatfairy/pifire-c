@@ -1080,9 +1080,6 @@ main.view > :first-child { margin-top: 12px; }
   display: flex; flex-direction: column; min-height: 0;
 }
 .sheet-host[hidden] { display: none; }
-.screen-bar { flex: none; display: flex; align-items: center; gap: var(--sp-2);
-  padding: var(--sp-1) var(--pad-x); border-bottom: var(--bw) solid var(--line); min-height: var(--h-row); }
-.screen-title { font-size: var(--fs-md); font-weight: var(--fw-semi); }
 /* inside a screen the sheet fills what is left and scrolls its own body */
 .sheet-host > .sheet { flex: 1 1 auto; min-height: 0; max-height: none; padding: 0 var(--pad-x) var(--sp-3); gap: var(--sp-3); }
 .sheet-host > .sheet > .sheet-head { margin: 0 calc(var(--pad-x) * -1); }
