@@ -244,6 +244,12 @@ A sheet is three parts: a **header that stays**, a **body that scrolls**, a **fo
 `.sheet-head`, `.sheet-body`, then the footer. It is capped at 88 % of the viewport height, so on a
 phone the title never scrolls away and the committing button is never below the fold.
 
+**A dialog that is not a sheet scrolls as a whole.** A dialog taller than the screen that hides its
+overflow is a trap: its buttons are below the fold and there is nothing to scroll, so the only way
+out is the sliver of backdrop beside it. That is what the conditional-notification editor was on a
+phone — it opened and simply sat there. Every form long enough to need it is a sheet; everything
+else at least scrolls.
+
 Inside the body: **one column**, related fields grouped under a small label, and a field that only
 applies in one case appears only in that case — the ambient-reference switch shows for an Aux probe
 and is not there otherwise. **Three choices get a segmented control, not a dropdown** you must open

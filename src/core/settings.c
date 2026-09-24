@@ -615,6 +615,44 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 16 (%d ambient sensor%s filed under Aux)", moved, moved == 1 ? "" : "s");
 			added = 1;
 		}
+		if (ver < 17) {
+			/* Three rules shipped in alpha.86 that cried wolf.
+			 *
+			 * "Flame Out" fired whenever the pit was 50 degrees under its set point in Hold -- which
+			 * is every climb from cold, so a grill lighting normally announced that it had gone out,
+			 * as a critical, every ten minutes until it arrived. A pit short of its target is
+			 * ordinary while it climbs; what separates climbing from not getting there is
+			 * `aiming_s`, the guard the older stall rules already carried and this one did not.
+			 *
+			 * "Grill Over Temperature" and "Grill Under Temperature" said nothing that "Grill
+			 * Stalled Hot" and "Grill Stalled Cold" had not already said at twenty degrees, so they
+			 * are removed rather than fixed: one situation, one notification. */
+			cJSON *rules = pf_json_path(g_root, "notify.rules");
+			int removed = 0, fixed = 0;
+			for (int i = cJSON_GetArraySize(rules) - 1; i >= 0; i--) {
+				cJSON *r = cJSON_GetArrayItem(rules, i);
+				const char *id = pf_json_str(r, "id", "");
+				if (!strcmp(id, "grill-over") || !strcmp(id, "grill-under")) { cJSON_DeleteItemFromArray(rules, i); removed++; continue; }
+				if (strcmp(id, "grill-flameout")) continue;
+				cJSON *conds = pf_json_path(r, "when.conditions"), *c;
+				bool guarded = false;
+				cJSON_ArrayForEach(c, conds) if (!strcmp(pf_json_str(c, "trait", ""), "aiming_s")) guarded = true;
+				if (!guarded) {
+					cJSON *g = cJSON_CreateObject();
+					cJSON_AddStringToObject(g, "entity", "grill");
+					cJSON_AddStringToObject(g, "trait", "aiming_s");
+					cJSON_AddStringToObject(g, "op", ">");
+					cJSON_AddNumberToObject(g, "value", 1200);
+					cJSON_AddItemToArray(conds, g);
+					fixed++;
+				}
+			}
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 17); else cJSON_AddNumberToObject(g_root, "schema_version", 17);
+			LOGI(TAG, "settings migrated to schema 17 (%d duplicate rule%s removed, %d flame-out rule guarded)",
+			     removed, removed == 1 ? "" : "s", fixed);
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);

@@ -1,5 +1,5 @@
 {
-  "schema_version": 16,
+  "schema_version": 17,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -816,86 +816,6 @@
         "deadband": 4
       },
       {
-        "id": "grill-over",
-        "name": "Grill Over Temperature",
-        "enabled": true,
-        "select": {
-          "domain": "grill",
-          "match": "any"
-        },
-        "when": {
-          "op": "all",
-          "conditions": [
-            {
-              "entity": "grill",
-              "trait": "mode",
-              "op": "is",
-              "value": "Hold"
-            },
-            {
-              "entity": "grill",
-              "trait": "over",
-              "op": ">",
-              "value": 30
-            }
-          ]
-        },
-        "title": "{grill} is over temperature",
-        "body": "{grill_temp} against a {setpoint} target.",
-        "level": "high",
-        "sinks": [
-          "app",
-          "webpush",
-          "pushover",
-          "ntfy"
-        ],
-        "for_s": 60,
-        "cooldown_s": 600,
-        "repeat_s": 0,
-        "only_while_cooking": true,
-        "deadband": 3
-      },
-      {
-        "id": "grill-under",
-        "name": "Grill Under Temperature",
-        "enabled": true,
-        "select": {
-          "domain": "grill",
-          "match": "any"
-        },
-        "when": {
-          "op": "all",
-          "conditions": [
-            {
-              "entity": "grill",
-              "trait": "mode",
-              "op": "is",
-              "value": "Hold"
-            },
-            {
-              "entity": "grill",
-              "trait": "over",
-              "op": "<",
-              "value": -30
-            }
-          ]
-        },
-        "title": "{grill} is under temperature",
-        "body": "{grill_temp} against a {setpoint} target.",
-        "level": "high",
-        "sinks": [
-          "app",
-          "webpush",
-          "pushover",
-          "ntfy"
-        ],
-        "for_s": 60,
-        "cooldown_s": 600,
-        "repeat_s": 0,
-        "only_while_cooking": true,
-        "deadband": 3
-      },
-      {
         "id": "grill-emergency",
         "name": "Emergency Shutdown",
         "enabled": true,
@@ -951,6 +871,12 @@
               "trait": "over",
               "op": "<",
               "value": -50
+            },
+            {
+              "entity": "grill",
+              "trait": "aiming_s",
+              "op": ">",
+              "value": 1200
             }
           ]
         },
@@ -963,7 +889,7 @@
           "pushover",
           "ntfy"
         ],
-        "for_s": 60,
+        "for_s": 120,
         "cooldown_s": 600,
         "repeat_s": 0,
         "only_while_cooking": true,

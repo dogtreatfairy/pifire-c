@@ -1,4 +1,4 @@
-import { PF, el, api, patchSettings, toast, confirmDialog, dialog, degUnit } from '../app.js';
+import { PF, el, api, patchSettings, toast, confirmDialog, dialog, degUnit, actionBtn } from '../app.js';
 import { icon as lucide } from '../icons.js';
 
 // Conditional Notifications: a table of rules, and an editor that builds them out of the entity
@@ -212,7 +212,7 @@ function ruleEditor(rule, isNew) {
   r.when.conditions ||= [];
 
   return dialog((close) => {
-    const wrap = el('div', { class: 'rule-edit' });
+    const wrap = el('div', { class: 'rule-edit sheet' });
     const preview = el('div', { class: 'rule-preview' }, el('div', { class: 'muted' }, 'Preview…'));
     let previewTimer = null;
     const refreshPreview = () => {
@@ -342,18 +342,27 @@ function ruleEditor(rule, isNew) {
     };
     draw();
 
-    wrap.append(el('h3', {}, isNew ? 'New Notification' : r.name), body,
-      el('div', { class: 'btnrow', style: 'margin-top:12px' },
-        el('button', { class: 'btn', type: 'button', onclick: async () => {
+    /* A sheet, like every other: a header that stays, a body that scrolls, a footer that stays.
+       This was one long block inside a dialog that hid its overflow, so on a phone the form was
+       taller than the screen, Save and Cancel were below the fold, and there was nothing to scroll
+       -- the editor simply sat there with no way out of it. */
+    const dismiss = async () => {
+      if (JSON.stringify(r) !== JSON.stringify(rule) && !await confirmDialog('Discard changes?', r.name || '', 'Discard', true)) return;
+      close(undefined);
+    };
+    wrap.append(
+      el('div', { class: 'sheet-head' },
+        el('div', {}, el('h3', {}, isNew ? 'New Notification' : r.name),
+          el('div', { class: 'help' }, isNew ? 'Sends when its condition becomes true' : (r.level || 'normal').toUpperCase()))),
+      el('div', { class: 'sheet-body' }, body,
+        isNew ? null : el('div', { class: 'form-actions' },
+          actionBtn('delete', 'Delete Notification', { onclick: () => close('delete') }))),
+      el('div', { class: 'form-actions' },
+        actionBtn('test', 'Test', { size: '', onclick: async () => {
           try { await api('/rules/test', { body: r }); toast('Sent — check your phone'); } catch (e) { toast(e.message, true); }
-        } }, 'Send Test'),
-        el('button', { class: 'btn primary', type: 'button', onclick: () => close(r) }, 'Save')),
-      el('div', { class: 'btnrow', style: 'margin-top:8px' },
-        isNew ? null : el('button', { class: 'btn ghost', type: 'button', onclick: () => close('delete') }, 'Delete'),
-        el('button', { class: 'btn ghost', type: 'button', onclick: async () => {
-          if (JSON.stringify(r) !== JSON.stringify(rule) && !await confirmDialog('Discard changes?', r.name || '', 'Discard', true)) return;
-          close(undefined);
-        } }, 'Cancel')));
+        } }, 'send'),
+        actionBtn('cancel', 'Cancel', { size: '', onclick: dismiss }),
+        actionBtn('save', 'Save', { size: '', onclick: () => close(r) })));
     return wrap;
   });
 }
