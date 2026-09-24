@@ -125,6 +125,15 @@ Anything whose effect is visible on the panel — colour order, margins, theme, 
 effect the moment it changes, with no restart. A setting you have to reboot to test is a setting
 nobody finds.
 
+## The header, in three slots
+
+What the grill is **called** on the left, what it is **doing** in the middle, how you are **reaching
+it** on the right. The readout is centred on the bar itself rather than balanced between its
+neighbours, so the number a glance goes to is in the same place whatever sits beside it; the left
+slot is capped in width and ellipsises rather than pushing into it. On a sub-page the back
+affordance takes the name's place, because a navigation bar says where you came from rather than
+what the machine is called.
+
 ## One indicator, one question
 
 The header carries one mark for "can this app reach the grill, and by what road". It is the

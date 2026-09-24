@@ -243,12 +243,19 @@ legend { font-weight: 600; margin-bottom: 6px; }
 /* a solid 1 px plate at the very top: WebKit samples the edge when compositing and can smear it */
 .edge-anchor { position: fixed; top: 0; left: 0; right: 0; height: 1px; background: var(--bg); z-index: 9999; pointer-events: none; }
 .topbar { position: relative; display: flex; align-items: center; gap: 10px; }
-.topbar .brand { margin-right: auto; min-width: 0; }
+.topbar .brand { min-width: 0; font-size: 1.05rem; }
+/* The readout is centred on the bar, not between its neighbours: absolutely placed horizontally and
+   left in the flow vertically, because half of a header padded by the safe area is under the status
+   bar, not in the middle of the row. */
+.topbar .readout { position: absolute; left: 50%; transform: translateX(-50%); }
+/* The left slot is capped so a long destination cannot reach the middle: it ellipsises instead,
+   and the state of the grill keeps its place. */
+.topbar-left { display: flex; align-items: center; gap: 10px; min-width: 0; max-width: 36%; margin-right: auto; }
 /* The back affordance sits where the brand does and behaves like a navigation bar's: chevron,
    destination, accent colour, and a target big enough to hit with a thumb. It is in the header, so
    scrolling cannot take it away. */
 .tb-back {
-  margin-right: auto; min-width: 0; display: flex; align-items: center; gap: 2px;
+  min-width: 0; display: flex; align-items: center; gap: 2px;
   background: none; border: 0; padding: 6px 10px 6px 0; margin-left: -4px;
   color: var(--accent); font-size: 1.05rem; font-weight: 600; cursor: pointer;
   min-height: 44px;   /* a thumb-sized target, whatever the label says */
@@ -600,7 +607,7 @@ main.view > :first-child { margin-top: 12px; }
 .topbar { background: var(--bg); }
 .topbar { transform: none; isolation: auto; -webkit-font-smoothing: auto; height: var(--top-h); box-sizing: border-box; padding-top: calc(env(safe-area-inset-top) + 12px); padding-bottom: 12px; }
 .topbar .brand { font-size: 1.2rem; }
-.topbar-right { display: flex; align-items: center; gap: 6px; }
+.topbar-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .bell { position: relative; width: 36px; height: 36px; border: 0; background: transparent; color: var(--text); padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; }
 .bell svg { width: 22px; height: 22px; }
 .bell.has-error { color: var(--danger); }

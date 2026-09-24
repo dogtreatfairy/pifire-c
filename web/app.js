@@ -161,7 +161,7 @@ async function pollStatus() {
 let lostTimer = null;
 function setConnected(on) {
   PF.connected = on;
-  paintLink();
+  paintNet();
   // the banner only appears after the link has been down for a while (a reconnect takes < 1 s and must not flash)
   clearTimeout(lostTimer);
   clearInterval(pollTimer); pollTimer = null;
@@ -460,12 +460,14 @@ let teardown = null;
    every navigation so it cannot outlive the page that asked for it. */
 export function setBack(href, label = 'Back') {
   const b = document.getElementById('tb-back');
-  const brand = document.getElementById('tb-brand');
   const lab = document.getElementById('tb-back-label');
   if (!b) return;
   if (lab) lab.textContent = label;
   b.onclick = () => { location.hash = href; };
   b.hidden = false;
+  /* Back takes the name's place: they share the left slot, and a navigation bar says where you came
+     from rather than what the machine is called. The readout in the middle is unaffected. */
+  const brand = document.getElementById('tb-brand');
   if (brand) brand.hidden = true;
 }
 function clearBack() {
@@ -523,26 +525,40 @@ function paintLink() {
 const bars = (n, cls) => el('span', { class: `sig s${n} ${cls}` }, [1, 2, 3, 4].map((i) => el('i', { class: i <= n ? 'on' : '' })));
 const wifiBars = (pct) => (!pct ? 0 : pct >= 75 ? 4 : pct >= 55 ? 3 : pct >= 35 ? 2 : 1);
 
+/* The grill's own uplink: how well IT is connected, which is a different question from whether this
+ * app can reach it. Four bars, a hotspot marker, or a wired tag -- but only while the link is up.
+ * The moment it drops, every one of those is a claim about a signal nobody is measuring any more:
+ * the last reading might be a minute old or an hour, and drawing four bars beside a red connection
+ * mark says the grill is fine when the truth is that we have no idea. So it falls back to a plain
+ * aerial, dimmed, which says exactly that. */
+function paintNet() {
+  const wifi = document.getElementById('ind-wifi');
+  if (!wifi) return;
+  const net = lastNet;
+  wifi.hidden = false;
+  if (!PF.connected) {
+    wifi.className = 'tb-ind muted';
+    wifi.title = 'Signal unknown: not connected to the grill';
+    wifi.replaceChildren(lucide('wifi'));
+  } else if (net.hotspot) {
+    wifi.className = 'tb-ind warn'; wifi.title = `Setup hotspot: ${net.ssid || ''}`;
+    wifi.replaceChildren(el('span', { class: 'tb-tag' }, 'AP'));
+  } else if (net.signal > 0) {
+    wifi.className = 'tb-ind'; wifi.title = `${net.ssid || 'Wi-Fi'} · ${net.signal}%`;
+    wifi.replaceChildren(bars(wifiBars(net.signal), 'wifi'));
+  } else if (net.ip) {
+    wifi.className = 'tb-ind'; wifi.title = `Wired · ${net.ip}`;
+    wifi.replaceChildren(el('span', { class: 'tb-tag' }, 'LAN'));
+  } else wifi.hidden = true;
+  paintLink();
+}
+
 onStatus((s) => {
   const b = document.getElementById('banner');
   if (!s) { b.hidden = !PF.lost; if (PF.lost) { b.className = 'banner warn'; b.textContent = 'Connecting to grill…'; } return; }
 
-  // Wi-Fi strength, or a hotspot marker when the grill is running its own access point
-  const wifi = document.getElementById('ind-wifi');
-  const net = s.net || {};
-  if (net.hotspot) {
-    wifi.hidden = false; wifi.className = 'tb-ind warn'; wifi.title = `Setup hotspot: ${net.ssid || ''}`;
-    wifi.replaceChildren(el('span', { class: 'tb-tag' }, 'AP'));
-  } else if (net.signal > 0) {
-    wifi.hidden = false; wifi.className = 'tb-ind'; wifi.title = `${net.ssid || 'Wi-Fi'} · ${net.signal}%`;
-    wifi.replaceChildren(bars(wifiBars(net.signal), 'wifi'));
-  } else if (net.ip) {
-    wifi.hidden = false; wifi.className = 'tb-ind'; wifi.title = `Wired · ${net.ip}`;
-    wifi.replaceChildren(el('span', { class: 'tb-tag' }, 'LAN'));
-  } else wifi.hidden = true;
-
-  lastNet = net;
-  paintLink();
+  lastNet = s.net || {};
+  paintNet();
 
   // mode and the number that matters: the target or countdown on Home, the grill temperature elsewhere
   const home = document.documentElement.dataset.page === 'home';
