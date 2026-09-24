@@ -149,6 +149,11 @@ typedef struct {
 		double worst_split;     /* the most lopsided full cycle seen, as time-high / time-low */
 		int adjusts;            /* times the relay has been re-conditioned (centre or swing) */
 		int adjust_at_cross;    /* the crossing it was last conditioned at: what follows is the measurement */
+		/* Where the swing actually sat, over the cycles the result is taken from. A limit cycle
+		 * that averages off the set point is measuring the grill somewhere other than where it is
+		 * being asked to hold, and every number that comes out of it inherits the error. */
+		double meas_err_sum; int meas_err_n;
+		double last_load;       /* the average feed the last complete cycle delivered */
 		char note[64];
 	} autotune;
 	/* sensors */

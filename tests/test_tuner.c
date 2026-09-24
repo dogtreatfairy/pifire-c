@@ -788,7 +788,9 @@ static void test_the_swing_is_centred_on_the_set_point(void)
 	                         "an overfed centre should have been brought down");
 	/* The swing has to average out on the set point. Off centre by three degrees is what stretched
 	 * a real run's period by two thirds and doubled the band it came back with. */
-	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(3.0, 250.0, mean, "the oscillation must sit on the set point");
+	/* A couple of degrees high is the plant, not the centring: a grill heats faster than it cools,
+	   so a centred swing still leans upward. What must not happen is sitting beside the target. */
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(5.0, 250.0, mean, "the oscillation must sit on the set point");
 }
 
 /* What the relay measured decides the tuning, and nothing else does. The same oscillation used to
@@ -824,6 +826,45 @@ static void test_a_relay_result_does_not_depend_on_anything_else(void)
 	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.01, band[0], band[1], "the model must not change what the relay measured");
 }
 
+
+/* A measurement that sat off the set point is not filed.
+ *
+ * Every number the relay produces is read as though the limit cycle were centred: the ultimate
+ * gain from its amplitude, the period from its halves. A cycle that averages three degrees high
+ * measured the grill three degrees high, and the error goes silently into the tuning -- which is
+ * exactly how a real run returned a band nearly twice what had been holding the same grill. The
+ * centring is meant to prevent this; the gate is there for when it does not. */
+static void test_a_biased_swing_is_refused(void)
+{
+	stop_and_wait_cold();
+	pf_learning_clear_anchors();
+
+	pf_cmd c = { .type = PF_CMD_MODE, .mode = PF_MODE_HOLD, .num = 250 };
+	pf_cmdq_push(&c);
+	for (int i = 0; i < 90 * 60 && !ctrl.target_reached; i += 10) tick(10);
+	tick(5 * 60);
+	pf_cmd a = { .type = PF_CMD_AUTOTUNE_START };
+	pf_cmdq_push(&a);
+	tick(30);
+	TEST_ASSERT_TRUE(ctrl.autotune.active);
+
+	/* Hold the swing off centre by hand: every cycle, put the centre back where it overfeeds, so
+	 * the correction can never take. This is the shape of the failure, forced. */
+	unsigned gen = pf_learning_autotune_gen();
+	double forced = ctrl.autotune.u_center + 0.10;
+	if (forced > ctrl.cfg.u_max - 0.02) forced = ctrl.cfg.u_max - 0.02;
+	for (int i = 0; i < 3 * 60 * 60 && ctrl.autotune.active; i += 5) {
+		ctrl.autotune.u_center = forced;
+		ctrl.autotune.adjusts = 9;      /* as though the centring had given up */
+		tick(5);
+	}
+	double mean_off = ctrl.autotune.meas_err_n ? ctrl.autotune.meas_err_sum / ctrl.autotune.meas_err_n : 0;
+	printf("forced off centre: mean %.1f F from the set point; the run %s a result\n",
+	       pf_delta_from_c(mean_off, PF_UNITS_F), pf_learning_autotune_gen() != gen ? "STORED" : "refused");
+	TEST_ASSERT_EQUAL_UINT_MESSAGE(gen, pf_learning_autotune_gen(),
+	                               "a swing parked on one side of the set point must not be filed");
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -834,6 +875,7 @@ int main(void)
 	RUN_TEST(test_the_relay_centres_on_holding_not_climbing);
 	RUN_TEST(test_a_relay_result_does_not_depend_on_anything_else);
 	RUN_TEST(test_the_swing_is_centred_on_the_set_point);
+	RUN_TEST(test_a_biased_swing_is_refused);
 	RUN_TEST(test_relay_recovers_from_a_badly_centred_swing);
 	RUN_TEST(test_single_adds_and_full_profile_replaces);
 	RUN_TEST(test_guided_tune_improves_holding);

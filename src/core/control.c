@@ -897,6 +897,39 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 	 * never be smaller than that band. An amplitude at or under it means the readings are not
 	 * describing a real swing. */
 	if (A <= c->autotune.hyst_c * 1.05) { pf_events_emit("Autotune_Failed", "Autotune stopped", "Oscillation too small to measure."); return; }
+
+	/* Was the swing actually centred?
+	 *
+	 * Every number below reads the limit cycle as though it sat on the set point: the ultimate gain
+	 * from its amplitude, the period from its halves. Two things that look like they would answer
+	 * this do not. The mean temperature leans high on any grill, because a fire heats faster than a
+	 * barrel cools. The ratio of the two halves is set by the same asymmetry and runs to three to
+	 * one on a healthy plant.
+	 *
+	 * What does answer it, whatever the grill: over a full cycle the average feed delivered is the
+	 * load, so if the centre is where it should be, each new cycle's average lands back on it. A
+	 * cycle that still says the load is somewhere else is a cycle the centring has not caught up
+	 * with, and it is sitting beside the set point rather than oscillating about it. A real run was
+	 * swinging about 0.339 duty while its cycles averaged 0.267 -- seven points of duty out -- and
+	 * returned a proportional band nearly twice what had been holding the grill.
+	 *
+	 * The centring loop exists to close that gap. This is the check for when it has not. */
+	double bias = c->autotune.meas_err_n > 0 ? c->autotune.meas_err_sum / c->autotune.meas_err_n : 0;
+	double bias_f = pf_delta_from_c(bias, c->cfg.units);
+	double off = c->autotune.last_load > 0 ? fabs(c->autotune.last_load - c->autotune.u_center) : 0;
+	/* Unless there is nowhere to put it: a grill holding a low set point sits on its minimum feed,
+	 * the low half is clamped there, and no centre can make the cycle symmetric. That is the
+	 * actuator, not a mistake, and the ultimate gain is already taken from the swing delivered
+	 * rather than the one asked for. */
+	bool pinned = c->autotune.u_center - c->autotune.h <= c->cfg.u_min + 0.01;
+	if (off > 0.03 && !pinned) {
+		pf_events_emit("Autotune_Failed", "Autotune stopped",
+		               "The swing was centred on %.0f%% feed while its cycles averaged %.0f%%, so it was sitting beside the set point rather than oscillating about it. Nothing was filed.",
+		               c->autotune.u_center * 100, c->autotune.last_load * 100);
+		LOGW(TAG, "autotune rejected: centre %.3f against a cycle load of %.3f", c->autotune.u_center, c->autotune.last_load);
+		return;
+	}
+
 	bool settled = autotune_settled(c);
 	/* Half the swing the grill really saw. Where nothing was clamped this is the h it was asked
 	 * for; where the low half hit the minimum feed it is smaller, and using the requested h there
@@ -951,9 +984,9 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 		applied = true;
 	}
 	pf_events_emit("Autotune_Done", "Autotune complete",
-	               "Ku %.3f (swing ±%.2f duty), period %.0f s over %d cycle%s%s, amplitude ±%.1f. PB %.0f (%s), Ti %.0f s%s.",
+	               "Ku %.3f (swing ±%.2f duty), period %.0f s over %d cycle%s%s, amplitude ±%.1f, sitting %.1f from the set point. PB %.0f (%s), Ti %.0f s%s.",
 	               Ku, h_eff, Pu, k, k == 1 ? "" : "s", settled ? "" : " (still drifting)",
-	               pf_delta_from_c(A, c->cfg.units), pf_delta_from_c(r.PB_c, c->cfg.units),
+	               pf_delta_from_c(A, c->cfg.units), bias_f, pf_delta_from_c(r.PB_c, c->cfg.units),
 	               c->cfg.units == PF_UNITS_C ? "C" : "F", r.Ti,
 	               applied ? " - applied to the controller" : " - review under More > Learning");
 }
@@ -1130,6 +1163,7 @@ static double autotune_step(pf_control *c, double now)
 		    (c->autotune.crossings % 2) == 0 && c->autotune.cyc_n > 4) {
 			int nx = c->autotune.crossings;
 			double load = c->autotune.cyc_sum / c->autotune.cyc_n;
+			c->autotune.last_load = load;
 			double t_hi = c->autotune.halves[nx - 1], t_lo = c->autotune.halves[nx - 2];
 			if (c->autotune.phase > 0) { double sw = t_hi; t_hi = t_lo; t_lo = sw; }
 			if (t_hi > 0 && t_lo > 0) {
@@ -1165,6 +1199,7 @@ static double autotune_step(pf_control *c, double now)
 				 * straddle the change, so the finish waits for two whole cycles after it. */
 				c->autotune.adjust_at_cross = c->autotune.crossings;
 				c->autotune.hi_sum = c->autotune.lo_sum = 0; c->autotune.hi_n = c->autotune.lo_n = 0;
+				c->autotune.meas_err_sum = 0; c->autotune.meas_err_n = 0;
 				LOGI(TAG, "autotune centring %d: the cycle averaged %.3f feed and swung %.1f C; centre %.3f, swing +/-%.3f",
 				     c->autotune.adjusts, load, A, c->autotune.u_center, c->autotune.h);
 			} else if (fabs(c_step) > 0.003) {
@@ -1289,6 +1324,10 @@ static void run_hold_cycle(pf_control *c, double now)
 		if (c->autotune.phase > 0) { c->autotune.hi_sum += c->u_applied; c->autotune.hi_n++; }
 		else { c->autotune.lo_sum += c->u_applied; c->autotune.lo_n++; }
 		c->autotune.cyc_sum += c->u_applied; c->autotune.cyc_n++;
+		if (c->autotune.crossings > c->autotune.adjust_at_cross && c->pit_valid) {
+			c->autotune.meas_err_sum += c->pit_c - c->setpoint_c;
+			c->autotune.meas_err_n++;
+		}
 	}
 	learn_track_steady(c, now);
 	if (c->learn.rise_active) { c->learn.rise_u_sum += c->u_applied; c->learn.rise_n++; }
