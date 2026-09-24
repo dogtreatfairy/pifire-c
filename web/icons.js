@@ -20,7 +20,6 @@ export const ICONS = {
 "chevron-up": "<path d=\"m18 15-6-6-6 6\" />",
 "chevrons-right": "<path d=\"m6 17 5-5-5-5\" /><path d=\"m13 17 5-5-5-5\" />",
 "circle-gauge": "<path d=\"M15.6 2.7a10 10 0 1 0 5.7 5.7\" /><circle cx=\"12\" cy=\"12\" r=\"2\" /><path d=\"M13.4 10.6 19 5\" />",
-"circle-stop": "<circle cx=\"12\" cy=\"12\" r=\"10\" /><rect x=\"9\" y=\"9\" width=\"6\" height=\"6\" rx=\"1\" />",
 "cloud": "<path d=\"M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z\" />",
 "cpu": "<path d=\"M12 20v2\" /><path d=\"M12 2v2\" /><path d=\"M17 20v2\" /><path d=\"M17 2v2\" /><path d=\"M2 12h2\" /><path d=\"M2 17h2\" /><path d=\"M2 7h2\" /><path d=\"M20 12h2\" /><path d=\"M20 17h2\" /><path d=\"M20 7h2\" /><path d=\"M7 20v2\" /><path d=\"M7 2v2\" /><rect x=\"4\" y=\"4\" width=\"16\" height=\"16\" rx=\"2\" /><rect x=\"8\" y=\"8\" width=\"8\" height=\"8\" rx=\"1\" />",
 "database": "<ellipse cx=\"12\" cy=\"5\" rx=\"9\" ry=\"3\" /><path d=\"M3 5V19A9 3 0 0 0 21 19V5\" /><path d=\"M3 12A9 3 0 0 0 21 12\" />",
@@ -50,7 +49,7 @@ export const ICONS = {
 "sliders-horizontal": "<path d=\"M10 5H3\" /><path d=\"M12 19H3\" /><path d=\"M14 3v4\" /><path d=\"M16 17v4\" /><path d=\"M21 12h-9\" /><path d=\"M21 19h-5\" /><path d=\"M21 5h-7\" /><path d=\"M8 10v4\" /><path d=\"M8 12H3\" />",
 "snowflake": "<path d=\"m10 20-1.25-2.5L6 18\" /><path d=\"M10 4 8.75 6.5 6 6\" /><path d=\"m14 20 1.25-2.5L18 18\" /><path d=\"m14 4 1.25 2.5L18 6\" /><path d=\"m17 21-3-6h-4\" /><path d=\"m17 3-3 6 1.5 3\" /><path d=\"M2 12h6.5L10 9\" /><path d=\"m20 10-1.5 2 1.5 2\" /><path d=\"M22 12h-6.5L14 15\" /><path d=\"m4 10 1.5 2L4 14\" /><path d=\"m7 21 3-6-1.5-3\" /><path d=\"m7 3 3 6h4\" />",
 "square": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" />",
-"target": "<circle cx=\"12\" cy=\"12\" r=\"10\" /><circle cx=\"12\" cy=\"12\" r=\"6\" /><circle cx=\"12\" cy=\"12\" r=\"2\" />",
+"crosshair": "<circle cx=\"12\" cy=\"12\" r=\"10\" /><line x1=\"22\" x2=\"18\" y1=\"12\" y2=\"12\" /><line x1=\"6\" x2=\"2\" y1=\"12\" y2=\"12\" /><line x1=\"12\" x2=\"12\" y1=\"6\" y2=\"2\" /><line x1=\"12\" x2=\"12\" y1=\"22\" y2=\"18\" />",
 "thermometer": "<path d=\"M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z\" />",
 "timer": "<line x1=\"10\" x2=\"14\" y1=\"2\" y2=\"2\" /><line x1=\"12\" x2=\"15\" y1=\"14\" y2=\"11\" /><circle cx=\"12\" cy=\"14\" r=\"8\" />",
 "wifi": "<path d=\"M12 20h.01\" /><path d=\"M2 8.82a15 15 0 0 1 20 0\" /><path d=\"M5 12.859a10 10 0 0 1 14 0\" /><path d=\"M8.5 16.429a5 5 0 0 1 7 0\" />",
@@ -62,9 +61,9 @@ export const ICONS = {
  * the settings rows. A mode that is crosshairs in one place and a dial in another is two modes as
  * far as anyone glancing at it is concerned. */
 export const MODE_ICON = {
-  Stop: 'circle-stop', Monitor: 'glasses', Prime: 'chevrons-right',
+  Stop: 'square', Monitor: 'glasses', Prime: 'chevrons-right',
   Startup: 'flame', Reignite: 'flame',
-  Smoke: 'cloud', Hold: 'target', Shutdown: 'power',
+  Smoke: 'cloud', Hold: 'crosshair', Shutdown: 'power',
   Manual: 'sliders-horizontal', Error: 'triangle-alert', Tuning: 'activity',
 };
 
@@ -111,6 +110,39 @@ export const BRANDS = {
     '<path d="M512 473.3c0 17.6-14.4 32-32 32H32c-17.6 0-32-14.4-32-32v-192c0-17.6 10.2-42.2 22.6-54.6L233.4 16c12.4-12.4 32.8-12.4 45.2 0l210.8 210.8c12.4 12.4 22.6 37 22.6 54.6z" style="fill:#f2f4f9"/>'
     + '<path d="M489.4 226.7 278.6 16c-12.4-12.4-32.8-12.4-45.2 0L22.6 226.7C10.2 239.1 0 263.7 0 281.3v192c0 17.6 14.4 32 32 32h196.8l-86.7-86.7c-4.5 1.5-9.2 2.4-14.2 2.4-24.1 0-43.7-19.6-43.7-43.7s19.6-43.7 43.7-43.7 43.7 19.6 43.7 43.7c0 5-.9 9.7-2.4 14.2l67.5 67.5V211.8c-14.5-7.1-24.5-22-24.5-39.2 0-24.1 19.6-43.7 43.7-43.7s43.7 19.6 43.7 43.7c0 17.2-10 32.1-24.5 39.2v173.4l67.1-67.1c-1.3-4.2-2-8.6-2-13.2 0-24.1 19.6-43.7 43.7-43.7s43.7 19.6 43.7 43.7-19.6 43.7-43.7 43.7c-5.3 0-10.4-1-15.1-2.8l-93.7 93.7v65.9H480c17.6 0 32-14.4 32-32v-192c0-17.6-10.2-42.2-22.6-54.7" style="fill:#18bcf2"/>' },
 };
+
+/* The ink for a filled swatch.
+ *
+ * Every icon tile in Settings carried a white glyph, whatever colour the tile
+ * was. White on the orange tile measures 2.4:1 and on the yellow one 1.4:1 --
+ * the glyph was very nearly not there. A filled colour and the ink that goes
+ * on it are one decision, so the decision is made here, once, from the colour
+ * itself: relative luminance per WCAG 2.1, then whichever ink is further from
+ * it. Every tile in the app now clears 4.5:1, and so will the next colour
+ * somebody picks.
+ */
+const INK_DARK = '#0b0b0c', INK_LIGHT = '#ffffff';
+function luminance(hex) {
+  const h = hex.replace('#', '');
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+  const ch = [0, 2, 4].map((i) => {
+    const v = parseInt(full.slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+}
+const ratio = (a, b) => {
+  const [hi, lo] = a > b ? [a, b] : [b, a];
+  return (hi + 0.05) / (lo + 0.05);
+};
+export function inkOn(hex) {
+  if (typeof hex !== 'string' || !/^#[0-9a-f]{3,8}$/i.test(hex)) return INK_DARK;
+  const l = luminance(hex);
+  return ratio(l, luminance(INK_DARK)) >= ratio(l, luminance(INK_LIGHT)) ? INK_DARK : INK_LIGHT;
+}
+
+/** The inline style for a tile: its colour, and the ink that is readable on it. */
+export const tileStyle = (color) => (color ? `--tile:${color};--tile-ink:${inkOn(color)}` : '');
 
 /** A brand mark at row size: its own artboard, its own colours, no tile behind it. */
 export function brandIcon(name, cls = 'ic') {

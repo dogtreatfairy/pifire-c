@@ -277,6 +277,42 @@ static void test_gain_change_does_not_jolt_the_integrator(void)
 	ops->destroy(c);
 }
 
+/* Learning settles a correction per temperature range, and a tuning run measures the grill at one
+ * temperature. Rescaling every range whenever any run finished was the last way a run at 350 F
+ * could quietly make 250 F worse: the correction earned around 250 over whole cooks was pulled
+ * half way back toward a measurement taken somewhere else entirely. A run now only touches the
+ * range it was taken in; what the grill learned about the others is carried onto the new number in
+ * proportion, which is what makes another tune an addition to the model rather than a trade. */
+static void test_a_tune_at_one_temperature_keeps_what_was_learned_at_another(void)
+{
+	g_kv[0] = 0;
+	const pf_controller_ops *ops = pf_controller_find("adaptive");
+	void *c = ops->create("{\"_units\":\"C\"}", &env);
+	double t = 1000;
+	pf_ctrl_in in = { .now_s = t, .pit_c = 110, .setpoint_c = 110, .ambient_c = 20, .u_prev_applied = 0.3, .u_ff = 0.3, .cycle_time_s = 20, .u_min = 0.1, .u_max = 0.9 };
+	ops->reset(c, &in);
+	double base = state_num(ops, c, "PB_c");
+
+	/* a cook around 230 F teaches the loop to back off there */
+	run_window(ops, c, &t, 110, pit_oscillating, 0);
+	double learned = state_num(ops, c, "PB_c");
+	TEST_ASSERT_TRUE(learned > base);
+	double ratio = learned / base;
+
+	/* now measure the grill at 350 F, which lands in a different range */
+	in.now_s = t += 600; in.setpoint_c = 176.7; in.pit_c = 176.7;
+	ops->reset(c, &in);
+	ops->apply_tuning(c, 0.05, 400, 0, 0, 0);          /* relay: PB 44 C */
+	double measured = state_num(ops, c, "PB_c");
+	TEST_ASSERT_DOUBLE_WITHIN(0.5, 44.0, measured);    /* up here, the measurement as taken */
+
+	/* back down to the cook it had learned about: the lesson survives, applied to the new tuning */
+	in.now_s = t += 600; in.setpoint_c = 110; in.pit_c = 110;
+	ops->reset(c, &in);
+	TEST_ASSERT_DOUBLE_WITHIN(0.5, 44.0 * ratio, state_num(ops, c, "PB_c"));
+	ops->destroy(c);
+}
+
 int main(void)
 {
 	pf_controllers_init(NULL);
@@ -288,5 +324,6 @@ int main(void)
 	RUN_TEST(test_learning_refines_a_tune_rather_than_being_overruled_by_it);
 	RUN_TEST(test_gain_change_does_not_jolt_the_integrator);
 	RUN_TEST(test_integrator_seed_and_no_opposition);
+	RUN_TEST(test_a_tune_at_one_temperature_keeps_what_was_learned_at_another);
 	return UNITY_END();
 }

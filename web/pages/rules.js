@@ -320,7 +320,7 @@ function ruleEditor(rule, isNew) {
       }
       const alert = el('div', { class: 'card tight' },
         el('div', { class: 'field' }, el('label', {}, 'Urgency'), seg),
-        r.level === 'critical' ? el('p', { class: 'muted', style: 'font-size:.78rem' },
+        r.level === 'critical' ? el('p', { class: 'help' },
           'Sends the highest priority each service offers (Pushover Emergency repeats until you acknowledge it). Whether it breaks through a Focus mode depends on how you allow the Pushover or ntfy app in your phone\'s notification settings.') : null,
         el('div', { class: 'field' }, el('label', {}, 'Send To'), sinkBox));
 
@@ -331,7 +331,7 @@ function ruleEditor(rule, isNew) {
             el('input', { type: 'text', inputmode: 'numeric', value: r.cooldown_s ?? 600, onchange: (e) => (r.cooldown_s = parseInt(e.target.value, 10) || 0) })),
           el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'Repeat Every'), el('div', { class: 'help' }, 'Seconds; 0 = send once until it goes false')),
             el('input', { type: 'text', inputmode: 'numeric', value: r.repeat_s ?? 0, onchange: (e) => (r.repeat_s = parseInt(e.target.value, 10) || 0) })),
-          el('label', { class: 'toggle' }, el('div', {}, el('div', {}, 'Only While Cooking'), el('div', { class: 'help muted', style: 'font-size:.76rem' }, 'Off means it can also fire while the grill is stopped')),
+          el('label', { class: 'toggle' }, el('div', {}, el('div', {}, 'Only While Cooking'), el('div', { class: 'help' }, 'Off means it can also fire while the grill is stopped')),
             el('span', { class: 'switch' }, el('input', { type: 'checkbox', checked: r.only_while_cooking !== false, onchange: (e) => (r.only_while_cooking = e.target.checked) }), el('span')))));
 
       body.append(
@@ -405,7 +405,7 @@ export async function renderRules(view) {
   view.append(
     el('div', { class: 'row between' }, el('h2', {}, 'Conditional Notifications'),
       el('button', { class: 'btn sm', type: 'button', onclick: () => edit(blankRule(), true) }, '+ Add')),
-    el('p', { class: 'muted', style: 'font-size:.85rem' },
-      'Each notification watches something on the grill and sends a message when what it describes becomes true. One rule can cover every probe: compare a reading with another reading, like "temperature is at or above its target", and the message names whichever probe matched.'),
+    el('p', { class: 'help' },
+      'A rule sends when its condition becomes true. Comparing a reading with another reading — "temperature at or above target" — covers every probe at once; the message names the one that matched.'),
     el('div', { class: 'card' }, list));
 }

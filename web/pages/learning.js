@@ -1,4 +1,4 @@
-import { PF, el, api, patchSettings, toast, onStatus, confirmDialog, numberDialog, segmented, degUnit, fmtDur } from '../app.js';
+import { PF, el, api, patchSettings, toast, onStatus, confirmDialog, numberDialog, degUnit, fmtDur } from '../app.js';
 
 const PHASE_TEXT = {
   starting: 'Starting the grill',
@@ -31,11 +31,10 @@ export function renderLearning(view, slots = {}) {
   /* No plant estimate here: the three numbers measured from the grill belong with the rest of the
      measuring, under Auto Tuning, and printing them twice would only invite them to disagree. */
   learningInto.append(ffCard,
-    el('h3', { style: 'margin:14px 0 6px;font-size:.9rem' }, 'Recent Observations'), el('div', { class: 'card' }, recent));
+    el('h3', { class: 'subhead' }, 'Recent Observations'), el('div', { class: 'card' }, recent));
 
   let data = null;
   let tune = null;
-  let mode = 'full';                                   // 'full' or 'one'
   let pick = PF.units === 'C' ? 105 : 225;             // the single temperature to tune
 
   async function load() {
@@ -60,96 +59,79 @@ export function renderLearning(view, slots = {}) {
     if (!tune) return;
     const s = PF.status;
     tuneCard.innerHTML = '';
-    tuneCard.append(el('p', { class: 'muted', style: 'font-size:.85rem' },
-      'Autotune starts the grill itself, holds a set point, oscillates the feed a few degrees around it to measure how this grill responds, and shuts down when it is done. Leave the grill empty and let it run.'));
+    tuneCard.append(el('p', { class: 'help' }, 'Runs the grill empty. About an hour per temperature.'));
 
     if (tune.running) {
       const phase = PHASE_TEXT[tune.phase] || tune.message;
       tuneCard.append(
-        el('div', { class: 'notice warn' }, `${phase} — ${tune.setpoint}${degUnit()}, ${tune.step} of ${tune.steps}`),
+        el('div', { class: 'notice warn' }, `${phase} — ${tune.setpoint}${degUnit()}, ${tune.step}/${tune.steps}`),
         el('div', { class: 'kv' },
-          el('div', {}, tune.full_profile ? 'Full profile' : 'One temperature'), el('div', {}, (tune.setpoints || []).map((v) => `${v}${degUnit()}`).join(' · ')),
-          el('div', {}, 'Measured so far'), el('div', {}, `${tune.measured} of ${tune.steps}`),
-          el('div', {}, 'Running for'), el('div', {}, fmtDur(tune.elapsed_s))),
+          el('div', {}, 'Set points'), el('div', {}, (tune.setpoints || []).map((v) => `${v}${degUnit()}`).join(' · ')),
+          el('div', {}, 'Measured'), el('div', {}, `${tune.measured}/${tune.steps}`),
+          el('div', {}, 'Elapsed'), el('div', {}, fmtDur(tune.elapsed_s))),
         el('div', { class: 'form-actions' }, el('button', {
           class: 'btn sm ghost',
-          onclick: async () => { if (await confirmDialog('Stop tuning?', 'The grill shuts down. Temperatures already measured are kept.', 'Stop', true)) { await api('/tune/stop', { body: {} }); loadTune(); } },
-        }, 'Stop tuning')));
+          onclick: async () => { if (await confirmDialog('Stop tuning?', 'Grill shuts down. Measurements already taken are kept.', 'Stop', true)) { await api('/tune/stop', { body: {} }); loadTune(); } },
+        }, 'Stop')));
     } else {
       if (tune.phase === 'done' || tune.phase === 'failed') {
-        tuneCard.append(el('p', { class: 'muted', style: 'font-size:.85rem' }, tune.phase === 'done'
-          ? `Last run finished. ${tune.measured} temperature${tune.measured === 1 ? '' : 's'} measured.`
+        tuneCard.append(el('p', { class: 'help' }, tune.phase === 'done'
+          ? `Last run: ${tune.measured} measured.`
           : `Last run stopped. ${tune.message}`));
       }
-
-      tuneCard.append(segmented([['full', 'Baseline'], ['one', 'One Temperature']], mode, (v) => { mode = v; renderTune(); }));
 
       // the daemon refuses to start on a grill that is already cooking, so say so rather than fail
       const busy = s && s.mode !== 'Stop' && s.mode !== 'Monitor';
       const units = PF.units === 'C' ? PRESETS_C : PRESETS_F;
+      const p = tune.profile || [];
+      const have = (tune.anchors || []).length > 0;
+      const list = p.map((v) => `${v}${degUnit()}`).join(' · ');
 
-      if (mode === 'full') {
-        const p = tune.profile || [];
-        const nruns = (tune.anchors || []).reduce((m, a) => Math.max(m, a.runs || 1), 0);
-        const have = (tune.anchors || []).length > 0;
-        /* `append` is the DOM's, not el()'s, so a null child would be written out as the word
-           "null" -- which is exactly what an empty library showed under the Measure button. */
-        tuneCard.append(...[
-          el('p', { class: 'muted', style: 'font-size:.85rem;margin-top:10px' },
-            p.length > 1
-              ? `Measures ${p.map((v) => `${v}${degUnit()}`).join(', ')} in that order, and records the weather it measured them in. The first is the baseline, measured where the grill has the most room to swing either side of its centre.`
-              : `Measures ${p.map((v) => `${v}${degUnit()}`).join('') || 'the baseline'} and records the weather it measured it in. This is where the grill has the most room to swing either side of its centre, which makes it the measurement worth trusting, and the schedule holds outside it — so one honest anchor governs the whole range. About an hour.`),
-          /* A run is one afternoon's evidence: that day's wind, that hopper's pellets. Running it
-             again should make the answer better rather than throw the previous answer away. */
-          el('p', { class: 'muted', style: 'font-size:.85rem' },
-            have
-              ? `This refines what is already measured rather than replacing it${nruns > 1 ? ` — the library is ${nruns} runs deep` : ''}. Each run moves the numbers less than the last, so the noise of any one afternoon averages out, but never by so little that a grill which has genuinely changed cannot be followed.`
-              : 'There is nothing measured yet, so this starts the library.'),
+      /* Two actions, two buttons. This was a segmented switcher that changed which single button
+         you were looking at, which hid one of the two things you might want and needed a paragraph
+         to explain which mode you were in. A choice between two actions is one button each. */
+      tuneCard.append(
+        el('button', {
+          class: 'btn primary block', disabled: busy,
+          onclick: () => start({ full_profile: true }, {
+            title: have ? 'Refine baseline?' : 'Tune baseline?',
+            text: `${list || 'Baseline'}. Grill starts itself and shuts down when done.`,
+          }),
+        }, busy ? 'Stop the grill first' : have ? 'Refine Baseline' : 'Tune Baseline'),
+        el('p', { class: 'help' }, have ? `Refines ${list}. Each run moves the numbers less than the last.` : `Baseline: ${list}`),
+
+        el('div', { class: 'kv' }, el('div', {}, 'Temperature'), el('div', {},
           el('button', {
-            class: 'btn primary block',
-            disabled: busy,
-            onclick: () => start({ full_profile: true }, {
-              title: have ? 'Refine the baseline?' : 'Measure the baseline?',
-              text: `The grill starts itself, measures ${p.length > 1 ? 'every temperature in turn' : 'the loop'} and shuts down when it is finished. ${have ? 'What it finds refines the tuning library.' : 'What it finds becomes the tuning library.'} Do not cook during the run.`,
-            }),
-          }, busy ? 'Stop the grill to start a run' : have ? 'Refine Baseline' : 'Measure Baseline'),
-          /* Erasing is for a grill that has genuinely changed -- re-gasketed, rebuilt, moved -- and
-             is asked for by name rather than being the side effect of running a tune. */
-          have ? el('button', {
-            class: 'btn ghost block',
-            disabled: busy,
-            style: 'margin-top:8px',
-            onclick: () => start({ full_profile: true, from_scratch: true }, {
-              title: 'Erase and start from scratch?',
-              text: 'Everything the grill has measured about itself is thrown away before the run begins, and there is no undo. Do this when the grill itself has changed — a new gasket, a rebuild, a move — rather than to take another measurement. Back the library up first if you might want it.',
-              danger: true,
-            }),
-          }, 'Start From Scratch') : null].filter(Boolean));
-      } else {
-        tuneCard.append(
-          el('p', { class: 'muted', style: 'font-size:.85rem;margin-top:10px' },
-            'Measures one temperature and adds it to the tuning library beside what is already there. Useful when you cook at a temperature the profile does not cover, or when one has drifted.'),
-          el('div', { class: 'kv' }, el('div', {}, 'Temperature'), el('div', {},
-            el('button', {
-              class: 'btn sm',
-              onclick: async () => {
-                const v = await numberDialog('Tune at', pick, { min: units[0], max: units[8], step: 5, presets: units });
-                if (v != null) { pick = v; renderTune(); }
-              },
-            }, `${pick}${degUnit()}`))),
-          el('button', {
-            class: 'btn primary block',
-            disabled: busy,
-            onclick: () => start({ setpoints: [pick], full_profile: false }, {
-              title: `Tune at ${pick}${degUnit()}?`,
-              text: 'The grill starts itself, holds this temperature while it measures, and shuts down when it is finished. It takes about an hour, so do not cook during the run.',
-            }),
-          }, busy ? 'Stop the grill to start a run' : `Tune at ${pick}${degUnit()}`));
+            class: 'btn sm',
+            onclick: async () => {
+              const v = await numberDialog('Tune at', pick, { min: units[0], max: units[8], step: 5, presets: units });
+              if (v != null) { pick = v; renderTune(); }
+            },
+          }, `${pick}${degUnit()}`))),
+        el('button', {
+          class: 'btn block', disabled: busy, style: 'margin-top:8px',
+          onclick: () => start({ setpoints: [pick], full_profile: false }, {
+            title: `Tune at ${pick}${degUnit()}?`,
+            text: 'Grill starts itself and shuts down when done.',
+          }),
+        }, busy ? 'Stop the grill first' : `Tune at ${pick}${degUnit()}`));
+
+      /* Erasing is for a grill that has genuinely changed -- re-gasketed, rebuilt, moved -- and is
+         asked for by name rather than being the side effect of running a tune. */
+      if (have) {
+        tuneCard.append(el('button', {
+          class: 'btn ghost block', disabled: busy, style: 'margin-top:8px',
+          onclick: () => start({ full_profile: true, from_scratch: true }, {
+            title: 'Erase and start over?',
+            text: 'Deletes every measurement, then runs the baseline. No undo.',
+            danger: true,
+          }),
+        }, 'Start From Scratch'));
       }
     }
 
     const anchors = tune.anchors || [];
-    tuneCard.append(el('h3', { style: 'margin:16px 0 6px;font-size:.9rem' }, 'Tuning Library'));
+    tuneCard.append(el('h3', { class: 'subhead' }, 'Tuning Library'));
     if (anchors.length) {
       /* These are the numbers to keep. They go straight into the controller's own Proportional
          Band, Integral Time and Derivative Time boxes, so a tune never has to be repeated just to
@@ -163,9 +145,17 @@ export function renderLearning(view, slots = {}) {
       }
       const lines = anchors.map((a) => `${a.setpoint}${degUnit()}: PB ${a.PB}${degUnit()}, Ti ${a.Ti} s, Td ${a.Td} s`
         + (a.ambient != null ? ` (measured at ${a.ambient}${degUnit()} out${a.wind_kmh ? `, ${a.wind_kmh} km/h` : ''})` : ''));
+      /* The library is a model of the grill across its range, not a list of separate answers, and
+         saying so is the difference between "four tunes" and "a tuned grill". It also answers the
+         question the table itself raises: what happens at a temperature that is not in it. */
+      const lo = anchors[0].setpoint, hi = anchors[anchors.length - 1].setpoint;
+      const model = anchors.length > 1
+        ? `Covers ${lo}–${hi}${degUnit()}. In between is interpolated, outside is held flat. A run changes only its own temperature.`
+        : `One measurement, used at every temperature. Tune a second, further away, to build a range.`;
       tuneCard.append(tbl,
-        el('p', { class: 'muted', style: 'font-size:.8rem' },
-          `Measured ${anchors[0].ambient != null ? `at ${anchors[0].ambient}${degUnit()} outside` : 'on this grill'}. These take priority over the Proportional Band, Integral Time and Derivative Time set on this page, which are only the starting point before anything has been measured. Type them in by hand and you get the same tuning without running another autotune.`),
+        el('p', { class: 'help' }, model),
+        el('p', { class: 'help' },
+          `${anchors[0].ambient != null ? `Measured at ${anchors[0].ambient}${degUnit()} ambient. ` : ''}These override the values typed above.`),
         el('div', { class: 'form-actions' },
           el('button', { class: 'btn sm ghost', onclick: async () => {
             try { await navigator.clipboard.writeText(lines.join('\n')); toast('Copied'); }
@@ -193,7 +183,7 @@ export function renderLearning(view, slots = {}) {
               try {
                 const doc = JSON.parse(await file.text());
                 if (!await confirmDialog('Restore this tuning library?',
-                  'Everything the grill has measured is replaced by what is in the file.', 'Restore', true)) return;
+                  'Replaces every measurement with the file.', 'Restore', true)) return;
                 const r = await api('/tune/import', { body: doc });
                 toast(`Restored ${r.restored} set point${r.restored === 1 ? '' : 's'}`);
                 renderTune();
@@ -203,18 +193,18 @@ export function renderLearning(view, slots = {}) {
           } }, 'Restore')));
 
     } else {
-      tuneCard.append(el('p', { class: 'muted', style: 'font-size:.8rem' }, 'No temperature has been measured deliberately yet. Until a run finishes, the controller works from the grill model fitted to each startup, or from the Proportional Band, Integral Time and Derivative Time set on this page.'));
+      tuneCard.append(el('p', { class: 'help' }, 'Nothing measured. Running on the startup fit, or the values typed above.'));
     }
 
     /* The grill model is measured whether or not a tune was ever run -- every startup rise fits one
        -- so it is shown, and can be cleared, on its own. */
     if (tune.plant) {
-      tuneCard.append(el('h3', { style: 'margin:16px 0 6px;font-size:.9rem' }, 'Measured Grill'),
+      tuneCard.append(el('h3', { class: 'subhead' }, 'Measured Grill'),
         el('div', { class: 'kv' },
           el('div', {}, 'Gain'), el('div', {}, `${tune.plant.K}${degUnit()} per unit of feed`),
           el('div', {}, 'Time constant'), el('div', {}, `${tune.plant.tau} s`),
           el('div', {}, 'Dead time'), el('div', {}, `${tune.plant.theta} s`)),
-        el('p', { class: 'muted', style: 'font-size:.8rem' }, 'How much the pit moves per unit of feed, how quickly it answers, and how long before it starts. The tuning above is derived from these three.'));
+        el('p', { class: 'help' }, 'Fitted from each startup rise. The tuning above derives from these.'));
     }
 
     /* The way back to the values you typed. It is a row of its own, in the section whose contents
@@ -222,7 +212,7 @@ export function renderLearning(view, slots = {}) {
     if (anchors.length || tune.plant) {
       tuneCard.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn sm ghost', onclick: async () => {
         if (!await confirmDialog('Clear the measured tuning?',
-          'The tuning library, the last autotune and the grill model measured from startups are thrown away, and the grill goes back to the Proportional Band, Integral Time and Derivative Time typed on this page. Measuring them again takes hours and a hopper of pellets, so back them up first if you might want them.', 'Clear', true)) return;
+          'Deletes the library, the last autotune and the grill model. Reverts to the values typed above. No undo.', 'Clear', true)) return;
         try { await api('/tune/clear', { body: {} }); toast('Back to the typed values'); setTimeout(() => load().catch(() => {}), 400); }
         catch (e) { toast(e.message, true); }
       } }, 'Clear Autotune')));
@@ -237,33 +227,33 @@ export function renderLearning(view, slots = {}) {
     ffCard.innerHTML = '';
     ffCard.append(...[
       // The switch lives in the Learning section above, once. This card only reports what it found.
-      data.enabled ? null : el('div', { class: 'notice warn' }, 'Learning is switched off, so none of this is being updated.'),
-      el('p', { class: 'muted', style: 'font-size:.85rem' }, `Model: feed = ${f.a.toFixed(3)} + ${f.b_per_degC.toFixed(4)} × (set point − ambient, °C). Fitted from ${f.observations} observation${f.observations === 1 ? '' : 's'}${f.observations ? `, rms error ${f.rms.toFixed(3)}` : ' (using the built-in prior until real cooks accumulate)'}.`),
+      data.enabled ? null : el('div', { class: 'notice warn' }, 'Learning off. Not updating.'),
+      el('p', { class: 'help' }, `feed = ${f.a.toFixed(3)} + ${f.b_per_degC.toFixed(4)} × (set point − ambient °C) · ${f.observations} obs${f.observations ? ` · rms ${f.rms.toFixed(3)}` : ' · prior'}`),
       el('div', { class: 'kv' }, ...f.examples.flatMap((e) => [el('div', {}, `Hold ${e.setpoint}${degUnit()} at ${f.example_ambient}${degUnit()} ambient`), el('div', {}, `${(e.u * 100).toFixed(0)}% feed`)])),
-      s?.mode === 'Hold' ? el('p', { class: 'muted', style: 'font-size:.85rem' }, `Right now: feed-forward ${(s.cycle.u_ff * 100).toFixed(0)}%, applied ${(s.cycle.u_applied * 100).toFixed(0)}%.`) : null,
+      s?.mode === 'Hold' ? el('p', { class: 'help' }, `Now: ff ${(s.cycle.u_ff * 100).toFixed(0)}% · applied ${(s.cycle.u_applied * 100).toFixed(0)}%`) : null,
       // Clearing what the grill taught itself belongs here, with the rest of the learning. The
       // other clearing -- throwing the measurements away and going back to the typed values -- sits
       // under Auto Tuning, beside the library it removes.
       el('div', { class: 'form-actions' },
-        el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog('Clear learning?', 'The observations behind the feed-forward and the corrections the controller has settled on are cleared, and the grill starts learning again from the tuning it has measured. What autotune measured is kept.', 'Clear', true)) { await api('/learning/forget', { body: {} }); load(); } } }, 'Clear learning'))].filter(Boolean));
+        el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog('Clear learning?', 'Clears the observations and the controller\'s own corrections. Measured tuning is kept.', 'Clear', true)) { await api('/learning/forget', { body: {} }); load(); } } }, 'Clear learning'))].filter(Boolean));
 
     /* What governs the set point right now, sent with every status rather than left over from the
        last cycle the controller ran: between cooks the controller's own note is whatever was in
        force during the last one, which straight after a tuning run is the one moment it is
        certainly wrong. Where it came from is said in words, because "which of these three numbers
        am I actually running" is the whole question this card exists to answer. */
-    const SRC = { tuned: 'measured by autotune', learned: 'learned from your cooks', typed: 'the values typed on this page' };
+    const SRC = { tuned: 'Autotune', learned: 'Learning', typed: 'Typed' };
     const t = s?.controller?.tuning;
     if (t) {
       note.replaceChildren(
-        el('h3', { style: 'margin:0 0 8px;font-size:.9rem' }, 'Tuning In Use'),
+        el('h3', { class: 'subhead' }, 'Tuning In Use'),
         el('div', { class: 'kv' },
           el('div', {}, 'Proportional Band'), el('div', {}, `${t.PB}${degUnit()}`),
           el('div', {}, 'Integral Time'), el('div', {}, `${t.Ti} s`),
           el('div', {}, 'Derivative Time'), el('div', {}, `${t.Td} s`),
           el('div', {}, 'From'), el('div', {}, SRC[t.src] || t.src)),
-        el('p', { class: 'muted', style: 'font-size:.8rem;margin:8px 0 0' },
-          s?.mode === 'Hold' ? `Holding ${s.setpoint}${degUnit()} on these now.` : `What would be used to hold ${s?.setpoint || ''}${s?.setpoint ? degUnit() : 'the set point'}.`));
+        el('p', { class: 'help' },
+          s?.mode === 'Hold' ? `In use, holding ${s.setpoint}${degUnit()}.` : 'Would be used at the next hold.'));
     }
 
     recent.innerHTML = '';

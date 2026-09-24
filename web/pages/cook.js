@@ -95,7 +95,7 @@ export async function limitsDialog(p) {
     const lo = el('input', { type: 'text', inputmode: 'decimal', value: p.limit_low || '', placeholder: 'off' });
     return el('form', { onsubmit: (e) => { e.preventDefault(); close({ high: parseFloat(hi.value) || 0, low: parseFloat(lo.value) || 0 }); } },
       el('h3', {}, `${p.name} alarms`),
-      el('p', { class: 'muted', style: 'font-size:.85rem' }, 'Get alerted whenever the probe leaves this range (useful for the pit while you sleep). Leave blank to disable.'),
+      el('p', { class: 'help' }, 'Alerts when the probe leaves this range. Blank disables.'),
       el('div', { class: 'field inline' }, el('label', {}, `Alarm above (${degUnit()})`), hi),
       el('div', { class: 'field inline' }, el('label', {}, `Alarm below (${degUnit()})`), lo),
       el('div', { class: 'btnrow' }, el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'), el('button', { class: 'btn primary', type: 'submit' }, 'Save')));
@@ -187,7 +187,7 @@ export function renderCook(view) {
           el('button', { class: 'btn sm ghost', onclick: async () => { const e = await recipeDialog(r); if (e) { await api('/recipes', { body: e }).catch((x) => toast(x.message, true)); loadRecipes(); } } }, 'Edit'),
           el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog('Delete recipe?', r.name, 'Delete', true)) { await api(`/recipes/${r.id}/delete`, { body: {} }); loadRecipes(); } } }, 'Delete'))));
     }
-    if (!list.length) recipeList.append(el('div', { class: 'muted' }, 'No recipes yet. A recipe is a list of steps: Startup → Hold 225 until the probe hits 165 → Shutdown.'));
+    if (!list.length) recipeList.append(el('div', { class: 'muted' }, 'No recipes. A recipe is a list of steps: Startup → Hold 225 until probe 165 → Shutdown.'));
   }).catch(() => {});
   if (showRecipes) loadRecipes();
 
@@ -206,7 +206,7 @@ export function renderCook(view) {
     if (rc.active) {
       recipeCard.innerHTML = '';
       recipeCard.append(el('div', { class: 'row between' },
-        el('div', {}, el('div', { style: 'font-weight:600' }, `${rc.name} — step ${rc.step + 1} of ${rc.nsteps}`), el('div', { class: 'muted', style: 'font-size:.8rem' }, rc.waiting ? 'Waiting for you' : `${rc.step_mode}${rc.remaining_s >= 0 ? ' · ' + fmtDur(rc.remaining_s) + ' left' : ''}${rc.message ? ' · ' + rc.message : ''}`)),
+        el('div', {}, el('div', { style: 'font-weight:600' }, `${rc.name} — step ${rc.step + 1} of ${rc.nsteps}`), el('div', { class: 'help' }, rc.waiting ? 'Waiting for you' : `${rc.step_mode}${rc.remaining_s >= 0 ? ' · ' + fmtDur(rc.remaining_s) + ' left' : ''}${rc.message ? ' · ' + rc.message : ''}`)),
         el('div', { class: 'btnrow' }, rc.waiting ? el('button', { class: 'btn sm primary', onclick: () => cmd({ cmd: 'recipe', op: 'next' }) }, 'Next') : null, el('button', { class: 'btn sm ghost', onclick: () => cmd({ cmd: 'recipe', op: 'stop' }) }, 'Stop recipe'))));
       recipeCard.append(el('div', { class: 'progress' }, el('div', { style: `width:${((rc.step + (rc.waiting ? 1 : 0)) / rc.nsteps) * 100}%` })));
     }
@@ -214,7 +214,7 @@ export function renderCook(view) {
     timerCard.innerHTML = '';
     if (t.running) {
       timerCard.append(el('div', { class: 'row between' },
-        el('div', {}, el('div', { style: 'font-size:2rem;font-weight:700;font-variant-numeric:tabular-nums' }, fmtDur(t.remaining)), el('div', { class: 'muted', style: 'font-size:.8rem' }, `${t.paused ? 'Paused' : 'Running'} · ${AFTER.find((a) => a[0] === t.after)?.[1]}`)),
+        el('div', {}, el('div', { class: 'readout-xl' }, fmtDur(t.remaining)), el('div', { class: 'help' }, `${t.paused ? 'Paused' : 'Running'} · ${AFTER.find((a) => a[0] === t.after)?.[1]}`)),
         el('div', { class: 'btnrow' }, el('button', { class: 'btn sm', onclick: () => cmd({ cmd: 'timer', op: t.paused ? 'resume' : 'pause' }) }, t.paused ? 'Resume' : 'Pause'), el('button', { class: 'btn sm ghost', onclick: () => cmd({ cmd: 'timer', op: 'cancel' }) }, 'Cancel'))));
       timerCard.append(el('div', { class: 'progress' }, el('div', { style: `width:${Math.max(0, Math.min(100, 100 - (t.remaining / t.duration) * 100))}%` })));
     } else {

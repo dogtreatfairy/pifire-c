@@ -15,7 +15,7 @@ const gaugeMax = () => (PF.units === 'C' ? 320 : 600);
 /* The control bar names actions, and two of those actions are modes: holding and smoking. Those two
    take their marks from the one map every surface uses, so the button you press here is the icon
    you see in the header, in Settings and on the panel. */
-const LUCIDE = { play: 'play', stop: 'square', glasses: 'glasses', target: MODE_ICON.Hold, prime: 'chevrons-right', smoke: MODE_ICON.Smoke, power: MODE_ICON.Shutdown, chevron: 'chevron-up', wrench: 'wrench' };
+const LUCIDE = { play: 'play', stop: MODE_ICON.Stop, glasses: 'glasses', target: MODE_ICON.Hold, prime: 'chevrons-right', smoke: MODE_ICON.Smoke, power: MODE_ICON.Shutdown, chevron: 'chevron-up', wrench: 'wrench' };
 const icon = (name) => lucide(LUCIDE[name] || name);
 
 // ---- gauge (270° ring, temperature inside)
@@ -81,7 +81,7 @@ async function startGrill() {
 }
 function primeMenu() {
   return dialog((close) => el('div', {}, el('h3', {}, 'Prime auger'),
-    el('p', { class: 'muted', style: 'font-size:.85rem' }, 'Pushes pellets into the fire pot. Use after the hopper ran empty.'),
+    el('p', { class: 'help' }, 'Pushes pellets into the fire pot. Use after the hopper ran empty.'),
     el('div', { class: 'opts' },
       ...[10, 15, 20, 25].map((g) => el('button', { class: 'btn', type: 'button', onclick: () => { close(); cmd({ cmd: 'prime', amount: g, next: '' }); } }, `Prime ${g} g`)),
       el('button', { class: 'btn primary', type: 'button', onclick: async () => { close(); const g = await numberDialog('Prime amount', 10, { min: 1, max: 100, step: 5, unit: ' g', presets: [5, 10, 20, 30] }); if (g) cmd({ cmd: 'prime', amount: g, next: 'Startup' }); } }, 'Prime, then start')),
@@ -92,7 +92,7 @@ function smokeMenu(s) {
   const cur = PF.settings?.cycle_data?.PMode ?? 2;
   return dialog((close) => el('div', {}, el('h3', {}, s.s_plus ? 'Smoke+' : 'Smoke'),
     el('button', { class: 'btn block', type: 'button', style: 'margin-bottom:12px', onclick: async () => { close(); const to = !s.s_plus; if (await confirmDialog(to ? 'Switch to Smoke+?' : 'Switch to Smoke?', to ? 'The fan cycles on and off for more smoke while the pit stays in range.' : 'The fan runs continuously again.', to ? 'Smoke+' : 'Smoke')) cmd({ cmd: 'smoke_plus', enabled: to }); } }, s.s_plus ? 'Switch to Smoke' : 'Switch to Smoke+'),
-    el('div', { class: 'muted', style: 'font-size:.85rem;margin-bottom:6px' }, `P-Mode · now ${cur} · higher = fewer pellets, more smoke`),
+    el('div', { class: 'help' }, `P-Mode · now ${cur} · higher = fewer pellets, more smoke`),
     el('div', { class: 'presets pad' }, ...Array.from({ length: 9 }, (_, i) => i + 1).map((n) => el('button', { class: `btn ${n === cur ? 'primary' : ''}`, type: 'button', onclick: async () => { close(); try { await patchSettings('cycle_data', { PMode: n }); toast(`P-Mode ${n}`); } catch (e) { toast(e.message, true); } } }, String(n)))),
     el('button', { class: 'btn ghost block', type: 'button', onclick: () => close() }, 'Cancel')));
 }
@@ -251,7 +251,7 @@ export function renderHome(view) {
       if (manual.dataset.state !== want) {
         manual.dataset.state = want;
         manual.innerHTML = '';
-        manual.append(el('div', { class: 'muted', style: 'font-size:.8rem;margin-bottom:4px' }, 'Manual outputs — everything turns off when you press Stop'),
+        manual.append(el('div', { class: 'help' }, 'Manual outputs — everything turns off when you press Stop'),
           manualRow('Auger', 'auger', s.outputs.auger), manualRow('Fan', 'fan', s.outputs.fan));
         /* a variable-speed fan turns on at full and is dialled down from there, because a fan you
            have to set a number on before it moves any air does not read as a switch */
@@ -276,10 +276,13 @@ export function renderHome(view) {
       const step = PF.units === 'C' ? 3 : 5;
       const over = hit ? p.temp - p.target : 0;
       const level = !hit ? '' : over >= 2 * step ? 'way' : over >= step ? 'over' : 'done';
-      probes.append(el('div', { class: `pcell ${p.valid ? '' : 'invalid'} ${hit ? 'hit' : ''} ${level}`, onclick: () => probePopup(p.label) },
-        el('div', { class: 'n' }, p.wireless ? [btIcon(), sigBars(p.signal || 0, p.rssi ? `${p.rssi} dBm` : 'no link'), p.battery >= 0 ? battIcon(p.battery) : null, ' '] : null, p.name), el('div', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
-        p.ambient_label ? el('div', { class: 'amb' }, `Ambient ${p.ambient == null ? '—' : fmtTemp(p.ambient) + '°'}`) : null,
-        el('div', { class: `tg ${p.target > 0 ? '' : 'muted'}` }, p.target > 0 ? `Target ${fmtTemp(p.target)}°${!hit && p.eta_s > 0 ? ` · ${fmtEta(p.eta_s)}` : ''}` : 'Set target')));
+      probes.append(el('button', { class: `pcell ${p.valid ? '' : 'invalid'} ${hit ? 'hit' : ''} ${level}`, onclick: () => probePopup(p.label) },
+        /* spans, not divs: the cell is a <button> so that it focuses, answers the keyboard and
+           takes the app's press layer like every other control, and a button may only contain
+           phrasing content. The CSS gives each line its own row. */
+        el('span', { class: 'n' }, p.wireless ? [btIcon(), sigBars(p.signal || 0, p.rssi ? `${p.rssi} dBm` : 'no link'), p.battery >= 0 ? battIcon(p.battery) : null, ' '] : null, p.name), el('span', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
+        p.ambient_label ? el('span', { class: 'amb' }, `Ambient ${p.ambient == null ? '—' : fmtTemp(p.ambient) + '°'}`) : null,
+        el('span', { class: `tg ${p.target > 0 ? '' : 'muted'}` }, p.target > 0 ? `Target ${fmtTemp(p.target)}°${!hit && p.eta_s > 0 ? ` · ${fmtEta(p.eta_s)}` : ''}` : 'Set target')));
     }
     probes.hidden = !food.length;
 

@@ -3,7 +3,7 @@ import { renderHome } from './pages/home.js';
 import { renderHistory } from './pages/history.js';
 import { renderCook } from './pages/cook.js';
 import { renderSettings } from './pages/settings.js';
-import { icon as lucide, brandIcon, MODE_ICON } from './icons.js';
+import { icon as lucide, brandIcon, MODE_ICON, tileStyle } from './icons.js';
 import { renderMore } from './pages/more.js';
 import { renderNetwork } from './pages/network.js';
 
@@ -284,11 +284,11 @@ export function alertSupport() {
   const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   if (!('Notification' in window)) {
     return { ok: false, why: ios && !standalone
-      ? 'On iPhone these only work once PiFire is added to the Home Screen. Tap Share, then "Add to Home Screen", and open it from there.'
+      ? 'iPhone: Share → Add to Home Screen, then open it from there.'
       : 'This browser cannot show notifications.' };
   }
-  if (ios && !standalone) return { ok: false, why: 'Add PiFire to your Home Screen and open it from there, or iOS will not allow notifications.' };
-  if (!window.isSecureContext) return { ok: false, why: 'Notifications need a secure connection. Reach the grill over https, or through Tailscale.' };
+  if (ios && !standalone) return { ok: false, why: 'Add to the Home Screen and open it from there. iOS allows notifications only then.' };
+  if (!window.isSecureContext) return { ok: false, why: 'Needs https. Reach the grill over https or Tailscale.' };
   if (Notification.permission === 'denied') return { ok: false, why: 'Notifications are blocked for PiFire in your device settings.' };
   return { ok: Notification.permission === 'granted', why: Notification.permission === 'granted' ? '' : 'Not allowed yet.' };
 }
@@ -415,7 +415,7 @@ export function numberDialog(title, value, { min = 0, max = 600, step = 5, prese
 export function toggleRow(label, checked, onchange, help) {
   const input = el('input', { type: 'checkbox', checked, onchange: (e) => onchange(e.target.checked) });
   return el('label', { class: 'toggle' },
-    el('div', {}, el('div', {}, label), help ? el('div', { class: 'help muted', style: 'font-size:.76rem' }, help) : null),
+    el('div', {}, el('div', {}, label), help ? el('div', { class: 'help' }, help) : null),
     el('span', { class: 'switch' }, input, el('span')));
 }
 export function segmented(options, value, onchange) {
@@ -432,7 +432,7 @@ export function listGroup(title, rows, footer) {
     /* A brand mark carries its own shape and colour, so it stands on a plain tile; everything else
        is a white glyph on a coloured one. */
     const tile = r.brand ? el('span', { class: 'tile brand' }, brandIcon(r.brand))
-               : r.icon ? el('span', { class: 'tile', style: r.color ? `--tile:${r.color}` : '' }, lucide(r.icon)) : null;
+               : r.icon ? el('span', { class: 'tile', style: tileStyle(r.color) }, lucide(r.icon)) : null;
     const body = el('div', { class: 'body' }, el('div', { class: 't' }, r.title), r.sub ? el('div', { class: 's' }, r.sub) : null);
     const right = r.value != null ? el('span', { class: 'v' }, r.value) : null;
     const chevron = r.onclick || r.href ? lucide('chevron-right', 'ic chev') : null;
@@ -591,7 +591,7 @@ onStatus((s) => {
   if (s.safety.error_code) {
     b.hidden = false; b.className = 'banner';
     b.innerHTML = '';
-    b.append(el('div', {}, el('strong', {}, s.safety.error_code.replace(/_/g, ' ')), el('div', { class: 'muted', style: 'font-size:.85rem' }, s.safety.error_msg)),
+    b.append(el('div', {}, el('strong', {}, s.safety.error_code.replace(/_/g, ' ')), el('div', { class: 'help' }, s.safety.error_msg)),
       el('button', { class: 'btn sm', onclick: () => cmd({ cmd: 'stop' }) }, 'Clear & Stop'));
   } else b.hidden = true;
 });

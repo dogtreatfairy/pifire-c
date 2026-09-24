@@ -12,8 +12,8 @@ export function renderHistory(view) {
   const stats = el('div', { class: 'grid2' });
   const cooks = el('div', { class: 'list' });
   let viewing = null; // cook file being viewed, or null for live
-  const title = el('div', { class: 'muted', style: 'font-size:.85rem;margin:6px 0' });
-  view.append(el('div', { class: 'row between', style: 'margin-bottom:8px' }, el('h2', { style: 'margin:0' }, 'History'), el('a', { class: 'btn sm', href: '/api/v1/cooklog', download: 'pifire-cooklog.json', title: 'Running cook, else the last cook: samples with controller terms, settings and learning state' }, 'Export analysis log')), el('div', { class: 'card' }, header, title, chartEl), stats,
+  const title = el('div', { class: 'help' });
+  view.append(el('div', { class: 'row between', style: 'margin-bottom:8px' }, el('h2', { style: 'margin:0' }, 'History'), el('a', { class: 'btn sm', href: '/api/v1/cooklog', download: 'pifire-cooklog.json', title: 'Current or last cook: samples, controller terms, settings, learning state' }, 'Export analysis log')), el('div', { class: 'card' }, header, title, chartEl), stats,
     el('div', { class: 'btnrow' }, el('button', { class: 'btn ghost', onclick: async () => { if (await confirmDialog('Clear history?', 'Removes all stored samples.', 'Clear', true)) { await api('/history/clear', { body: {} }); load(); } } }, 'Clear history')),
     el('h2', {}, 'Cook files'), el('div', { class: 'card' }, cooks));
 
@@ -85,7 +85,7 @@ export function renderHistory(view) {
       console.error('[history]', e);
     }
     if (!t.length) chartEl.replaceChildren(el('div', { class: 'muted', style: 'padding:24px 0;text-align:center' },
-      'Nothing was logged in this window. The grill records while it is running; it stops when you do, to spare the card.'));
+      'Nothing logged in this window. Recording runs only while the grill does.'));
     stats.innerHTML = '';
     for (const label of names) {
       const arr = h.probes[label].temp.filter((v) => v != null);

@@ -142,6 +142,127 @@ static void test_autotune(void)
 	TEST_ASSERT_DOUBLE_WITHIN(10.0, pf_f_to_c(225), ctrl.pit_c);
 }
 
+/* ---------------- the tuning library as a model of the whole range ---------------- */
+
+/* A pellet grill loses more heat the hotter it runs, so the loop it presents at 250 F is genuinely
+ * a different loop from the one at 350 F: a good tune at one is not a good tune at the other. The
+ * library exists so both can be true at once. The property that makes that worth having is that
+ * measuring the grill somewhere new never disturbs somewhere already measured -- otherwise every
+ * extra run would trade one good answer for two mediocre ones. */
+static void test_a_tune_at_one_set_point_leaves_the_others_alone(void)
+{
+	pf_learning_clear_anchors();
+	pf_autotune_result at250 = { .Ku = 0.070, .Pu = 400, .PB_c = 31.4, .Ti = 880, .Td = 63.5, .valid = true };
+	pf_learning_store_anchor(pf_f_to_c(250), &at250, 10, 0);
+
+	pf_autotune_result at350 = { .Ku = 0.030, .Pu = 600, .PB_c = 73.3, .Ti = 1320, .Td = 95.2, .valid = true };
+	pf_learning_store_anchor(pf_f_to_c(350), &at350, 10, 0);
+	pf_autotune_result at225 = { .Ku = 0.085, .Pu = 360, .PB_c = 25.9, .Ti = 792, .Td = 57.1, .valid = true };
+	pf_learning_store_anchor(pf_f_to_c(225), &at225, 10, 0);
+	pf_autotune_result at180 = { .Ku = 0.100, .Pu = 300, .PB_c = 22.0, .Ti = 660, .Td = 47.6, .valid = true };
+	pf_learning_store_anchor(pf_f_to_c(180), &at180, 10, 0);
+
+	double PB = 0, Ti = 0, Td = 0;
+	TEST_ASSERT_TRUE(pf_learning_gains(pf_f_to_c(250), &PB, &Ti, &Td));
+	TEST_ASSERT_DOUBLE_WITHIN(1e-6, 31.4, PB);
+	TEST_ASSERT_DOUBLE_WITHIN(1e-6, 880.0, Ti);
+	TEST_ASSERT_DOUBLE_WITHIN(1e-6, 63.5, Td);
+
+	/* all four stand on their own evidence, each still a single run */
+	pf_tune_anchor list[PF_TUNE_ANCHORS];
+	int n = pf_learning_anchor_list(list, PF_TUNE_ANCHORS);
+	TEST_ASSERT_EQUAL_INT(4, n);
+	for (int i = 0; i < n; i++) TEST_ASSERT_EQUAL_INT(1, list[i].runs);
+	TEST_ASSERT_DOUBLE_WITHIN(1e-6, 22.0, list[0].PB_c);     /* 180 */
+	TEST_ASSERT_DOUBLE_WITHIN(1e-6, 73.3, list[3].PB_c);     /* 350 */
+}
+
+/* Tuning the same set point again is the one case where an entry should move, because it is more
+ * evidence about the same thing -- and it moves part of the way, not all of it, so one windy
+ * afternoon cannot undo a well-measured entry. */
+static void test_a_repeat_run_refines_that_set_point_only(void)
+{
+	pf_learning_clear_anchors();
+	pf_autotune_result first = { .Ku = 0.070, .Pu = 400, .PB_c = 30.0, .Ti = 880, .Td = 63.5, .valid = true };
+	pf_learning_store_anchor(pf_f_to_c(250), &first, 10, 0);
+	pf_autotune_result other = { .Ku = 0.030, .Pu = 600, .PB_c = 70.0, .Ti = 1320, .Td = 95.2, .valid = true };
+	pf_learning_store_anchor(pf_f_to_c(350), &other, 10, 0);
+
+	pf_autotune_result again = { .Ku = 0.058, .Pu = 440, .PB_c = 38.0, .Ti = 968, .Td = 69.8, .valid = true };
+	pf_learning_store_anchor(pf_f_to_c(250) + 1.0, &again, 10, 0);   /* same set point, next afternoon */
+
+	pf_tune_anchor list[PF_TUNE_ANCHORS];
+	int n = pf_learning_anchor_list(list, PF_TUNE_ANCHORS);
+	TEST_ASSERT_EQUAL_INT(2, n);
+	TEST_ASSERT_EQUAL_INT(2, list[0].runs);
+	TEST_ASSERT_DOUBLE_WITHIN(0.01, 34.0, list[0].PB_c);   /* half way, not all the way */
+	TEST_ASSERT_EQUAL_INT(1, list[1].runs);
+	TEST_ASSERT_DOUBLE_WITHIN(1e-6, 70.0, list[1].PB_c);   /* 350 untouched */
+}
+
+/* Between the temperatures that were measured, the model is read by interpolation, so a set point
+ * nobody has tuned at still gets an answer that belongs to this grill rather than to a default.
+ * Outside the measured range it holds flat: extrapolating a straight line past 450 F or below
+ * 180 F would invent a tuning nothing supports. */
+static void test_an_untuned_set_point_interpolates_between_its_neighbours(void)
+{
+	pf_learning_clear_anchors();
+	pf_autotune_result at225 = { .Ku = 0.085, .Pu = 360, .PB_c = 26.0, .Ti = 800, .Td = 57.0, .valid = true };
+	pf_learning_store_anchor(pf_f_to_c(225), &at225, 10, 0);
+	pf_autotune_result at250 = { .Ku = 0.070, .Pu = 400, .PB_c = 34.0, .Ti = 900, .Td = 64.0, .valid = true };
+	pf_learning_store_anchor(pf_f_to_c(250), &at250, 10, 0);
+
+	/* 235 F sits 40 % of the way from 225 to 250 */
+	double PB = 0, Ti = 0, Td = 0;
+	TEST_ASSERT_TRUE(pf_learning_gains(pf_f_to_c(235), &PB, &Ti, &Td));
+	TEST_ASSERT_DOUBLE_WITHIN(0.05, 29.2, PB);
+	TEST_ASSERT_DOUBLE_WITHIN(0.5, 840.0, Ti);
+	TEST_ASSERT_DOUBLE_WITHIN(0.1, 59.8, Td);
+
+	/* and it is monotonic across the range: every step warmer asks for a wider band */
+	double prev = 0;
+	for (int f = 225; f <= 250; f += 5) {
+		TEST_ASSERT_TRUE(pf_learning_gains(pf_f_to_c(f), &PB, NULL, NULL));
+		TEST_ASSERT_TRUE(PB > prev);
+		prev = PB;
+	}
+	/* outside the measured range, the nearest measurement stands */
+	TEST_ASSERT_TRUE(pf_learning_gains(pf_f_to_c(180), &PB, NULL, NULL));
+	TEST_ASSERT_DOUBLE_WITHIN(1e-6, 26.0, PB);
+	TEST_ASSERT_TRUE(pf_learning_gains(pf_f_to_c(400), &PB, NULL, NULL));
+	TEST_ASSERT_DOUBLE_WITHIN(1e-6, 34.0, PB);
+}
+
+/* The library holds eight entries. When a ninth arrives something has to go, and what goes should
+ * be the entry the model can most nearly reconstruct without it -- one sitting right next to a
+ * neighbour -- never the one at the end of the range, which is the only evidence the grill has up
+ * or down there, and never a well-refined entry over a single-run one beside it. */
+static void test_a_full_library_gives_up_its_most_redundant_entry(void)
+{
+	pf_learning_clear_anchors();
+	pf_autotune_result r = { .Ku = 0.07, .Pu = 400, .PB_c = 30.0, .Ti = 880, .Td = 63.5, .valid = true };
+	/* seven well spread, plus one crowded right up against a neighbour */
+	const int fs[8] = { 180, 200, 250, 300, 350, 400, 445, 455 };
+	for (int i = 0; i < 8; i++) { r.PB_c = 20.0 + i; pf_learning_store_anchor(pf_f_to_c(fs[i]), &r, 10, 0); }
+	r.PB_c = 45.0;
+	pf_learning_store_anchor(pf_f_to_c(225), &r, 10, 0);
+
+	pf_tune_anchor list[PF_TUNE_ANCHORS];
+	int n = pf_learning_anchor_list(list, PF_TUNE_ANCHORS);
+	TEST_ASSERT_EQUAL_INT(8, n);
+	int crowded = 0;
+	bool has_180 = false, has_225 = false;
+	for (int i = 0; i < n; i++) {
+		double f = pf_c_to_f(list[i].setpoint_c);
+		if (f > 430) crowded++;
+		if (fabs(f - 180) < 2) has_180 = true;
+		if (fabs(f - 225) < 2) has_225 = true;
+	}
+	TEST_ASSERT_TRUE_MESSAGE(has_225, "the new measurement must be in the library");
+	TEST_ASSERT_TRUE_MESSAGE(has_180, "the bottom of the range must survive");
+	TEST_ASSERT_EQUAL_INT_MESSAGE(1, crowded, "one of the two crowded entries is what to give up");
+}
+
 int main(void)
 {
 	pf_log_init(PF_LOG_ERROR);
@@ -149,5 +270,9 @@ int main(void)
 	RUN_TEST(test_observations_and_fit_across_ambients);
 	RUN_TEST(test_repeat_cook_not_worse);
 	RUN_TEST(test_autotune);
+	RUN_TEST(test_a_tune_at_one_set_point_leaves_the_others_alone);
+	RUN_TEST(test_a_repeat_run_refines_that_set_point_only);
+	RUN_TEST(test_an_untuned_set_point_interpolates_between_its_neighbours);
+	RUN_TEST(test_a_full_library_gives_up_its_most_redundant_entry);
 	return UNITY_END();
 }

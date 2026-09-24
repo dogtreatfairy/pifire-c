@@ -60,34 +60,149 @@ digits it could contain, never from the digits currently in it, or it changes si
 warms through a boundary. Times are `1:15` under an hour and `1:02:30` above it. A measurement that
 would fit in a sentence still goes on its own line or in a table, never inline in prose.
 
-## The scale
+## The tokens
 
-Every measurement comes from one small set of steps, declared at the top of `web/style.css`. Sizes
-chosen by eye, one rule at a time, are how a list ends up with rows of 46, 47 and 48 pixels and
-buttons of 35 and 51 on the same page; a fixed scale is how the systems this borrows from — Radix,
-shadcn, Material — stay even without anyone measuring. **If a value is not on the scale, either it
-is wrong or the scale needs another step**, and adding one is a decision written down here rather
-than a number typed into a rule.
+Everything the interface is made of is declared once, at the top of `web/style.css`, and nothing is
+chosen again further down the file. **If a value is not from that block, either it is wrong or the
+block is missing a step** — and adding a step is a decision recorded here, not a number typed into a
+rule. The file once carried the palette twice over, 26 different font sizes between .6rem and
+1.9rem, and nine corner radii; a stylesheet in that state cannot be consistent no matter how
+carefully each rule is written.
+
+What the systems this borrows from have in common is not a look. It is that the look is spelled out
+in a small set of named decisions:
+
+- **Radix** — a neutral ramp where every step has a job, so "which grey" is never a judgement call;
+  and, separately, the step you *fill* with is not the step you *write* in.
+- **shadcn** — every surface colour is paired with the ink that goes on it, so nothing has to guess
+  what is readable on orange.
+- **Skeleton** — the contrast value travels with the colour rather than being re-derived by whoever
+  uses it next.
+- **Material** — one state layer at one opacity for hover and press, applied the same way to
+  everything; motion declared as duration and easing rather than typed per rule; and a minimum
+  target size a thumb can actually hit.
+
+### The neutral ramp, by job
+
+| Token | What it is for |
+|---|---|
+| `--bg` | the page itself |
+| `--surface` | a panel or card on it |
+| `--surface2` | a control sitting on that |
+| `--line` | a separator, or a quiet edge |
+| `--line2` | an edge that has to be seen |
+| `--muted` | text you read second |
+| `--text` | text you read first |
+
+### Meaning, twice: the fill and the ink
+
+Each of the five meanings exists in three forms, and using the wrong one is the commonest way this
+interface has broken.
+
+| | |
+|---|---|
+| `--accent` `--ok` `--warn` `--danger` `--info` | the solid you **fill** a chip, tile or button with |
+| `--on-accent` … `--on-danger` | what you **write on** that solid |
+| `--accent-ink` … `--info-ink` | that meaning as **ink on the page**: coloured text and icons |
+
+**A colour bright enough to fill a chip with is not a colour you can write in.** In the light theme
+the orange measures 2.4:1 against white and the yellow 1.5:1; the back arrow, the active tab label
+and every warning caption were written in them. The `-ink` variants are darkened for a light
+background and are identical to the fills in the dark theme, where the fill already reads.
+
+**And a filled swatch always carries its own ink.** Writing `color: #fff` on a coloured background
+is how the app ended up with white on yellow at 1.4:1 — a glyph that was very nearly not there —
+and white on red at 3.4:1 in seven places. Where the colour is chosen at runtime, as the settings
+tiles are, the ink is computed from it: `inkOn()` in `web/icons.js` takes the relative luminance and
+returns whichever ink is further away, so the next colour somebody picks is safe too.
+
+Every pair in the app clears 4.5:1 in both themes, and that is checked by measuring the rendered
+page rather than by eye.
+
+### The scale
 
 | | steps |
 |---|---|
 | Space | `--sp-1` 4px · `--sp-2` 8 · `--sp-3` 12 · `--sp-4` 16 · `--sp-5` 20 · `--sp-6` 24 |
-| Radius | `--r-sm` 6px · `--r-md` 8 · `--r-lg` 10 · `--r-pill` 999 |
-| Type | `--fs-xs` .72rem · `--fs-sm` .82 · `--fs-md` .95 · `--fs-lg` 1.05 · `--fs-xl` 1.3 |
-| Weight | `--fw-normal` 400 · `--fw-medium` 500 · `--fw-semi` 600 · `--fw-bold` 700 |
-| Controls | `--h-row` 46px · `--h-control` 35 · `--h-field` 41 |
+| Radius | `--r-sm` 6px · `--r-md` 8 · `--r-lg` 10 · `--r-pill` |
+| Controls | `--h-row` 46px · `--h-control` 35 · `--h-field` 41 · `--h-touch` 44 |
 | Rules | `--bw` 1px, everywhere |
 | Inset | `--pad-x` 12px: how far text sits from the edge of anything that holds it |
+| Motion | `--dur-1` 120ms · `--dur-2` 180 · `--dur-3` 260 · `--ease` |
 
-Colour is semantic, never literal: `--bg`, `--surface`, `--surface2`, `--line`, `--text`, `--muted`,
-and the five meanings in the table further down. A rule that names a hex value is a rule that will
-be wrong in the other theme.
+Type is nine steps, and each one is a **role** rather than a size, so a size is picked by what the
+text is for:
 
-**One grid.** Every row, every section header and every open section starts and ends on the same two
-columns, and a header *is* a row — same height, same padding, same icon position, differing only in
-which way the chevron points. An open section's surface is drawn with an inset shadow rather than a
-border, because a border is a pixel of width and would shift everything inside it. These are worth
-checking with a ruler rather than an eye.
+| Step | | For |
+|---|---|---|
+| `--fs-3xs` | 10px | a count in a badge |
+| `--fs-2xs` | 11px | a tab label, a unit beside a number |
+| `--fs-xs` | 12px | a caption, a small upper-case label |
+| `--fs-sm` | 13px | secondary text, a small button |
+| `--fs-md` | 15px | body, and the title of a row |
+| `--fs-lg` | 17px | a page or section title |
+| `--fs-xl` | 21px | a prominent value |
+| `--fs-2xl` | 28px | a readout on a card |
+| `--fs-3xl` | 48px | a readout that is the whole point |
+
+Three sizes are deliberately outside it: the gauge's own text, which is in SVG user units and scales
+with the gauge rather than with the page, and Home's hero temperature, which is fluid
+(`clamp(76px, 24vw, 120px)`) because it should fill whatever phone it is on.
+
+### One press, one look
+
+A pressed row, a pressed button and a pressed tab are the same event and should look like it. There
+is one state layer — `--hover` at 8 % and `--press` at 12 % of the text colour, Material's figures —
+laid over whatever the thing is already filled with, so it reads the same on a plain row as on the
+orange button. This replaced four different gestures: a 2 % scale on a button, a 1 % scale on
+another, an opacity drop on the back arrow, and two different tints on rows and section headers.
+Hover only exists where there is a real pointer.
+
+### Reachable by keyboard, and hittable by a thumb
+
+Everything focusable shows the same ring: 2 px of `--ring` at 2 px offset, on keyboard focus only.
+It is declared with `:where()` so it costs no specificity and a component that needs its own can
+still have one.
+
+**A control drawn smaller than a thumb still has to be hittable by one.** Material asks for 48 dp,
+WCAG 2.5.8 for 24 px. The visible small button stays at `--h-control`, which is what keeps a list
+dense, and an invisible target is grown around it to `--h-touch`. It grows **vertically only**: two
+small buttons in a footer sit 8 px apart, and a target grown sideways would overlap its neighbour's,
+which is worse than a small target.
+
+### Words
+
+Concise, technical, minimal. The reader knows what a pellet grill and a PID loop are.
+
+A label is a noun phrase, not a sentence. Help is one short line, or nothing. State the fact, not
+the reasoning behind it: a settings row does not explain why the setting exists or what will happen
+in each case, and if it needs a paragraph the design is wrong rather than the wording. Prefer a
+number with its unit to an adjective. Long-form explanation belongs in code comments and in this
+directory, never on screen.
+
+**Two actions are two buttons.** A segmented switcher that changes which single button you are
+looking at hides one of the two things you might want and needs a sentence to say which mode you are
+in — that is what Autotune's "Baseline / One Temperature" switcher did before it became **Tune
+Baseline** and **Tune at 225°F**. A switcher is for choosing between two *states*; a choice between
+two *actions* is one button each.
+
+### Pages never type a size
+
+The page modules build with named roles — `.help`, `.subhead`, `.readout-md/lg/xl` — and never an
+inline `font-size`. Fifty-six of those had accumulated across the modules, in nine values, none on
+the scale: the stylesheet can only be consistent if the JavaScript has a named thing to ask for.
+
+The whole interface is checked by measurement rather than by eye: every route in both themes, with
+every disclosure opened, plus every dialog and sheet — type on the scale, radii on the scale, text
+contrast, row and control heights, tap targets, and that nothing clickable is a plain `<div>`. The
+one standing exception is an inline link inside a line of text, which WCAG 2.5.8 exempts and which
+cannot be grown without covering the lines above and below it.
+
+### Motion
+
+Durations and easing come from tokens, and everything stops under `prefers-reduced-motion` — with
+one exception, spelled out in the rule itself: a probe past its target is *saying* something by
+flashing, so with motion turned down it becomes the colour it was flashing to, said once.
 
 ## The phone
 
@@ -110,12 +225,18 @@ label sits close to what it labels, in small upper case. Numbers are tabular so 
 a reading does not jitter as it changes. The test is how much of a list you can take in without
 scrolling, because scrolling is what costs you your place.
 
-**A section you can open is a row until you open it, and then it is a card.** Closed, it belongs to
-the list: a plain row with a rule above it, like every other row. Open, its contents have to be
-visibly *inside* something, because everything else on these pages puts content in a card — a
-section whose body is loose text between two hairlines does not read as a section at all, and you
-cannot see where it ends and the next header begins. Opening one draws the card: the header becomes
-its top plate, a shade above the body, and the whole thing stands off the rows around it.
+**Opening a section draws a card under its header; it does not restyle the header.** Closed, a
+section is a plain row with a rule above it, like every other row. Its contents, once open, have to
+be visibly *inside* something, because everything else on these pages puts content in a card — a
+body that is loose text between two hairlines does not read as a section at all, and you cannot see
+where it ends and the next header begins. So opening one draws a filled panel *beneath* the header,
+hanging from its rule and rounded off at the bottom where the section ends.
+
+The header itself is untouched by opening: the same band, the same fill, the same height, the same
+rule above it, the same column. The only things that change are the chevron and what appears
+underneath. A header that is a plain band when shut and a shaded, rounded plate when open is two
+different controls wearing the same words, and in a list where some sections are open and some are
+not, the run of headers stops lining up at all.
 
 **One grid, and opening something moves nothing.** Every row, every section header and every open
 section starts and ends on the same two pixel columns, and a header is a row: the same height, the
@@ -158,9 +279,12 @@ middle as full-width cards, and the commit row at the foot.
 ## The same thing looks the same on both screens
 
 A mode has one mark wherever it appears — the header readout, the control bar on Home, the settings
-row: **Hold is crosshairs, Smoke is a cloud**, Startup a flame, Shutdown a power symbol. One map in
-`web/icons.js` feeds all of them, because a mode that is crosshairs in one place and a dial in
-another is two modes to anyone glancing at it.
+row: **Hold is crosshairs, Smoke is a cloud, Stop is a plain square**, Startup a flame, Shutdown a
+power symbol. `MODE_ICON` in `web/icons.js` is that map, and **everywhere a mode is drawn must read
+from it rather than naming a glyph**, because a name typed in a second place drifts: Hold was a
+bullseye on its own settings row while it was crosshairs everywhere else, and Stop was a square in
+the control bar and a square-inside-a-circle in the header. Neither was visible to whoever changed
+the map, because neither was reading it.
 
 **An output that is running lights up whole.** FAN green, AUGER blue, IGN orange — the tile fills
 with the colour on both the panel and the phone, rather than a small dot beside a word. **A probe

@@ -55,7 +55,7 @@ export async function renderProbes(view) {
     const f = (label, input) => el('div', { class: 'field inline' }, el('label', {}, label), input);
     const ports = [...freePorts(p), ...(p.device ? [{ device: p.device, port: p.port, wireless: isWireless(p.device) }] : [])];
     const portSel = el('select', { onchange: (e) => { [draft.device, draft.port] = e.target.value.split('|'); } }, ports.map((o) => el('option', { value: `${o.device}|${o.port}`, selected: o.device === p.device && o.port === p.port }, `${o.wireless ? '⌁ ' : ''}${o.device} · ${o.port}`)));
-    const tog = (label, key, help) => el('div', { class: 'toggle' }, el('div', {}, label, help ? el('div', { class: 'help muted', style: 'font-size:.76rem' }, help) : null), el('label', { class: 'switch' }, el('input', { type: 'checkbox', checked: !!draft[key], onchange: (e) => (draft[key] = e.target.checked) }), el('span')));
+    const tog = (label, key, help) => el('div', { class: 'toggle' }, el('div', {}, label, help ? el('div', { class: 'help' }, help) : null), el('label', { class: 'switch' }, el('input', { type: 'checkbox', checked: !!draft[key], onchange: (e) => (draft[key] = e.target.checked) }), el('span')));
     return el('div', {}, el('h3', {}, isNew ? 'New probe' : p.name),
       f('Name', el('input', { type: 'text', value: draft.name, onchange: (e) => (draft.name = e.target.value.trim()) })),
       f('Type', el('select', { onchange: (e) => (draft.type = e.target.value) }, [['Primary', 'Primary (pit)'], ['Food', 'Food'], ['Aux', 'Aux / ambient']].map(([v, l]) => el('option', { value: v, selected: draft.type === v }, l)))),
@@ -85,9 +85,9 @@ export async function renderProbes(view) {
     const free = freePorts(null).filter((o) => !o.wireless);
     const btMods = Object.entries(mods).filter(([, m]) => wirelessMod(m));
     return el('div', {}, el('h3', {}, 'Add probe'),
-      el('div', { class: 'muted', style: 'font-size:.85rem;margin-bottom:6px' }, free.length ? 'Free wired ports' : 'No free wired ports (add an ADC under Probe hardware)'),
+      el('div', { class: 'help' }, free.length ? 'Free wired ports' : 'No free wired ports (add an ADC under Probe hardware)'),
       el('div', { class: 'opts' }, ...free.map((o) => el('button', { class: 'btn', type: 'button', onclick: () => { close(); const n = map.probe_info.length + 1; const p = { type: 'Food', label: `Probe${n}`, name: `Probe ${n}`, profile: 'TWPS00', device: o.device, port: o.port, enabled: true, show_on_home: true }; map.probe_info.push(p); editProbe(p, true).then(() => { if (!map.probe_info.includes(p)) return; }); } }, `${o.device} · ${o.port}`))),
-      el('div', { class: 'muted', style: 'font-size:.85rem;margin:10px 0 6px' }, 'Bluetooth'),
+      el('div', { class: 'help' }, 'Bluetooth'),
       el('div', { class: 'opts' }, ...btMods.map(([id, m]) => el('button', { class: 'btn', type: 'button', onclick: () => { close(); pairBluetooth(id, m); } }, btIcon(), ` Pair ${m.friendly_name}`))),
       el('button', { class: 'btn ghost block', type: 'button', style: 'margin-top:10px', onclick: () => close() }, 'Cancel'));
   });
@@ -96,7 +96,7 @@ export async function renderProbes(view) {
     const addr = await dialog((close) => {
       const list = el('div', { class: 'opts' }, el('div', { class: 'muted' }, 'Scanning for 8 s… make sure the probe is on and nearby.'));
       const row = (f) => el('button', { class: 'btn', type: 'button', onclick: () => close(f.address) },
-        el('div', { class: 'row between', style: 'width:100%' }, el('span', {}, f.kind ? btIcon() : null, ' ', f.name || 'Unknown device'), el('span', { class: 'muted row', style: 'font-size:.8rem;gap:6px' }, f.address, f.rssi ? sigBars(barsFromRssi(f.rssi), `${f.rssi} dBm`) : null, f.rssi ? `${f.rssi} dBm` : '')));
+        el('div', { class: 'row between', style: 'width:100%' }, el('span', {}, f.kind ? btIcon() : null, ' ', f.name || 'Unknown device'), el('span', { class: 'help row', style: 'gap:6px' }, f.address, f.rssi ? sigBars(barsFromRssi(f.rssi), `${f.rssi} dBm`) : null, f.rssi ? `${f.rssi} dBm` : '')));
       api('/probes/ble/scan?seconds=8', { body: {} }).then((found) => {
         list.innerHTML = '';
         found.sort((a, b) => (b.rssi || -999) - (a.rssi || -999));
@@ -198,7 +198,7 @@ export async function renderProbes(view) {
   const num = (v, f) => el('input', { type: 'text', inputmode: 'decimal', value: v, style: 'width:140px;font-family:ui-monospace,monospace', onchange: (e) => f(Number(e.target.value)) });
   const renderProfiles = () => {
     profCard.innerHTML = '';
-    profCard.append(el('p', { class: 'muted', style: 'font-size:.85rem' }, 'Each wired probe converts its resistance to temperature with the Steinhart–Hart equation 1/T = A + B·ln(R) + C·ln(R)³, using the divider resistor of its ADC port (Probe hardware above).'));
+    profCard.append(el('p', { class: 'help' }, 'Steinhart–Hart: 1/T = A + B·ln(R) + C·ln(R)³, with the divider resistor of the ADC port.'));
     for (const pr of Object.values(profs)) {
       profCard.append(el('details', { class: 'field' }, el('summary', {}, pr.name),
         el('div', { class: 'field inline' }, el('label', {}, 'Name'), el('input', { type: 'text', value: pr.name, onchange: (e) => (pr.name = e.target.value) })),
@@ -222,7 +222,7 @@ export async function renderProbes(view) {
       });
       const name = el('input', { type: 'text', placeholder: 'Profile name', value: 'My probe' });
       return el('div', {}, el('h3', {}, 'Probe tuner'),
-        el('p', { class: 'muted', style: 'font-size:.85rem' }, 'Put the probe at three known temperatures (ice water, boiling water, a reference thermometer), enter each temperature and press Capture to take the live resistance.'),
+        el('p', { class: 'help' }, 'Three known temperatures — ice water, boiling, a reference. Enter each and Capture the live resistance.'),
         el('div', { class: 'field' }, el('label', {}, 'Probe'), sel), ...rows,
         el('div', { class: 'field' }, el('label', {}, 'New profile name'), name),
         el('div', { class: 'btnrow' }, el('button', { class: 'btn ghost', type: 'button', onclick: () => close(null) }, 'Cancel'), el('button', { class: 'btn primary', type: 'button', onclick: () => close({ name: name.value.trim() || 'My probe', points: pts }) }, 'Solve')));

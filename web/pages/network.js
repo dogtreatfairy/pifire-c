@@ -5,11 +5,11 @@ const bars = (s) => (s >= 70 ? '▂▄▆█' : s >= 50 ? '▂▄▆' : s >= 30 
 async function passwordDialog(ssid, secured) {
   return dialog((close) => {
     const inp = el('input', { type: 'password', autocomplete: 'off', placeholder: secured ? 'Wi-Fi password' : 'Open network — no password', disabled: !secured, minlength: secured ? 8 : 0, 'aria-label': 'Wi-Fi password' });
-    const show = el('label', { class: 'row', style: 'font-size:.85rem' }, el('input', { type: 'checkbox', onchange: (e) => (inp.type = e.target.checked ? 'text' : 'password') }), 'Show password');
+    const show = el('label', { class: 'row help' }, el('input', { type: 'checkbox', onchange: (e) => (inp.type = e.target.checked ? 'text' : 'password') }), 'Show password');
     const form = el('form', { onsubmit: (e) => { e.preventDefault(); close(secured ? inp.value : ''); } },
       el('h3', {}, `Join ${ssid}`),
       el('div', { class: 'field' }, inp), show,
-      el('p', { class: 'muted', style: 'font-size:.82rem' }, 'While the grill switches networks its hotspot will drop. Reconnect your phone to your home Wi-Fi and open pifire.local, or come back to the hotspot if it reappears (wrong password).'),
+      el('p', { class: 'help' }, 'The hotspot drops while the grill switches. Rejoin your home Wi-Fi and open pifire.local. If the hotspot returns, the password was wrong.'),
       el('div', { class: 'btnrow' }, el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'), el('button', { class: 'btn primary', type: 'submit' }, 'Join')));
     if (secured) setTimeout(() => inp.focus(), 50);
     return form;
@@ -22,7 +22,7 @@ export function renderNetwork(view, { captive = false, hotspotExtra = null } = {
   const list = el('div', { class: 'list' });
   const scanBtn = el('button', { class: 'btn sm', onclick: () => scan(true) }, 'Rescan');
   view.append(...[
-    captive ? el('div', { class: 'card' }, el('h3', {}, 'Welcome to PiFire'), el('p', { class: 'muted' }, 'Pick your home Wi-Fi network below. After it joins, open pifire.local from your phone or computer on that network.')) : null,
+    captive ? el('div', { class: 'card' }, el('h3', {}, 'Welcome to PiFire'), el('p', { class: 'muted' }, 'Pick your home network. Once joined, open pifire.local from that network.')) : null,
     el('h2', {}, 'Connection'), statusCard,
     captive ? null : el('h2', {}, 'Setup Hotspot'), captive ? null : hotspotCard, captive ? null : hotspotExtra,
     el('div', { class: 'row between' }, el('h2', {}, 'Networks'), scanBtn),
@@ -46,7 +46,7 @@ export function renderNetwork(view, { captive = false, hotspotExtra = null } = {
 
     hotspotCard.innerHTML = '';
     hotspotCard.append(el('div', { class: 'kv' }, el('div', {}, 'Hotspot name'), el('div', {}, s.hotspot.ssid), el('div', {}, 'Password'), el('div', {}, s.hotspot.password), el('div', {}, 'Address'), el('div', {}, '10.42.0.1')),
-      el('p', { class: 'muted', style: 'font-size:.82rem' }, 'The hotspot starts automatically when no known network is found after boot. Change its name and password below.'),
+      el('p', { class: 'help' }, 'Starts when no known network is found at boot.'),
       el('div', { class: 'form-actions' }, el('button', { class: 'btn sm' + (s.hotspot.active ? '' : ' primary'), onclick: async () => { if (s.hotspot.active || await confirmDialog('Start the setup hotspot?', 'Your current Wi-Fi connection will drop.', 'Start hotspot')) { await api('/network/hotspot', { body: { on: !s.hotspot.active } }); setTimeout(status, 1500); } } }, s.hotspot.active ? 'Stop hotspot' : 'Start hotspot')));
   }
   async function scan(rescan) {

@@ -471,14 +471,25 @@ static void apply_tuning(void *self, double Ku, double Pu, double K, double tau,
 	if (s->l_valid && !relay) { PB = 0.5 * (PB + s->l_PB_c); Ti = 0.5 * (Ti + s->l_Ti); Td = 0.5 * (Td + s->l_Td); }
 	s->l_PB_c = PB; s->l_Ti = Ti; s->l_Td = Td; s->l_valid = true; s->l_ts = (double)time(NULL);
 	snprintf(s->l_src, sizeof s->l_src, "%s", src);
-	/* A fresh measurement supersedes what the monitor had concluded: the bands it had settled on
-	 * were corrections to the previous tuning, and half of that correction is kept as a hint
-	 * rather than carried over whole onto a number it was never measured against. */
-	for (int i = 0; i < PF_SCALE_BANDS; i++) {
-		double r = s->band_learned[i] > 0 && s->band_anchor[i] > 0 ? s->band_learned[i] / s->band_anchor[i] : 0;
-		if (!(r > 0)) { s->band_learned[i] = 0; s->band_anchor[i] = 0; continue; }
-		s->band_learned[i] = PB * clampd(1.0 + 0.5 * (r - 1.0), LEARN_MIN, LEARN_MAX);
-		s->band_anchor[i] = PB;
+	/* A fresh measurement supersedes what the monitor had concluded -- but only where the
+	 * measurement was taken.
+	 *
+	 * A tuning run holds one temperature and measures the grill there. What it says about 350 F
+	 * has nothing to do with what the grill does at 250, and the corrections settled on around 250
+	 * were hard won over whole cooks. Rescaling every band on every run meant a tune at one end of
+	 * the range quietly rewrote the other end, which is how a good tuning gets worse by adding
+	 * another one. Only the band this run belongs to is touched, and half of its correction is kept
+	 * as a hint rather than carried over whole onto a number it was never measured against. */
+	int band = band_of(s->setpoint_c);
+	if (band >= 0 && band < PF_SCALE_BANDS) {
+		double r = s->band_learned[band] > 0 && s->band_anchor[band] > 0 ? s->band_learned[band] / s->band_anchor[band] : 0;
+		if (r > 0) {
+			s->band_learned[band] = PB * clampd(1.0 + 0.5 * (r - 1.0), LEARN_MIN, LEARN_MAX);
+			s->band_anchor[band] = PB;
+		} else {
+			s->band_learned[band] = 0;
+			s->band_anchor[band] = 0;
+		}
 	}
 	recompute(s);
 	save_learned(s);

@@ -234,12 +234,27 @@ void pf_learning_store_anchor(double setpoint_c, const pf_autotune_result *r, do
 	for (int i = 0; i < PF_TUNE_ANCHORS; i++)
 		if (g_anchors[i].valid && fabs(g_anchors[i].setpoint_c - setpoint_c) < 5) { slot = i; break; }
 	if (slot < 0) for (int i = 0; i < PF_TUNE_ANCHORS; i++) if (!g_anchors[i].valid) { slot = i; break; }
-	if (slot < 0) {   /* full: replace whichever is furthest from this set point */
-		double worst = -1;
+	if (slot < 0) {
+		/* Full. Give up the least useful entry, not the furthest one: an anchor sitting close to a
+		 * neighbour is nearly free to lose, because the interpolation between the two either side
+		 * will land near where it was, while the entry at the end of the range is the only thing
+		 * describing the grill out there. Among equally redundant ones, the shallowest goes --
+		 * fewest runs behind it. */
+		double least = HUGE_VAL;
+		slot = 0;
 		for (int i = 0; i < PF_TUNE_ANCHORS; i++) {
-			double d = fabs(g_anchors[i].setpoint_c - setpoint_c);
-			if (d > worst) { worst = d; slot = i; }
+			double nearest = 1e9;
+			for (int j = 0; j < PF_TUNE_ANCHORS; j++) {
+				if (j == i || !g_anchors[j].valid) continue;
+				double d = fabs(g_anchors[i].setpoint_c - g_anchors[j].setpoint_c);
+				if (d < nearest) nearest = d;
+			}
+			/* worth = how alone it is, weighted by how well measured it is */
+			double worth = nearest * (1.0 + 0.25 * (g_anchors[i].runs > 4 ? 4 : g_anchors[i].runs));
+			if (worth < least) { least = worth; slot = i; }
 		}
+		LOGW(TAG, "the tuning library is full; %.0f C makes way for %.0f C",
+		     g_anchors[slot].setpoint_c, setpoint_c);
 	}
 	pf_tune_anchor *a = &g_anchors[slot];
 	/* How far a new measurement moves an entry that already exists. The first repeat moves it

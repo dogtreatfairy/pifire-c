@@ -27,6 +27,40 @@
  * home network has no address of its own that anyone could answer at. */
 #define PF_WEBPUSH_CONTACT "https://github.com/dogtreatfairy/pifire-c"
 
+/* Whether a VAPID contact is one a push service will accept. This is string handling, not crypto,
+ * so it is compiled into every build: the settings page validates the address as it is typed, and
+ * a build without the crypto still has to answer that honestly rather than call every address
+ * invalid. */
+/* The host has to be somewhere a message could actually arrive: a dot in it, nothing after that
+ * dot but real letters, and not one of the names reserved for things that do not exist. Apple
+ * refuses `.invalid` as readily as `localhost`, and says only 403. */
+static bool host_ok(const char *host)
+{
+	size_t len = strcspn(host, "/:?#");
+	if (len < 4 || host[len - 1] == '.') return false;
+	const char *dot = NULL;
+	for (size_t i = 0; i < len; i++) if (host[i] == '.') dot = host + i;
+	if (!dot || (size_t)(dot - host) + 1 >= len) return false;
+	const char *tld = dot + 1;
+	size_t tlen = len - (size_t)(tld - host);
+	static const char *reserved[] = { "invalid", "local", "localhost", "test", "example", "localdomain" };
+	for (size_t i = 0; i < sizeof reserved / sizeof reserved[0]; i++)
+		if (strlen(reserved[i]) == tlen && !strncasecmp(tld, reserved[i], tlen)) return false;
+	for (size_t i = 0; i < tlen; i++) if (!isalpha((unsigned char)tld[i])) return false;
+	return tlen >= 2;
+}
+
+bool pf_webpush_contact_ok(const char *c)
+{
+	if (!c || !*c) return false;
+	if (!strncmp(c, "https://", 8)) return host_ok(c + 8);
+	if (!strncmp(c, "mailto:", 7)) {
+		const char *at = strchr(c + 7, '@');
+		return at && at > c + 7 && host_ok(at + 1);
+	}
+	return false;
+}
+
 #if !defined(PF_HAVE_WEBPUSH)
 
 /* Built without the crypto. Everything is a no-op that admits it, so the app can say "not
@@ -37,7 +71,6 @@ bool pf_webpush_available(void) { return false; }
 const char *pf_webpush_public_key(void) { return ""; }
 int pf_webpush_subscribe(const cJSON *sub, char *err, size_t n) { (void)sub; snprintf(err, n, "this build has no web push support"); return -1; }
 int pf_webpush_unsubscribe(const char *endpoint) { (void)endpoint; return -1; }
-bool pf_webpush_contact_ok(const char *c) { (void)c; return false; }
 int pf_webpush_count(void) { return 0; }
 void pf_webpush_send(const char *title, const char *body, const char *code, int crit) { (void)title; (void)body; (void)code; (void)crit; }
 int pf_webpush_send_now(const char *t, const char *b, const char *c, int cr, char *err, size_t n) { (void)t; (void)b; (void)c; (void)cr; if (err && n) snprintf(err, n, "this build has no web push support"); return 0; }
@@ -498,36 +531,6 @@ int pf_webpush_seal_for_test(const char *p256dh_b64, const char *auth_b64, const
  * anything, so the fault was invisible on a laptop and total on an iPhone. Anything that is not a
  * mailto: with a real domain or an https: URL is refused here rather than sent, because a push
  * service that rejects the token never says which claim it disliked. */
-/* The host has to be somewhere a message could actually arrive: a dot in it, nothing after that
- * dot but real letters, and not one of the names reserved for things that do not exist. Apple
- * refuses `.invalid` as readily as `localhost`, and says only 403. */
-static bool host_ok(const char *host)
-{
-	size_t len = strcspn(host, "/:?#");
-	if (len < 4 || host[len - 1] == '.') return false;
-	const char *dot = NULL;
-	for (size_t i = 0; i < len; i++) if (host[i] == '.') dot = host + i;
-	if (!dot || (size_t)(dot - host) + 1 >= len) return false;
-	const char *tld = dot + 1;
-	size_t tlen = len - (size_t)(tld - host);
-	static const char *reserved[] = { "invalid", "local", "localhost", "test", "example", "localdomain" };
-	for (size_t i = 0; i < sizeof reserved / sizeof reserved[0]; i++)
-		if (strlen(reserved[i]) == tlen && !strncasecmp(tld, reserved[i], tlen)) return false;
-	for (size_t i = 0; i < tlen; i++) if (!isalpha((unsigned char)tld[i])) return false;
-	return tlen >= 2;
-}
-
-bool pf_webpush_contact_ok(const char *c)
-{
-	if (!c || !*c) return false;
-	if (!strncmp(c, "https://", 8)) return host_ok(c + 8);
-	if (!strncmp(c, "mailto:", 7)) {
-		const char *at = strchr(c + 7, '@');
-		return at && at > c + 7 && host_ok(at + 1);
-	}
-	return false;
-}
-
 static void vapid_contact(char *out, size_t n)
 {
 	char set[160] = "";

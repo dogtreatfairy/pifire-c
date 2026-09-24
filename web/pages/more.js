@@ -62,7 +62,7 @@ function system(view) {
   };
   load();
 
-  view.append(el('p', { class: 'muted', style: 'font-size:.82rem' }, 'Software updates are under Settings → System → Software updates.'));
+  view.append(el('p', { class: 'help' }, 'Software updates are under Settings → System → Software updates.'));
   view.append(el('div', { class: 'btnrow' },
     el('button', { class: 'btn', onclick: async () => { if (await confirmDialog('Reboot?', 'The grill must be stopped first.', 'Reboot')) api('/admin/reboot', { body: {} }).then(() => toast('Rebooting…')).catch((e) => toast(e.message, true)); } }, 'Reboot'),
     el('button', { class: 'btn danger', onclick: async () => { if (await confirmDialog('Power off?', 'The grill must be stopped first.', 'Power off', true)) api('/admin/poweroff', { body: {} }).then(() => toast('Powering off…')).catch((e) => toast(e.message, true)); } }, 'Power off')));
@@ -78,7 +78,7 @@ export function softwareUpdates(view) {
     const busy = u.busy;
     const rows = el('div', { class: 'kv' }, el('div', {}, 'Installed'), el('div', {}, `${u.current} (${u.arch})`), el('div', {}, 'Latest release'), el('div', {}, u.latest || '—'),
       el('div', {}, 'Source'), el('div', {}, u.repo ? el('a', { href: `https://github.com/${u.repo}/releases`, target: '_blank' }, u.repo) : '— (set below)'));
-    upd.append(rows, el('p', { class: 'muted', style: 'font-size:.85rem;margin:8px 0' }, u.state === 'error' ? `⚠ ${u.message}` : u.message + (u.state === 'downloading' ? ` ${(u.progress * 100).toFixed(0)}%` : '')));
+    upd.append(rows, el('p', { class: 'help' }, u.state === 'error' ? `⚠ ${u.message}` : u.message + (u.state === 'downloading' ? ` ${(u.progress * 100).toFixed(0)}%` : '')));
     if (u.state === 'downloading') upd.append(el('div', { class: 'progress' }, el('div', { style: `width:${(u.progress * 100).toFixed(0)}%` })));
     if (u.available && u.notes) upd.append(el('details', {}, el('summary', { class: 'muted' }, `What's new in ${u.latest}`), el('div', { class: 'mono', style: 'margin-top:6px' }, u.notes)));
     upd.append(el('div', { class: 'btnrow', style: 'margin-top:10px' },
@@ -86,7 +86,7 @@ export function softwareUpdates(view) {
       el('button', { class: 'btn primary', disabled: busy || !u.installable, onclick: async () => {
         const cooking = !['Stop', 'Monitor', 'Error'].includes(PF.status?.mode);
         if (cooking && !PF.settings?.update?.hot_update) { toast('Stop the grill first, or turn on "Update while cooking" below', true); return; }
-        if (!await confirmDialog(`Install ${u.latest}?`, cooking ? `The grill is in ${PF.status.mode}. The release is downloaded and verified, then the controller restarts and picks the cook back up where it left off (the fan and auger pause for a few seconds).` : 'The release is downloaded, its checksum verified, then the service reinstalls and restarts (about a minute). This page reloads when it is back.', 'Install')) return;
+        if (!await confirmDialog(`Install ${u.latest}?`, cooking ? `The grill is in ${PF.status.mode}. The release is downloaded and verified, then the controller restarts and picks the cook back up where it left off (the fan and auger pause for a few seconds).` : 'Downloads, verifies the checksum, reinstalls and restarts. About a minute. This page reloads when it is back.', 'Install')) return;
         try { await api('/update/install', { body: {} }); poll(); } catch (e) { toast(e.message, true); }
       } }, u.available ? `Install ${u.latest}` : 'Up to date')));
   };
@@ -101,7 +101,7 @@ export function softwareUpdates(view) {
 
 function manual(view) {
   const card = el('div', { class: 'card' });
-  view.append(el('h2', {}, 'Manual Outputs'), el('div', { class: 'card muted', style: 'font-size:.85rem' }, 'Outputs can be driven directly in Manual mode, or temporarily while cooking if "Allow manual output changes" is enabled in Safety. The auger safety cap still applies.'), card);
+  view.append(el('h2', {}, 'Manual Outputs'), el('div', { class: 'card help' }, 'Direct control in Manual mode, or while cooking if enabled in Safety. The auger cap still applies.'), card);
   const update = (s) => {
     if (!s) return;
     card.innerHTML = '';
@@ -136,7 +136,7 @@ export function remote(view) {
     let t;
     try { t = await api('/network/tailscale'); } catch (e) { card.innerHTML = ''; card.append(el('div', { class: 'muted' }, e.message)); return; }
     card.innerHTML = '';
-    const intro = el('p', { class: 'muted', style: 'font-size:.85rem' }, 'Tailscale puts the grill and your phone on a private network that works from anywhere, with no port forwarding and no public exposure. Install the Tailscale app on your phone and sign in; then join the grill to the same account here.');
+    const intro = el('p', { class: 'help' }, 'A private network reachable from anywhere. No port forwarding, nothing public. Sign in to the Tailscale app on your phone, then join the grill to the same account.');
     card.append(intro);
     const kv = el('div', { class: 'kv' });
     const running = t.state === 'Running';
@@ -149,8 +149,8 @@ export function remote(view) {
     else if (t.last_action && t.last_ok === false) {
       const out = (t.last_output || '').trim();
       const link = out.match(/https?:\/\/\S+/)?.[0];
-      const why = t.last_action === 'serve' && /not enabled/i.test(out) ? 'HTTPS needs the "HTTPS certificates" feature turned on for your tailnet once (Tailscale admin console → DNS). Open the link, enable it, then press Enable HTTPS again.' : `${t.last_action} failed: ${out.split('\n').filter(Boolean).join(' · ') || 'see the daemon log'}`;
-      card.append(el('div', { class: 'card tight', style: 'margin:10px 0;border-color:var(--warn)' }, el('div', { style: 'font-size:.85rem' }, why), link ? el('a', { class: 'btn sm', href: link, target: '_blank', style: 'margin-top:8px' }, 'Open the Tailscale page') : null));
+      const why = t.last_action === 'serve' && /not enabled/i.test(out) ? 'Enable HTTPS certificates for the tailnet once (admin console → DNS), then press Enable HTTPS again.' : `${t.last_action} failed: ${out.split('\n').filter(Boolean).join(' · ') || 'see the daemon log'}`;
+      card.append(el('div', { class: 'card tight', style: 'margin:10px 0;border-color:var(--warn)' }, el('div', { class: 'help' }, why), link ? el('a', { class: 'btn sm', href: link, target: '_blank', style: 'margin-top:8px' }, 'Open the Tailscale page') : null));
     }
     const row = el('div', { class: 'btnrow', style: 'margin-top:10px' });
     if (t.state === 'Simulator') card.append(el('p', { class: 'muted' }, 'Not available in the simulator.'));
@@ -163,7 +163,7 @@ export function remote(view) {
     } else {
       row.append(el('button', { class: 'btn', disabled: t.busy, onclick: () => act(t.https ? 'unserve' : 'serve', t.https ? 'Turning HTTPS off…' : 'Publishing over HTTPS…') }, t.https ? 'Turn off HTTPS' : 'Enable HTTPS'),
         el('button', { class: 'btn ghost', disabled: t.busy, onclick: async () => { if (await confirmDialog('Disconnect?', 'The grill leaves the tailnet until you connect again.', 'Disconnect', true)) act('down', 'Disconnected'); } }, 'Disconnect'));
-      card.append(el('p', { class: 'muted', style: 'font-size:.82rem;margin-top:10px' }, `Tip: add PiFire to your phone\'s Home Screen from ${url} — that address works at home and away, as long as the Tailscale app is signed in.`));
+      card.append(el('p', { class: 'help' }, `Tip: add PiFire to your phone\'s Home Screen from ${url} — that address works at home and away, as long as the Tailscale app is signed in.`));
     }
     card.append(row);
     if (t.busy || t.state === 'NeedsLogin' || (t.installed && !running)) { clearTimeout(pollT); pollT = setTimeout(load, 3000); }
@@ -173,7 +173,7 @@ export function remote(view) {
 }
 
 function about(view) {
-  view.append(el('div', { class: 'card' }, el('h3', {}, 'PiFire'), el('p', { class: 'muted' }, 'Pellet grill controller, rewritten in C for the Raspberry Pi Zero 2 W and up. MIT licensed. Includes civetweb, cJSON, SQLite and uPlot.')));
+  view.append(el('div', { class: 'card' }, el('h3', {}, 'PiFire'), el('p', { class: 'muted' }, 'Pellet grill controller in C for the Pi Zero 2 W and up. MIT. Includes civetweb, cJSON, SQLite, uPlot.')));
 }
 
 // ---- hardware wizard: board + pins + probe devices, from the manifest ----
@@ -190,7 +190,7 @@ export async function hardware(view) {
     boardCard.innerHTML = '';
     const cur = boards[plat.current] ? plat.current : 'custom';
     boardCard.append(el('div', { class: 'field' }, el('label', {}, 'Board'), el('select', { onchange: (e) => { plat.current = e.target.value; applyDefaults(); applyBoardProbes(); renderBoard(); } }, Object.entries(boards).map(([id, b]) => el('option', { value: id, selected: id === cur }, b.friendly_name)))),
-      el('p', { class: 'muted', style: 'font-size:.85rem' }, boards[cur].description));
+      el('p', { class: 'help' }, boards[cur].description));
     for (const [key, dep] of Object.entries(boards[cur].settings_dependencies)) {
       if (dep.hidden || key === 'current') continue;
       const path = dep.settings.slice(1); // drop leading "platform"
@@ -235,7 +235,7 @@ export async function hardware(view) {
       card.innerHTML = '';
       const cur = modules[mods[key]] ? mods[key] : 'none';
       card.append(el('div', { class: 'field' }, el('label', {}, title), el('select', { onchange: (e) => { mods[key] = e.target.value; render(); } }, Object.entries(modules).map(([id, m]) => el('option', { value: id, selected: id === cur }, m.friendly_name)))),
-        el('p', { class: 'muted', style: 'font-size:.85rem' }, modules[cur].description || ''));
+        el('p', { class: 'help' }, modules[cur].description || ''));
       for (const c of modules[cur].config || []) {
         if (c.hidden) continue;
         const v = cfg[c.label] ?? c.default;
@@ -268,7 +268,7 @@ export async function hardware(view) {
         // write the boot configuration (relay pulls, PWM overlay, I2C/SPI/1-Wire) for this board
         let boot;
         try { boot = await api('/admin/boardcfg', { body: {} }); } catch (e) { toast(`Saved, but boot config failed: ${e.message}`, true); return; }
-        if (boot.reboot && await confirmDialog('Reboot now?', 'The boot configuration changed (I2C/SPI/PWM/relay pulls). A reboot is needed before the new hardware works.', 'Reboot')) {
+        if (boot.reboot && await confirmDialog('Reboot now?', 'Boot configuration changed. Reboot before the new hardware works.', 'Reboot')) {
           await api('/admin/reboot', { body: {} }); toast('Rebooting…');
         } else toast(boot.reboot ? 'Saved — reboot to apply the boot configuration' : 'Saved');
       } catch (e) { toast(e.message, true); }

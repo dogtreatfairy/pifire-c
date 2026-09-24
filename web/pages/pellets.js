@@ -35,8 +35,8 @@ export function renderPellets(view, slots = {}) {
     current.innerHTML = '';
     const h = d.hopper;
     current.append(el('div', { class: 'row between' },
-      el('div', {}, el('div', { style: 'font-size:1.2rem;font-weight:600' }, d.current.brand ? `${d.current.brand} ${d.current.wood}` : 'None selected'),
-        el('div', { class: 'muted', style: 'font-size:.8rem' }, `≈ ${(d.current.est_usage_g / 453.6).toFixed(2)} lb (${d.current.est_usage_g.toFixed(0)} g) used since loading`))));
+      el('div', {}, el('div', { class: 'readout-md' }, d.current.brand ? `${d.current.brand} ${d.current.wood}` : 'None selected'),
+        el('div', { class: 'help' }, `≈ ${(d.current.est_usage_g / 453.6).toFixed(2)} lb (${d.current.est_usage_g.toFixed(0)} g) used since loading`))));
 
     hopper.innerHTML = '';
     /* A scale needs two distinct ends. Set both to the same distance, or set empty nearer than
@@ -65,8 +65,8 @@ export function renderPellets(view, slots = {}) {
           /* With no scale the percentage is the last one worked out against a scale that no longer
              exists, so it is not shown: a number contradicting the warning above it is worse than
              no number, and the reading in centimetres is still true. */
-          el('div', { style: 'font-size:1.6rem;font-weight:600' }, scale && h.pct >= 0 ? `${h.pct}%` : '—'),
-          el('div', { class: 'muted', style: 'font-size:.78rem;text-align:right' },
+          el('div', { class: 'readout-lg' }, scale && h.pct >= 0 ? `${h.pct}%` : '—'),
+          el('div', { class: 'help', style: 'text-align:right' },
             h.cm > 0 ? `${h.cm.toFixed(1)} cm to the pellets` : 'no reading',
             el('div', {}, `full ${PF.settings?.pelletlevel?.full ?? '—'} cm · empty ${PF.settings?.pelletlevel?.empty ?? '—'} cm`))),
         el('div', { class: 'progress' }, el('div', { style: `width:${scale ? Math.max(0, h.pct) : 0}%` })),
@@ -77,7 +77,7 @@ export function renderPellets(view, slots = {}) {
           el('button', { class: 'btn sm ghost', onclick: () => cal('full') }, 'Set Current As Full'),
           el('button', { class: 'btn sm ghost', onclick: () => cal('empty') }, 'Set Current As Empty')));
     }
-    else hopper.append(el('p', { class: 'muted', style: 'font-size:.8rem;margin:0' }, 'No hopper sensor configured (Hardware setup \u2192 distance sensor).'));
+    else hopper.append(el('p', { class: 'help', style: 'margin:0' }, 'No hopper sensor configured (Hardware setup \u2192 distance sensor).'));
 
     list.innerHTML = '';
     for (const p of d.profiles) {
