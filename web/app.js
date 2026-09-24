@@ -3,7 +3,7 @@ import { renderHome } from './pages/home.js';
 import { renderHistory } from './pages/history.js';
 import { renderCook } from './pages/cook.js';
 import { renderSettings } from './pages/settings.js';
-import { icon as lucide } from './icons.js';
+import { icon as lucide, brandIcon } from './icons.js';
 import { renderMore } from './pages/more.js';
 import { renderNetwork } from './pages/network.js';
 
@@ -429,7 +429,10 @@ export function segmented(options, value, onchange) {
 // ---------- iOS-style grouped list: [icon tile][title / subtitle][chevron] ----------
 export function listGroup(title, rows, footer) {
   const list = el('div', { class: 'ios-list' }, ...rows.filter(Boolean).map((r) => {
-    const tile = r.icon ? el('span', { class: 'tile', style: r.color ? `--tile:${r.color}` : '' }, lucide(r.icon)) : null;
+    /* A brand mark carries its own shape and colour, so it stands on a plain tile; everything else
+       is a white glyph on a coloured one. */
+    const tile = r.brand ? el('span', { class: 'tile brand' }, brandIcon(r.brand))
+               : r.icon ? el('span', { class: 'tile', style: r.color ? `--tile:${r.color}` : '' }, lucide(r.icon)) : null;
     const body = el('div', { class: 'body' }, el('div', { class: 't' }, r.title), r.sub ? el('div', { class: 's' }, r.sub) : null);
     const right = r.value != null ? el('span', { class: 'v' }, r.value) : null;
     const chevron = r.onclick || r.href ? lucide('chevron-right', 'ic chev') : null;
@@ -518,7 +521,7 @@ onStatus((s) => {
     ts.hidden = false;
     ts.className = `tb-ind ${net.tailscale.online ? 'ok' : 'muted'}`;
     ts.title = `Tailscale: ${net.tailscale.online ? 'connected' : 'offline'}${net.tailscale.name ? ' · ' + net.tailscale.name : ''}`;
-    ts.replaceChildren(lucide('globe'));
+    ts.replaceChildren(brandIcon('tailscale'));
   } else ts.hidden = true;
 
   // mode and the number that matters: the target or countdown on Home, the grill temperature elsewhere

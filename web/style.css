@@ -541,6 +541,10 @@ h2 { font-size: .74rem; letter-spacing: .09em; margin: 16px 0 6px; }
 .ios-list .tile, .ios-fold .tile { flex: none; width: 26px; height: 26px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center;
   color: #fff; background: var(--tile, var(--accent)); box-shadow: none; }
 .ios-list .tile .ic, .ios-fold .tile .ic { width: 16px; height: 16px; stroke-width: 2.2; flex: none; }
+/* A brand mark is its own tile: it carries the shape and the colour, so the coloured square behind
+   it would only fight it. The corner radius is kept so it sits in the same grid as the others. */
+.ios-list .tile.brand, .ios-fold .tile.brand { background: transparent; box-shadow: none; overflow: hidden; }
+.ios-list .tile.brand .ic, .ios-fold .tile.brand .ic { width: 26px; height: 26px; border-radius: 6px; }
 .ios-list .body, .ios-fold > summary .body { flex: 1; min-width: 0; }
 .ios-list .t, .ios-fold > summary .t { font-weight: 500; font-size: .95rem; }
 .ios-list .s, .ios-fold > summary .s { font-size: .74rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

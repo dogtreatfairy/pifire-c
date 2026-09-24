@@ -43,6 +43,10 @@ cJSON *pf_webpush_json(void);   /* what the app shows: how many devices, and thi
  * subscription is dead, and it is dropped rather than retried for ever. */
 void pf_webpush_send(const char *title, const char *body, const char *code, int crit);
 
+/* Is this a contact a push service will accept: a mailto: with a real domain, or an https: URL.
+ * Apple refuses anything else with 403 and says nothing about which claim it disliked. */
+bool pf_webpush_contact_ok(const char *contact);
+
 /* Seal a message with keys and a salt supplied rather than generated, so the encryption can be
  * checked against RFC 8291's published example instead of being taken on trust. Test use only. */
 int pf_webpush_seal_for_test(const char *p256dh_b64, const char *auth_b64, const char *as_priv_b64,

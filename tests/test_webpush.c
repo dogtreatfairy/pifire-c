@@ -52,10 +52,29 @@ static void test_a_malformed_subscription_is_refused(void)
 	cJSON_Delete(none);
 }
 
+/* The claim that broke every notification on an iPhone.
+ *
+ * RFC 8292 says the VAPID `sub` is a mailto: or https: URI, and Apple is the one push service that
+ * enforces it: this daemon sent "mailto:pifire@localhost" and web.push.apple.com answered 403
+ * BadJwtToken to every push for weeks, while the same builds worked on a laptop because Mozilla and
+ * Google accept anything. Whatever is sent has to pass this. */
+static void test_the_vapid_contact_is_one_a_push_service_will_accept(void)
+{
+	TEST_ASSERT_FALSE_MESSAGE(pf_webpush_contact_ok("mailto:pifire@localhost"), "no domain: Apple refuses it");
+	TEST_ASSERT_FALSE_MESSAGE(pf_webpush_contact_ok("mailto:pifire@grill.invalid."), "trailing dot, reserved TLD");
+	TEST_ASSERT_FALSE_MESSAGE(pf_webpush_contact_ok("pifire@example.com"), "a bare address is not a URI");
+	TEST_ASSERT_FALSE_MESSAGE(pf_webpush_contact_ok("http://example.com"), "the standard says https");
+	TEST_ASSERT_FALSE_MESSAGE(pf_webpush_contact_ok(""), "blank");
+	TEST_ASSERT_FALSE_MESSAGE(pf_webpush_contact_ok("https://localhost"), "no domain to reach anyone at");
+	TEST_ASSERT_TRUE(pf_webpush_contact_ok("mailto:someone@example.com"));
+	TEST_ASSERT_TRUE(pf_webpush_contact_ok("https://github.com/dogtreatfairy/pifire-c"));
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
 	RUN_TEST(test_the_encryption_matches_the_specification);
 	RUN_TEST(test_a_malformed_subscription_is_refused);
+	RUN_TEST(test_the_vapid_contact_is_one_a_push_service_will_accept);
 	return UNITY_END();
 }

@@ -1,7 +1,7 @@
 import { PF, el, api, patchSettings, toast, degUnit, confirmDialog, setBack, alertSupport, requestAlertPermission, showSystemNotification, ensurePushSubscription, onStatus } from '../app.js';
 import { renderProbes } from './probes.js';
 import { renderRules } from './rules.js';
-import { icon as lucide } from '../icons.js';
+import { icon as lucide, brandIcon } from '../icons.js';
 import { renderLearning } from './learning.js';
 import { renderPellets } from './pellets.js';
 import { renderNetwork } from './network.js';
@@ -115,9 +115,12 @@ const PAGES = [
       { type: 'pushstate' },
       { type: 'action', label: 'Allow notifications on this device', endpoint: '', client: 'alerts' },
       { type: 'action', label: 'Show a test notification', endpoint: '', client: 'alerttest' },
+      /* Apple refuses a push whose sender gives no valid contact -- 403, every time, silently --
+         and it is the one push service that checks. Blank uses the project's address. */
+      X('webpush.contact', 'Contact for the push service', 'A mailto: or https: address, as the push standard requires. Apple rejects notifications without a valid one. Blank uses the PiFire project address'),
       B('webpush.targets', 'Targets & timers', ''), B('webpush.alarms', 'Alarms & errors', ''), B('webpush.pellets', 'Pellets low', ''), B('webpush.tuning', 'Tuning runs', ''), B('webpush.system', 'Other system notices', ''),
     ] },
-    { id: 'notify', title: 'Pushover', sub: 'Push to your phone, with priorities and sounds', icon: 'bell', color: '#ff9f0a', collapsible: 'pushover.enabled', fields: [
+    { id: 'notify', title: 'Pushover', sub: 'Push to your phone, with priorities and sounds', brand: 'pushover', collapsible: 'pushover.enabled', fields: [
       { type: 'note', help: 'Install the Pushover app ($5 once), then paste your user key from the app and create an application token at pushover.net/apps/build.' },
       B('pushover.enabled', 'Pushover', 'Send notifications to the Pushover app'),
       X('pushover.user_key', 'User key', 'Shown at the top of the Pushover app'), { path: 'pushover.app_token', label: 'Application token', type: 'password' },
@@ -127,13 +130,13 @@ const PAGES = [
       B('pushover.targets', 'Targets & timers', 'Target reached, the predictive warning, cook timer, recipe steps'), B('pushover.alarms', 'Alarms & errors', 'Probe limit alarms, flame-out, over-temperature'), B('pushover.pellets', 'Pellets low', ''), B('pushover.tuning', 'Tuning runs', 'Started, finished, or gave up; a run takes hours unattended'), B('pushover.system', 'Other system notices', ''),
       { type: 'action', label: 'Send a test notification', endpoint: '/notify/test/pushover' },
     ] },
-    { id: 'notify', title: 'ntfy', sub: 'Free push through a topic you choose', icon: 'megaphone', color: '#30d158', collapsible: 'ntfy.enabled', fields: [
+    { id: 'notify', title: 'ntfy', sub: 'Free push through a topic you choose', brand: 'ntfy', collapsible: 'ntfy.enabled', fields: [
       { type: 'note', help: 'Free. Install the ntfy app, subscribe to a private topic name, and enter it here. Use ntfy.sh or your own server.' },
       B('ntfy.enabled', 'ntfy', ''), X('ntfy.server', 'Server', 'https://ntfy.sh or your own'), X('ntfy.topic', 'Topic', 'Pick something nobody would guess'), { path: 'ntfy.token', label: 'Access token', help: 'Only for protected topics', type: 'password' },
       B('ntfy.targets', 'Targets & timers', ''), B('ntfy.alarms', 'Alarms & errors', ''), B('ntfy.pellets', 'Pellets low', ''), B('ntfy.tuning', 'Tuning runs', 'Started, finished, or gave up'), B('ntfy.system', 'Other system notices', ''),
       { type: 'action', label: 'Send a test notification', endpoint: '/notify/test/ntfy' },
     ] },
-    { id: 'notify', title: 'Home Assistant', sub: 'MQTT with discovery: the grill appears as entities', icon: 'house', color: '#0a84ff', collapsible: 'mqtt.enabled', fields: [
+    { id: 'notify', title: 'Home Assistant', sub: 'MQTT with discovery: the grill appears as entities', brand: 'homeassistant', collapsible: 'mqtt.enabled', fields: [
       { type: 'note', help: 'Publishes the grill\u2019s state to an MQTT broker with Home Assistant discovery, so the grill and every probe appear as entities without configuring them by hand.' },
       B('mqtt.enabled', 'MQTT', 'Publish state to a broker, with Home Assistant discovery'),
       X('mqtt.broker', 'Broker host', ''), I('mqtt.port', 'Broker port', '', { min: 1, max: 65535 }),
@@ -146,7 +149,7 @@ const PAGES = [
     ] },
   ] },
   { key: 'network', title: 'Wi-Fi & Hotspot', sub: 'Networks, connection, the setup hotspot', section: 'Network', icon: 'wifi', color: '#0a84ff', custom: networkPage },
-  { key: 'remote', title: 'Remote Access', sub: 'Tailscale: reach the grill from anywhere', section: 'Network', icon: 'globe', color: '#30d158', custom: (v) => import('./more.js').then((m) => m.remote(v)) },
+  { key: 'remote', title: 'Tailscale', sub: 'Reach the grill from anywhere', section: 'Network', brand: 'tailscale', custom: (v) => import('./more.js').then((m) => m.remote(v)) },
   { key: 'webserver', title: 'Web Server', sub: 'Port', section: 'Network', icon: 'network', color: '#8e8e93', sections: [{ id: 'web', fields: [I('port', 'Port', 'Restart required', { min: 1, max: 65535 })] }] },
   // ---- System
   { key: 'general', title: 'General', sub: 'Grill name, units, auger rate', section: 'System', icon: 'settings-2', color: '#8e8e93', sections: [{ id: 'globals', fields: [
@@ -357,7 +360,8 @@ function pageCard(pg) {
       const state = el('span', { class: `fold-state ${on ? 'on' : ''}` }, sum ? sum.label : on ? 'On' : 'Off');
       const det = el('details', { class: 'fold ios-fold' },
         el('summary', {},
-          sec.icon ? el('span', { class: 'tile', style: sec.color ? `--tile:${sec.color}` : '' }, lucide(sec.icon)) : null,
+          sec.brand ? el('span', { class: 'tile brand' }, brandIcon(sec.brand))
+                    : sec.icon ? el('span', { class: 'tile', style: sec.color ? `--tile:${sec.color}` : '' }, lucide(sec.icon)) : null,
           el('span', { class: 'body' }, el('span', { class: 't' }, sec.title || pg.title), sec.sub ? el('span', { class: 's' }, sec.sub) : null),
           state, lucide('chevron-right', 'ic chev')),
         el('div', { class: 'fold-body' }, card));
@@ -382,7 +386,11 @@ function pageCard(pg) {
   return wrap;
 }
 
-async function controllerCard() {
+/* `tuned` is true when autotune has measured this grill and its numbers are the ones in force.
+   The boxes below are then not what the grill is running, and showing them invites someone to
+   change a number that changes nothing. They are put away behind the one action that brings them
+   back: clearing the measurement. */
+async function controllerCard(tuned, onClear) {
   const controllers = await api('/controllers');
   const sel = PF.settings.controller.selected;
   const wrap = el('div');
@@ -405,11 +413,18 @@ async function controllerCard() {
       el('div', { class: 'field' }, el('label', {}, 'Controller'), el('select', { onchange: (e) => render(e.target.value) }, controllers.map((x) => el('option', { value: x.id, selected: x.id === c.id }, x.name)))),
       el('p', { class: 'muted', style: 'font-size:.85rem' }, c.description),
       el('p', { class: 'muted', style: 'font-size:.78rem' }, `Recommended cycle: ${c.recommend.cycle_time}s, feed ${c.recommend.u_min}–${c.recommend.u_max}`));
-    for (const o of c.config) {
-      const f = { path: o.option_name, label: o.option_friendly_name, help: o.option_description, type: o.option_type === 'bool' ? 'bool' : o.units === 'temp_delta' ? 'tempdelta' : 'num' };
-      card.append(fieldInput(f, cfg[o.option_name] ?? o.option_default));
+    if (tuned) {
+      card.append(
+        el('p', { class: 'muted', style: 'font-size:.82rem' },
+          'Autotune has measured this grill, and what it measured is what the controller runs. The starting values are not in use, so they are put away; clear the measurement to type your own again.'),
+        el('div', { class: 'form-actions' }, el('button', { class: 'btn sm ghost', type: 'button', onclick: onClear }, 'Clear Autotune')));
+    } else {
+      for (const o of c.config) {
+        const f = { path: o.option_name, label: o.option_friendly_name, help: o.option_description, type: o.option_type === 'bool' ? 'bool' : o.units === 'temp_delta' ? 'tempdelta' : 'num' };
+        card.append(fieldInput(f, cfg[o.option_name] ?? o.option_default));
+      }
+      card.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'submit' }, 'Save controller')));
     }
-    card.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'submit' }, 'Save controller')));
     form.append(el('h2', {}, 'Controller'), card);
     wrap.append(form);
   };
@@ -466,7 +481,13 @@ async function controllerPage(view) {
     }
   } catch { /* the summary simply says less */ }
 
-  const ctl = await controllerCard();
+  const clearTuning = async () => {
+    if (!await confirmDialog('Clear the measured tuning?',
+      'The tuning library, the last autotune and the grill model measured from startups are thrown away, and the grill goes back to the Proportional Band, Integral Time and Derivative Time you type here. Measuring them again takes hours and a hopper of pellets, so back them up first if you might want them.', 'Clear', true)) return;
+    try { await api('/tune/clear', { body: {} }); toast('Back to the typed values'); setTimeout(() => location.reload(), 600); }
+    catch (e) { toast(e.message, true); }
+  };
+  const ctl = await controllerCard(anchors > 0 && PF.settings?.learning?.use_library !== false, clearTuning);
   const sel = PF.settings?.controller?.selected || '';
 
   /* The three parts that report rather than configure -- which tuning is in force, the autotune and
@@ -575,7 +596,7 @@ export function renderSettings(view, rest) {
     const order = ORDER[sec] || [];
     const rank = (p) => { const i = order.indexOf(p.key); return i < 0 ? order.length : i; };
     const rows = pages.filter((p) => p.section === sec).sort((a, b) => rank(a) - rank(b))
-      .map((p) => ({ href: `#/settings/${p.key}`, icon: p.icon, color: p.color, title: p.title, sub: p.sub }));
+      .map((p) => ({ href: `#/settings/${p.key}`, icon: p.icon, brand: p.brand, color: p.color, title: p.title, sub: p.sub }));
     for (const l of LINKS[sec] || []) rows.push(l);
     if (rows.length) view.append(listGroup(sec, rows));
   }

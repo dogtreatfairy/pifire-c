@@ -397,6 +397,7 @@
     },
     "webpush": {
       "enabled": true,
+      "contact": "",
       "targets": true,
       "alarms": true,
       "pellets": true,

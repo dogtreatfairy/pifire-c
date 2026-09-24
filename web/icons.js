@@ -69,3 +69,47 @@ export function icon(name, cls = 'ic') {
 }
 /** Markup string for static HTML. */
 export const iconHtml = (name, cls = 'ic') => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${cls}" aria-hidden="true">${ICONS[name] || ''}</svg>`;
+
+/* Brand marks, from Dashboard Icons (github.com/homarr-labs/dashboard-icons); each mark remains
+ * its owner's. The stylesheets those files ship with are inlined here, because a <style> block
+ * inside an inlined icon leaks into the page and the class names they use (st0, st1) collide
+ * between one brand and the next.
+ *
+ * These are not Lucide glyphs and cannot be treated as such: each is a logo with its own artboard
+ * and its own colours, so it keeps its viewBox and paints itself instead of taking currentColor
+ * from the row around it. They are used only where the brand IS the identifier -- the notification
+ * services -- and they sit on a plain tile rather than a coloured one, because the mark already
+ * carries its own shape and colour. The ntfy gradient is renamed from the id it shipped with, since
+ * a document may hold more than one icon and the first matching id would win.
+ */
+export const BRANDS = {
+  /* Monochrome, so it takes the colour of whatever it sits in: the state colour in the header
+     indicator, the text colour in a settings row. The dimmed dots keep their own opacity. */
+  tailscale: { vb: '0 0 512 512', mono: true, inner:
+    '<path d="M65.6 127.7c35.3 0 63.9-28.6 63.9-63.9S100.9 0 65.6 0 1.8 28.6 1.8 63.9s28.6 63.8 63.8 63.8" opacity=".2"/><path d="M65.6 318.1c35.3 0 63.9-28.6 63.9-63.9s-28.6-63.9-63.9-63.9S1.8 219 1.8 254.2s28.6 63.9 63.8 63.9"/><path d="M65.6 512c35.3 0 63.9-28.6 63.9-63.9s-28.6-63.9-63.9-63.9-63.8 28.7-63.8 63.9S30.4 512 65.6 512" opacity=".2"/><path d="M257.2 318.1c35.3 0 63.9-28.6 63.9-63.9s-28.6-63.9-63.9-63.9-63.9 28.6-63.9 63.9 28.6 63.9 63.9 63.9m0 193.9c35.3 0 63.9-28.6 63.9-63.9s-28.6-63.9-63.9-63.9-63.9 28.6-63.9 63.9 28.6 63.9 63.9 63.9"/><path d="M257.2 127.7c35.3 0 63.9-28.6 63.9-63.9S292.5 0 257.2 0s-63.9 28.6-63.9 63.9 28.6 63.8 63.9 63.8m189.2 0c35.3 0 63.9-28.6 63.9-63.9S481.6 0 446.4 0c-35.3 0-63.9 28.6-63.9 63.9s28.6 63.8 63.9 63.8" opacity=".2"/><path d="M446.4 318.1c35.3 0 63.9-28.6 63.9-63.9s-28.6-63.9-63.9-63.9-63.9 28.6-63.9 63.9 28.6 63.9 63.9 63.9"/><path d="M446.4 512c35.3 0 63.9-28.6 63.9-63.9s-28.6-63.9-63.9-63.9-63.9 28.6-63.9 63.9 28.6 63.9 63.9 63.9" opacity=".2"/>' },
+  pushover: { vb: '0 0 512 512', inner:
+    '<circle cx="256" cy="256" r="256" style="fill:#249df1"/>'
+    + '<path d="m240.7 147.2 64.2-8.5-62.5 141.1c11-.8 21.8-4.6 32.3-11.2 10.6-6.6 20.3-14.9 29.2-24.9s16.5-21.1 23-33.4 11.1-24.3 13.9-36.1c1.7-7.3 2.5-14.4 2.3-21.1-.1-6.8-1.9-12.7-5.3-17.7-3.4-5.1-8.5-9.2-15.4-12.3s-16.3-4.6-28.1-4.6c-13.8 0-27.4 2.3-40.8 6.8s-25.8 11.1-37.2 19.7-21.3 19.3-29.8 32.1-14.5 27.4-18.2 43.7c-1.4 5.4-2.3 9.6-2.5 12.9-.3 3.2-.4 5.9-.2 8 .1 2.1.4 3.7.8 4.9.4 1.1.8 2.3 1.1 3.4q-21.6 0-31.5-8.7c-6.6-5.8-8.2-15.8-4.9-30.2 3.4-14.9 11.1-29.2 23-42.7 12-13.5 26.2-25.4 42.7-35.7s34.5-18.4 54.1-24.5 38.7-9.1 57.3-9.1c16.3 0 30.1 2.3 41.2 7s19.8 10.8 26 18.4 10.1 16.5 11.6 26.6c1.6 10.1 1.1 20.7-1.5 31.7-3.1 13.2-8.9 26.6-17.5 39.9-8.6 13.4-19.4 25.5-32.3 36.3-13 10.8-27.8 19.6-44.6 26.4s-34.6 10.1-53.4 10.1h-2.1L182 415.9h-60.8z" style="fill:#fff"/>' },
+  ntfy: { vb: '0 0 512 512', inner:
+    '<linearGradient id="pf-ntfy-g" x1="115.045" x2="142.93" y1="512.747" y2="491.741" gradientTransform="matrix(15.8584 0 0 -15.8584 -1816.246 8200.18)" gradientUnits="userSpaceOnUse">'
+    + '<stop offset="0" style="stop-color:#348878"/><stop offset="1" style="stop-color:#56bda8"/></linearGradient>'
+    + '<path d="M441.8 64.8H84.7c-24.5 0-44.6 19-44.6 42.1l.3 285.3-6.7 38.4 95.6-28.8h312.4c24.5 0 44.6-19 44.6-42.1V106.9c.1-23.2-20-42.1-44.5-42.1" style="fill:url(#pf-ntfy-g)"/>'
+    + '<path d="M78.1 32.7C40.9 32.7 9 62 9 99.2l.4 311.2-9.4 69 127.1-33.8H443c37.2 0 69.1-29.3 69.1-66.5V99.2c0-37.2-31.9-66.5-69-66.5zm0 46.9H443c13.1 0 22.1 9.5 22.1 19.6V379c0 10-9 19.8-22.1 19.6H120.2l-64.6 19.5.7-3.8-.4-315.1c0-10.1 9.1-19.6 22.2-19.6" style="fill:#fff"/>'
+    + '<path d="M110.5 139.7v50.4l76.6 40.6.5.2-.5.2-76.6 40.6v50.1l8.2-4.5L235.1 254v-46.4zm11.8 21.7 101.2 55.1V245l-101.2 55.1v-19.4l69.6-36.8.1-.1c1.9-1 3.8-1.7 5.8-2.3h.1l.2-.1c2.1-.7 3.9-1.2 5.5-1.6l11.1-1.1v-15.2l-5.4-.5c-1.7-.2-3.5-.5-5.1-1.1h-.2l-.2-.1c-2-.4-3.9-.9-5.9-1.4-2-.7-4-1.6-5.9-2.6l-.1-.1-69.6-36.7z" style="fill:#fff"/>'
+    + '<path d="M268.7 292.1v46h132.4v-46zm11.7 13.4h109v19.2h-109z" style="fill:#fff"/>' },
+  homeassistant: { vb: '0 0 512 512', inner:
+    '<path d="M512 473.3c0 17.6-14.4 32-32 32H32c-17.6 0-32-14.4-32-32v-192c0-17.6 10.2-42.2 22.6-54.6L233.4 16c12.4-12.4 32.8-12.4 45.2 0l210.8 210.8c12.4 12.4 22.6 37 22.6 54.6z" style="fill:#f2f4f9"/>'
+    + '<path d="M489.4 226.7 278.6 16c-12.4-12.4-32.8-12.4-45.2 0L22.6 226.7C10.2 239.1 0 263.7 0 281.3v192c0 17.6 14.4 32 32 32h196.8l-86.7-86.7c-4.5 1.5-9.2 2.4-14.2 2.4-24.1 0-43.7-19.6-43.7-43.7s19.6-43.7 43.7-43.7 43.7 19.6 43.7 43.7c0 5-.9 9.7-2.4 14.2l67.5 67.5V211.8c-14.5-7.1-24.5-22-24.5-39.2 0-24.1 19.6-43.7 43.7-43.7s43.7 19.6 43.7 43.7c0 17.2-10 32.1-24.5 39.2v173.4l67.1-67.1c-1.3-4.2-2-8.6-2-13.2 0-24.1 19.6-43.7 43.7-43.7s43.7 19.6 43.7 43.7-19.6 43.7-43.7 43.7c-5.3 0-10.4-1-15.1-2.8l-93.7 93.7v65.9H480c17.6 0 32-14.4 32-32v-192c0-17.6-10.2-42.2-22.6-54.7" style="fill:#18bcf2"/>' },
+};
+
+/** A brand mark at row size: its own artboard, its own colours, no tile behind it. */
+export function brandIcon(name, cls = 'ic') {
+  const b = BRANDS[name];
+  const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  s.setAttribute('viewBox', b ? b.vb : '0 0 24 24');
+  if (b && b.mono) s.setAttribute('fill', 'currentColor');
+  s.setAttribute('class', cls);
+  s.setAttribute('aria-hidden', 'true');
+  s.innerHTML = b ? b.inner : '';
+  return s;
+}

@@ -129,7 +129,7 @@ function network(view) {
 // ---- remote access through Tailscale ----
 export function remote(view) {
   const card = el('div', { class: 'card' });
-  view.append(el('h2', {}, 'Remote Access'), card);
+  view.append(el('h2', {}, 'Tailscale'), card);
   let pollT = null;
   const act = async (verb, msg) => { try { await api(`/network/tailscale/${verb}`, { body: {} }); toast(msg); setTimeout(load, 1500); } catch (e) { toast(e.message, true); } };
   const load = async () => {

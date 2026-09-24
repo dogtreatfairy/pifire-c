@@ -15,6 +15,7 @@
 #include "core/db.h"
 #include "core/log.h"
 #include "core/settings.h"
+#include <ctype.h>
 #include "core/util.h"
 #include <pthread.h>
 #include <stdio.h>
@@ -22,6 +23,9 @@
 #include <string.h>
 
 #define TAG "webpush"
+/* Where a push service should write if this grill misbehaves. The project, because a grill on a
+ * home network has no address of its own that anyone could answer at. */
+#define PF_WEBPUSH_CONTACT "https://github.com/dogtreatfairy/pifire-c"
 
 #if !defined(PF_HAVE_WEBPUSH)
 
@@ -33,6 +37,7 @@ bool pf_webpush_available(void) { return false; }
 const char *pf_webpush_public_key(void) { return ""; }
 int pf_webpush_subscribe(const cJSON *sub, char *err, size_t n) { (void)sub; snprintf(err, n, "this build has no web push support"); return -1; }
 int pf_webpush_unsubscribe(const char *endpoint) { (void)endpoint; return -1; }
+bool pf_webpush_contact_ok(const char *c) { (void)c; return false; }
 int pf_webpush_count(void) { return 0; }
 void pf_webpush_send(const char *title, const char *body, const char *code, int crit) { (void)title; (void)body; (void)code; (void)crit; }
 int pf_webpush_seal_for_test(const char *p256dh_b64, const char *auth_b64, const char *as_priv_b64,
@@ -484,6 +489,53 @@ int pf_webpush_seal_for_test(const char *p256dh_b64, const char *auth_b64, const
 	return 0;
 }
 
+/* Who the push service can contact about this sender.
+ *
+ * RFC 8292 says the `sub` claim is a mailto: or https: URI, and Apple is the one push service that
+ * enforces it: `mailto:pifire@localhost` -- which is what this used to send -- comes back 403
+ * BadJwtToken from web.push.apple.com, on every notification, for ever. Mozilla and Google accept
+ * anything, so the fault was invisible on a laptop and total on an iPhone. Anything that is not a
+ * mailto: with a real domain or an https: URL is refused here rather than sent, because a push
+ * service that rejects the token never says which claim it disliked. */
+/* The host has to be somewhere a message could actually arrive: a dot in it, nothing after that
+ * dot but real letters, and not one of the names reserved for things that do not exist. Apple
+ * refuses `.invalid` as readily as `localhost`, and says only 403. */
+static bool host_ok(const char *host)
+{
+	size_t len = strcspn(host, "/:?#");
+	if (len < 4 || host[len - 1] == '.') return false;
+	const char *dot = NULL;
+	for (size_t i = 0; i < len; i++) if (host[i] == '.') dot = host + i;
+	if (!dot || (size_t)(dot - host) + 1 >= len) return false;
+	const char *tld = dot + 1;
+	size_t tlen = len - (size_t)(tld - host);
+	static const char *reserved[] = { "invalid", "local", "localhost", "test", "example", "localdomain" };
+	for (size_t i = 0; i < sizeof reserved / sizeof reserved[0]; i++)
+		if (strlen(reserved[i]) == tlen && !strncasecmp(tld, reserved[i], tlen)) return false;
+	for (size_t i = 0; i < tlen; i++) if (!isalpha((unsigned char)tld[i])) return false;
+	return tlen >= 2;
+}
+
+bool pf_webpush_contact_ok(const char *c)
+{
+	if (!c || !*c) return false;
+	if (!strncmp(c, "https://", 8)) return host_ok(c + 8);
+	if (!strncmp(c, "mailto:", 7)) {
+		const char *at = strchr(c + 7, '@');
+		return at && at > c + 7 && host_ok(at + 1);
+	}
+	return false;
+}
+
+static void vapid_contact(char *out, size_t n)
+{
+	char set[160] = "";
+	pf_set_str("notify.webpush.contact", set, sizeof set, "");
+	if (pf_webpush_contact_ok(set)) { pf_strlcpy(out, set, n); return; }
+	if (set[0]) LOGW(TAG, "notify.webpush.contact '%s' is not a mailto: or https: address; using the project's", set);
+	pf_strlcpy(out, PF_WEBPUSH_CONTACT, n);
+}
+
 /* RFC 8292: a short-lived JWT saying who is sending, signed with the grill's long-lived key. */
 static int vapid_jwt(const char *endpoint, char *out, size_t cap)
 {
@@ -499,9 +551,11 @@ static int vapid_jwt(const char *endpoint, char *out, size_t cap)
 	}
 	if (!aud[0]) return -1;
 
-	char claims[400], hdr_b64[64], claims_b64[600], signing[700];
-	snprintf(claims, sizeof claims, "{\"aud\":\"%s\",\"exp\":%lld,\"sub\":\"mailto:pifire@localhost\"}",
-	         aud, (long long)(pf_wall() + 12 * 3600));
+	char claims[600], hdr_b64[64], claims_b64[900], signing[1000];
+	char contact[160];
+	vapid_contact(contact, sizeof contact);
+	snprintf(claims, sizeof claims, "{\"aud\":\"%s\",\"exp\":%lld,\"sub\":\"%s\"}",
+	         aud, (long long)(pf_wall() + 12 * 3600), contact);
 	static const char hdr[] = "{\"typ\":\"JWT\",\"alg\":\"ES256\"}";
 	b64url_encode((const unsigned char *)hdr, sizeof hdr - 1, hdr_b64, sizeof hdr_b64);
 	b64url_encode((const unsigned char *)claims, strlen(claims), claims_b64, sizeof claims_b64);
@@ -533,17 +587,31 @@ static int vapid_jwt(const char *endpoint, char *out, size_t cap)
 	return n > 0 && (size_t)n < cap ? 0 : -1;
 }
 
-static size_t sink_discard(void *p, size_t sz, size_t n, void *u) { (void)p; (void)u; return sz * n; }
+/* The body of a refusal is the only place a push service says what it disliked -- Apple answers
+ * {"reason":"BadJwtToken"} -- so it is kept and logged rather than thrown away. */
+typedef struct { char buf[240]; size_t len; } reply_t;
+static size_t sink_keep(void *p, size_t sz, size_t n, void *u)
+{
+	reply_t *r = u;
+	size_t got = sz * n, room = sizeof r->buf - 1 - r->len;
+	if (room > 0) {
+		size_t take = got < room ? got : room;
+		memcpy(r->buf + r->len, p, take);
+		r->len += take;
+		r->buf[r->len] = 0;
+	}
+	return got;
+}
 
 /* Returns the HTTP status, or 0 if it could not be sent at all. */
 static long post_one(const sub_t *s, const unsigned char *body, size_t len)
 {
-	char jwt[900];
+	char jwt[1200];
 	if (vapid_jwt(s->endpoint, jwt, sizeof jwt) != 0) return 0;
 
 	CURL *c = curl_easy_init();
 	if (!c) return 0;
-	char auth[1100];
+	char auth[1500];
 	snprintf(auth, sizeof auth, "Authorization: vapid t=%s, k=%s", jwt, g_vapid_pub);
 	struct curl_slist *h = NULL;
 	h = curl_slist_append(h, auth);
@@ -557,11 +625,15 @@ static long post_one(const sub_t *s, const unsigned char *body, size_t len)
 	curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE, (long)len);
 	curl_easy_setopt(c, CURLOPT_HTTPHEADER, h);
 	curl_easy_setopt(c, CURLOPT_TIMEOUT, 15L);
-	curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, sink_discard);
+	reply_t reply = { .len = 0 };
+	reply.buf[0] = 0;
+	curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, sink_keep);
+	curl_easy_setopt(c, CURLOPT_WRITEDATA, &reply);
 	CURLcode rc = curl_easy_perform(c);
 	long status = 0;
 	if (rc == CURLE_OK) curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
 	else LOGW(TAG, "push failed: %s", curl_easy_strerror(rc));
+	if (status >= 400 && reply.buf[0]) LOGW(TAG, "push service refused it: %s", reply.buf);
 	curl_slist_free_all(h);
 	curl_easy_cleanup(c);
 	return status;
