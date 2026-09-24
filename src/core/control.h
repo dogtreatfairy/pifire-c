@@ -124,6 +124,7 @@ typedef struct {
 #define PF_AT_MIN_CROSS 5   /* the fewest crossings that can produce a result: two full cycles after the centring */
 	struct {
 		bool active; int phase; double u_center, h, hyst_c, start_t, last_cross_t;
+
 		/* `halves` holds the time between successive crossings. A full oscillation is one half
 		 * plus the next, which is not the same as twice either one: a grill heats far faster
 		 * than it cools, so its limit cycle is lopsided. */

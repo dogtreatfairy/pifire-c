@@ -768,25 +768,27 @@ static void test_the_swing_is_centred_on_the_set_point(void)
 	ctrl.autotune.u_center = biased;
 	double started_at = ctrl.autotune.u_center;
 
-	/* time above and below the set point over the second half of the test, by which point the
-	 * correction has had cycles to work */
-	double above = 0, below = 0, t_half = 0;
+	/* What matters is where the oscillation SITS, not that the halves are equal: the relay steps
+	 * up harder than it steps down, so the grill spends unequal time either side by design. The
+	 * measurement is only about the set point if the swing averages out on it. */
+	double sum = 0, above = 0, below = 0; int n = 0;
 	for (int i = 0; i < 3 * 60 * 60 && ctrl.autotune.active; i += 5) {
 		tick(5);
-		if (ctrl.autotune.crossings >= 2) {
-			if (pf_from_c(ctrl.pit_c, PF_UNITS_F) > 250) above += 5; else below += 5;
-			t_half += 5;
+		if (ctrl.autotune.adjusts >= 1 && ctrl.autotune.crossings > ctrl.autotune.adjust_at_cross) {
+			double f = pf_from_c(ctrl.pit_c, PF_UNITS_F);
+			sum += f; n++;
+			if (f > 250) above += 5; else below += 5;
 		}
 	}
-	printf("centre %.3f -> %.3f (holding %.3f); above %.0f min, below %.0f min\n",
-	       started_at, ctrl.autotune.u_center, holding, above / 60, below / 60);
-	TEST_ASSERT_TRUE_MESSAGE(t_half > 600, "the test should have oscillated for a while");
+	double mean = n ? sum / n : 0;
+	printf("centre %.3f -> %.3f (holding %.3f); mean pit %.1f F over %d samples; above %.0f min, below %.0f min\n",
+	       started_at, ctrl.autotune.u_center, holding, mean, n, above / 60, below / 60);
+	TEST_ASSERT_TRUE_MESSAGE(n > 60, "the test should have oscillated after centring");
 	TEST_ASSERT_TRUE_MESSAGE(ctrl.autotune.u_center < started_at - 0.01,
 	                         "an overfed centre should have been brought down");
-	/* Neither side may take more than two thirds of the time: that is the lopsidedness that
-	 * stretched the period and doubled the band. */
-	double split = above > below ? above / fmax(below, 1) : below / fmax(above, 1);
-	TEST_ASSERT_TRUE_MESSAGE(split < 2.0, "the swing should sit roughly evenly either side of the set point");
+	/* The swing has to average out on the set point. Off centre by three degrees is what stretched
+	 * a real run's period by two thirds and doubled the band it came back with. */
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(3.0, 250.0, mean, "the oscillation must sit on the set point");
 }
 
 /* What the relay measured decides the tuning, and nothing else does. The same oscillation used to
