@@ -135,7 +135,12 @@ int pf_probes_init(void)
 		r->role = !strcasecmp(type, "Primary") ? PF_PROBE_PRIMARY : !strcasecmp(type, "Aux") ? PF_PROBE_AUX : PF_PROBE_FOOD;
 		r->enabled = pf_json_bool(pi, "enabled", true);
 		r->home = pf_json_bool(pi, "show_on_home", true);
-		r->ambient = pf_json_bool(pi, "ambient", false) || (r->role == PF_PROBE_AUX && strcasestr(r->name, "ambient") != NULL);
+		/* The explicit flag only. Whether an Aux probe named "ambient" is the ambient REFERENCE --
+		 * the outdoor temperature the feed-forward and the cold start are judged against -- cannot
+		 * be decided here, because the ambient sensor built into a Bluetooth food probe is also
+		 * called ambient and measures the air a few inches from the meat. That is settled below,
+		 * once it is known which probes are companions of another. */
+		r->ambient = pf_json_bool(pi, "ambient", false);
 		r->temp_c = NAN;
 		r->raw_c = NAN;
 		pv->dev = -1;
@@ -168,6 +173,20 @@ int pf_probes_init(void)
 			a->is_companion = true;
 			break;
 		}
+	}
+	/* An Aux probe named "ambient" is the ambient reference unless it belongs to a food probe: the
+	 * air inside the grill beside a piece of meat is not the weather, and feeding it to the learning
+	 * as the outdoor temperature would teach the grill that it is 200 degrees outside. */
+	for (int i = 0; i < n; i++) {
+		pf_probe_reading *r = &g_snap.p[i];
+		if (r->ambient || r->role != PF_PROBE_AUX || r->is_companion || !strcasestr(r->name, "ambient")) continue;
+		/* Sharing a device with another probe is enough to disqualify it, whether or not the pairing
+		 * above succeeded: a two-port device is a food probe with an air sensor on it, and if its
+		 * driver failed to load we would otherwise promote that air sensor to "the weather" exactly
+		 * when there is least reason to trust it. */
+		bool shared = false;
+		for (int j = 0; j < n && !shared; j++) shared = j != i && r->device[0] && !strcmp(g_snap.p[j].device, r->device);
+		if (!shared) r->ambient = true;
 	}
 	pthread_mutex_unlock(&g_mu);
 	cJSON_Delete(map);

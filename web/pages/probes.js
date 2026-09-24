@@ -131,7 +131,9 @@ export async function renderProbes(view) {
     dev.ports.forEach((port, i) => {
       const ambient = /ambient/i.test(port);
       const name = ambient ? `${lastMeat || nextBt()} Ambient` : (lastMeat = nextBt());
-      map.probe_info.push({ type: 'Food', label: `${dev.device}${i + 1}`, name, profile: 'TWPS00', device: dev.device, port, enabled: true, show_on_home: !ambient && i < 3 });
+      /* The ambient sensor inside a food probe reads air, so it is Aux from the moment it is
+         added, and never appears in a list of things that can be brought to a temperature. */
+      map.probe_info.push({ type: ambient ? 'Aux' : 'Food', label: `${dev.device}${i + 1}`, name, profile: 'TWPS00', device: dev.device, port, enabled: true, show_on_home: !ambient && i < 3 });
     });
     await save();
   };
@@ -140,10 +142,11 @@ export async function renderProbes(view) {
   const table = el('div', { class: 'list ptable' });
   const renderTable = () => {
     table.innerHTML = '';
-    /* Grouped the way the probes are used: the pit, the food, then the air and the outside. The
-       type a probe is set to is what puts it in a group, so the grouping also makes a
-       mis-configured probe obvious at a glance. */
-    const GROUPS = [['Primary', 'Grill'], ['Food', 'Food'], ['Aux', 'Aux & Ambient']];
+    /* Grouped the way the probes are used, and named for the type that puts them there: the pit,
+       the food, then everything measuring air rather than meat -- the ambient sensor built into a
+       Bluetooth probe, and any probe reading the weather. The grouping is the type, so a probe
+       filed in the wrong place is a probe set to the wrong type, visible at a glance. */
+    const GROUPS = [['Primary', 'Primary'], ['Food', 'Food'], ['Aux', 'Aux']];
     for (const [role, heading] of GROUPS) {
       const members = map.probe_info.filter((p) => (p.type || 'Food') === role);
       if (!members.length) continue;

@@ -23,6 +23,11 @@ static atomic_int g_pct = -1;
 static double g_cm = -1, g_updated;
 static double g_last_check, g_last_auger_total, g_est_usage_g;
 static atomic_bool g_check_req;
+/* 0 = nothing asked for, 1 = call the next reading full, 2 = call it empty. Calibration is done on
+ * the services thread with the sensor's own next reading, rather than from whatever number the app
+ * happened to be showing: the hopper is being calibrated because the numbers are wrong, so the
+ * stale one is the last thing to trust. */
+static atomic_int g_cal_req;
 static int g_current_id;
 /* A level that disagrees with the accepted one, and how many times it has said so. */
 static double g_pending;
@@ -134,8 +139,31 @@ static void read_hopper(void)
 	if (k == 3) cm = (r[0] > r[1]) == (r[0] < r[2]) ? r[0] : (r[1] > r[0]) == (r[1] < r[2]) ? r[1] : r[2];
 	else if (k == 2) cm = (r[0] + r[1]) / 2;
 	else if (k == 1) cm = r[0];
+	/* "This is what full looks like": the reading just taken becomes the end of the scale, and the
+	 * level is recomputed from it at once so the bar agrees with the hopper in front of you. */
+	int cal = atomic_exchange(&g_cal_req, 0);
+	if (cal && cm > 0) {
+		pf_set_put_num(cal == 1 ? "pelletlevel.full" : "pelletlevel.empty", round(cm * 10) / 10);
+		pf_settings_save();
+		double f = pf_set_num("pelletlevel.full", 4), e = pf_set_num("pelletlevel.empty", 22);
+		if (e <= f)
+			pf_events_emit("Hopper_Calibrated", "Hopper calibration needs the other end",
+			               "%s is now %.1f cm, which is not %s than the other mark (%.1f cm). Set the other one as well.",
+			               cal == 1 ? "Full" : "Empty", cm, cal == 1 ? "nearer" : "further", cal == 1 ? e : f);
+		else
+			pf_events_emit("Hopper_Calibrated", "Hopper calibrated",
+			               "%s is %.1f cm from the sensor. The hopper reads 0-100%% between %.1f and %.1f cm.",
+			               cal == 1 ? "Full" : "Empty", cm, f, e);
+		LOGI(TAG, "hopper %s set to %.1f cm", cal == 1 ? "full" : "empty", cm);
+	} else if (cal) {
+		pf_events_emit("Hopper_Calibrated", "The hopper sensor did not answer",
+		               "Nothing was measured, so %s was left as it was.", cal == 1 ? "full" : "empty");
+	}
 	double empty = pf_set_num("pelletlevel.empty", 22), full = pf_set_num("pelletlevel.full", 4);
 	pthread_mutex_lock(&g_mu);
+	/* A calibration moves the scale under the last accepted level, so the jump guard below has
+	 * nothing to compare against and must not hold the new reading back. */
+	if (cal && cm > 0) { atomic_store(&g_pct, -1); g_pending_n = 0; }
 	g_updated = pf_wall();
 	if (cm < 0 || empty <= full) { g_cm = -1; atomic_store(&g_pct, -1); }
 	else {
@@ -168,7 +196,7 @@ static void read_hopper(void)
 
 void pf_pellets_tick(double now, double auger_on_total_s, bool cooking)
 {
-	if (atomic_exchange(&g_check_req, false) || now - g_last_check > 60) {
+	if (atomic_exchange(&g_check_req, false) || atomic_load(&g_cal_req) || now - g_last_check > 60) {
 		g_last_check = now;
 		read_hopper();
 	}
@@ -186,6 +214,12 @@ void pf_pellets_tick(double now, double auger_on_total_s, bool cooking)
 	 * hopper-critical rules -- so it is not also emitted from here. Two systems warning about one
 	 * hopper meant switching the warning off in settings and still being warned, by the other one. */
 	(void)cooking;
+}
+
+void pf_pellets_calibrate(bool as_full)
+{
+	atomic_store(&g_cal_req, as_full ? 1 : 2);
+	atomic_store(&g_check_req, true);
 }
 
 void pf_pellets_request_check(void) { atomic_store(&g_check_req, true); }

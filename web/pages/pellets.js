@@ -1,4 +1,4 @@
-import { el, api, toast, dialog, confirmDialog } from '../app.js';
+import { PF, el, api, toast, dialog, confirmDialog } from '../app.js';
 
 async function profileDialog(p = {}) {
   return dialog((close) => {
@@ -31,7 +31,27 @@ export function renderPellets(view) {
     current.append(el('div', { class: 'row between' },
       el('div', {}, el('div', { style: 'font-size:1.2rem;font-weight:600' }, d.current.brand ? `${d.current.brand} ${d.current.wood}` : 'None selected'), el('div', { class: 'muted', style: 'font-size:.8rem' }, `≈ ${(d.current.est_usage_g / 453.6).toFixed(2)} lb (${d.current.est_usage_g.toFixed(0)} g) used since loading`)),
       h.enabled ? el('div', { class: 'stat' }, el('div', { class: 'v' }, h.pct >= 0 ? `${h.pct}%` : '—'), el('div', { class: 'l' }, 'hopper')) : null));
-    if (h.enabled) current.append(el('div', { class: 'progress' }, el('div', { style: `width:${Math.max(0, h.pct)}%` })), el('div', { class: 'form-actions' }, el('button', { class: 'btn sm ghost', onclick: async () => { await api('/pellets/check', { body: {} }); toast('Checking hopper…'); setTimeout(load, 2500); } }, 'Check level now')));
+    if (h.enabled) {
+      const cal = async (as) => {
+        const what = as === 'full' ? 'full' : 'empty';
+        if (!await confirmDialog(`Call this ${what}?`,
+          `The sensor takes a reading now and that distance becomes ${what === 'full' ? 'the top' : 'the bottom'} of the scale. Do it with the hopper actually ${what === 'full' ? 'filled' : 'empty'}: the number depends on where the sensor sits and how the pellets heap up, which is why it is measured rather than typed.`,
+          `Set ${what}`)) return;
+        try { await api('/pellets/calibrate', { body: { as } }); toast(`Measuring ${what}…`); setTimeout(load, 3000); }
+        catch (e) { toast(e.message, true); }
+      };
+      current.append(
+        el('div', { class: 'progress' }, el('div', { style: `width:${Math.max(0, h.pct)}%` })),
+        el('div', { class: 'muted', style: 'font-size:.76rem;margin-top:6px' },
+          `${h.cm > 0 ? `${h.cm.toFixed(1)} cm to the pellets. ` : ''}Full at ${PF.settings?.pelletlevel?.full ?? '—'} cm, empty at ${PF.settings?.pelletlevel?.empty ?? '—'} cm.`),
+        /* Calibration is two measurements, taken when the hopper is in the state being named. The
+           dismissive end of the scale is on the left and the committing one on the right nowhere
+           here -- these are two equal actions, so they read in the order you would do them. */
+        el('div', { class: 'form-actions' },
+          el('button', { class: 'btn sm ghost', onclick: () => cal('empty') }, 'Set Current As Empty'),
+          el('button', { class: 'btn sm ghost', onclick: () => cal('full') }, 'Set Current As Full'),
+          el('button', { class: 'btn sm ghost', onclick: async () => { await api('/pellets/check', { body: {} }); toast('Checking hopper…'); setTimeout(load, 2500); } }, 'Check Level Now')));
+    }
     else current.append(el('p', { class: 'muted', style: 'font-size:.8rem' }, 'No hopper sensor configured (Hardware setup → distance sensor).'));
 
     list.innerHTML = '';

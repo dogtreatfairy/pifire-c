@@ -57,7 +57,7 @@ Convenience REST aliases exist: `POST /mode`, `/setpoint`, `/stop`, `/smoke_plus
 
 | method | path |
 |---|---|
-| GET | `/pellets`; POST `/pellets/profile`, `/pellets/load {id}`, `/pellets/delete {id}`, `/pellets/check` |
+| GET | `/pellets`; POST `/pellets/profile`, `/pellets/load {id}`, `/pellets/delete {id}`, `/pellets/check`, `/pellets/calibrate {as:"full"\|"empty"}` |
 | GET | `/cookfiles`; GET `/cookfiles/<id>`; POST `/cookfiles/<id>/rename {name}`, `/cookfiles/<id>/delete` |
 | GET | `/recipes`; POST `/recipes` (save `{id?,name,steps:[...]}`); POST `/recipes/<id>/delete` |
 

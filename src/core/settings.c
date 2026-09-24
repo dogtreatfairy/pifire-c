@@ -1,3 +1,4 @@
+#define _GNU_SOURCE   /* strcasestr */
 #include "core/settings.h"
 #include "core/embedded.h"
 #include "core/log.h"
@@ -593,6 +594,25 @@ int pf_settings_init(const char *path)
 			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
 			if (sv) cJSON_SetNumberValue(sv, 15); else cJSON_AddNumberToObject(g_root, "schema_version", 15);
 			LOGI(TAG, "settings migrated to schema 15 (retired PID variants removed%s)", moved ? ", this grill moved to the adaptive controller" : "");
+			added = 1;
+		}
+		if (ver < 16) {
+			/* A Bluetooth probe's ambient sensor was typed Food, because that is what its meat
+			 * sensor is and they were added together. It is not food: it reads the air, so it
+			 * belongs with the other Aux readings and not in a list of things that can be brought
+			 * to temperature. The reading itself does not change, only where it is filed. */
+			int moved = 0;
+			cJSON *pi = pf_json_path(g_root, "probe_settings.probe_map.probe_info"), *p2;
+			cJSON_ArrayForEach(p2, pi) {
+				const char *port = pf_json_str(p2, "port", ""), *type = pf_json_str(p2, "type", "Food");
+				if (!strcasestr(port, "ambient") || !strcasecmp(type, "Primary") || !strcasecmp(type, "Aux")) continue;
+				cJSON_DeleteItemFromObject(p2, "type");
+				cJSON_AddStringToObject(p2, "type", "Aux");
+				moved++;
+			}
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 16); else cJSON_AddNumberToObject(g_root, "schema_version", 16);
+			LOGI(TAG, "settings migrated to schema 16 (%d ambient sensor%s filed under Aux)", moved, moved == 1 ? "" : "s");
 			added = 1;
 		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */

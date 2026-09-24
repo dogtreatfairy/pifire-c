@@ -404,6 +404,18 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		return;
 	}
 	if (post && !strcmp(p, "/pellets/check")) { pf_pellets_request_check(); reply_ok(resp); return; }
+	/* Calibrate one end of the hopper scale from what the sensor can see right now. */
+	if (post && !strcmp(p, "/pellets/calibrate")) {
+		cJSON *j = cJSON_Parse(req->body);
+		const char *as = pf_json_str(j, "as", "");
+		bool full = !strcmp(as, "full");
+		bool ok = full || !strcmp(as, "empty");
+		cJSON_Delete(j);
+		if (!ok) { reply_err(resp, 400, "as must be \"full\" or \"empty\""); return; }
+		pf_pellets_calibrate(full);
+		reply_ok(resp);
+		return;
+	}
 	if (get && !strcmp(p, "/learning")) { reply(resp, 200, pf_learning_json()); return; }
 	/* Both go through the control thread: it owns the controller instance, which holds its own copy
 	 * of what it has learned and been told, and clearing the stored copy alone would leave that
