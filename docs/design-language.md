@@ -238,6 +238,24 @@ reading, the target and its alarms, and its settings behind the chevron. The tar
 Cook while the settings were a list under Settings, so one probe was in two places and neither
 showed the whole of it.
 
+## Screens and dialogs
+
+**Anything bigger than a question is a screen, not a box.** Editing a notification, setting a probe
+up, reviewing what the grill has said: you go there and come back, the way a native app works. A
+large modal is a website's idea of the same thing — it hangs over the page, the back gesture cannot
+reach it, and while it holds the page inert the tab bar does not answer, so there is no navigating
+away from it either.
+
+`pushScreen()` covers the content **between the bars**, so the mode readout and the tabs stay
+exactly where they were: you have gone somewhere inside the app rather than had a panel thrown over
+it. It pushes a history entry, so **the back gesture unwinds it**, its own back arrow closes it, and
+**tapping a tab closes it and navigates**. All three are one event to the caller: the promise
+resolves.
+
+A dialog is for a question — a confirmation, a dial pad. **Navigating away closes any dialog still
+open**, because a box left hanging over the new page is the surest sign you are looking at a
+website.
+
 ## Sheets
 
 A sheet is three parts: a **header that stays**, a **body that scrolls**, a **footer that stays**.

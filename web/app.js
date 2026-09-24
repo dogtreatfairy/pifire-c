@@ -332,7 +332,7 @@ export function toast(msg, err = false) {
   notify({ kind: err ? 'error' : 'ok', title: err ? 'Something went wrong' : '', body: msg }, { keep: err });
 }
 export function openNotifications() {
-  return dialog((close) => {
+  return pushScreen((close) => {
     const wrap = el('div', { class: 'ncenter' });
     const render = () => {
       const list0 = PF.alarms.alarms || [];
@@ -367,14 +367,62 @@ export function openNotifications() {
           el('button', { class: 'nt-close', 'aria-label': 'Clear',
             onclick: async () => { try { await api('/alarms/ack', { body: { key: n.key } }); } catch {} await refreshAlarms(); } }, '\u00d7')));
       }
-      wrap.append(list, el('button', { class: 'btn ghost block', type: 'button', style: 'margin-top:10px', onclick: () => { centreRender = null; close(); } }, 'Close'));
+      wrap.append(list);
     };
     centreRender = render;
     render();
     refreshAlarms();
     return wrap;
+  }, { title: 'Notifications', back: 'Back' }).then((v) => { centreRender = null; return v; });
+}
+/* A pushed screen, not a floating box.
+ *
+ * Anything bigger than a question -- editing a notification, setting a probe up, reviewing what the
+ * grill has said -- is a screen you go to and come back from, the way a native app works. A large
+ * modal is a website's idea of the same thing: it hangs over the page, it cannot be reached by the
+ * back gesture, and while `showModal()` holds the page inert the tab bar does not answer, so there
+ * is no navigating away from it either.
+ *
+ * So this pushes a history entry and covers the content area between the bars. The back gesture
+ * unwinds it, tapping a tab closes it, and its own back arrow closes it -- all of them the same
+ * event as far as the caller is concerned: the promise resolves.
+ */
+let sheetSeq = 0;
+export function pushScreen(build, opts = {}) {
+  const host = document.getElementById('sheet');
+  const id = ++sheetSeq;
+  return new Promise((resolve) => {
+    let pending, done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      window.removeEventListener('popstate', finish);
+      window.removeEventListener('hashchange', onNav);
+      host.hidden = true;
+      host.innerHTML = '';
+      resolve(pending);
+    };
+    /* Tapping a tab has already pushed its own entry, so unwinding ours would undo their
+       navigation. Just stand down. */
+    const onNav = () => finish();
+    const close = (v) => {
+      pending = v;
+      if (history.state?.pfScreen === id) history.back();   /* -> popstate -> finish */
+      else finish();
+    };
+    host.innerHTML = '';
+    host.append(el('div', { class: 'screen-bar' },
+      el('button', { class: 'tb-back', type: 'button', onclick: () => close(undefined) },
+        lucide('chevron-left', 'ic'), el('span', {}, opts.back || 'Back')),
+      opts.title ? el('span', { class: 'screen-title' }, opts.title) : null));
+    host.append(build(close));
+    host.hidden = false;
+    history.pushState({ pfScreen: id }, '');
+    window.addEventListener('popstate', finish);
+    window.addEventListener('hashchange', onNav);
   });
 }
+
 export function dialog(build) {
   const d = document.getElementById('dlg');
   d.innerHTML = '';
@@ -600,6 +648,10 @@ function clearBack() {
 }
 
 function route() {
+  /* Navigating away puts anything open away with it. A box still hanging over the new page is the
+     surest sign you are looking at a website. */
+  const dlg = document.getElementById('dlg');
+  if (dlg?.open) dlg.close();
   clearBack();
   // captive-portal browsers land on /setup by path rather than by hash
   const hash = location.hash.replace(/^#\/?/, '') || (location.pathname === '/setup' ? 'setup' : 'home');

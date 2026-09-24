@@ -1,4 +1,4 @@
-import { PF, el, api, cmd, patchSettings, toast, confirmDialog, dialog, degUnit, segmented, actionBtn, itemRow, iconBtn, addRow, iconField, listGroup } from '../app.js';
+import { PF, el, api, cmd, patchSettings, toast, confirmDialog, dialog, pushScreen, degUnit, segmented, actionBtn, itemRow, iconBtn, addRow, iconField, listGroup } from '../app.js';
 import { targetDialog, limitsDialog, stepsDialog } from './cook.js';
 import { icon as lucide, MODE_ICON } from '../icons.js';
 
@@ -64,7 +64,7 @@ export async function renderProbes(view, opts = {}) {
      you have to open to see the options. A field that only applies to one type appears only for
      that type. The destructive action is a row of its own, in red, away from the pair that commits.
      It was a stack of ten unlabelled rows with Remove, Cancel and Save crammed on one line. */
-  const editProbe = (p, isNew = false) => dialog((close) => {
+  const editProbe = (p, isNew = false) => pushScreen((close) => {
     const draft = { ...p };
     const live = () => PF.status?.probes?.find((x) => x.label === p.label);
     const f = (label, input, help) => el('div', { class: 'field inline' },
@@ -131,7 +131,7 @@ export async function renderProbes(view, opts = {}) {
           if (!draft.name) { toast('Name required', true); return; }
           Object.assign(p, draft); close('saved');
         } })));
-  }).then(async (r) => { if (r) await save(); });
+  }, { title: isNew ? 'New Probe' : p.name, back: 'Probes' }).then(async (r) => { if (r) await save(); });
 
   // ---- add: free wired port, or pair a Bluetooth probe
   const addProbe = () => dialog((close) => {
@@ -378,7 +378,7 @@ export async function renderProbeProfiles(view) {
     if (!entries.length) inner.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No profiles.'));
     profCard.replaceChildren(addRow('Tune a New Probe', tuner), inner);
   };
-  const editProfile = (pr, n) => dialog((close) => el('div', { class: 'sheet' },
+  const editProfile = (pr, n) => pushScreen((close) => el('div', { class: 'sheet' },
     el('div', { class: 'sheet-head' },
       el('div', {}, el('h3', {}, pr.name), el('div', { class: 'help' }, `${n} probe${n === 1 ? '' : 's'} using this`))),
     el('div', { class: 'sheet-body' },
@@ -395,7 +395,8 @@ export async function renderProbeProfiles(view) {
         } }))),
     el('div', { class: 'form-actions' },
       actionBtn('cancel', 'Cancel', { size: '', onclick: () => close(undefined) }),
-      actionBtn('save', 'Save', { size: '', onclick: () => close('save') }))))
+      actionBtn('save', 'Save', { size: '', onclick: () => close('save') }))),
+    { title: pr.name, back: 'Profiles' })
     .then(async (r) => { if (r === 'save') { await saveProfiles(); renderProfiles(); } });
 
   const saveProfiles = async () => {

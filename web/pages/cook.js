@@ -1,4 +1,4 @@
-import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, dialog, numberDialog, toast, confirmDialog, segmented, actionBtn, itemRow, iconBtn, addRow, patchSettings } from '../app.js';
+import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, dialog, pushScreen, numberDialog, toast, confirmDialog, segmented, actionBtn, itemRow, iconBtn, addRow, patchSettings } from '../app.js';
 import { fmtEta } from './probes.js';
 
 /* Doneness presets, in °F and converted for °C users.
@@ -98,7 +98,7 @@ const STEP_PRESETS = [['Flip', 120], ['Wrap', 165], ['Spritz', 150], ['Probe Ten
 export async function stepsDialog(p) {
   const key = p.label;
   const cur = (PF.settings?.notify?.probe_steps?.[key] || []).map((s) => ({ ...s }));
-  return dialog((close) => {
+  return pushScreen((close) => {
     const wrap = el('div', { class: 'sheet-body' });
     const draw = () => {
       wrap.innerHTML = '';
@@ -131,7 +131,7 @@ export async function stepsDialog(p) {
       el('div', { class: 'form-actions' },
         actionBtn('cancel', 'Cancel', { size: '', onclick: () => close(undefined) }),
         actionBtn('save', 'Save', { size: '', onclick: () => close(cur) })));
-  }).then(async (steps) => {
+  }, { title: 'Step Alerts', back: p.name }).then(async (steps) => {
     if (!steps) return;
     const all = { ...(PF.settings?.notify?.probe_steps || {}) };
     if (steps.length) all[key] = steps; else delete all[key];

@@ -1,4 +1,4 @@
-import { PF, el, api, patchSettings, toast, confirmDialog, dialog, degUnit, actionBtn } from '../app.js';
+import { PF, el, api, patchSettings, toast, confirmDialog, dialog, pushScreen, degUnit, actionBtn } from '../app.js';
 import { icon as lucide } from '../icons.js';
 
 // Conditional Notifications: a table of rules, and an editor that builds them out of the entity
@@ -211,7 +211,7 @@ function ruleEditor(rule, isNew) {
   r.when ||= { op: 'all', conditions: [] };
   r.when.conditions ||= [];
 
-  return dialog((close) => {
+  return pushScreen((close) => {
     const wrap = el('div', { class: 'rule-edit sheet' });
     const preview = el('div', { class: 'rule-preview' }, el('div', { class: 'muted' }, 'Preview…'));
     let previewTimer = null;
@@ -351,9 +351,11 @@ function ruleEditor(rule, isNew) {
       close(undefined);
     };
     wrap.append(
+      /* The screen's own bar already says which notification this is, so the head carries what the
+         bar cannot: how loud it is. Saying the name twice is what a dialog inside a page does. */
       el('div', { class: 'sheet-head' },
-        el('div', {}, el('h3', {}, isNew ? 'New Notification' : r.name),
-          el('div', { class: 'help' }, isNew ? 'Sends when its condition becomes true' : (r.level || 'normal').toUpperCase()))),
+        el('div', {}, el('div', { class: 'help' }, isNew ? 'Sends when its condition becomes true' : 'Urgency')),
+        el('span', { class: `pill sm lvl-${r.level || 'normal'}` }, (r.level || 'normal').toUpperCase())),
       el('div', { class: 'sheet-body' }, body,
         isNew ? null : el('div', { class: 'form-actions' },
           actionBtn('delete', 'Delete Notification', { onclick: () => close('delete') }))),
@@ -364,7 +366,7 @@ function ruleEditor(rule, isNew) {
         actionBtn('cancel', 'Cancel', { size: '', onclick: dismiss }),
         actionBtn('save', 'Save', { size: '', onclick: () => close(r) })));
     return wrap;
-  });
+  }, { title: isNew ? 'New Notification' : rule.name, back: 'Notifications' });
 }
 
 // ---- the table ----------------------------------------------------------

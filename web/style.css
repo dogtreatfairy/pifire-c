@@ -1069,6 +1069,27 @@ main.view > :first-child { margin-top: 12px; }
 .probe .tgt.eta { color: var(--accent-ink); margin-top: 2px; }
 
 /* ---- target sheet: choose a cut, then a doneness, and see what to pull at ---- */
+/* A pushed screen. It covers the content between the bars, so the mode readout and the tabs stay
+   where they are -- you have gone somewhere within the app, not had something thrown over it. */
+.sheet-host {
+  /* Between the bars, not over them: the mode readout and the tabs stay exactly where they were,
+     which is what makes it read as having gone somewhere inside the app rather than as a panel
+     thrown over it. Inset rather than padded, so the bars are not covered by its own background. */
+  position: absolute; z-index: 8; background: var(--bg);
+  inset: var(--top-h) 0 calc(var(--tab-h) + env(safe-area-inset-bottom)) 0;
+  display: flex; flex-direction: column; min-height: 0;
+}
+.sheet-host[hidden] { display: none; }
+.screen-bar { flex: none; display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-1) var(--pad-x); border-bottom: var(--bw) solid var(--line); min-height: var(--h-row); }
+.screen-title { font-size: var(--fs-md); font-weight: var(--fw-semi); }
+/* inside a screen the sheet fills what is left and scrolls its own body */
+.sheet-host > .sheet { flex: 1 1 auto; min-height: 0; max-height: none; padding: 0 var(--pad-x) var(--sp-3); gap: var(--sp-3); }
+.sheet-host > .sheet > .sheet-head { margin: 0 calc(var(--pad-x) * -1); }
+/* a screen has its own back arrow, so the dialog's floating close is not wanted here */
+.sheet-host .dlg-x { display: none; }
+@media (min-width: 900px) { .sheet-host { left: 84px; } }
+
 /* The way out. In a sheet header it sits at the end of the row; in a plain dialog it floats at the
    top corner, above whatever is there, because that dialog was not built expecting it. */
 .dlg-x { flex: none; align-self: flex-start; width: var(--h-touch); height: var(--h-touch);
