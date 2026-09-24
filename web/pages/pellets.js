@@ -97,7 +97,7 @@ export function renderPellets(view, slots = {}) {
       }));
     }
     if (!d.profiles.length) inner.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No pellet profiles.'));
-    list.replaceChildren(inner, addRow('Add Pellets', async () => { const r = await profileDialog(); if (r && r !== 'load') { await api('/pellets/profile', { body: r }).catch((e) => toast(e.message, true)); load(); } }));
+    list.replaceChildren(addRow('Add Pellets', async () => { const r = await profileDialog(); if (r && r !== 'load') { await api('/pellets/profile', { body: r }).catch((e) => toast(e.message, true)); load(); } }), inner);
     log.innerHTML = '';
     for (const e of d.log) log.append(el('div', { class: 'item' }, el('div', {}, el('div', {}, `${e.text} — ${e.brand} ${e.wood}`), el('div', { class: 'meta' }, `${new Date(e.ts * 1000).toLocaleString()}${e.hopper_pct >= 0 ? ` · hopper ${e.hopper_pct}%` : ''}`))));
     if (!d.log.length) log.append(el('div', { class: 'muted' }, 'No entries yet'));

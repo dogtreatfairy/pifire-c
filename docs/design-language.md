@@ -312,6 +312,18 @@ rules instead of duplicating either.
 A food probe keeps both: a target is the whole point of it, and a fixed alarm either side is
 meaningful on something that only goes one way.
 
+## Off, and out of the way, are different
+
+A **disabled** probe is switched off: it reads nothing, and it lives in Settings, which is where you
+would go to switch it back on. A **hidden** one is working perfectly and simply is not part of this
+cook — the third grate probe, an ambient sensor you are not using today. It keeps reading, keeps
+being logged and keeps feeding the notification rules; it is only out of the way.
+
+They are different questions, so they are different controls in different places. Enabling lives in
+Settings with the rest of the setup. Hiding lives on the Probes tab, where you are cooking, behind
+**Show or Hide Probes**, and the tab says how many are hidden and how many are disabled so neither
+is ever silently missing.
+
 ## The row vocabulary
 
 Four shapes, and everything in the app is one of them.
@@ -332,8 +344,14 @@ screen, and on a phone each row becomes a card of captioned values. Use it when 
 and want comparing (the tuning library), not for a collection of saved things, which wants the
 saved-item row.
 
-**Adding another one is a full-width outlined button at the foot of the list it adds to**, not a
-small button in the heading — that is where the eye ends up after reading what is already there.
+**Adding another one is a full-width outlined button at the TOP of the section**, under the
+heading, not a small button beside it and not at the foot. At the foot it sits below every item and
+its actions, which on a phone is a screen and a half of scrolling to reach the one thing you came to
+the page to do when you have a new probe in your hand.
+
+**`view.append()` is the DOM's, not `el()`'s.** `el()` drops null children; `append` writes them out
+as the word "null", which is how a bare `null` appeared under the probe list. Filter before
+appending: `view.append(...[a, cond ? b : null].filter(Boolean))`.
 
 **An input may carry its own mark**, inside it and ahead of the text, so the field says what it is
 for before its label is read.

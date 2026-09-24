@@ -211,7 +211,14 @@ export async function renderProbes(view, opts = {}) {
        when you go looking for it -- that is what the count at the foot is for -- but a page about
        what the grill is measuring should not be padded out with what it is not. */
     const off = map.probe_info.filter((p) => p.enabled === false);
-    const shown = setup || showDisabled ? map.probe_info : map.probe_info.filter((p) => p.enabled !== false);
+    /* Two different "not here". A DISABLED probe is switched off: it reads nothing and is only in
+       Settings, where you would go to switch it back on. A HIDDEN one is working perfectly and
+       simply not part of this cook -- the third grate probe, the ambient sensor you are not using
+       today -- so it keeps reading and keeps feeding the rules, and is only out of the way. */
+    const hidden = map.probe_info.filter((p) => p.enabled !== false && p.show_on_home === false);
+    const shown = setup || showDisabled
+      ? map.probe_info
+      : map.probe_info.filter((p) => p.enabled !== false && p.show_on_home !== false);
     for (const [role, heading] of GROUPS) {
       const members = shown.filter((p) => (p.type || 'Food') === role);
       if (!members.length) continue;
@@ -221,6 +228,11 @@ export async function renderProbes(view, opts = {}) {
     }
     if (!map.probe_info.length) table.append(el('p', { class: 'help' }, 'No probes yet.'));
     else if (!shown.length) table.append(el('p', { class: 'help' }, 'Every probe is disabled.'));
+    if (!setup && (hidden.length || off.length)) {
+      table.append(el('p', { class: 'help' },
+        [hidden.length ? `${hidden.length} hidden` : null, off.length ? `${off.length} disabled` : null]
+          .filter(Boolean).join(' \u00b7 ')));
+    }
     if (off.length && !setup) {
       table.append(el('button', { class: 'btn ghost block', type: 'button', onclick: () => { showDisabled = !showDisabled; renderTable(); } },
         lucide(showDisabled ? 'eye-off' : 'eye', 'ic btn-ic'),
@@ -281,16 +293,49 @@ export async function renderProbes(view, opts = {}) {
     }
   };
 
+  /* Which of the working probes are part of this cook. It is not the same question as whether a
+     probe is switched on, so it is not the same control: this one only decides what is in the way
+     while you are cooking, and lives where you are cooking rather than in Settings. */
+  const manageVisible = () => dialog((close) => {
+    const rows = map.probe_info.filter((p) => p.enabled !== false);
+    const inner = el('div', { class: 'ios-list' });
+    for (const p of rows) {
+      inner.append(el('label', { class: 'toggle' },
+        el('div', {}, p.name, el('div', { class: 'help' }, `${p.type || 'Food'} \u00b7 ${p.device}`)),
+        el('span', { class: 'switch' }, el('input', {
+          type: 'checkbox', checked: p.show_on_home !== false,
+          onchange: (e) => { p.show_on_home = e.target.checked; },
+        }), el('span'))));
+    }
+    if (!rows.length) inner.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No probes are switched on.'));
+    return el('div', { class: 'sheet' },
+      el('div', { class: 'sheet-head' }, el('div', {},
+        el('h3', {}, 'Show on This Cook'),
+        el('div', { class: 'help' }, 'Hidden probes keep reading and keep feeding the notifications'))),
+      el('div', { class: 'sheet-body' }, inner),
+      el('div', { class: 'form-actions' },
+        actionBtn('cancel', 'Cancel', { size: '', onclick: () => close(undefined) }),
+        actionBtn('save', 'Save', { size: '', onclick: () => close('save') })));
+  }).then(async (r) => { if (r === 'save') await save(); else { map.probe_info = structuredClone(PF.settings.probe_settings.probe_map).probe_info; renderTable(); } });
+
   const renderAll = () => { renderTable(); };
   renderAll();
-  view.append(
+  /* `append` here is the DOM's, not el()'s, so a null child is written out as the word "null" --
+     which is exactly what appeared under the probe list. Filter before appending. */
+  view.append(...[
     el('h2', {}, 'Probes'),
     setup ? el('p', { class: 'help' }, 'Connect a probe, name it, say what it is for and which profile converts it.') : null,
-    table,
+    /* Adding one goes at the TOP of the section. At the foot it sits below every probe and their
+       buttons, which on a phone is a screen and a half of scrolling to reach the one thing you came
+       to this page to do when you have a new probe in your hand. */
     addRow(setup ? 'Connect a Probe' : 'Add or Pair a Probe', addProbe),
+    setup ? null : el('button', { class: 'btn ghost block', type: 'button', style: 'margin-top:8px', onclick: manageVisible },
+      lucide('eye', 'ic btn-ic'), el('span', {}, 'Show or Hide Probes')),
+    table,
     setup ? listGroup('Profiles', [
       { href: '#/settings/probeprofiles', icon: 'activity', color: '#ff9f0a', title: 'Probe Profiles', sub: 'Curves you assign to probes, and the 3-point tuner' },
-    ]) : null);
+    ]) : null,
+  ].filter(Boolean));
 }
 
 /* Probe profiles have a settings page of their own.
@@ -331,7 +376,7 @@ export async function renderProbeProfiles(view) {
       }));
     }
     if (!entries.length) inner.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No profiles.'));
-    profCard.replaceChildren(inner, addRow('Tune a New Probe', tuner));
+    profCard.replaceChildren(addRow('Tune a New Probe', tuner), inner);
   };
   const editProfile = (pr, n) => dialog((close) => el('div', { class: 'sheet' },
     el('div', { class: 'sheet-head' },
