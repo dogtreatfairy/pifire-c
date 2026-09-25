@@ -83,6 +83,40 @@ static double cook(const char *controller, double ambient_c, double minutes, dou
 	return iae;
 }
 
+/* How long the climb will take, asked the moment the set point changes -- before there is any climb
+   to fit a line through, which is why it comes from what the grill has learned rather than from the
+   last few minutes. The feed-forward fit read backwards says where full feed is heading; the plant
+   says how fast it gets there and how long before it starts. Both improve with every cook, which is
+   what makes the answer improve. Before either exists it must say nothing rather than guess. */
+static void test_it_can_say_how_long_the_climb_will_take(void)
+{
+	pf_learning_reset();
+	/* nothing learned yet: no answer */
+	TEST_ASSERT_TRUE_MESSAGE(pf_learning_time_to(20, 120, 20, 0.9) < 0, "it must not guess before it knows");
+
+	/* a plant, and enough observations to know what duty holds what */
+	pf_learning_store_fopdt(400, 900, 60);
+    for (int i = 0; i < 12; i++) {
+		double sp = 80 + (i % 4) * 25;              /* 80..155 C */
+		pf_learning_observe("adaptive", sp, 20, 0.05 + (sp - 20) * 0.0030, 0.5, "");
+	}
+	pf_ff_fit f = pf_learning_fit();
+	TEST_ASSERT_TRUE_MESSAGE(f.n >= 3 && f.b > 0, "the feed-forward fit should have settled");
+
+	double t = pf_learning_time_to(20, 120, 20, 0.9);
+	printf("climb 20 -> 120 C: %.0f s (a=%.3f b=%.4f, tau 900, theta 60)\n", t, f.a, f.b);
+	TEST_ASSERT_TRUE_MESSAGE(t > 0, "with a plant and a fit it can answer");
+	/* the shape has to be right: further is longer, and the same climb from warmer is shorter */
+	TEST_ASSERT_TRUE_MESSAGE(pf_learning_time_to(20, 140, 20, 0.9) > t, "further takes longer");
+	TEST_ASSERT_TRUE_MESSAGE(pf_learning_time_to(90, 120, 20, 0.9) < t, "from warmer takes less");
+	/* never longer than the dead time plus a few time constants, and never less than the dead time */
+	TEST_ASSERT_TRUE_MESSAGE(t > 60, "it cannot beat the dead time");
+	TEST_ASSERT_TRUE_MESSAGE(t < 60 + 5 * 900, "nor take forever");
+	/* asking about a temperature the grill cannot reach has no answer */
+	TEST_ASSERT_TRUE_MESSAGE(pf_learning_time_to(20, 400, 20, 0.9) < 0, "it cannot reach 400 C, so it says nothing");
+	TEST_ASSERT_TRUE_MESSAGE(pf_learning_time_to(120, 100, 20, 0.9) < 0, "cooling is not a climb it controls");
+}
+
 /* Where an anchor's plant comes from.
  *
  * A relay test locates one point of the grill's frequency response exactly -- the frequency where
@@ -446,6 +480,7 @@ int main(void)
 	pf_log_init(PF_LOG_ERROR);
 	UNITY_BEGIN();
 	RUN_TEST(test_an_anchor_takes_its_plant_from_the_relay);
+	RUN_TEST(test_it_can_say_how_long_the_climb_will_take);
 	RUN_TEST(test_a_plant_from_the_old_fit_is_replaced_not_averaged);
 	RUN_TEST(test_a_plant_from_the_old_fit_does_not_drive_the_loop);
 	RUN_TEST(test_observations_and_fit_across_ambients);

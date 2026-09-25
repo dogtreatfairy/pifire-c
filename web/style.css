@@ -274,6 +274,8 @@ small, .muted { color: var(--muted); }
 .gauge { width: min(78vw, 300px); height: auto; aspect-ratio: 1; margin: 0 auto; display: block; }
 .gauge .track { stroke: var(--surface2); }
 .gauge .arc { stroke: var(--accent); stroke-linecap: round; transition: stroke var(--dur-3) var(--ease); }
+/* the estimated time to the set point, under the reading it is climbing towards */
+.gauge .geta { fill: var(--muted); font-size: 13px; font-weight: 600; }
 .gauge .arc.ok { stroke: var(--ok); } .gauge .arc.warn { stroke: var(--accent); } .gauge .arc.cold { stroke: var(--info); } .gauge .arc.hot { stroke: var(--danger); }
 .gauge .sp { stroke: var(--accent); stroke-linecap: round; }
 .gauge .spm { fill: var(--accent); }

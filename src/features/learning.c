@@ -447,6 +447,36 @@ bool pf_learning_plant(double setpoint_c, double *K, double *tau, double *theta)
 	return ok;
 }
 
+/* An estimate of the climb, from the two things the grill teaches itself.
+ *
+ * The feed-forward fit says what duty holds what temperature -- u = a + b*(setpoint - ambient) --
+ * and read backwards it says the opposite: the temperature that a given duty would eventually hold
+ * is ambient + (u - a)/b. At full feed that is where the pit is heading, and the plant model says
+ * how fast it gets there and how long before it starts.
+ *
+ *     T_inf = ambient + (u_max - a) / b
+ *     t     = theta + tau * ln((T_inf - T0) / (T_inf - T1))
+ *
+ * Both halves improve with every cook, which is why the answer gets better: the feed-forward fit
+ * gains an observation every five minutes of steady holding, and the plant is re-measured on every
+ * step between set points. Before either exists there is nothing honest to say, so it says nothing
+ * rather than inventing a number. */
+double pf_learning_time_to(double from_c, double to_c, double ambient_c, double u_max)
+{
+	if (!(to_c > from_c)) return -1;                  /* cooling is not a climb the fire controls */
+	double K = 0, tau = 0, theta = 0;
+	if (!pf_learning_plant(to_c, &K, &tau, &theta) || !(tau > 0)) return -1;
+	pf_ff_fit f = pf_learning_fit();
+	if (f.n < 3 || !(f.b > 1e-6)) return -1;          /* no idea yet what duty holds what */
+	if (!(u_max > 0)) u_max = 0.9;
+	double t_inf = ambient_c + (u_max - f.a) / f.b;
+	/* The pit has to be heading somewhere past where it is going, or the sum says nothing: a grill
+	 * that cannot reach the temperature asked for has no time to give. */
+	if (!(t_inf > to_c + 1.0) || !(t_inf > from_c)) return -1;
+	double t = theta + tau * log((t_inf - from_c) / (t_inf - to_c));
+	return (t > 0 && t < 24 * 3600 && isfinite(t)) ? t : -1;
+}
+
 bool pf_learning_gains(double setpoint_c, double *PB_c, double *Ti, double *Td)
 {
 	pthread_mutex_lock(&g_mu);

@@ -64,6 +64,10 @@ void pf_learning_store_anchor_plant(double setpoint_c, double K, double tau, dou
 /* The plant model for a set point, interpolated between library entries the same way the gains
  * are, falling back to the last cold-start fit. False when nothing has ever been fitted. */
 bool pf_learning_plant(double setpoint_c, double *K, double *tau, double *theta);
+/* How long the pit should take to get from where it is to where it has just been asked to go, in
+ * seconds, or -1 when the grill does not yet know enough to say. It answers before the climb has
+ * started, which is the point: the question is asked the moment the set point changes. */
+double pf_learning_time_to(double from_c, double to_c, double ambient_c, double u_max);
 int  pf_learning_anchor_list(pf_tune_anchor *out, int max);
 void pf_learning_clear_anchors(void);
 /* Two clearings, because two different things can be wrong.

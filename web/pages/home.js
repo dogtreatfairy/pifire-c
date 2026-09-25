@@ -30,7 +30,8 @@ function buildGauge() {
     <g id="g-sp" visibility="hidden"><line class="sp" x1="0" y1="0" x2="0" y2="0" stroke-width="4"/><polygon class="spm" id="g-spm" points="0,0 0,0 0,0"/></g>
     <text class="label" x="120" y="82" text-anchor="middle" id="g-label">Grill</text>
     <text class="big" x="120" y="146" text-anchor="middle" id="g-temp">0</text>
-    <text class="unit" x="120" y="176" text-anchor="middle" id="g-unit">°F</text>`;
+    <text class="unit" x="120" y="176" text-anchor="middle" id="g-unit">°F</text>
+    <text class="geta" x="120" y="198" text-anchor="middle" id="g-eta"></text>`;
   return svg;
 }
 function updateGauge(svg, s, primary, stopped) {
@@ -63,6 +64,17 @@ function updateGauge(svg, s, primary, stopped) {
     sp.querySelector('#g-spm').setAttribute('points', `${tx},${ty} ${lx},${ly} ${rx},${ry}`);
     sp.setAttribute('visibility', 'visible');
   } else sp.setAttribute('visibility', 'hidden');
+
+  /* How long the climb should take, from what the grill has learned about itself -- the duty that
+     holds a temperature, and how fast this grill answers feed. It appears the moment the set point
+     is changed, before there is any climb to measure, which is the whole point of asking; it goes
+     as soon as the pit is there. -1 means the grill does not know enough to say, and it says
+     nothing rather than inventing a number. */
+  const eta = svg.querySelector('#g-eta');
+  const secs = s.setpoint_eta_s;
+  eta.textContent = holdLike && secs > 0 && t != null && s.setpoint - t > (PF.units === 'C' ? 3 : 5)
+    ? `\u2248 ${secs >= 3600 ? `${(secs / 3600).toFixed(1)} h` : `${Math.max(1, Math.round(secs / 60))} min`} to ${fmtTemp(s.setpoint)}\u00b0`
+    : '';
 }
 
 // ---- actions

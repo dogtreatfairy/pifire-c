@@ -2,6 +2,7 @@
 #include "features/tuner.h"
 #include "core/settings.h"
 #include "core/util.h"
+#include "features/learning.h"
 #include "features/weather.h"
 #include "net/netmgr.h"
 #include "net/tailscale.h"
@@ -64,6 +65,18 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 	/* How long the grill has been working towards what it is aiming at now. A pit short of its
 	 * target is ordinary while it climbs and only a fault once it has had time. */
 	cJSON_AddNumberToObject(o, "aiming_s", round(s->aim_since > 0 ? fmax(0, s->t - s->aim_since) : 0));
+	/* How long the pit should take to reach the set point it has just been given. It is a readout,
+	 * not an alert: the question is asked the moment the set point changes, before there is any
+	 * climb to measure, which is why it comes from what the grill has learned rather than from a
+	 * line fitted through the last few minutes. -1 while it does not know enough to say. */
+	{
+		double eta = -1, pit = NAN;
+		for (int i = 0; i < s->sensors.n; i++)
+			if (s->sensors.p[i].role == PF_PROBE_PRIMARY && s->sensors.p[i].valid) { pit = s->sensors.p[i].temp_c; break; }
+		if (s->setpoint_c > 0 && !isnan(pit) && s->setpoint_c > pit)
+			eta = pf_learning_time_to(pit, s->setpoint_c, s->ambient_c, 0.9);
+		cJSON_AddNumberToObject(o, "setpoint_eta_s", eta >= 0 ? round(eta) : -1);
+	}
 	cJSON_AddBoolToObject(o, "sim", s->sim);
 	cJSON_AddNumberToObject(o, "hopper_pct", s->hopper_pct);
 	add_num_or_null(o, "ambient", r1(conv(s->ambient_c, units)));

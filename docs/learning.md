@@ -227,6 +227,28 @@ Two more rules came from a cook that sat 20–35 °C *under* a 350 °F target fo
 * **Ambient must be plausible** — the feed-forward is `b · (setpoint − ambient)`, and that cook had restarted Startup on a grill that was still at 166 °C, so "ambient" was taken from the pit (129 °C) and the feed-forward came out at 0.19 duty instead of the 0.62 the grill needed. Only a reading that could be outdoor air (≤ 50 °C) is accepted, from the pit at Startup, the cold-start baseline or an ambient-flagged probe; otherwise the last plausible value (persisted across restarts) is used, and 20 °C before any exists.
 * **Integrator seeding** — entering Hold far from the target no longer seeds the integrator "bumplessly" from the previous duty (that duty was the smoke cycle or the `u_min` placeholder, and the seed parked a −0.3 duty integral that unwound at Ti = 286 s, holding the feed back for many minutes). Far from the target the integrator starts at zero; within ±15 °F it is seeded bumplessly, capped at ±0.15 duty. The integral also never opposes a large error: a negative integral while the pit is far below target (or positive far above) is cleared.
 
+## Time to the set point, before the climb starts
+
+When the set point changes the app shows an estimate of how long the pit will take to get there.
+It is asked at the moment of the change, so there is no climb yet to fit a line through; it comes
+instead from the two things the grill teaches itself.
+
+The feed-forward fit says what duty holds what temperature, `u = a + b·(setpoint − ambient)`. Read
+backwards it says the opposite — the temperature a given duty would eventually hold — and at full
+feed that is where the pit is heading. The plant model says how fast it gets there and how long
+before it starts:
+
+```
+T∞ = ambient + (u_max − a) / b
+t  = θ + τ · ln((T∞ − T₀) / (T∞ − T₁))
+```
+
+Both halves improve with every cook: the feed-forward gains an observation every five minutes of
+steady holding, and the plant is re-measured on every step between set points, so the estimate
+sharpens as the grill learns. Before either exists there is nothing honest to say, and it says
+nothing rather than inventing a number — as it also does for a temperature this grill cannot reach,
+or for a set point below where the pit already is, since cooling is not a climb the fire controls.
+
 ## 3. Performance monitor: does it actually behave? (in the controller)
 
 Every ten minutes of Hold the controller scores itself:
