@@ -1,4 +1,5 @@
-import { PF, el, api, onStatus, degUnit, segmented, toast, confirmDialog, actionBtn } from '../app.js';
+import { PF, el, api, onStatus, degUnit, segmented, toast, confirmDialog, actionBtn, iconBtn } from '../app.js';
+import { icon as lucide } from '../icons.js';
 
 const COLORS = ['#ff8a1f', '#5ac8fa', '#4cd964', '#ff2d55', '#af52de', '#ffcc00', '#34aadc'];
 
@@ -22,13 +23,20 @@ export function renderHistory(view) {
     cooks.innerHTML = '';
     for (const c of list) {
       const m = c.metrics || {};
+      /* One row per cook: tap it to plot it, and two marks for the two things you can do to it.
+         There used to be two downloads here, "Download" and "Analysis log", and nothing said what
+         the difference was. The cook file is what the app already shows you when you tap the row,
+         so downloading it buys nothing; the analysis log is the one worth keeping off the grill --
+         the same samples plus the controller's terms, the settings and the learning state, which is
+         everything needed to work out afterwards why a cook went the way it did. One download,
+         and it is that one. */
       cooks.append(el('div', { class: 'item' },
         el('div', { style: 'cursor:pointer', onclick: async () => { viewing = await api(`/cookfiles/${c.id}`); title.textContent = `Viewing ${viewing.name}`; render(viewing.history); } },
           el('div', {}, c.name), el('div', { class: 'meta' }, `${(m.duration_s / 3600).toFixed(1)} h · max ${Math.round(m.max_pit || 0)}${degUnit()} · ≈${((m.pellets_g || 0) / 453.6).toFixed(1)} lb`)),
         el('div', { class: 'btnrow' },
-          el('a', { class: 'btn sm ghost', href: `/api/v1/cookfiles/${c.id}`, download: `${c.name.replace(/[^\w.-]+/g, '_')}.json` }, 'Download'),
-          el('a', { class: 'btn sm ghost', href: `/api/v1/cookfiles/${c.id}/log`, download: `cooklog_${c.name.replace(/[^\w.-]+/g, '_')}.json`, title: 'Full analysis log: samples with controller terms, settings, learning state' }, 'Analysis log'),
-          actionBtn('delete', 'Delete', { onclick: async () => { if (await confirmDialog('Delete cook file?', c.name, 'Delete', true)) { await api(`/cookfiles/${c.id}/delete`, { body: {} }); loadCooks(); } } }))));
+          el('a', { class: 'btn icon', href: `/api/v1/cookfiles/${c.id}/log`, download: `cooklog_${c.name.replace(/[^\w.-]+/g, '_')}.json`,
+            title: 'Download the analysis log: samples with controller terms, settings and learning state', 'aria-label': 'Download analysis log' }, lucide('download', 'ic btn-ic')),
+          iconBtn('trash-2', 'Delete', { class: 'danger', onclick: async () => { if (await confirmDialog('Delete cook file?', c.name, 'Delete', true)) { await api(`/cookfiles/${c.id}/delete`, { body: {} }); loadCooks(); } } }))));
     }
     if (!list.length) cooks.append(el('div', { class: 'muted' }, 'Cook files are saved automatically when a cook ends.'));
   }

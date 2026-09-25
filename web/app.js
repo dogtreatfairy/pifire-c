@@ -453,7 +453,21 @@ export function pushScreen(build, opts = {}) {
 export function dialog(build) {
   const d = document.getElementById('dlg');
   d.innerHTML = '';
-  const close = (v) => { d.close(); d._resolve?.(v); };
+  const close = (v) => {
+    d.close();
+    /* A closed dialog is gone -- and if it is not, say so loudly rather than leaving a panel
+     * sitting on the page. The layout of a <dialog> belongs to its [open] state, and an author
+     * `display` written without that qualification beats the browser's own rule and keeps the
+     * element laid out after close() has run. That shipped three times, each time looking like a
+     * dialog that would not close while close() worked perfectly. The stylesheet is fixed; this is
+     * the tripwire, so the next one is a console error and not a stuck app. */
+    if (getComputedStyle(d).display !== 'none') {
+      console.error('[pifire] dialog stayed laid out after close(); check .dialog[open] in style.css');
+      d.style.display = 'none';
+    }
+    d._resolve?.(v);
+  };
+  d.style.display = '';   /* clear the tripwire's override from a previous close */
   return new Promise((resolve) => {
     d._resolve = resolve;
     const content = build(close);
@@ -481,6 +495,23 @@ export function dialog(build) {
     d.showModal();
   });
 }
+/* The actions of a pushed edit screen, as one row stuck under the header.
+ *
+ * At the foot of the page they were a scroll away from whatever you had just changed, and on a
+ * long form you edited a field at the top and then went looking for Save. Under the header they
+ * are where the thing you are editing is. One row, always the same: the destructive action alone
+ * on the left as a mark with no word -- it is not a thing to reach for by reading -- and the
+ * dismissive then the committing action on the right, which is the order everything else in this
+ * app uses. See docs/design-language.md. */
+export function screenActions({ onDelete, deleteTitle = 'Delete', onCancel, onSave, saveLabel = 'Save', extra } = {}) {
+  return el('div', { class: 'screen-actions' },
+    onDelete ? iconBtn('trash-2', deleteTitle, { class: 'danger', onclick: onDelete }) : null,
+    el('span', { class: 'grow' }),
+    ...(extra || []),
+    onCancel ? actionBtn('cancel', 'Cancel', { size: '', onclick: onCancel }) : null,
+    onSave ? actionBtn('save', saveLabel, { size: '', onclick: onSave }) : null);
+}
+
 export function confirmDialog(title, text, okLabel = 'Confirm', danger = false) {
   return dialog((close) => el('div', {},
     el('h3', {}, title), el('p', { class: 'muted' }, text),

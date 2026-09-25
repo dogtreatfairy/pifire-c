@@ -285,6 +285,28 @@ it. It pushes a history entry, so **the back gesture unwinds it**, the back arro
 **tapping a tab closes it and navigates**. All three are one event to the caller: the promise
 resolves.
 
+**An edit screen's actions are one row, pinned to the tab bar.** Delete, Cancel and Save sitting at
+the end of a long form are a scroll away from whatever you just changed: you edit a field at the top
+and then go looking for Save. The row is **fixed to the straight top edge of the tab bar** — no gap,
+no floating — so it is in the same place on every screen and always within reach of a thumb. One
+row, always the same shape:
+
+```
+[🗑]                  ( ⌂ )                  [Cancel] [Save]
+```
+
+The destructive action is **a mark alone on the left**, with no word — it is not something to reach
+for by reading, and naming it gives it the same weight as Save. Dismissive then committing on the
+right, which is the order everything else uses. **The middle stays empty**, because the Home button
+rises out of the tab bar and passes over this row: the bar sits below it in the stacking order, so
+the circle is a layer on top and lands on nothing.
+
+`screenActions()` in `app.js` builds it; an editor with nothing to delete passes no `onDelete`, and
+a screen with an extra verb (Test on a notification rule) puts it before Cancel. The screen reserves
+the row's height at its foot so the last field can still be scrolled clear. A footer with a rule
+across the top remains right for a **section** inside a page; it is the whole-screen edit form that
+moved.
+
 **One navigation bar, and one back affordance, at every depth.** The app header already has one and
 a place for it, so a pushed screen takes it over for as long as it is up — relabelled with where it
 came from — and puts it back exactly as it found it. A screen that draws its own gives you
@@ -332,6 +354,18 @@ to see what the options are (NN/g: a dropdown for two or three options hides the
 The destructive action is a row of its own, in red, above the footer — never in the row that
 commits.
 
+## A page scrolls; nothing inside it scrolls on its own
+
+A capped, inner-scrolling region — `max-height: 60vh; overflow-y: auto` — is a **dialog's** answer
+to being taller than the screen: the header and footer stay put while the middle moves. On a page it
+is wrong twice over. It ends the content part way down and leaves a slab of empty background beneath
+it that reads as a rendering fault, and it puts a second scroll inside the one the thumb is already
+using. The notification centre had both: the list stopped at 60% of the viewport, cutting the last
+notice in half, with a black band between it and the tab bar.
+
+Content runs to the end and **disappears behind the tab bar**, which the content area's bottom
+padding already accounts for, so the last row can always be scrolled clear of it.
+
 ## Actions carry a mark and a colour
 
 A modern interface says what a control does with a shape and a colour before it says it with a word.
@@ -347,6 +381,20 @@ add, a tick for save, a cross for cancel** — and the colour carries the same m
 `actionBtn(kind, label, attrs, icon)` in `web/app.js` is where the pairing lives, so a delete cannot
 be built grey and a cancel cannot be built orange. On a narrow screen the mark carries the meaning
 when the label is the first thing to be cut.
+
+**Red is a tint, not a fill.** A solid saturated red made Remove the loudest thing on a settings
+page — louder than Save, which is the action actually wanted. `.btn.danger` is a red-tinted surface
+with red ink and a red edge, which is also what the icon-only version always looked like, so the
+worded button and the trash mark are one family. The **solid** fill is kept for the two places that
+are genuinely an alarm: the Error mode pill and the alert banner.
+
+**A row's own actions are marks; a section's action keeps its words.** One cook file in a list gets
+an icon-only download and an icon-only delete, because the row already says which cook it is and
+four words repeated down the page are noise. The button that clears the whole list, or the whole
+history, stays a full-width worded button — it acts on everything, so it says so. Where two marks
+would need explaining, there is one too many: the cook list had a *Download* and an *Analysis log*
+and nothing said what the difference was, so it now has one download, the analysis log, which is
+the superset.
 
 ## Information has an order
 

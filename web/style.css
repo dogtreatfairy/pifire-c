@@ -245,7 +245,7 @@ small, .muted { color: var(--muted); }
 
 .btn { border: 0; border-radius: var(--r-md); padding: 13px 18px; font-weight: 600; background: var(--surface2); cursor: pointer; transition: background-color var(--dur-1) var(--ease); min-height: var(--h-row); }
 .btn.primary { background: var(--accent); color: var(--on-accent); }
-.btn.danger { background: var(--danger); color: var(--on-danger); }
+.btn.danger { color: var(--danger-ink); }
 .btn.ghost { background: transparent; border: 1px solid var(--line); }
 .btn.block { width: 100%; }
 .btn.sm { padding: 8px 12px; min-height: 36px; font-size: var(--fs-md); }
@@ -714,7 +714,19 @@ h2 { font-size: var(--fs-xs); letter-spacing: var(--track-label); margin: var(--
 /* buttons: flat, square-ish, one rule around them */
 .btn { background: var(--surface2); border: 1px solid var(--line); box-shadow: none; border-radius: var(--r-md); }
 .btn.primary { background: var(--accent); border-color: var(--accent); box-shadow: none; }
-.btn.danger { background: var(--danger); border-color: var(--danger); box-shadow: none; }
+/* Destructive, not alarming.
+ *
+ * A solid saturated fill made Remove the loudest thing on a settings page -- louder than Save,
+ * which is the action you actually want. Red still says what it is; it says it as a tint with red
+ * ink and a red edge, which is also what the icon-only version below already looked like, so the
+ * worded button and the trash mark are now one family. The solid fill is kept for the places that
+ * are genuinely an alarm: the Error mode pill, the alert banner. */
+.btn.danger {
+  background: color-mix(in oklab, var(--danger) 14%, var(--surface));
+  border-color: color-mix(in oklab, var(--danger) 40%, var(--line));
+  color: var(--danger-ink); box-shadow: none;
+}
+.btn.danger:hover { background: color-mix(in oklab, var(--danger) 22%, var(--surface)); }
 .btn.ghost { background: transparent; box-shadow: none; }
 .cgroup { background: var(--surface); border-color: var(--line); box-shadow: none; }
 .cb.active { background: color-mix(in oklab, var(--accent) 22%, var(--surface2)); box-shadow: none; }
@@ -1042,6 +1054,7 @@ main.view > :first-child { margin-top: 12px; }
 .toast { position: absolute; }
 @media (min-width: 900px) {
   .topbar { left: 120px; }
+  .screen .screen-actions { left: 120px; }
   main.view { left: 0; margin-left: 0; padding-left: calc(120px + 16px); }
   .banner { left: 120px; }
 }
@@ -1116,11 +1129,41 @@ main.view > :first-child { margin-top: 12px; }
  * page wider than the screen and it scrolled sideways -- which the main settings page never does,
  * and which is the thing to match. min-width: 0 lets the control give way and ellipsize instead. */
 .screen { display: flex; flex-direction: column; min-height: 0; min-width: 0; max-width: 100%; }
+/* A pushed edit screen's actions, pinned to the straight top edge of the tab bar.
+ *
+ * `bottom` is measured from the bottom of the scrollport, which runs the full height of the window
+ * behind the bar, so the offset is the bar's own height plus whatever the phone reserves below it.
+ * The bar's straight edge is what this sits on. Sticky keeps the element's box in the flow at the
+ * end of the form as well, so the last field can always be scrolled clear of it.
+ *
+ * It deliberately stays BELOW the tab bar in the stacking order: the Home button rises out of the
+ * bar and passes over this row, which is why the middle of the row is empty -- the destructive mark
+ * is hard left and the two words are hard right, with the button's circle between them. */
+.screen .screen-actions {
+  position: fixed; left: 0; right: 0;
+  bottom: calc(var(--tab-h) + env(safe-area-inset-bottom)); z-index: 3;
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-2) var(--pad-x);
+  background: var(--bg); border-top: var(--bw) solid var(--line);
+}
+/* the room the pinned bar takes, so the last field can still be scrolled clear of it */
+.screen:has(> .sheet > .screen-actions), .screen:has(> .screen-actions) { padding-bottom: 64px; }
+.screen .screen-actions .grow { flex: 1 1 auto; }
 .screen > .sheet, .screen .sheet-body, .screen .field { min-width: 0; max-width: 100%; }
 .screen .field > select, .screen .field > input, .screen .field > textarea,
 .screen .field.inline > select, .screen .field.inline > input, .screen .field.inline > textarea { min-width: 0; max-width: 100%; }
 .screen > .sheet { max-height: none; padding: 0; gap: var(--sp-3); }
-.screen > .sheet > .sheet-body { overflow: visible; max-height: none; }   /* the page scrolls, not the body */
+/* Inside a screen the PAGE scrolls, and nothing in it scrolls on its own.
+ *
+ * A capped, inner-scrolling region is a dialog's answer to being taller than the screen: the header
+ * and footer stay put and the middle moves. On a page it is wrong twice over -- it ends the content
+ * part way down and leaves a slab of empty background below it, and it puts a second scroll inside
+ * the one the thumb is already using. The notification centre showed both: `max-height: 60vh` cut
+ * the last notice in half and left a black band above the tab bar that looked like a bug in the
+ * page, because it was one. Content simply runs to the end and disappears behind the tab bar, which
+ * the view's bottom padding already accounts for. */
+.screen > .sheet > .sheet-body,
+.screen .nlist, .screen .donelist { overflow: visible; max-height: none; }
 .screen .dlg-x { display: none; }   /* a page has the header's back arrow */
 
 /* The way out. In a sheet header it sits at the end of the row; in a plain dialog it floats at the

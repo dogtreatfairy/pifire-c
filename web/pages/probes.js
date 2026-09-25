@@ -1,4 +1,4 @@
-import { PF, el, api, cmd, patchSettings, toast, confirmDialog, dialog, pushScreen, degUnit, segmented, actionBtn, itemRow, iconBtn, addRow, iconField, listGroup } from '../app.js';
+import { PF, el, api, cmd, patchSettings, toast, confirmDialog, dialog, pushScreen, degUnit, segmented, actionBtn, itemRow, iconBtn, addRow, iconField, listGroup, screenActions } from '../app.js';
 import { targetDialog, limitsDialog, stepsDialog } from './cook.js';
 import { icon as lucide, MODE_ICON } from '../icons.js';
 
@@ -108,8 +108,12 @@ export async function renderProbes(view, opts = {}) {
         tog('Show on Home', 'show_on_home', 'Home screen and the grill display'),
         auxOnly,
 
-      isNew ? null : el('div', { class: 'form-actions' },
-        actionBtn('delete', wireless ? 'Unpair' : 'Remove', { onclick: async () => {
+        ),
+      /* Remove on the left as a mark, Cancel then Save on the right, pinned to the top edge of
+         the tab bar with the Home button riding over the gap between them: see
+         docs/design-language.md. */
+      screenActions({
+        onDelete: isNew ? null : async () => {
           close(undefined);
           if (wireless) {
             // one physical probe = one device with its meat and ambient sensors: they go together
@@ -122,15 +126,14 @@ export async function renderProbes(view, opts = {}) {
           } else if (await confirmDialog('Remove probe?', p.name, 'Remove', true)) {
             const i = map.probe_info.indexOf(p); if (i >= 0) map.probe_info.splice(i, 1); await save();
           }
-        } }))),
-
-      /* dismissive left, committing right: see docs/design-language.md */
-      el('div', { class: 'form-actions' },
-        actionBtn('cancel', 'Cancel', { size: '', onclick: () => close(undefined) }),
-        actionBtn('save', 'Save', { size: '', onclick: () => {
+        },
+        deleteTitle: wireless ? 'Unpair' : 'Remove',
+        onCancel: () => close(undefined),
+        onSave: () => {
           if (!draft.name) { toast('Name required', true); return; }
           Object.assign(p, draft); close('saved');
-        } })));
+        },
+      }));
   }, { title: isNew ? 'New Probe' : p.name, back: 'Probes' }).then(async (r) => { if (r) await save(); });
 
   // ---- add: free wired port, or pair a Bluetooth probe

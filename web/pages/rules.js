@@ -1,4 +1,4 @@
-import { PF, el, api, patchSettings, toast, confirmDialog, dialog, pushScreen, degUnit, actionBtn } from '../app.js';
+import { PF, el, api, patchSettings, toast, confirmDialog, dialog, pushScreen, degUnit, actionBtn, screenActions } from '../app.js';
 import { icon as lucide } from '../icons.js';
 
 // Conditional Notifications: a table of rules, and an editor that builds them out of the entity
@@ -356,15 +356,16 @@ function ruleEditor(rule, isNew) {
       el('div', { class: 'sheet-head' },
         el('div', {}, el('div', { class: 'help' }, isNew ? 'Sends when its condition becomes true' : 'Urgency')),
         el('span', { class: `pill sm lvl-${r.level || 'normal'}` }, (r.level || 'normal').toUpperCase())),
-      el('div', { class: 'sheet-body' }, body,
-        isNew ? null : el('div', { class: 'form-actions' },
-          actionBtn('delete', 'Delete Notification', { onclick: () => close('delete') }))),
-      el('div', { class: 'form-actions' },
-        actionBtn('test', 'Test', { size: '', onclick: async () => {
+      el('div', { class: 'sheet-body' }, body),
+      screenActions({
+        onDelete: isNew ? null : () => close('delete'),
+        deleteTitle: 'Delete notification',
+        onCancel: dismiss,
+        onSave: () => close(r),
+        extra: [actionBtn('test', 'Test', { size: '', onclick: async () => {
           try { await api('/rules/test', { body: r }); toast('Sent — check your phone'); } catch (e) { toast(e.message, true); }
-        } }, 'send'),
-        actionBtn('cancel', 'Cancel', { size: '', onclick: dismiss }),
-        actionBtn('save', 'Save', { size: '', onclick: () => close(r) })));
+        } }, 'send')],
+      }));
     return wrap;
   }, { title: isNew ? 'New Notification' : rule.name, back: 'Notifications' });
 }
