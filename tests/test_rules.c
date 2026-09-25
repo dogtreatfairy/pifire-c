@@ -74,6 +74,48 @@ static void only_rule(const char *json)
 
 static cJSON *status(void) { return cJSON_Parse(STATUS); }
 
+/* A rule says "above 250" and means 250 of whatever the grill was showing when it was written.
+   Switch the grill to Celsius and, left alone, that becomes 250 C -- a rule that can never be true
+   -- while a -50 F flame-out becomes -50 C and fires on a grill that is merely a little cool. The
+   rules carry the units they were written in, and the first load after a change rewrites them: a
+   reading moves by the ratio and the freezing point, a difference by the ratio alone. */
+static void test_temperatures_follow_a_units_change(void)
+{
+	only_rule("{\"id\":\"u\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":["
+	            "{\"trait\":\"temp\",\"op\":\">\",\"value\":250},"
+	            "{\"trait\":\"over\",\"op\":\"<\",\"value\":-50}]},"
+	          "\"title\":\"x\",\"body\":\"x\",\"level\":\"normal\",\"sinks\":[\"app\"]}");
+	char err[160];
+	TEST_ASSERT_EQUAL_INT(0, pf_settings_patch("notify", "{\"rules_units\":\"F\"}", err, sizeof err));
+
+	TEST_ASSERT_EQUAL_INT(0, pf_settings_set_units(PF_UNITS_C));
+	pf_rules_init();
+
+	cJSON *rules = pf_set_dup("notify.rules");
+	cJSON *when = cJSON_GetObjectItem(cJSON_GetArrayItem(rules, 0), "when");
+	cJSON *cs = cJSON_GetObjectItem(when, "conditions");
+	double t = cJSON_GetObjectItem(cJSON_GetArrayItem(cs, 0), "value")->valuedouble;
+	double o = cJSON_GetObjectItem(cJSON_GetArrayItem(cs, 1), "value")->valuedouble;
+	printf("units F->C: 250 -> %.1f, -50 -> %.1f\n", t, o);
+	/* a reading: (250 - 32) / 1.8 = 121.1 */
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.2, 121.1, t, "a reading moves by the ratio and the freezing point");
+	/* a difference: -50 / 1.8 = -27.8, NOT (-50 - 32) / 1.8 = -45.6 */
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.2, -27.8, o, "a difference moves by the ratio alone");
+	cJSON_Delete(rules);
+
+	/* and back again, to what it started as */
+	TEST_ASSERT_EQUAL_INT(0, pf_settings_set_units(PF_UNITS_F));
+	pf_rules_init();
+	rules = pf_set_dup("notify.rules");
+	when = cJSON_GetObjectItem(cJSON_GetArrayItem(rules, 0), "when");
+	cs = cJSON_GetObjectItem(when, "conditions");
+	TEST_ASSERT_DOUBLE_WITHIN(0.3, 250.0, cJSON_GetObjectItem(cJSON_GetArrayItem(cs, 0), "value")->valuedouble);
+	TEST_ASSERT_DOUBLE_WITHIN(0.3, -50.0, cJSON_GetObjectItem(cJSON_GetArrayItem(cs, 1), "value")->valuedouble);
+	cJSON_Delete(rules);
+}
+
 /* A band around a number that moves. "Within 15 of the set point" written as a fixed pair of
    numbers stops meaning anything the moment the set point changes, which is the whole reason for
    comparing against a reading rather than a constant. An offset on the reading is what lets the
@@ -883,6 +925,7 @@ int main(void)
 	RUN_TEST(test_at_temperature_separates_hold_from_smoke);
 	RUN_TEST(test_an_unset_target_is_not_zero);
 	RUN_TEST(test_a_band_around_a_moving_reading);
+	RUN_TEST(test_temperatures_follow_a_units_change);
 	RUN_TEST(test_not_denies_what_is_inside_it);
 	RUN_TEST(test_a_condition_can_carry_its_own_time);
 	RUN_TEST(test_a_timed_condition_starts_over_when_it_lapses);

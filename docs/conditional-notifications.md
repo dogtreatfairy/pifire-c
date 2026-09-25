@@ -47,6 +47,20 @@ combined. Each timed node keeps its clock against its position in the tree, so e
 resets those clocks — which is right, because a condition that has been rewritten has not been true
 for any length of time.
 
+## Temperatures follow the units
+
+A rule says "above 250" and means 250 of whatever the grill was showing when it was written. The
+rules therefore carry `notify.rules_units`, and the first load after the units change rewrites every
+temperature in them. Left alone, switching to Celsius would turn that 250 into 250 °C — a rule that
+can never be true — and a −50 °F flame-out into −50 °C, which fires on a grill that is merely a
+little cool.
+
+A **reading** converts by the ratio and the freezing point; a **difference** converts by the ratio
+alone. The trait table marks which is which (`delta`), because "degrees past target" and "degrees
+from set point" are gaps rather than places: −50 °F of shortfall is −27.8 °C, not −45.6. A `within`
+width and an `offset` are always differences. The editor shows the unit beside the value, so a
+condition never displays a bare figure that could be either scale.
+
 ## Comparing against a reading, with an offset
 
 The right-hand side of a comparison is a number **or** another reading — the same field either way,

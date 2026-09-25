@@ -722,34 +722,53 @@ int pf_rules_test(const cJSON *rule, const cJSON *status, char *err, size_t n)
 	return 0;
 }
 
+/* Everything the grill can be asked about.
+ *
+ * `delta` marks a temperature that is a DIFFERENCE rather than a reading: "degrees past target" and
+ * "degrees from set point" are gaps, not places. It matters when the units change, because a gap
+ * converts by the ratio alone while a reading also moves by the freezing point -- treating -50 F of
+ * shortfall as an absolute would file it as -45 C instead of -27.8, and the rule would fire
+ * somewhere else entirely. */
+struct trait_def { const char *domain, *trait, *type, *unit, *label; bool delta; };
+static const struct trait_def TRAIT_TABLE[] = {
+		{ "probe", "temp", "temperature", "deg", "Temperature", false }, { "probe", "target", "temperature", "deg", "Target", false },
+		{ "probe", "over", "temperature", "deg", "Degrees Past Target", true }, { "probe", "eta", "duration", "s", "Time To Target", false },
+		{ "probe", "battery", "percent", "%", "Battery", false }, { "probe", "signal", "number", "bars", "Signal Bars", false },
+		{ "probe", "rssi", "number", "dBm", "Signal Strength", false }, { "probe", "connected", "bool", "", "Connected", false },
+		{ "probe", "wireless", "bool", "", "Is Bluetooth", false }, { "probe", "name", "string", "", "Name", false },
+		{ "probe", "in_use", "bool", "", "In This Cook", false },
+		{ "grill", "mode", "enum", "", "Mode", false }, { "grill", "temp", "temperature", "deg", "Pit Temperature", false },
+		{ "grill", "over", "temperature", "deg", "Degrees From Set Point", true },
+		{ "grill", "setpoint", "temperature", "deg", "Set Point", false }, { "grill", "error", "string", "", "Error Code", false },
+		{ "grill", "cook_elapsed", "duration", "s", "Cook Time", false }, { "grill", "mode_remaining", "duration", "s", "Time Left In Mode", false },
+		/* How long the grill has been aiming at the target it has now. A pit short of its set point
+		 * is ordinary while it climbs; this is what separates climbing from not getting there. */
+		{ "grill", "aiming_s", "duration", "s", "Time Since Mode Or Target Changed", false },
+		{ "grill", "lid_open", "bool", "", "Lid Open", false },
+		{ "output", "state", "bool", "", "State", false }, { "output", "percent", "percent", "%", "Fan Percent", false },
+		{ "hopper", "level", "percent", "%", "Hopper Level", false },
+		{ "controller", "duty", "number", "", "Auger Duty", false }, { "controller", "feedforward", "number", "", "Feed Forward", false },
+		{ "weather", "temp", "temperature", "deg", "Outdoor Temperature", false }, { "weather", "wind", "number", "km/h", "Wind", false },
+		{ "weather", "humidity", "percent", "%", "Humidity", false },
+		{ "system", "wifi_signal", "percent", "%", "Wi-Fi Signal", false }, { "system", "tailscale_online", "bool", "", "Tailscale Online", false },
+		{ "timer", "remaining", "duration", "s", "Time Remaining", false }, { "timer", "running", "bool", "", "Timer Running", false },
+	
+};
+#define N_TRAITS (sizeof TRAIT_TABLE / sizeof TRAIT_TABLE[0])
+
+static const struct trait_def *trait_def_of(const char *domain, const char *trait)
+{
+	for (size_t i = 0; i < N_TRAITS; i++)
+		if (!strcmp(TRAIT_TABLE[i].domain, domain) && !strcmp(TRAIT_TABLE[i].trait, trait)) return &TRAIT_TABLE[i];
+	return NULL;
+}
+
 /* ------------------------------------------------------------------ catalogue and state */
 
 cJSON *pf_rules_catalogue_json(const cJSON *status)
 {
 	/* type drives the editor: which operators to offer and how to render the value box */
-	static const struct { const char *domain, *trait, *type, *unit, *label; } TRAITS[] = {
-		{ "probe", "temp", "temperature", "deg", "Temperature" }, { "probe", "target", "temperature", "deg", "Target" },
-		{ "probe", "over", "temperature", "deg", "Degrees Past Target" }, { "probe", "eta", "duration", "s", "Time To Target" },
-		{ "probe", "battery", "percent", "%", "Battery" }, { "probe", "signal", "number", "bars", "Signal Bars" },
-		{ "probe", "rssi", "number", "dBm", "Signal Strength" }, { "probe", "connected", "bool", "", "Connected" },
-		{ "probe", "wireless", "bool", "", "Is Bluetooth" }, { "probe", "name", "string", "", "Name" },
-		{ "probe", "in_use", "bool", "", "In This Cook" },
-		{ "grill", "mode", "enum", "", "Mode" }, { "grill", "temp", "temperature", "deg", "Pit Temperature" },
-		{ "grill", "over", "temperature", "deg", "Degrees From Set Point" },
-		{ "grill", "setpoint", "temperature", "deg", "Set Point" }, { "grill", "error", "string", "", "Error Code" },
-		{ "grill", "cook_elapsed", "duration", "s", "Cook Time" }, { "grill", "mode_remaining", "duration", "s", "Time Left In Mode" },
-		/* How long the grill has been aiming at the target it has now. A pit short of its set point
-		 * is ordinary while it climbs; this is what separates climbing from not getting there. */
-		{ "grill", "aiming_s", "duration", "s", "Time Since Mode Or Target Changed" },
-		{ "grill", "lid_open", "bool", "", "Lid Open" },
-		{ "output", "state", "bool", "", "State" }, { "output", "percent", "percent", "%", "Fan Percent" },
-		{ "hopper", "level", "percent", "%", "Hopper Level" },
-		{ "controller", "duty", "number", "", "Auger Duty" }, { "controller", "feedforward", "number", "", "Feed Forward" },
-		{ "weather", "temp", "temperature", "deg", "Outdoor Temperature" }, { "weather", "wind", "number", "km/h", "Wind" },
-		{ "weather", "humidity", "percent", "%", "Humidity" },
-		{ "system", "wifi_signal", "percent", "%", "Wi-Fi Signal" }, { "system", "tailscale_online", "bool", "", "Tailscale Online" },
-		{ "timer", "remaining", "duration", "s", "Time Remaining" }, { "timer", "running", "bool", "", "Timer Running" },
-	};
+	const struct trait_def *TRAITS = TRAIT_TABLE;
 	static const char *const NUM_OPS[] = { ">", ">=", "<", "<=", "==", "!=", "between", "within", NULL };
 	static const char *const BOOL_OPS[] = { "is_on", "is_off", NULL };
 	static const char *const STR_OPS[] = { "is", "is_not", "is_one_of", "is_none_of", "contains", "empty", "not_empty", NULL };
@@ -762,7 +781,7 @@ cJSON *pf_rules_catalogue_json(const cJSON *status)
 		cJSON_AddStringToObject(dj, "id", DOMS[d]);
 		cJSON_AddBoolToObject(dj, "multi", !strcmp(DOMS[d], "probe") || !strcmp(DOMS[d], "output"));
 		cJSON *tj = cJSON_AddArrayToObject(dj, "traits");
-		for (size_t i = 0; i < sizeof TRAITS / sizeof TRAITS[0]; i++) {
+		for (size_t i = 0; i < N_TRAITS; i++) {
 			if (strcmp(TRAITS[i].domain, DOMS[d])) continue;
 			cJSON *t = cJSON_CreateObject();
 			cJSON_AddStringToObject(t, "id", TRAITS[i].trait);
@@ -832,6 +851,86 @@ cJSON *pf_rules_state_json(void)
 	return arr;
 }
 
+/* Every temperature written into one condition, converted between units.
+ *
+ * A rule says "above 250" and means 250 of whatever the grill was showing when it was written. Left
+ * alone, switching the grill to Celsius turns that into 250 C -- a rule that can never be true --
+ * and a -50 F flame-out into -50 C, which fires on a grill that is merely a little cool. So the
+ * rules carry the units they were written in, and the first load after a change rewrites them. A
+ * difference converts by the ratio alone; a reading also moves by the freezing point. */
+static void convert_node_units(cJSON *node, const char *domain, bool to_c)
+{
+	cJSON *kids = (cJSON *)jget(node, "conditions");
+	if (cJSON_IsArray(kids)) {
+		cJSON *k;
+		cJSON_ArrayForEach(k, kids) convert_node_units(k, domain, to_c);
+		return;
+	}
+	const cJSON *tr = jget(node, "trait");
+	if (!cJSON_IsString(tr)) return;
+	const char *dom = pf_json_str((cJSON *)node, "entity", "this");
+	const struct trait_def *d = trait_def_of(!strcmp(dom, "this") ? domain : dom, tr->valuestring);
+	if (!d || strcmp(d->type, "temperature")) return;
+
+	/* absolute unless the trait is a gap; an offset and the width of a "within" are always gaps */
+	const double R = 9.0 / 5.0;
+	#define CONV(x, delta) (to_c ? ((delta) ? (x) / R : ((x) - 32.0) / R) : ((delta) ? (x) * R : (x) * R + 32.0))
+	cJSON *v = (cJSON *)jget(node, "value");
+	if (cJSON_IsNumber(v)) cJSON_SetNumberValue(v, CONV(v->valuedouble, d->delta));
+	else if (cJSON_IsObject(v)) {
+		cJSON *off = (cJSON *)jget(v, "offset");
+		if (cJSON_IsNumber(off)) cJSON_SetNumberValue(off, CONV(off->valuedouble, true));
+	}
+	cJSON *v2 = (cJSON *)jget(node, "value2");
+	if (cJSON_IsNumber(v2)) {
+		bool width = !strcmp(pf_json_str(node, "op", ""), "within");
+		cJSON_SetNumberValue(v2, CONV(v2->valuedouble, d->delta || width));
+	}
+	cJSON *dbv = (cJSON *)jget(node, "deadband");
+	if (cJSON_IsNumber(dbv)) cJSON_SetNumberValue(dbv, CONV(dbv->valuedouble, true));
+	#undef CONV
+}
+
+static void convert_rules_units(void)
+{
+	char u[8];
+	pf_set_str("globals.units", u, sizeof u, "F");
+	char was[8];
+	pf_set_str("notify.rules_units", was, sizeof was, "");
+	if (was[0] && was[0] == u[0]) return;
+
+	cJSON *rules = pf_set_dup("notify.rules");
+	if (cJSON_IsArray(rules) && was[0] && was[0] != u[0]) {
+		bool to_c = u[0] == 'C';
+		cJSON *r;
+		cJSON_ArrayForEach(r, rules) {
+			const char *dom = pf_json_str(r, "select.domain", "grill");
+			cJSON *when = (cJSON *)jget(r, "when");
+			if (when) convert_node_units(when, dom, to_c);
+			cJSON *db = (cJSON *)jget(r, "deadband");
+			if (cJSON_IsNumber(db)) cJSON_SetNumberValue(db, to_c ? db->valuedouble / (9.0 / 5.0) : db->valuedouble * (9.0 / 5.0));
+		}
+		char *txt = cJSON_PrintUnformatted(rules);
+		if (txt) {
+			cJSON *patch = cJSON_CreateObject();
+			cJSON_AddItemToObject(patch, "rules", cJSON_Parse(txt));
+			cJSON_AddStringToObject(patch, "rules_units", u[0] == 'C' ? "C" : "F");
+			char *ptxt = cJSON_PrintUnformatted(patch);
+			if (ptxt) { pf_settings_patch("notify", ptxt, NULL, 0); free(ptxt); }
+			cJSON_Delete(patch);
+			free(txt);
+		}
+		LOGI(TAG, "notification rules converted to %s", u[0] == 'C' ? "C" : "F");
+	} else if (!was[0]) {
+		cJSON *patch = cJSON_CreateObject();
+		cJSON_AddStringToObject(patch, "rules_units", u[0] == 'C' ? "C" : "F");
+		char *ptxt = cJSON_PrintUnformatted(patch);
+		if (ptxt) { pf_settings_patch("notify", ptxt, NULL, 0); free(ptxt); }
+		cJSON_Delete(patch);
+	}
+	cJSON_Delete(rules);
+}
+
 void pf_rules_init(void)
 {
 	pthread_mutex_lock(&g_mu);
@@ -840,6 +939,7 @@ void pf_rules_init(void)
 	/* Rules are being reloaded, so nothing in the table is being tracked any more. Whatever is
 	 * still true will raise itself again on the next tick. */
 	pf_alarms_init();
+	convert_rules_units();
 	cJSON *rules = pf_set_dup("notify.rules");
 	LOGI(TAG, "%d notification rule(s)", cJSON_IsArray(rules) ? cJSON_GetArraySize(rules) : 0);
 	cJSON_Delete(rules);

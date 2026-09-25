@@ -551,6 +551,11 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .c-operand { display: grid; grid-template-columns: 1fr 5.5rem; gap: 6px; align-items: center; }
 .c-operand > select { min-width: 0; }
 .c-operand > input { min-width: 0; text-align: center; }
+/* The unit travels with the number it belongs to, inside the field's own box, so a condition never
+   shows a bare figure that could be either scale. */
+.c-unit { position: relative; display: flex; align-items: center; min-width: 0; }
+.c-unit > input { width: 100%; min-width: 0; padding-right: 2.2rem; text-align: center; }
+.c-unit > span { position: absolute; right: 10px; color: var(--muted); font-size: var(--fs-sm); pointer-events: none; }
 
 /* A condition, and a group of conditions, are each a card you can read shut and open to change.
  *

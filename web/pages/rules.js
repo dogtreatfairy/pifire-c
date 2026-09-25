@@ -55,12 +55,15 @@ function describeNode(node, domain, top) {
   const lhs = node.entity && node.entity !== 'this'
     ? `${titleCase(node.entity)} ${traitLabel(from, node.trait)}` : traitLabel(from, node.trait);
   const v = node.value;
+  /* the unit, so a summary says 250 F rather than a bare 250 that could be either */
+  const d = traitDef(from, node.trait);
+  const u = d?.type === 'temperature' ? degUnit() : d?.type === 'percent' ? '%' : '';
   const vs = Array.isArray(v) ? ` ${v.join(' or ')}`
     : v && typeof v === 'object' && v.trait
       ? `${v.entity ? ` ${titleCase(v.entity)} ${traitLabel(v.entity, v.trait)}` : ` its ${traitLabel(from, v.trait)}`}${
           v.offset ? ` ${v.offset > 0 ? '+' : '\u2212'} ${Math.abs(v.offset)}` : ''}`
-      : v === undefined ? '' : ` ${v}`;
-  return `${lhs} ${OP_LABEL[node.op] || node.op}${vs}${node.value2 !== undefined ? ` \u00b1 ${node.value2}` : ''}${forLabel(node.for_s)}`;
+      : v === undefined ? '' : ` ${v}${u}`;
+  return `${lhs} ${OP_LABEL[node.op] || node.op}${vs}${node.value2 !== undefined ? ` \u00b1 ${node.value2}${u}` : ''}${forLabel(node.for_s)}`;
 }
 
 function summarise(r) {
@@ -155,18 +158,24 @@ function conditionRow(cond, domain, onChange) {
           else { const [ent, tr] = v.split(':'); cond.value = ent === 'this' ? { trait: tr } : { entity: ent, trait: tr }; }
           draw(); onChange();
         } }, opts);
+        /* The unit sits beside the number, and it is the grill's unit today -- the stored value is
+           rewritten when the units change (see convert_rules_units in rules.c), so what is typed as
+           15 C reads as 59 F afterwards rather than as a 15 that now means something else. */
+        const suffix = def?.type === 'temperature' ? degUnit()
+                     : def?.type === 'duration' ? 's' : def?.unit === '%' ? '%' : '';
+        const withUnit = (input) => suffix
+          ? el('div', { class: 'c-unit' }, input, el('span', {}, suffix)) : input;
         if (asTrait) {
-          const unit = def?.type === 'temperature' ? degUnit() : '';
           valueField = el('div', { class: 'c-val c-operand' }, chooser,
-            el('input', { type: 'text', inputmode: 'decimal', class: 'c-off',
-              value: cond.value.offset ?? '', placeholder: `\u00b1 ${unit || '0'}`,
+            withUnit(el('input', { type: 'text', inputmode: 'decimal', class: 'c-off',
+              value: cond.value.offset ?? '', placeholder: '\u00b1 0',
               title: 'Offset on that reading',
-              onchange: (e) => { const n = parseFloat(e.target.value); if (n) cond.value.offset = n; else delete cond.value.offset; onChange(); } }));
+              onchange: (e) => { const n = parseFloat(e.target.value); if (n) cond.value.offset = n; else delete cond.value.offset; onChange(); } })));
         } else {
-          const unit = def?.type === 'temperature' ? degUnit() : def?.type === 'duration' ? 'seconds' : def?.unit === '%' ? '%' : 'value';
           valueField = el('div', { class: 'c-val c-operand' }, chooser,
-            el('input', { type: 'text', inputmode: 'decimal', class: 'c-num', value: cond.value ?? '', placeholder: unit,
-              onchange: (e) => { cond.value = parseFloat(e.target.value) || 0; onChange(); } }));
+            withUnit(el('input', { type: 'text', inputmode: 'decimal', class: 'c-num', value: cond.value ?? '',
+              placeholder: suffix || 'value',
+              onchange: (e) => { cond.value = parseFloat(e.target.value) || 0; onChange(); } })));
         }
       } else if (isList) {
         // several accepted values as chips: "the mode is Hold or Smoke" stays one row
