@@ -254,6 +254,12 @@ single `<select>` holding `ADS1115 · ADC0` was enough to make a whole page wide
 its content, its actions in a footer with a rule across the top, and an edge that says where it
 ends. Content that merges into whatever follows is not a section.
 
+**Use the row, do not rebuild it.** `itemRow()` is a flex line: a tile, a body that takes the slack
+and ellipsizes, a chevron, and its actions held at the end. Hand-rolled markup that looks like a row
+is not one — the cook file list was built by hand and laid the name, the numbers and its two marks
+out on three separate lines with the icons adrift in the middle. None of what makes a row a row
+comes for free, and every list in the app already has it.
+
 **A heading with no bounded block under it is not a heading, it is a stray line of text.** The small
 grey uppercase label only reads as the name of something when something with an edge follows it
 immediately. The History page had "History" floating above a card it was not attached to and "Cook

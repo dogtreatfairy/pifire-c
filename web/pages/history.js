@@ -1,4 +1,4 @@
-import { PF, el, api, onStatus, degUnit, segmented, toast, confirmDialog, actionBtn, iconBtn } from '../app.js';
+import { PF, el, api, onStatus, degUnit, segmented, toast, confirmDialog, actionBtn, iconBtn, itemRow } from '../app.js';
 import { icon as lucide } from '../icons.js';
 
 const COLORS = ['#ff8a1f', '#5ac8fa', '#4cd964', '#ff2d55', '#af52de', '#ffcc00', '#34aadc'];
@@ -44,13 +44,22 @@ export function renderHistory(view) {
          the same samples plus the controller's terms, the settings and the learning state, which is
          everything needed to work out afterwards why a cook went the way it did. One download,
          and it is that one. */
-      cooks.append(el('div', { class: 'item' },
-        el('div', { style: 'cursor:pointer', onclick: async () => { viewing = await api(`/cookfiles/${c.id}`); title.textContent = `Viewing ${viewing.name}`; render(viewing.history); } },
-          el('div', {}, c.name), el('div', { class: 'meta' }, `${(m.duration_s / 3600).toFixed(1)} h · max ${Math.round(m.max_pit || 0)}${degUnit()} · ≈${((m.pellets_g || 0) / 453.6).toFixed(1)} lb`)),
-        el('div', { class: 'btnrow' },
+      /* The app's own list row, not a hand-rolled one. Built by hand it laid the name, the numbers
+         and the two marks out on three separate lines with the icons adrift in the middle of the
+         row -- because a row is a flex line with a body that takes the slack and its actions held
+         at the end, and none of that comes for free. itemRow() already is that, and it is what
+         every other list in the app uses. */
+      cooks.append(itemRow({
+        icon: 'chart-line', color: '#5ac8fa',
+        title: c.name,
+        meta: `${(m.duration_s / 3600).toFixed(1)} h · max ${Math.round(m.max_pit || 0)}${degUnit()} · \u2248${((m.pellets_g || 0) / 453.6).toFixed(1)} lb`,
+        onclick: async () => { viewing = await api(`/cookfiles/${c.id}`); title.textContent = `Viewing ${viewing.name}`; render(viewing.history); },
+        actions: [
           el('a', { class: 'btn icon', href: `/api/v1/cookfiles/${c.id}/log`, download: `cooklog_${c.name.replace(/[^\w.-]+/g, '_')}.json`,
             title: 'Download the analysis log: samples with controller terms, settings and learning state', 'aria-label': 'Download analysis log' }, lucide('download', 'ic btn-ic')),
-          iconBtn('trash-2', 'Delete', { class: 'danger', onclick: async () => { if (await confirmDialog('Delete cook file?', c.name, 'Delete', true)) { await api(`/cookfiles/${c.id}/delete`, { body: {} }); loadCooks(); } } }))));
+          iconBtn('trash-2', 'Delete', { class: 'danger', onclick: async () => { if (await confirmDialog('Delete cook file?', c.name, 'Delete', true)) { await api(`/cookfiles/${c.id}/delete`, { body: {} }); loadCooks(); } } }),
+        ],
+      }));
     }
     /* the empty state is a row of the list, not a line laid across its first divider */
     if (!list.length) cooks.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'Cook files are saved automatically when a cook ends.'));
