@@ -48,6 +48,8 @@ typedef struct {
 	pf_sensors sensors;
 	struct {
 		int after; double eta_s, limit_high_c, limit_low_c;
+		/* the same estimate aimed at the next step rather than the target, and which step that is */
+		double eta_step_s; char next_step[24];
 		/* the named temperatures on the way to the target, and what each has already said */
 		int nsteps; struct { char name[24]; double temp_c; bool fired; } steps[PF_MAX_STEPS];
 	} notify[PF_MAX_PROBES]; /* parallel to sensors.p */

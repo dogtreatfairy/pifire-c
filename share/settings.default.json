@@ -894,6 +894,106 @@
         "repeat_s": 0,
         "only_while_cooking": true,
         "deadband": 3
+      },
+      {
+        "id": "probe-off-heat",
+        "name": "Take It Off The Heat",
+        "enabled": true,
+        "select": {
+          "domain": "probe",
+          "role": "Food",
+          "link": "any",
+          "match": "any",
+          "include": [],
+          "exclude": []
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "trait": "in_use",
+              "op": "is_on"
+            },
+            {
+              "trait": "target",
+              "op": ">",
+              "value": 0
+            },
+            {
+              "trait": "temp",
+              "op": "<",
+              "value": {
+                "trait": "target"
+              }
+            },
+            {
+              "trait": "eta",
+              "op": ">",
+              "value": 0
+            },
+            {
+              "trait": "eta",
+              "op": "<=",
+              "value": 120,
+              "_note": "seconds"
+            }
+          ]
+        },
+        "title": "Take {probe} off soon",
+        "body": "{probe} is at {temp}, about two minutes from {target}.",
+        "level": "high",
+        "sinks": [
+          "app",
+          "webpush"
+        ],
+        "cooldown_s": 900,
+        "only_while_cooking": true
+      },
+      {
+        "id": "probe-step-soon",
+        "name": "Step Coming Up",
+        "enabled": true,
+        "select": {
+          "domain": "probe",
+          "role": "Food",
+          "link": "any",
+          "match": "any",
+          "include": [],
+          "exclude": []
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "trait": "in_use",
+              "op": "is_on"
+            },
+            {
+              "trait": "next_step",
+              "op": "not_empty"
+            },
+            {
+              "trait": "eta_step",
+              "op": ">",
+              "value": 0
+            },
+            {
+              "trait": "eta_step",
+              "op": "<=",
+              "value": 60,
+              "_note": "seconds"
+            }
+          ]
+        },
+        "title": "{step} coming up on {probe}",
+        "body": "{probe} is at {temp} \u2014 about a minute to {step}.",
+        "level": "high",
+        "sinks": [
+          "app",
+          "webpush"
+        ],
+        "cooldown_s": 600,
+        "only_while_cooking": true
       }
     ],
     "probe_steps": {}

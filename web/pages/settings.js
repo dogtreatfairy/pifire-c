@@ -218,18 +218,12 @@ async function browserState() {
   } catch { return { on: false, label: 'Unknown' }; }
 }
 
-/* Conditional notifications: the rules, and the one built-in rule that is not written as one --
-   the predictive warning, which needs the grill's own estimate of when a probe will arrive. It
-   belongs with what the grill says rather than with where it is sent. */
+/* Conditional notifications. There used to be a "Predictive Alerts" card above the list holding a
+   single number, `notify.eta_warn_min` -- and it had not driven anything since schema 5, when that
+   setting was folded into the "Almost There" rule. It was a control that controlled nothing, sitting
+   above the list of rules that had taken its job. The warning is a rule like any other now, editable
+   in the same place and on the same terms. */
 async function conditionalPage(view) {
-  view.append(pageCard({ title: '', sections: [{
-    id: 'notify', title: 'Predictive Alerts', sub: 'Warn before a probe reaches target',
-    icon: 'timer', color: '#bf5af2', collapsible: 'eta_warn_min',
-    summary: (d) => { const v = Number(d?.eta_warn_min || 0); return { on: v > 0, label: v > 0 ? `${v} min ahead` : 'Off' }; },
-    fields: [
-      { type: 'note', help: 'Warns before a probe reaches its target, from its rate of climb.' },
-      I('eta_warn_min', 'Tell me this long before a probe reaches its target (minutes)', '0 = off. Sent once per target, as soon as the live estimate has settled below this', { min: 0, max: 240 }),
-    ] }] }));
   return renderRules(view);
 }
 

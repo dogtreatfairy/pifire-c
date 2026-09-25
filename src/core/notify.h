@@ -29,6 +29,11 @@ typedef struct {
 	double limit_high_c, limit_low_c;   /* 0 = disabled */
 	bool high_tripped, low_tripped;
 	double eta_s;           /* -1 unknown */
+	/* The same estimate, aimed at the next step rather than at the target, so the grill can say
+	 * "flip it in a minute" as well as "it is nearly done". -1 when there is no step left to reach
+	 * or the probe is not climbing. */
+	double eta_step_s;
+	char next_step[24];
 	bool reached;           /* the target has been met: latched so a rule sees target and temp together */
 	bool eta_warned;        /* the "about N minutes to target" notice went out for this target */
 	int eta_hits;           /* consecutive estimates under the warning threshold */

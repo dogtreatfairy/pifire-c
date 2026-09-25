@@ -13,7 +13,7 @@
 void pf_notify_init(pf_notify *n)
 {
 	memset(n, 0, sizeof *n);
-	for (int i = 0; i < PF_MAX_PROBES; i++) n->probes[i].eta_s = -1;
+	for (int i = 0; i < PF_MAX_PROBES; i++) { n->probes[i].eta_s = -1; n->probes[i].eta_step_s = -1; }
 }
 
 void pf_notify_sync(pf_notify *n, const pf_sensors *s)
@@ -23,7 +23,7 @@ void pf_notify_sync(pf_notify *n, const pf_sensors *s)
 	for (int i = 0; i < s->n && k < PF_MAX_PROBES; i++) {
 		const pf_notify_probe *old = pf_notify_find(n, s->p[i].label);
 		if (old) fresh[k] = *old;
-		else { memset(&fresh[k], 0, sizeof fresh[k]); fresh[k].eta_s = -1; strcpy(fresh[k].label, s->p[i].label); }
+		else { memset(&fresh[k], 0, sizeof fresh[k]); fresh[k].eta_s = -1; fresh[k].eta_step_s = -1; strcpy(fresh[k].label, s->p[i].label); }
 		k++;
 	}
 	memcpy(n->probes, fresh, sizeof(pf_notify_probe) * (size_t)k);
@@ -52,6 +52,7 @@ int pf_notify_set_target(pf_notify *n, const char *label, double target_c, int a
 	p->target_c = target_c > 0 ? target_c : 0;
 	p->after = after;
 	p->eta_s = -1;
+	p->eta_step_s = -1;
 	return 0;
 }
 
@@ -126,6 +127,22 @@ static void recalc_eta(pf_notify_probe *p)
 	double lin[PF_ETA_SAMPLES];
 	int n = p->hist_len;
 	for (int i = 0; i < n; i++) lin[i] = p->hist[(p->hist_head - n + i + PF_ETA_SAMPLES) % PF_ETA_SAMPLES];
+
+	/* The next step the meat has not reached yet, and how long until it does. The estimator does
+	 * not care what it is aimed at, so a step is the same question as the target asked of a nearer
+	 * number -- which is what lets the grill say "get ready to flip" a minute before the flip
+	 * rather than at the moment it is already due. */
+	p->eta_step_s = -1;
+	p->next_step[0] = 0;
+	const pf_notify_step *next = NULL;
+	for (int k = 0; k < p->nsteps; k++)
+		if (!p->steps[k].fired && (!next || p->steps[k].temp_c < next->temp_c)) next = &p->steps[k];
+	if (next) {
+		double es = pf_notify_estimate_eta(lin, n, next->temp_c, ETA_INTERVAL_S);
+		if (es >= 0) { p->eta_step_s = es; snprintf(p->next_step, sizeof p->next_step, "%s", next->name); }
+		else snprintf(p->next_step, sizeof p->next_step, "%s", next->name);
+	}
+
 	double e = pf_notify_estimate_eta(lin, n, p->target_c, ETA_INTERVAL_S);
 	/* blend with the previous estimate (minus the time that passed) so the readout counts down
 	 * smoothly instead of jumping with every re-fit; a stall (no slope) clears it */

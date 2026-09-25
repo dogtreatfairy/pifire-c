@@ -74,6 +74,50 @@ static void only_rule(const char *json)
 
 static cJSON *status(void) { return cJSON_Parse(STATUS); }
 
+/* A step is worth knowing about BEFORE it arrives. "Flip it" said at the moment the meat reaches
+   the flip temperature is a minute late: you have to get up, find the tongs and open the lid. The
+   same estimator that answers "how long to the target" answers "how long to the next step" when it
+   is aimed at a nearer number, which is what the step eta is, and a rule can then fire a minute
+   ahead of it and name the step it is about. */
+static void test_a_step_is_seen_coming(void)
+{
+	only_rule("{\"id\":\"s\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"probe\",\"role\":\"Food\",\"link\":\"any\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":["
+	            "{\"trait\":\"next_step\",\"op\":\"not_empty\"},"
+	            "{\"trait\":\"eta_step\",\"op\":\">\",\"value\":0},"
+	            "{\"trait\":\"eta_step\",\"op\":\"<=\",\"value\":60}]},"
+	          "\"title\":\"{step} coming up on {probe}\",\"body\":\"{probe} is at {temp}.\","
+	          "\"level\":\"high\",\"sinks\":[\"app\"]}");
+
+	/* a probe forty seconds from a step called Flip */
+	cJSON *st = status();
+	cJSON *probes = cJSON_GetObjectItem(st, "probes"), *p;
+	cJSON_ArrayForEach(p, probes) {
+		if (strcmp(pf_json_str(p, "role", ""), "Food")) continue;
+		cJSON_AddStringToObject(p, "next_step", "Flip");
+		cJSON_AddNumberToObject(p, "eta_step_s", 40);
+		break;
+	}
+	pf_rules_tick(st, 1000);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_ncap, "a step a minute away should be announced");
+	TEST_ASSERT_EQUAL_STRING("Flip coming up on BT1", g_cap[0].title);
+	cJSON_Delete(st);
+
+	/* and not one that is still ten minutes off */
+	g_ncap = 0;
+	cJSON *far = status();
+	cJSON_ArrayForEach(p, cJSON_GetObjectItem(far, "probes")) {
+		if (strcmp(pf_json_str(p, "role", ""), "Food")) continue;
+		cJSON_AddStringToObject(p, "next_step", "Flip");
+		cJSON_AddNumberToObject(p, "eta_step_s", 600);
+		break;
+	}
+	pf_rules_tick(far, 2000);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_ncap, "ten minutes out is not \"coming up\"");
+	cJSON_Delete(far);
+}
+
 /* A rule says "above 250" and means 250 of whatever the grill was showing when it was written.
    Switch the grill to Celsius and, left alone, that becomes 250 C -- a rule that can never be true
    -- while a -50 F flame-out becomes -50 C and fires on a grill that is merely a little cool. The
@@ -924,6 +968,7 @@ int main(void)
 	RUN_TEST(test_without_a_deadband_it_still_chatters);
 	RUN_TEST(test_at_temperature_separates_hold_from_smoke);
 	RUN_TEST(test_an_unset_target_is_not_zero);
+	RUN_TEST(test_a_step_is_seen_coming);
 	RUN_TEST(test_a_band_around_a_moving_reading);
 	RUN_TEST(test_temperatures_follow_a_units_change);
 	RUN_TEST(test_not_denies_what_is_inside_it);

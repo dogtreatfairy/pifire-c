@@ -2069,6 +2069,8 @@ static void publish(pf_control *c, double now)
 		const pf_notify_probe *p = pf_notify_find(&c->notify, c->sensors.p[i].label);
 		s.notify[i].after = p ? p->after : 0;
 		s.notify[i].eta_s = p ? p->eta_s : -1;
+		s.notify[i].eta_step_s = p ? p->eta_step_s : -1;
+		pf_strlcpy(s.notify[i].next_step, p ? p->next_step : "", sizeof s.notify[i].next_step);
 		s.notify[i].limit_high_c = p ? p->limit_high_c : 0;
 		s.notify[i].limit_low_c = p ? p->limit_low_c : 0;
 		s.notify[i].nsteps = p ? p->nsteps : 0;

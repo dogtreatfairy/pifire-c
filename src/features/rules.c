@@ -65,6 +65,14 @@ static val trait_of(const cJSON *status, const inst *in, const char *entity, con
 			const cJSON *tg = jget(o, "target");
 			return (cJSON_IsNumber(tg) && tg->valuedouble > 0) ? v_num(tg->valuedouble) : v_none();
 		}
+		if (!strcmp(trait, "next_step")) {
+			const cJSON *ns = jget(o, "next_step");
+			return cJSON_IsString(ns) ? v_str(ns->valuestring) : v_none();
+		}
+		if (!strcmp(trait, "eta_step")) {
+			const cJSON *e = jget(o, "eta_step_s");
+			return cJSON_IsNumber(e) && e->valuedouble >= 0 ? v_num(e->valuedouble) : v_none();
+		}
 		if (!strcmp(trait, "temp") || !strcmp(trait, "battery") ||
 		    !strcmp(trait, "signal") || !strcmp(trait, "rssi") || !strcmp(trait, "eta") ||
 		    !strcmp(trait, "limit_high") || !strcmp(trait, "limit_low") || !strcmp(trait, "ambient")) {
@@ -454,7 +462,9 @@ static void render(char *out, size_t cap, const char *tpl, const cJSON *status, 
 		else if (!strcmp(key, "value") && matched && matched->t == VT_NUM) snprintf(buf, sizeof buf, "%.0f", matched->num);
 		else {
 			/* anything else is a trait: of the matched instance first, then the grill */
-			if (!strcmp(key, "eta") || !strcmp(key, "eta_min")) v = trait_of(status, in, "this", "eta");
+			if (!strcmp(key, "step")) v = trait_of(status, in, "this", "next_step");
+			else if (!strcmp(key, "eta_step")) v = trait_of(status, in, "this", "eta_step");
+			else if (!strcmp(key, "eta") || !strcmp(key, "eta_min")) v = trait_of(status, in, "this", "eta");
 			else if (!strcmp(key, "cook_time")) v = trait_of(status, in, "grill", "cook_elapsed");
 			else if (!strcmp(key, "grill_temp")) v = trait_of(status, in, "grill", "temp");
 			else if (!strcmp(key, "setpoint")) v = trait_of(status, in, "grill", "setpoint");
@@ -462,7 +472,7 @@ static void render(char *out, size_t cap, const char *tpl, const cJSON *status, 
 			else if (!strcmp(key, "outdoor_temp")) v = trait_of(status, in, "weather", "temp");
 			else v = trait_of(status, in, "this", key);
 			if (v.t == VT_NUM) {
-				if (!strcmp(key, "eta") || !strcmp(key, "cook_time")) fmt_dur_token(buf, sizeof buf, v.num);
+				if (!strcmp(key, "eta") || !strcmp(key, "eta_step") || !strcmp(key, "cook_time")) fmt_dur_token(buf, sizeof buf, v.num);
 				else if (!strcmp(key, "eta_min")) snprintf(buf, sizeof buf, "%.0f", v.num / 60);
 				else if (!strcmp(key, "temp") || !strcmp(key, "target") || !strcmp(key, "over") ||
 				         !strcmp(key, "grill_temp") || !strcmp(key, "setpoint") || !strcmp(key, "outdoor_temp") || !strcmp(key, "ambient"))
@@ -819,7 +829,7 @@ cJSON *pf_rules_catalogue_json(const cJSON *status)
 		cJSON_AddItemToArray(domains, dj);
 	}
 
-	static const char *const TOKENS[] = { "probe", "temp", "target", "over", "eta", "eta_min", "battery",
+	static const char *const TOKENS[] = { "probe", "temp", "target", "over", "eta", "eta_min", "step", "eta_step", "battery",
 		"signal", "grill", "grill_temp", "setpoint", "mode", "hopper", "outdoor_temp", "cook_time", "value", "time", NULL };
 	cJSON *tk = cJSON_AddArrayToObject(o, "tokens");
 	for (int i = 0; TOKENS[i]; i++) cJSON_AddItemToArray(tk, cJSON_CreateString(TOKENS[i]));

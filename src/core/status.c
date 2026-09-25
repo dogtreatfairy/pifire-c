@@ -204,6 +204,8 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 		cJSON_AddNumberToObject(po, "target", p->target_c > 0 ? r1(conv(p->target_c, units)) : 0);
 		cJSON_AddNumberToObject(po, "after", s->notify[i].after);
 		cJSON_AddNumberToObject(po, "eta_s", s->notify[i].eta_s);
+		cJSON_AddNumberToObject(po, "eta_step_s", s->notify[i].eta_step_s);
+		if (s->notify[i].next_step[0]) cJSON_AddStringToObject(po, "next_step", s->notify[i].next_step);
 		/* the steps, with what each has already said, so the app can tick them off */
 		if (s->notify[i].nsteps > 0) {
 			cJSON *steps = cJSON_AddArrayToObject(po, "steps");
