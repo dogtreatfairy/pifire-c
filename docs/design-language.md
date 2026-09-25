@@ -687,6 +687,33 @@ Green when the live link is up, red when it is not. There were two marks for thi
 dot beside the name and a Tailscale icon next to it, which answered the same question twice and
 disagreed about how to say it.
 
+## The mode plate says where you are, not only what mode it is
+
+The plate on the left of the header names the state you would answer with if someone asked what the
+grill was doing. Most of the time that is the mode. During a tuning run it is "Auto Tuning", because
+a run holds set points like any cook and "Hold" would not tell you that the grill is deliberately
+swinging either side of its target. While a recipe runs it is the mode and the step — `Hold · 3/7` —
+and when the recipe is waiting on the cook it is `3/7 · Your turn` on the warning colour, because
+that is the one state where nothing is wrong, nothing is broken, and nothing at all will happen
+until somebody goes outside.
+
+## One drop-down, hung under the header
+
+The bell opens a pushed screen: its list is long and worth reading. The timers open the app's one
+**drop-down** — a panel that comes down from under the indicator that opened it, over a scrim,
+closing on Escape, on a tap outside, or on a second tap of its own button. Use it only for what is
+too small to be worth losing the page for: a few numbers and the two or three buttons that act on
+them. Anything you would scroll belongs in a pushed screen instead.
+
+On a phone the panel takes the width of the screen with the usual gutter, because a small box hung
+off one indicator in the middle of a header reads as having slid out of nowhere. With room to spare
+it narrows and tucks under its button. Its buttons follow the same order as every other row:
+the one that ends the thing on the left, the one that carries it on at the right.
+
+A running timer puts **the time itself** in the header, not a bare glyph — answering "how long
+left" without a tap is the whole reason it is there — and the chip is absent when nothing is
+counting, so a cook that needs no timer gets a quiet header.
+
 ## Telling the user something
 
 In-app alerts are iOS-style banners under the header, backed by a notification centre behind the

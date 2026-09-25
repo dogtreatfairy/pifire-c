@@ -115,6 +115,33 @@ double pf_notify_estimate_eta(const double *temps, int n, double target, double 
 	return (eta < 0 || isinf(eta) || isnan(eta)) ? -1 : eta;
 }
 
+/* How fast a probe is climbing, in C per second, from the same recency-weighted fit the ETA uses.
+ *
+ * This is what carryover is worked out from: meat coasts on the heat already inside it, and the
+ * rate it is climbing at when it comes off is the measure of how much of that there is. A probe
+ * that is not climbing coasts nowhere, which is why a stall returns zero rather than an error. */
+double pf_notify_probe_rate(const pf_notify *n, const char *label)
+{
+	const pf_notify_probe *p = pf_notify_find(n, label);
+	if (!p || p->hist_len < 20) return 0;
+	double lin[PF_ETA_SAMPLES];
+	int cnt = p->hist_len;
+	for (int i = 0; i < cnt; i++) lin[i] = p->hist[(p->hist_head - cnt + i + PF_ETA_SAMPLES) % PF_ETA_SAMPLES];
+	double sm[PF_ETA_SAMPLES];
+	for (int i = 0; i < cnt; i++) {
+		if (i < 2 || i >= cnt - 2) { sm[i] = lin[i]; continue; }
+		sm[i] = (lin[i - 2] + lin[i - 1] + lin[i] + lin[i + 1] + lin[i + 2]) / 5.0;
+	}
+	double w[PF_ETA_SAMPLES], wsum = 0, xbar = 0, ybar = 0;
+	for (int i = 0; i < cnt; i++) { w[i] = exp((double)i / 10.0); wsum += w[i]; }
+	for (int i = 0; i < cnt; i++) { w[i] /= wsum; xbar += w[i] * i; ybar += w[i] * sm[i]; }
+	double num = 0, den = 0;
+	for (int i = 0; i < cnt; i++) { num += w[i] * (i - xbar) * (sm[i] - ybar); den += w[i] * (i - xbar) * (i - xbar); }
+	if (den <= 0) return 0;
+	double slope = num / den / ETA_INTERVAL_S;
+	return slope > 0 && !isnan(slope) && !isinf(slope) ? slope : 0;
+}
+
 static void push_sample(pf_notify_probe *p, double c)
 {
 	p->hist[p->hist_head] = c;

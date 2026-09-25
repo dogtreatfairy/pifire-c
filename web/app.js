@@ -271,7 +271,7 @@ function installHint() {
    what Pushover is for. */
 export async function showSystemNotification(m) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
-  const opts = { body: m.body, tag: m.code, icon: '/icons/icon-192.png', badge: '/icons/icon-192.png', data: { code: m.code } };
+  const opts = { body: m.body, tag: m.code, icon: '/icon-192.png', badge: '/icon-192.png', data: { code: m.code } };
   try {
     const reg = await navigator.serviceWorker?.ready;
     if (reg?.showNotification) { await reg.showNotification(m.title, opts); return; }
@@ -825,12 +825,112 @@ function paintNet() {
   paintLink();
 }
 
+/* A drop-down hung under the header, anchored to one of the indicators beside it.
+ *
+ * The bell opens a pushed screen because its list is long and worth reading. A timer is four
+ * numbers and three buttons, and pushing a whole screen for that loses the page you were on for no
+ * gain. So this is the app's one drop-down: it comes down from under the header, covers the width
+ * on a phone and narrows to the indicator on a desktop, and closes on Escape, on a tap outside, or
+ * on a second tap of the button that opened it. */
+let openPanel = null;
+function headerPanel(btn, render) {
+  if (openPanel?.btn === btn) { closePanel(); return; }
+  closePanel();
+  const box = el('div', { class: 'hpanel', role: 'dialog' });
+  const scrim = el('div', { class: 'hpanel-scrim', onclick: () => closePanel() });
+  const paint = () => { box.replaceChildren(render(closePanel)); };
+  document.body.append(scrim, box);
+  /* Hung off the button that opened it, measured rather than computed: the header's height is the
+     safe-area inset plus its padding, and guessing that in CSS goes wrong on exactly the notched
+     phones this app is built for. */
+  const r = btn.getBoundingClientRect();
+  box.style.top = `${Math.round(r.bottom + 8)}px`;
+  box.style.setProperty('--hp-right', `${Math.round(Math.max(8, window.innerWidth - r.right - 6))}px`);
+  btn.setAttribute('aria-expanded', 'true');
+  openPanel = { btn, box, scrim, paint };
+  paint();
+  requestAnimationFrame(() => box.classList.add('in'));
+  document.addEventListener('keydown', onPanelKey);
+}
+function closePanel() {
+  if (!openPanel) return;
+  const { btn, box, scrim } = openPanel;
+  openPanel = null;
+  btn.setAttribute('aria-expanded', 'false');
+  box.classList.remove('in');
+  scrim.remove();
+  setTimeout(() => box.remove(), 180);
+  document.removeEventListener('keydown', onPanelKey);
+}
+const onPanelKey = (e) => { if (e.key === 'Escape') closePanel(); };
+
+/* The timers that are running, in the header, because a timer you cannot see is a timer you have
+ * to remember. The chip carries the time itself rather than a bare glyph -- the whole point is to
+ * answer "how long left" without tapping anything -- and it is not there at all when nothing is
+ * counting, so the header stays quiet during a cook that needs no timer. */
+let lastTimer = null, lastRecipe = null;
+function timerPanel() {
+  const t = lastTimer || {}, r = lastRecipe || {};
+  const rows = [];
+  if (t.running) {
+    const send = (op, extra) => cmd({ cmd: 'timer', op, ...extra }).then(() => openPanel?.paint());
+    rows.push(el('div', { class: 'tp-row' },
+      el('div', { class: 'tp-head' },
+        el('div', { class: 'tp-name' }, 'Timer'),
+        el('div', { class: `tp-time${t.paused ? ' paused' : ''}` }, fmtDur(t.remaining))),
+      el('div', { class: 'tp-bar' }, el('i', { style: `width:${t.duration > 0 ? Math.max(0, Math.min(100, 100 - (t.remaining / t.duration) * 100)) : 0}%` })),
+      /* Stop ends it, so it sits on the dismissive side; the button that keeps it going sits on
+         the committing side, as everywhere else in the app. */
+      el('div', { class: 'tp-acts' },
+        el('button', { class: 'btn sm danger', type: 'button', onclick: () => send('cancel') }, iconEl('square'), 'Stop'),
+        el('button', { class: 'btn sm ghost', type: 'button', disabled: !(t.duration > 0),
+          onclick: () => send('start', { seconds: Math.round(t.duration), after: t.after || 0 }) }, iconEl('rotate-ccw'), 'Reset'),
+        el('button', { class: 'btn sm primary', type: 'button', onclick: () => send(t.paused ? 'resume' : 'pause') },
+          iconEl(t.paused ? 'play' : 'pause'), t.paused ? 'Resume' : 'Pause'))));
+  }
+  /* A recipe step counting down is a running timer too, and during a six-hour cook it is the one
+     that matters. It is shown, not driven: a step is advanced on the Cook page, where the rest of
+     the recipe is, not from a drop-down that only knows about clocks. */
+  if (r.active && r.remaining_s > 0) {
+    rows.push(el('button', { class: 'tp-row tp-link', type: 'button', onclick: () => { closePanel(); location.hash = '#/cook'; } },
+      el('div', { class: 'tp-head' },
+        el('div', { class: 'tp-name' }, `${r.name} \u00b7 step ${(r.step || 0) + 1} of ${r.nsteps}`),
+        el('div', { class: 'tp-time' }, fmtDur(r.remaining_s)))));
+  }
+  if (!rows.length) rows.push(el('div', { class: 'muted', style: 'padding:6px 2px' }, 'Nothing is counting.'));
+  return el('div', { class: 'tp' }, ...rows);
+}
+const iconEl = (name) => { const w = el('span', { class: 'ic' }); import('./icons.js').then((m) => w.append(m.icon(name))); return w; };
+
+function paintTimer(s) {
+  const btn = document.getElementById('ind-timer');
+  if (!btn) return;
+  lastTimer = s.timer || null;
+  lastRecipe = s.recipe || null;
+  const running = !!(lastTimer?.running) || !!(lastRecipe?.active && lastRecipe.remaining_s > 0);
+  btn.hidden = !running;
+  if (!running) { if (openPanel?.btn === btn) closePanel(); return; }
+  /* Whichever is closest to going off is what the header shows, because that is the one about to
+     need an answer. */
+  const cands = [lastTimer?.running ? lastTimer.remaining : null,
+                 lastRecipe?.active && lastRecipe.remaining_s > 0 ? lastRecipe.remaining_s : null].filter((v) => v != null);
+  const soonest = Math.min(...cands);
+  btn.className = `tb-ind tb-timer${lastTimer?.running && lastTimer.paused && cands.length === 1 ? ' paused' : ''}`;
+  const txt = fmtDur(soonest);
+  if (btn.dataset.txt !== txt) {
+    btn.dataset.txt = txt;
+    btn.replaceChildren(iconEl('timer'), el('span', { class: 'tb-tag' }, txt));
+  }
+  openPanel?.paint();
+}
+
 onStatus((s) => {
   const b = document.getElementById('banner');
   if (!s) { b.hidden = !PF.lost; if (PF.lost) { b.className = 'banner warn'; b.textContent = 'Connecting to grill…'; } return; }
 
   lastNet = s.net || {};
   paintNet();
+  paintTimer(s);
 
   /* The mode, and the temperature the grill is at. The same two things on every page: this used to
      show the set point (or a countdown) on Home and the actual temperature everywhere else, so the
@@ -844,16 +944,24 @@ onStatus((s) => {
   /* A tuning run holds set points like any cook, so the mode alone says Hold and gives no hint that
      the grill is deliberately swinging either side of its target. Name what it is actually doing. */
   const tuning = !!(s.tuning?.running || s.autotune?.active);
-  const modeName = tuning ? 'Auto Tuning' : s.mode;
-  document.getElementById('rd-name').textContent = modeName;
+  /* While a recipe runs, where you are in it IS the mode. "Hold" is true and useless -- a recipe
+     holds for most of its length -- and the question the plate is being asked is which step is
+     running and whether it is waiting on you. */
+  const rc = s.recipe;
+  const modeName = tuning ? 'Auto Tuning'
+    : rc?.active ? (rc.waiting ? `${rc.step + 1}/${rc.nsteps} \u00b7 Your turn` : `${s.mode} \u00b7 ${rc.step + 1}/${rc.nsteps}`)
+    : s.mode;
+  const nameEl = document.getElementById('rd-name');
+  nameEl.textContent = modeName;
+  nameEl.title = rc?.active ? `${rc.name}: step ${rc.step + 1} of ${rc.nsteps}` : '';
   /* The same mark the mode carries everywhere else, so the plate reads as part of the interface
      rather than as a label that happens to be near it. */
   const ico = document.getElementById('rd-ico');
-  const want = MODE_ICON[tuning ? 'Tuning' : s.mode];
+  const want = MODE_ICON[tuning ? 'Tuning' : rc?.active && rc.waiting ? 'Waiting' : s.mode];
   if (ico && ico.dataset.icon !== want) { ico.dataset.icon = want || ''; ico.replaceChildren(want ? lucide(want) : ''); }
   rdVal.textContent = value;
   rdVal.hidden = !value;
-  readout.dataset.mode = tuning ? 'Tuning' : s.mode;
+  readout.dataset.mode = tuning ? 'Tuning' : rc?.active && rc.waiting ? 'Waiting' : s.mode;
 
   if (PF.lost) { b.hidden = false; b.className = 'banner warn'; b.textContent = 'Connection lost — reconnecting…'; return; }
   if (s.safety.error_code) {
@@ -888,6 +996,7 @@ setTimeout(fitViewport, 500);
   connect();
   updateBadge();
   document.getElementById('bell')?.addEventListener('click', openNotifications);
+  document.getElementById('ind-timer')?.addEventListener('click', (e) => headerPanel(e.currentTarget, timerPanel));
   setTimeout(installHint, 2500);
   refreshAlarms();
   document.addEventListener('click', requestAlertPermission, { once: true });

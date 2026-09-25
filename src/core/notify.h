@@ -72,3 +72,20 @@ void pf_notify_timer_cancel(pf_notify *n);
 const pf_notify_probe *pf_notify_find(const pf_notify *n, const char *label);
 /* Python-compatible estimator: smoothed, exponentially weighted linear regression. */
 double pf_notify_estimate_eta(const double *temps, int n, double target, double interval_s);
+/* How fast a probe is climbing, C per second, 0 when it is not climbing or has too little history. */
+double pf_notify_probe_rate(const pf_notify *n, const char *label);
+/* How much further the centre will climb after it comes off the heat, in C, from that rate.
+ *
+ * The meat keeps cooking on the heat already in it, and the rate of climb at the moment it comes
+ * off is the measure of how much there is. The rate decays roughly exponentially once the heat is
+ * away, so the total is the rate times a time constant -- about seven minutes for a piece you
+ * would put on a grill, which is the figure the usual carryover tables come to when you work
+ * backwards from them. Capped, because an estimate built on a slope should not be trusted to
+ * predict a big number. */
+#define PF_CARRYOVER_TAU_S 420.0
+#define PF_CARRYOVER_MAX_C 5.0
+static inline double pf_carryover_c(double rate_c_s)
+{
+	double c = rate_c_s * PF_CARRYOVER_TAU_S;
+	return c < 0 ? 0 : c > PF_CARRYOVER_MAX_C ? PF_CARRYOVER_MAX_C : c;
+}

@@ -108,8 +108,11 @@ typedef struct {
 	pf_notify notify;
 	struct {
 		bool active, triggered, waiting;   /* waiting = paused for the user after a trigger */
+		bool lead_fired;      /* the "ten minutes until you wrap" warning went out for this step */
+		bool lid_armed;       /* the step ends on the lid, and the lid has not been opened yet */
 		int step;
 		double step_start;
+		double eta_s;         /* seconds until this step is due to end, -1 unknown; published */
 		pf_recipe r;
 	} recipe;
 	/* learning: steady-state observation window and startup-rise identification */

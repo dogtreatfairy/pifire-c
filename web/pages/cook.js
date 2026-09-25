@@ -1,4 +1,4 @@
-import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, dialog, pushScreen, numberDialog, toast, confirmDialog, segmented, actionBtn, itemRow, iconBtn, addRow, patchSettings } from '../app.js';
+import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, dialog, pushScreen, numberDialog, toast, confirmDialog, segmented, actionBtn, itemRow, iconBtn, addRow, patchSettings, screenActions } from '../app.js';
 import { fmtEta } from './probes.js';
 
 /* Doneness presets, in °F and converted for °C users.
@@ -167,111 +167,227 @@ export async function timerDialog() {
 }
 
 const MODES = [['Startup', 'Startup'], ['Smoke', 'Smoke'], ['Hold', 'Hold'], ['Shutdown', 'Shutdown']];
+/* How a step ends once whatever it was counting or waiting for is done. "Lid or ask" is for the
+   steps where the cook has to handle the meat: opening the lid to take the ribs off answers the
+   question as well as tapping does, and it is the answer someone with both hands full can give. */
+const ENDS = [['none', 'Straight on'], ['confirm', 'Ask me'], ['lid', 'Lid or ask']];
+const ANY_FOOD = '@food';
 
+const fmtMin = (m) => (!m ? '' : m % 60 === 0 && m >= 60 ? `${m / 60} h` : m > 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`);
+const probeName = (label) => (label === ANY_FOOD ? 'any food'
+  : (PF.status?.probes || []).find((p) => p.label === label)?.name || label);
+
+/* One line saying what a step does, for the row in the list and for the header of the card when it
+   is folded shut -- the same rule the notification editor follows: a card you cannot read without
+   opening it is a card that has to be opened. */
 function stepSummary(s) {
   const parts = [s.mode + (s.mode === 'Hold' && s.setpoint ? ` ${s.setpoint}${degUnit()}` : '')];
-  if (s.timer_min) parts.push(`${s.timer_min} min`);
-  if (s.probe && s.probe_temp) parts.push(`${s.probe} ≥ ${s.probe_temp}${degUnit()}`);
-  if (s.pause) parts.push('then wait');
+  if (s.timer_min) parts.push(fmtMin(s.timer_min));
+  if (s.probe && s.probe_temp) parts.push(`${probeName(s.probe)} ≥ ${s.probe_temp}${degUnit()}${s.carryover ? ' rested' : ''}`);
+  const w = s.wait || (s.pause ? 'confirm' : 'none');
+  if (w === 'confirm') parts.push('then ask');
+  else if (w === 'lid') parts.push('then lid or ask');
   return parts.join(' · ');
 }
 
-async function recipeDialog(r) {
-  const rec = structuredClone(r || { name: '', description: '', steps: [{ mode: 'Startup' }, { mode: 'Hold', setpoint: 225, timer_min: 0, probe: '', probe_temp: 0, pause: false, message: '' }, { mode: 'Shutdown' }] });
-  const probeNames = (PF.status?.probes || []).filter((p) => p.role !== 'Aux').map((p) => [p.label, p.name]);
-  return dialog((close) => {
-    const name = el('input', { type: 'text', value: rec.name, required: true, placeholder: 'e.g. Pulled pork' });
-    const stepsEl = el('div');
-    const render = () => {
-      stepsEl.innerHTML = '';
-      rec.steps.forEach((s, i) => {
-        const box = el('fieldset', { class: 'field', style: 'gap:6px' }, el('legend', {}, `Step ${i + 1}`));
-        const row = (label, input) => el('div', { class: 'field inline', style: 'padding:4px 0;border:0' }, el('label', {}, label), input);
-        box.append(row('Mode', el('select', { onchange: (e) => { s.mode = e.target.value; render(); } }, MODES.map(([v, l]) => el('option', { value: v, selected: s.mode === v }, l)))));
-        if (s.mode === 'Hold') box.append(row(`Set point (${degUnit()})`, el('input', { type: 'text', inputmode: 'decimal', value: s.setpoint || '', onchange: (e) => (s.setpoint = parseFloat(e.target.value) || 0) })));
+const blankStep = () => ({ mode: 'Hold', setpoint: PF.units === 'C' ? 110 : 225, timer_min: 0, probe: '', probe_temp: 0, wait: 'none', message: '' });
+
+/* The editor is a pushed screen with a pinned action bar, and each step is a fold -- the same two
+   shapes the notification editor uses. It was a dialog full of <fieldset>s with arrow buttons,
+   which is the one screen in the app that looked like a form someone had bolted on. */
+function recipeEditor(rec0, isNew) {
+  const rec = structuredClone(rec0);
+  rec.steps ||= [];
+  rec.units = PF.units;   /* the numbers on screen are in the unit shown, and are stored as such */
+
+  return pushScreen((close) => {
+    const wrap = el('div', { class: 'sheet' });
+    let ready = false;
+    const touched = () => { if (ready) wrap.dispatchEvent(new CustomEvent('pf-dirty', { bubbles: true })); };
+    const body = el('div');
+
+    const stepCard = (s, i, redraw) => {
+      const det = el('details', { class: 'fold cond-card', open: false });
+      const title = el('span', { class: 'cc-title' });
+      const head = el('summary', { class: 'cc-head' },
+        el('span', { class: 'cc-glyph' }, String(i + 1)), title,
+        iconBtn('trash-2', 'Remove this step', { class: 'danger cc-del',
+          onclick: (e) => { e.preventDefault(); e.stopPropagation(); rec.steps.splice(i, 1); touched(); redraw(); } }));
+      const inner = el('div', { class: 'cc-body' });
+      det.append(head, inner);
+      const retitle = () => { title.textContent = stepSummary(s) || 'New step'; };
+      const changed = () => { touched(); retitle(); };
+
+      const field = (label, node, help) => el('div', { class: 'field' },
+        el('label', {}, label), help ? el('div', { class: 'help' }, help) : null, node);
+      const num = (get, set, extra = {}) => el('input', {
+        type: 'text', inputmode: 'decimal', value: get() || '', ...extra,
+        onchange: (e) => { set(parseFloat(e.target.value) || 0); changed(); } });
+
+      const draw = () => {
+        inner.innerHTML = '';
+        inner.append(field('Mode', segmented(MODES, s.mode, (v) => { s.mode = v; changed(); draw(); })));
+        if (s.mode === 'Hold') inner.append(field(`Set Point (${degUnit()})`, num(() => s.setpoint, (v) => (s.setpoint = v))));
         if (s.mode === 'Hold' || s.mode === 'Smoke') {
-          box.append(row('Run for (min, 0 = no timer)', el('input', { type: 'text', inputmode: 'numeric', value: s.timer_min || 0, onchange: (e) => (s.timer_min = parseFloat(e.target.value) || 0) })));
-          box.append(row('Until probe', el('select', { onchange: (e) => (s.probe = e.target.value) }, [el('option', { value: '', selected: !s.probe }, '— none —'), ...probeNames.map(([l, n]) => el('option', { value: l, selected: s.probe === l }, n))])));
-          box.append(row(`reaches (${degUnit()})`, el('input', { type: 'text', inputmode: 'decimal', value: s.probe_temp || '', onchange: (e) => (s.probe_temp = parseFloat(e.target.value) || 0) })));
-          box.append(row('Smoke+', el('input', { type: 'checkbox', checked: !!s.s_plus, onchange: (e) => (s.s_plus = e.target.checked) })));
-          box.append(row('Wait for me after', el('input', { type: 'checkbox', checked: !!s.pause, onchange: (e) => (s.pause = e.target.checked) })));
+          inner.append(field('Run For', el('div', { class: 'row', style: 'gap:var(--sp-2)' },
+            num(() => s.timer_min, (v) => (s.timer_min = v), { style: 'flex:1 1 auto; min-width:0', placeholder: '0' }),
+            el('span', { class: 'muted', style: 'align-self:center' }, 'min')), 'Blank runs until the probe gets there'));
+          inner.append(field('Until Probe', el('select', { onchange: (e) => { s.probe = e.target.value; changed(); draw(); } },
+            el('option', { value: '', selected: !s.probe }, '— none —'),
+            el('option', { value: ANY_FOOD, selected: s.probe === ANY_FOOD }, 'Any food probe'),
+            (PF.status?.probes || []).filter((p) => p.role !== 'Aux' && p.role !== 'Primary')
+              .map((p) => el('option', { value: p.label, selected: s.probe === p.label }, p.name)))));
+          if (s.probe) {
+            inner.append(field(`Reaches (${degUnit()})`, num(() => s.probe_temp, (v) => (s.probe_temp = v))));
+            /* The number in a recipe is where the meat ends up, not where it was when it came off.
+               Carryover pulls it early by as much as it will still climb while it rests. */
+            inner.append(el('label', { class: 'toggle' },
+              el('div', {}, el('div', {}, 'Allow For Carryover'), el('div', { class: 'help' }, 'Comes off early by what it will still climb while resting')),
+              el('span', { class: 'switch' }, el('input', { type: 'checkbox', checked: !!s.carryover,
+                onchange: (e) => { s.carryover = e.target.checked; changed(); } }), el('span'))));
+          }
+          inner.append(el('label', { class: 'toggle' },
+            el('div', {}, el('div', {}, 'Smoke+')),
+            el('span', { class: 'switch' }, el('input', { type: 'checkbox', checked: !!s.s_plus,
+              onchange: (e) => { s.s_plus = e.target.checked; changed(); } }), el('span'))));
         }
-        box.append(row('Message', el('input', { type: 'text', value: s.message || '', placeholder: 'e.g. Wrap the brisket', onchange: (e) => (s.message = e.target.value) })));
-        box.append(el('div', { class: 'btnrow' },
-          el('button', { class: 'btn sm ghost', type: 'button', disabled: i === 0, onclick: () => { [rec.steps[i - 1], rec.steps[i]] = [rec.steps[i], rec.steps[i - 1]]; render(); } }, '↑'),
-          el('button', { class: 'btn sm ghost', type: 'button', disabled: i === rec.steps.length - 1, onclick: () => { [rec.steps[i + 1], rec.steps[i]] = [rec.steps[i], rec.steps[i + 1]]; render(); } }, '↓'),
-          actionBtn('delete', '', { onclick: () => { rec.steps.splice(i, 1); render(); } })));
-        stepsEl.append(box);
-      });
-      stepsEl.append(el('button', { class: 'btn sm', type: 'button', onclick: () => { rec.steps.push({ mode: 'Hold', setpoint: 225, timer_min: 0, probe: '', probe_temp: 0, pause: false, message: '' }); render(); } }, 'Add step'));
+        inner.append(field('Ends With', segmented(ENDS, s.wait || (s.pause ? 'confirm' : 'none'), (v) => { s.wait = v; s.pause = v !== 'none'; changed(); })));
+        inner.append(field('Message', el('input', { type: 'text', value: s.message || '', placeholder: 'e.g. Wrap the ribs',
+          onchange: (e) => { s.message = e.target.value; changed(); } }), 'Sent when the step ends'));
+        /* Being told to fetch foil at the moment the ribs need wrapping means opening the lid to go
+           and find it. The warning is timed off the estimate, so it works for a step that ends on a
+           temperature as well as one that ends on a clock. */
+        inner.append(el('details', { class: 'fold' }, el('summary', {}, el('span', {}, 'Warn Me Before')),
+          el('div', { class: 'card tight' },
+            field('Minutes Before', num(() => s.lead_min, (v) => (s.lead_min = v), { placeholder: '0' })),
+            field('Warning', el('input', { type: 'text', value: s.lead_message || '', placeholder: 'e.g. Get the foil out',
+              onchange: (e) => { s.lead_message = e.target.value; changed(); } })))));
+        retitle();
+      };
+      draw();
+      return det;
     };
-    render();
-    return el('form', { onsubmit: (e) => { e.preventDefault(); rec.name = name.value.trim(); close(rec); } },
-      el('h3', {}, rec.id ? 'Edit recipe' : 'New recipe'),
-      el('div', { class: 'field' }, el('label', {}, 'Name'), name),
-      el('div', { style: 'max-height:55vh;overflow:auto' }, stepsEl),
-      el('div', { class: 'btnrow' }, el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'), el('button', { class: 'btn primary', type: 'submit' }, 'Save')));
-  });
+
+    const draw = () => {
+      body.innerHTML = '';
+      body.append(
+        el('div', { class: 'field' }, el('label', {}, 'Name'),
+          el('input', { type: 'text', value: rec.name || '', placeholder: 'e.g. Pulled pork',
+            onchange: (e) => { rec.name = e.target.value; touched(); } })),
+        el('div', { class: 'field' }, el('label', {}, 'Description'),
+          el('input', { type: 'text', value: rec.description || '', placeholder: 'One line about it',
+            onchange: (e) => { rec.description = e.target.value; touched(); } })));
+      const steps = el('div', { class: 'card tight' }, el('div', { class: 'field' }, el('label', {}, 'Steps')));
+      rec.steps.forEach((s, i) => steps.append(stepCard(s, i, draw)));
+      if (!rec.steps.length) steps.append(el('div', { class: 'muted', style: 'padding:6px 2px' }, 'No steps yet.'));
+      steps.append(el('div', { class: 'cc-add' }, actionBtn('add', 'Add step', {
+        onclick: () => { rec.steps.push(blankStep()); touched(); draw(); } })));
+      body.append(steps);
+    };
+    draw();
+
+    const dismiss = async () => {
+      if (JSON.stringify(rec) !== JSON.stringify({ ...rec0, units: PF.units }) &&
+          !await confirmDialog('Discard changes?', rec.name || '', 'Discard', true)) return;
+      close(undefined);
+    };
+    wrap.append(el('div', { class: 'sheet-body' }, body),
+      screenActions({
+        onDelete: isNew ? null : () => close('delete'),
+        deleteTitle: 'Delete recipe',
+        onCancel: dismiss,
+        onSave: () => { if (!rec.name?.trim()) { toast('Give it a name', true); return; } close(rec); },
+        dirty: isNew,
+      }));
+    setTimeout(() => { ready = true; }, 0);
+    return wrap;
+  }, { title: isNew ? 'New Recipe' : rec0.name, back: 'Cook' });
 }
 
 export function renderCook(view) {
   const timerCard = el('div', { class: 'card' });
-  const alerts = el('div', { class: 'list' });
-  const recipeCard = el('div', { class: 'card' });
-  const recipeList = el('div', { class: 'list' });
+  const runCard = el('div', { class: 'card run-card' });
+  const recipeList = el('div', { class: 'ios-list' });
   const showRecipes = PF.settings?.globals?.show_recipes !== false;
-  const recipeSection = el('div', { hidden: !showRecipes },
-    el('div', { class: 'row between' }, el('h2', {}, 'Recipes'), el('button', { class: 'btn sm', onclick: async () => { const r = await recipeDialog(); if (r) { await api('/recipes', { body: r }).catch((e) => toast(e.message, true)); loadRecipes(); } } }, 'New')),
-    el('div', { class: 'card' }, recipeList));
-  view.append(el('h2', {}, 'Timer'), timerCard,
-    recipeCard, recipeSection,
-    el('h2', {}, 'Recent alerts'), el('div', { class: 'card' }, alerts));
+  const recipeSection = el('div', { hidden: !showRecipes }, el('h2', {}, 'Recipes'), recipeList);
+  view.append(runCard, el('h2', {}, 'Timer'), timerCard, recipeSection);
+
+  const saveRecipe = async (r) => {
+    try { await api('/recipes', { body: r }); } catch (e) { toast(e.message, true); }
+    loadRecipes();
+  };
+  const edit = async (r, isNew) => {
+    const out = await recipeEditor(r, isNew);
+    if (out === 'delete') { await api(`/recipes/${r.id}/delete`, { body: {} }).catch(() => {}); loadRecipes(); }
+    else if (out) await saveRecipe(out);
+  };
+
+  /* One tap to run. The confirmation says what the first step will do rather than warning in the
+     abstract, because "the recipe takes over the grill" is true of every recipe and tells nobody
+     anything they did not already intend. */
+  const run = async (r) => {
+    const first = r.steps?.[0];
+    if (!await confirmDialog(`Run ${r.name}?`, first ? `Starts with ${stepSummary(first)}.` : '', 'Run')) return;
+    cmd({ cmd: 'recipe', op: 'start', id: r.id });
+  };
 
   const loadRecipes = () => api('/recipes').then((list) => {
     recipeList.innerHTML = '';
+    /* The row shows what the recipe is and runs it; everything you set once -- the steps, the
+       temperatures, the messages -- is behind it. */
     for (const r of list) {
-      recipeList.append(el('div', { class: 'item' },
-        el('div', {}, el('div', {}, r.name), el('div', { class: 'meta' }, r.steps.map(stepSummary).join(' → '))),
-        el('div', { class: 'btnrow' },
-          el('button', { class: 'btn sm primary', onclick: async () => { if (await confirmDialog(`Run ${r.name}?`, 'The recipe takes over the grill from its first step.', 'Run')) cmd({ cmd: 'recipe', op: 'start', id: r.id }); } }, 'Run'),
-          el('button', { class: 'btn sm ghost', onclick: async () => { const e = await recipeDialog(r); if (e) { await api('/recipes', { body: e }).catch((x) => toast(x.message, true)); loadRecipes(); } } }, 'Edit'),
-          actionBtn('delete', 'Delete', { onclick: async () => { if (await confirmDialog('Delete recipe?', r.name, 'Delete', true)) { await api(`/recipes/${r.id}/delete`, { body: {} }); loadRecipes(); } } }))));
+      recipeList.append(itemRow({
+        icon: 'book-open',
+        title: r.name,
+        meta: r.description || (r.steps || []).map(stepSummary).join(' → '),
+        onclick: () => edit(r, false),
+        actions: [el('button', { class: 'btn sm primary', type: 'button', onclick: (e) => { e.stopPropagation(); run(r); } }, 'Run')],
+      }));
     }
-    if (!list.length) recipeList.append(el('div', { class: 'muted' }, 'No recipes. A recipe is a list of steps: Startup → Hold 225 until probe 165 → Shutdown.'));
+    if (!list.length) recipeList.append(el('div', { class: 'muted', style: 'padding:10px 2px' },
+      'No recipes yet. A recipe is a list of steps the grill runs for you.'));
+    recipeList.append(addRow('Add Recipe', () => edit({ name: '', description: '', steps: [{ mode: 'Startup' }, blankStep(), { mode: 'Shutdown' }] }, true)));
   }).catch(() => {});
   if (showRecipes) loadRecipes();
 
-  const loadAlerts = () => api('/alerts?limit=10').then((evs) => {
-    alerts.innerHTML = '';
-    for (const e of evs.reverse()) alerts.append(el('div', { class: 'item' }, el('div', {}, el('div', {}, e.title), el('div', { class: 'meta' }, `${e.body} · ${new Date(e.ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`))));
-    if (!evs.length) alerts.append(el('div', { class: 'muted' }, 'No alerts yet'));
-  }).catch(() => {});
-  loadAlerts();
-
-  let lastAlertGen = 0;
+  /* What happened is behind the bell, which keeps it across devices and clears it on all of them
+     at once. A second, shorter copy on this page could only ever disagree with it. */
   const update = (s) => {
     if (!s) return;
     const rc = s.recipe;
-    recipeCard.hidden = !rc.active;
+    runCard.hidden = !rc.active;
     if (rc.active) {
-      recipeCard.innerHTML = '';
-      recipeCard.append(el('div', { class: 'row between' },
-        el('div', {}, el('div', { style: 'font-weight:600' }, `${rc.name} — step ${rc.step + 1} of ${rc.nsteps}`), el('div', { class: 'help' }, rc.waiting ? 'Waiting for you' : `${rc.step_mode}${rc.remaining_s >= 0 ? ' · ' + fmtDur(rc.remaining_s) + ' left' : ''}${rc.message ? ' · ' + rc.message : ''}`)),
-        el('div', { class: 'btnrow' }, rc.waiting ? el('button', { class: 'btn sm primary', onclick: () => cmd({ cmd: 'recipe', op: 'next' }) }, 'Next') : null, el('button', { class: 'btn sm ghost', onclick: () => cmd({ cmd: 'recipe', op: 'stop' }) }, 'Stop recipe'))));
-      recipeCard.append(el('div', { class: 'progress' }, el('div', { style: `width:${((rc.step + (rc.waiting ? 1 : 0)) / rc.nsteps) * 100}%` })));
+      /* While a recipe runs, this card is the page: what it is doing, how long until it needs you,
+         and -- when it needs you now -- one button the width of the card, because the moment it is
+         asking for something is the moment nothing else on the screen matters. */
+      runCard.replaceChildren(
+        el('div', { class: 'row between' },
+          el('div', { style: 'min-width:0' },
+            el('div', { class: 'run-name' }, rc.name),
+            el('div', { class: 'help' }, `Step ${rc.step + 1} of ${rc.nsteps} · ${rc.step_mode}`)),
+          rc.waiting ? null : el('div', { class: 'run-left' }, rc.remaining_s >= 0 ? fmtDur(rc.remaining_s) : '')),
+        el('div', { class: 'progress' }, el('div', { style: `width:${((rc.step + (rc.waiting ? 1 : 0)) / rc.nsteps) * 100}%` })),
+        rc.message ? el('div', { class: `run-msg${rc.waiting ? ' now' : ''}` }, rc.message) : null,
+        rc.waiting
+          ? el('button', { class: 'btn primary block', type: 'button', onclick: () => cmd({ cmd: 'recipe', op: 'next' }) }, 'Done, carry on')
+          : null,
+        el('div', { class: 'form-actions' },
+          el('button', { class: 'btn sm ghost', type: 'button', onclick: async () => {
+            if (await confirmDialog('Stop the recipe?', 'The grill keeps running in whatever mode the current step set.', 'Stop recipe', true)) cmd({ cmd: 'recipe', op: 'stop' });
+          } }, 'Stop recipe')));
     }
     const t = s.timer;
     timerCard.innerHTML = '';
     if (t.running) {
       timerCard.append(el('div', { class: 'row between' },
         el('div', {}, el('div', { class: 'readout-xl' }, fmtDur(t.remaining)), el('div', { class: 'help' }, `${t.paused ? 'Paused' : 'Running'} · ${AFTER.find((a) => a[0] === t.after)?.[1]}`)),
-        el('div', { class: 'btnrow' }, el('button', { class: 'btn sm', onclick: () => cmd({ cmd: 'timer', op: t.paused ? 'resume' : 'pause' }) }, t.paused ? 'Resume' : 'Pause'), el('button', { class: 'btn sm ghost', onclick: () => cmd({ cmd: 'timer', op: 'cancel' }) }, 'Cancel'))));
+        el('div', { class: 'btnrow' },
+          el('button', { class: 'btn sm', onclick: () => cmd({ cmd: 'timer', op: t.paused ? 'resume' : 'pause' }) }, t.paused ? 'Resume' : 'Pause'),
+          el('button', { class: 'btn sm ghost', onclick: () => cmd({ cmd: 'timer', op: 'cancel' }) }, 'Cancel'))));
       timerCard.append(el('div', { class: 'progress' }, el('div', { style: `width:${Math.max(0, Math.min(100, 100 - (t.remaining / t.duration) * 100))}%` })));
     } else {
       timerCard.append(el('button', { class: 'btn block', onclick: async () => { const r = await timerDialog(); if (r) cmd({ cmd: 'timer', op: 'start', ...r }); } }, 'Set a timer'));
     }
-
-    if (PF.alertGen !== lastAlertGen) { lastAlertGen = PF.alertGen; loadAlerts(); }
   };
   update(PF.status);
   return onStatus(update);

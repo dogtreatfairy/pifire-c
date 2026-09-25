@@ -517,6 +517,60 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .tb-ind.ok { color: var(--ok-ink); } .tb-ind.warn { color: var(--warn-ink); } .tb-ind.bad { color: var(--danger-ink); } .tb-ind.muted { color: var(--line); }
 .tb-ind svg { width: 19px; height: 19px; }
 .tb-ind .sig.wifi { color: var(--text); }
+/* ---- the recipe that is running ---- */
+/* While a recipe runs this card is the page. It sits above everything else on Cook, and when the
+   recipe is waiting on the cook it says so in a line you cannot skim past, with one button under
+   it the width of the card. */
+.run-card { display: grid; gap: 10px; }
+.run-name { font-weight: var(--fw-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run-left { font-size: var(--fs-lg); font-variant-numeric: tabular-nums; flex: none; }
+.run-msg { font-size: var(--fs-sm); color: var(--muted); }
+.run-msg.now {
+  color: var(--text); font-weight: var(--fw-medium);
+  background: color-mix(in oklab, var(--warn) 16%, transparent);
+  border-left: 3px solid var(--warn); border-radius: var(--r-sm); padding: 8px 10px;
+}
+.run-card .form-actions { justify-content: flex-start; }
+
+/* ---- the header's timer chip and its drop-down ---- */
+/* The chip shows the time, not just a glyph: answering "how long left" without a tap is the whole
+   reason it is in the header. It borrows the indicator row's shape and widens to fit the digits. */
+.tb-timer { width: auto; gap: 4px; padding: 0 4px; background: none; border: 0; color: var(--text); cursor: pointer; }
+.tb-timer .tb-tag { border: 0; padding: 0; font-size: var(--fs-2xs); font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.tb-timer.paused { color: var(--muted); }
+.tb-timer .ic { display: inline-flex; }
+.tb-timer .ic svg { width: 17px; height: 17px; }
+
+/* The app's one drop-down. Full width on a phone with a gutter either side, and no wider than it
+   needs on a desktop, where it tucks under the indicator that opened it. */
+.hpanel {
+  position: fixed; left: 10px; right: 10px; z-index: 40;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
+  box-shadow: 0 18px 40px rgb(0 0 0 / .45); padding: 12px;
+  opacity: 0; transform: translateY(-8px); transition: opacity .16s ease, transform .16s ease;
+}
+.hpanel.in { opacity: 1; transform: none; }
+.hpanel-scrim { position: fixed; inset: 0; z-index: 39; }
+/* On a phone it takes the width, like a sheet, because a panel hung off one indicator in the
+   middle of the header reads as having slid out of nowhere. With room to spare it tucks under the
+   button that opened it, where a drop-down belongs. */
+@media (min-width: 560px) { .hpanel { left: auto; right: var(--hp-right, 10px); width: 320px; } }
+
+.tp { display: grid; gap: 10px; }
+.tp-row { display: grid; gap: 8px; }
+.tp-row + .tp-row { border-top: 1px solid var(--line); padding-top: 10px; }
+.tp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.tp-name { font-size: var(--fs-xs); color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-time { font-size: var(--fs-xl); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
+.tp-time.paused { color: var(--muted); }
+.tp-bar { height: 4px; border-radius: 2px; background: var(--surface2); overflow: hidden; }
+.tp-bar i { display: block; height: 100%; background: var(--accent); }
+.tp-acts { display: flex; gap: var(--sp-2); }
+.tp-acts .btn { flex: 1 1 0; justify-content: center; gap: 5px; }
+.tp-acts .btn .ic svg { width: 15px; height: 15px; }
+/* A step is advanced where the recipe is, so this row is a way there and says so. */
+.tp-link { width: 100%; text-align: left; background: none; border: 0; color: inherit; cursor: pointer; padding: 0; }
+.tp-link + .tp-row, .tp-row + .tp-link { border-top: 1px solid var(--line); padding-top: 10px; }
 .tb-tag { font-size: var(--fs-3xs); font-weight: 800; letter-spacing: .06em; border: 1px solid currentColor; border-radius: var(--r-sm); padding: 1px 3px; }
 /* industrial readout: a segmented mode plate and the number, square and tabular */
 .readout { display: inline-flex; align-items: stretch; height: 28px; border: 1px solid var(--line); border-radius: var(--r-sm); overflow: hidden; flex: none; font-variant-numeric: tabular-nums; }
@@ -533,6 +587,9 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .readout[data-mode="Error"] .rd-mode { background: var(--danger); color: var(--on-danger); }
 /* a tuning run is a mode of its own as far as the reader is concerned, so it gets its own colour */
 .readout[data-mode="Tuning"] .rd-mode { background: var(--info); color: var(--on-info); }
+/* A recipe waiting on the cook is the one state that wants looking at: the grill is holding and
+   nothing is wrong, but nothing happens next until someone goes outside. */
+.readout[data-mode="Waiting"] .rd-mode { background: var(--warn); color: var(--on-warn); }
 /* conditional notifications: the rule table and its editor */
 .rule-row > .row { gap: var(--sp-3); padding-right: var(--pad-x); }
 .rule-row .rule-main { flex: 1; min-width: 0; display: flex; align-items: center; min-height: var(--h-row); padding: 6px var(--pad-x); }

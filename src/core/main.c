@@ -155,6 +155,7 @@ int main(int argc, char **argv)
 	pf_update_init(data_dir, sim);
 	pf_pellets_init(sim);
 	pf_recipes_init();
+	pf_recipes_seed();
 	pf_learning_init();
 	pf_display_init();
 	pf_probes_init();
