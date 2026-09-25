@@ -32,7 +32,6 @@ static void autotune_start(pf_control *c, double now);
 static void autotune_finish(pf_control *c, bool ok, const char *why);
 static double autotune_output(const pf_control *c);
 static void autotune_cycle(const pf_control *c, int i, double *period, double *amp);
-static bool autotune_settled(const pf_control *c);
 
 /* ------------------------------------------------------------------ settings -> cfg */
 
@@ -1100,7 +1099,22 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 		return;
 	}
 
-	bool settled = autotune_settled(c);
+	/* A limit cycle that is still drifting is not a measurement of anything.
+	 *
+	 * This used to be filed anyway, with "(still drifting)" appended to the message, and it is what
+	 * made three runs on an unchanged grill return ultimate gains of 0.069, 0.067 and 0.052: each
+	 * one caught whatever the transient happened to look like when the crossing budget ran out.
+	 * Drift with no physical cause is worse than no answer, because it is averaged into the library
+	 * and quietly widens the band run after run. The crossing budget is generous now, and the run
+	 * still has its overall time limit; reaching the end of both without a steady cycle is a result
+	 * to refuse, not to record. */
+	bool settled = pf_control_autotune_settled(c);
+	if (!settled) {
+		pf_events_emit("Autotune_Failed", "Autotune stopped",
+		               "The oscillation never settled -- its last two cycles still differed by more than a quarter. Nothing was filed. Run it again once the grill is steady.");
+		LOGW(TAG, "autotune rejected: the limit cycle had not settled");
+		return;
+	}
 	/* Half the swing the grill really saw. Where nothing was clamped this is the h it was asked
 	 * for; where the low half hit the minimum feed it is smaller, and using the requested h there
 	 * would overstate the ultimate gain and hand back a proportional band that is too narrow. */
@@ -1109,14 +1123,39 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 		double hi = c->autotune.hi_sum / c->autotune.hi_n, lo = c->autotune.lo_sum / c->autotune.lo_n;
 		if (hi - lo > 0.01) h_eff = (hi - lo) / 2.0;
 	}
-	/* Ultimate gain from the describing function of a relay with hysteresis. Taking 4h/(pi*A)
-	 * alone gives the gain at the point the relay actually identifies, which sits a little short
-	 * of the -180 degree crossing because the hysteresis adds phase lag. Projecting onto the real
-	 * axis with sqrt(A^2 - eps^2) is the ultimate gain the tuning rules are written against; the
-	 * difference is a couple of percent on a healthy swing and a quarter on a marginal one. */
+	/* Ultimate gain from the describing function of a relay with hysteresis.
+	 *
+	 * 4h/pi is the fundamental of a square wave that spends half its period in each state, and a
+	 * pellet grill's limit cycle does not: it heats faster than it cools, so the halves run three
+	 * to two and further at the extremes. For a two-level relay that holds its high level for a
+	 * fraction g of the period, the fundamental is
+	 *
+	 *     U1 = (2/pi) * (u_hi - u_lo) * sin(pi*g)
+	 *
+	 * which is exactly 4h/pi at g = 0.5 and falls away either side of it -- six per cent down on
+	 * the 39/61 split one of this grill's own cycles ran at. Using the even-split figure on an
+	 * uneven cycle overstates the drive the grill actually received and so overstates its gain.
+	 *
+	 * Projecting onto the real axis with sqrt(A^2 - eps^2) is the ultimate gain the tuning rules
+	 * are written against; the hysteresis adds phase lag, and without that projection the gain is
+	 * read a little short of the -180 degree crossing. */
 	double eps = c->autotune.hyst_c;
 	double denom = sqrt(A * A - eps * eps);
-	double Ku = 4.0 * h_eff / (M_PI * (denom > 0.1 ? denom : A));
+	double gamma = 0.5;
+	{
+		double t_hi = 0, t_lo = 0; int gk = 0;
+		/* the same cycles the period and amplitude came from, split into their two halves */
+		for (int i = n - 1; i >= 2 && gk < 3; i -= 2, gk++) {
+			/* halves[i] is the half that ended at crossing i+1; phase tells which way round */
+			double a = c->autotune.halves[i], b = c->autotune.halves[i - 1];
+			bool i_was_high = ((n - i) % 2) == (c->autotune.phase > 0 ? 1 : 0);
+			t_hi += i_was_high ? a : b;
+			t_lo += i_was_high ? b : a;
+		}
+		if (t_hi + t_lo > 0) gamma = t_hi / (t_hi + t_lo);
+		gamma = pf_clamp(gamma, 0.15, 0.85);
+	}
+	double Ku = (2.0 / M_PI) * (2.0 * h_eff) * sin(M_PI * gamma) / (denom > 0.1 ? denom : A);
 	pf_autotune_result r = { .Ku = Ku, .Pu = Pu, .amplitude_c = A };
 
 	/* The tuning comes out of what the relay measured, and nothing else.
@@ -1155,7 +1194,7 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 	}
 	pf_events_emit("Autotune_Done", "Autotune complete",
 	               "Ku %.3f (swing ±%.2f duty), period %.0f s over %d cycle%s%s, amplitude ±%.1f, sitting %.1f from the set point. PB %.0f (%s), Ti %.0f s%s.",
-	               Ku, h_eff, Pu, k, k == 1 ? "" : "s", settled ? "" : " (still drifting)",
+	               Ku, h_eff, Pu, k, k == 1 ? "" : "s", "",
 	               pf_delta_from_c(A, c->cfg.units), bias_f, pf_delta_from_c(r.PB_c, c->cfg.units),
 	               c->cfg.units == PF_UNITS_C ? "C" : "F", r.Ti,
 	               applied ? " - applied to the controller" : " - review under More > Learning");
@@ -1284,13 +1323,24 @@ static void autotune_cycle(const pf_control *c, int i, double *period, double *a
 
 /* Has the limit cycle settled? Two consecutive oscillations that agree in period and amplitude are
  * the standard evidence that what is being measured is the plant rather than the transient. */
-static bool autotune_settled(const pf_control *c)
+bool pf_control_autotune_settled(const pf_control *c)
 {
 	int n = c->autotune.crossings < PF_AT_MAX ? c->autotune.crossings : PF_AT_MAX;
-	if (n < 4) return false;
+	/* Two DISJOINT cycles, not two overlapping windows.
+	 *
+	 * autotune_cycle(i) is halves[i] and halves[i-1], so cycle(n-2) and cycle(n-1) share a half
+	 * between them -- and two sums that share one of their two terms agree almost whatever the
+	 * grill is doing. On a real run whose consecutive cycles were 498 s and 362 s, twenty-seven
+	 * per cent apart, this pair came out four per cent apart and the run called itself settled.
+	 * A test that cannot fail is not a test, and it is why three runs on an unchanged grill filed
+	 * ultimate gains of 0.069, 0.067 and 0.052: each one accepted a transient.
+	 *
+	 * The last cycle is halves[n-1] and halves[n-2]; the one before it is halves[n-3] and
+	 * halves[n-4], which needs five crossings to exist. */
+	if (n < 5) return false;
 	double p1, a1, p2, a2;
-	autotune_cycle(c, n - 2, &p1, &a1);
-	autotune_cycle(c, n - 1, &p2, &a2);
+	autotune_cycle(c, n - 1, &p1, &a1);
+	autotune_cycle(c, n - 3, &p2, &a2);
 	double pmax = fmax(p1, p2), amax = fmax(a1, a2);
 	if (pmax <= 0 || amax <= 0) return false;
 	return fabs(p1 - p2) <= 0.25 * pmax && fabs(a1 - a2) <= 0.30 * amax;
@@ -1523,7 +1573,7 @@ static double autotune_step(pf_control *c, double now)
 		bool centred = bias_now <= pf_delta_to_c(2.0, PF_UNITS_F) || c->autotune.meas_err_n < 4;
 		if (c->autotune.crossings >= PF_AT_MIN_CROSS &&
 		    c->autotune.crossings >= c->autotune.adjust_at_cross + 4 &&
-		    (((autotune_settled(c) && centred)) || c->autotune.crossings >= PF_AT_MAX)) {
+		    (((pf_control_autotune_settled(c) && centred)) || c->autotune.crossings >= PF_AT_MAX)) {
 			autotune_finish(c, true, "");
 			return c->autotune.u_center;
 		}

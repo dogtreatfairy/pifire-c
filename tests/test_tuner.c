@@ -809,6 +809,39 @@ static void test_the_swing_is_centred_on_the_set_point(void)
 	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(5.0, 250.0, mean, "the oscillation must sit on the set point");
 }
 
+/* A limit cycle that is still drifting is not a measurement of anything.
+ *
+ * This used to be filed anyway with "(still drifting)" appended to the message, and it is what made
+ * three runs on an unchanged grill return ultimate gains of 0.069, 0.067 and 0.052: each caught
+ * whatever the transient happened to look like when the crossing budget ran out. Drift with no
+ * physical cause is worse than no answer, because it is averaged into the library and quietly
+ * widens the band run after run. */
+static void test_a_drifting_cycle_is_not_a_measurement(void)
+{
+	pf_control c = { 0 };
+	/* two cycles that agree: halves of 200/300 and 210/290, so 500 s against 500 s */
+	c.autotune.crossings = 5;
+	c.autotune.halves[1] = 200; c.autotune.halves[2] = 300;
+	c.autotune.halves[3] = 210; c.autotune.halves[4] = 290;
+	for (int i = 1; i <= 4; i++) { c.autotune.hi_peak[i] = 125; c.autotune.lo_peak[i] = 119; }
+	TEST_ASSERT_TRUE_MESSAGE(pf_control_autotune_settled(&c), "cycles of 500 s and 500 s have settled");
+
+	/* and the pair this grill actually produced: 302+196 against 151+211 */
+	c.autotune.halves[1] = 302; c.autotune.halves[2] = 196;
+	c.autotune.halves[3] = 151; c.autotune.halves[4] = 211;
+	printf("cycles of %.0f s and %.0f s -> %.0f%% apart\n", 302.0 + 196, 151.0 + 211,
+	       fabs(498.0 - 362) / 498 * 100);
+	TEST_ASSERT_FALSE_MESSAGE(pf_control_autotune_settled(&c),
+	                          "cycles 27 per cent apart have not settled and must not be filed");
+
+	/* amplitude counts too: a swing that is still growing is a transient */
+	c.autotune.halves[1] = 250; c.autotune.halves[2] = 250;
+	c.autotune.halves[3] = 250; c.autotune.halves[4] = 250;
+	c.autotune.hi_peak[1] = c.autotune.hi_peak[2] = 123; c.autotune.lo_peak[1] = c.autotune.lo_peak[2] = 121;
+	c.autotune.hi_peak[3] = c.autotune.hi_peak[4] = 128; c.autotune.lo_peak[3] = c.autotune.lo_peak[4] = 119;
+	TEST_ASSERT_FALSE_MESSAGE(pf_control_autotune_settled(&c), "a swing still growing has not settled");
+}
+
 /* The relay begins the moment the pit arrives at the set point, which it does climbing. Starting
    the first half from the sign of the error then starts it FEEDING, and that lands on top of the
    momentum the pit already has: on the real grill the first half lasted fifteen seconds and the
@@ -990,6 +1023,7 @@ int main(void)
 	RUN_TEST(test_a_slow_cooling_half_is_not_a_stall);
 	RUN_TEST(test_the_relay_centres_on_holding_not_climbing);
 	RUN_TEST(test_a_relay_result_does_not_depend_on_anything_else);
+	RUN_TEST(test_a_drifting_cycle_is_not_a_measurement);
 	RUN_TEST(test_the_relay_starts_against_the_pit);
 	RUN_TEST(test_a_widened_swing_survives_a_recentring);
 	RUN_TEST(test_the_swing_is_centred_on_the_set_point);

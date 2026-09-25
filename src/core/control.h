@@ -121,7 +121,11 @@ typedef struct {
 		double sp_seen_c, sp_since; bool sp_reached, rise_active, rise_from_step;
 	} learn;
 	/* relay autotune (core-owned; controller update() is bypassed while active) */
-#define PF_AT_MAX 14        /* half-cycles kept: seven crossings normally, more while the relay is being conditioned */
+/* Half-cycles kept. The conditioning can spend eight of these -- two centrings and two resizes,
+ * two crossings each -- and the settling test needs two consecutive cycles that agree, so a budget
+ * of fourteen left a well-behaved run barely three cycles to settle in. It is the time limit that
+ * is meant to end a hopeless run, not the crossing count ending a healthy one early. */
+#define PF_AT_MAX 24
 #define PF_AT_MIN_CROSS 5   /* the fewest crossings that can produce a result: two full cycles after the centring */
 	struct {
 		bool active; int phase; double u_center, h, hyst_c, start_t, last_cross_t;
@@ -179,6 +183,9 @@ void pf_control_init(pf_control *c, bool sim);
 /* Size the relay's swing to the room around its centre, honouring the cap and floor a run has
  * learned. Exposed so the tests can check that a deliberate widening survives a re-centring. */
 void pf_control_autotune_size(pf_control *c);
+/* Have the last two oscillations agreed closely enough to call this a limit cycle? A run that
+ * cannot say yes has measured a transient, and files nothing. Exposed for the tests. */
+bool pf_control_autotune_settled(const pf_control *c);
 void pf_control_shutdown(pf_control *c);
 void pf_control_reload_settings(pf_control *c);
 /* One tick: consume commands, read sensors, run mode logic + safety, drive outputs, publish status. */

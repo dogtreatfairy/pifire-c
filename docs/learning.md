@@ -56,6 +56,38 @@ point`, and its own log said why:
 Those compound: a thin swing inflates the describing function (±5.7 °F against a 1.2 °C band is 8 %
 of inflation on its own) and an off-centre cycle stretches the period and widens the swing again.
 
+### The cycle has to have settled, and the test for that has to work
+
+Three runs at 250 F on an unchanged grill returned ultimate gains of **0.0685, 0.0667 and 0.052** —
+a 24 % slide in one direction, which is drift with no physical cause. Two faults, compounding:
+
+* **The settling test could not fail.** `autotune_cycle(i)` is `halves[i] + halves[i-1]`, and the
+  check compared `cycle(n-2)` against `cycle(n-1)` — two sums that **share a half-cycle**. Sums
+  sharing one of their two terms agree almost whatever the grill is doing: on the run whose
+  consecutive cycles were 498 s and 362 s, twenty-seven per cent apart, that pair came out four per
+  cent apart. It now compares two **disjoint** cycles, which needs five crossings rather than four.
+* **An unsettled result was filed anyway**, with "(still drifting)" appended to the message. A
+  transient averaged into the library is worse than no answer, because it quietly widens the band
+  every time. A run that never settles now fails and files nothing.
+
+The crossing budget went from 14 half-cycles to 24 to make settling reachable: conditioning can
+spend eight of them, and the settling test needs two consecutive cycles after that. It is the run's
+time limit that is meant to end a hopeless run, not the crossing count ending a healthy one early.
+
+### An uneven cycle is not a square wave
+
+`4h/π` is the fundamental of a relay that spends half its period in each state. A pellet grill heats
+faster than it cools, so it does not: this grill's cycles ran 39/61. For a two-level relay holding
+its high level for a fraction γ of the period,
+
+```
+U₁ = (2/π)·(u_hi − u_lo)·sin(πγ)
+```
+
+which is exactly `4h/π` at γ = 0.5 and six per cent below it at 39/61. Using the even-split figure on
+an uneven cycle overstates the drive the grill actually received, and so overstates its gain. It is
+computed from the measured halves now.
+
 ### The relay's own answer
 
 A relay test measures two numbers and two only: the ultimate gain `Ku` and the period `Pu` of the
