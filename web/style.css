@@ -354,7 +354,10 @@ legend { font-weight: 600; margin-bottom: 6px; }
   margin: var(--sp-3) calc(var(--bleed) * -1) 0; padding: var(--sp-3) var(--pad-x) 0;
   border-top: var(--bw) solid var(--line);
 }
-.form-actions:has(> .btn:nth-child(3)) > .btn { flex: 1 1 8rem; }
+/* Three verbs share the row rather than wrapping two-and-one, which reads as an accident. The
+   basis is what three of them fit in at 402 pt with the page gutter, so the order the row is read
+   in -- dismissive first, committing last -- survives on a phone. */
+.form-actions:has(> .btn:nth-child(3)) > .btn { flex: 1 1 5.5rem; min-width: 0; padding-inline: 8px; }
 /* A footer inside a card pulls its rule out to the card's own edges, which is why it carries a
    negative margin -- see --bleed, which is zero at page level and so leaves it flush there. */
 
@@ -1185,7 +1188,11 @@ main.view > :first-child { margin-top: 12px; }
 .nitem.live .nt-title::after { content: ''; display: inline-block; width: 7px; height: 7px; margin-left: 7px;
   border-radius: 50%; background: var(--accent); vertical-align: middle; }
 .nitem:not(.live) .nt-title, .nitem:not(.live) .nt-text { opacity: .72; }
-.nitem .btn.xs { align-self: center; }
+.nitem > .btn.xs { align-self: center; }
+/* What can be done about an alarm goes under what it says, full width, so the message keeps the
+   width of the card. Dismissive first, committing last, as everywhere else. */
+.nt-acts { display: flex; gap: var(--sp-2); margin-top: 8px; justify-content: flex-end; }
+.nt-acts .btn { flex: 0 1 auto; min-width: 7rem; justify-content: center; align-self: stretch; }
 @media (min-width: 900px) { .toasts { left: 132px; } }
 .tabbar::before, .cgroup::before, .dialog::before, .toast::before { background: var(--surface2); }
 /* nothing has a specular edge to move */

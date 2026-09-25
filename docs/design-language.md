@@ -724,6 +724,24 @@ What reaches a phone is decided by the rule that fired, not by a second layer of
 names its own services and its own urgency; the category switches exist for the daemon's own
 chatter and must not silently swallow anything a person wrote.
 
+## An alarm that has a remedy offers it
+
+Most alarms are things to know. A few are questions: the grill is still burning and the recipe that
+was managing it has finished. Those carry a **remedy** — an action the app knows how to carry out —
+and they are **asked** rather than filed: a dialog, once per activation, with the three answers a
+question like that has. Put something right, put it off, or say you have seen it. Ignore on the
+left, snooze in the middle, the remedy on the right, the same order as every other row.
+
+The same three appear on the alarm's row behind the bell, under its message rather than beside it,
+so the message keeps the width of the card. Carrying out the remedy acknowledges the alarm at the
+same time — otherwise it sits there as an unanswered warning after the very thing it asked for has
+been done.
+
+A question that answers itself must go away by itself. This is what makes snoozing safe: the alarm
+is a condition, so shutting the grill down twenty minutes into an hour's snooze ends the condition,
+and there is nothing left to come back. Never build a reminder that survives the thing it was
+reminding you about.
+
 ## Where a control goes
 
 **A control belongs to the thing it acts on**, in the section that owns that subject, not in

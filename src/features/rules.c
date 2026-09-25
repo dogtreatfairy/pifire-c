@@ -456,7 +456,11 @@ static void render(char *out, size_t cap, const char *tpl, const cJSON *status, 
 		val v = v_none();
 		if (!strcmp(key, "probe") || !strcmp(key, "probe_name") || !strcmp(key, "name"))
 			snprintf(buf, sizeof buf, "%s", in && in->name ? in->name : "");
-		else if (!strcmp(key, "grill")) { char g[48]; pf_set_str("globals.grill_name", g, sizeof g, "PiFire"); snprintf(buf, sizeof buf, "%s", g); }
+		/* The grill ships without a name, and the setting is an empty string rather than absent,
+		 * so the default only applied to a settings file that had never heard of it. Every fresh
+		 * install therefore read the built-in rule as " is up to temperature". A grill nobody has
+		 * named is "The grill". */
+		else if (!strcmp(key, "grill")) { char g[48]; pf_set_str("globals.grill_name", g, sizeof g, ""); snprintf(buf, sizeof buf, "%s", g[0] ? g : "The grill"); }
 		else if (!strcmp(key, "mode")) snprintf(buf, sizeof buf, "%s", pf_json_str((cJSON *)status, "mode", ""));
 		else if (!strcmp(key, "time")) { char t[16]; time_t now = (time_t)pf_wall(); struct tm tmv; localtime_r(&now, &tmv); strftime(t, sizeof t, "%H:%M", &tmv); snprintf(buf, sizeof buf, "%s", t); }
 		else if (!strcmp(key, "value") && matched && matched->t == VT_NUM) snprintf(buf, sizeof buf, "%.0f", matched->num);

@@ -120,6 +120,17 @@ typedef enum {
 const char *pf_mode_name(pf_mode m);
 int pf_mode_from_name(const char *s); /* -1 if unknown */
 
+/* Is there a fire the grill is keeping alight in this mode?
+ *
+ * Startup and Reignite are lighting one, Smoke and Hold are feeding one. Shutdown is deliberately
+ * not one of them: the fire is still in there, but it is already on its way out and nothing is
+ * being asked of the cook. Stop, Monitor, Prime, Manual and Error are not the grill's own fire to
+ * answer for. */
+static inline bool pf_mode_is_firing(pf_mode m)
+{
+	return m == PF_MODE_STARTUP || m == PF_MODE_REIGNITE || m == PF_MODE_SMOKE || m == PF_MODE_HOLD;
+}
+
 typedef enum { PF_OUT_POWER = 0, PF_OUT_FAN, PF_OUT_AUGER, PF_OUT_IGNITER, PF_OUT_COUNT } pf_output;
 const char *pf_output_name(pf_output o);
 

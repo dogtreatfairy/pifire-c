@@ -53,6 +53,11 @@ void pf_alarms_retire(const char *key);
 void pf_alarms_note(const char *code, const char *name, int crit, unsigned sinks,
                     const char *title, const char *body);
 
+/* Say what can be done about a standing alarm beyond acknowledging it: `fix` names an action the
+ * app knows how to carry out ("shutdown"), and `snooze_s` how long its snooze button should offer.
+ * Called after raising it. An alarm with a remedy can offer it in the list where it is read. */
+void pf_alarms_offer(const char *key, const char *fix, double snooze_s);
+
 /* Acknowledge: the person has seen it. An alarm still standing stays in the list until its
  * condition clears; anything already clear, and every notice, leaves at once. */
 int  pf_alarms_ack(const char *key);

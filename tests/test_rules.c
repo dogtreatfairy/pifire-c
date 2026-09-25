@@ -942,6 +942,34 @@ static void test_without_a_deadband_it_still_chatters(void)
 	cJSON_Delete(st);
 }
 
+/* A grill nobody has named still has to read as something.
+ *
+ * globals.grill_name ships as an empty string rather than as an absent key, so the "PiFire"
+ * default the substitution asked for never applied, and the built-in "Grill Reached Temp" rule
+ * came out of every fresh install as " is up to temperature" -- leading space and all. */
+static void test_an_unnamed_grill_is_called_something_in_a_message(void)
+{
+	char err[160];
+	TEST_ASSERT_EQUAL_INT(0, pf_settings_patch("globals", "{\"grill_name\":\"\"}", err, sizeof err));
+	cJSON *r = cJSON_Parse("{\"id\":\"g\",\"enabled\":true,\"select\":{\"domain\":\"grill\"},"
+	                       "\"when\":{\"op\":\"all\",\"conditions\":[{\"trait\":\"mode\",\"op\":\"is\",\"value\":\"Hold\"}]},"
+	                       "\"title\":\"{grill} is up to temperature\",\"body\":\"The pit is at {grill_temp}.\","
+	                       "\"level\":\"normal\",\"sinks\":[\"app\"]}");
+	cJSON *st = status();
+	char title[160] = "", body[320] = "";
+	int sel = 0, match = 0;
+	pf_rules_preview(r, st, title, sizeof title, body, sizeof body, &sel, &match);
+	TEST_ASSERT_EQUAL_STRING("The grill is up to temperature", title);
+
+	/* and a grill that has been named uses its name */
+	TEST_ASSERT_EQUAL_INT(0, pf_settings_patch("globals", "{\"grill_name\":\"Smokey\"}", err, sizeof err));
+	pf_rules_preview(r, st, title, sizeof title, body, sizeof body, &sel, &match);
+	TEST_ASSERT_EQUAL_STRING("Smokey is up to temperature", title);
+
+	cJSON_Delete(st);
+	cJSON_Delete(r);
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -974,5 +1002,6 @@ int main(void)
 	RUN_TEST(test_not_denies_what_is_inside_it);
 	RUN_TEST(test_a_condition_can_carry_its_own_time);
 	RUN_TEST(test_a_timed_condition_starts_over_when_it_lapses);
+	RUN_TEST(test_an_unnamed_grill_is_called_something_in_a_message);
 	return UNITY_END();
 }

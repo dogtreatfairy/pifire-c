@@ -203,9 +203,50 @@ export async function refreshAlarms() {
     PF.alarms = await api('/alarms');
     updateBadge();
     centreRender?.();
+    askAboutFixables();
   } catch { /* offline: keep showing what we last knew */ }
 }
 const KIND_ICON = { error: 'circle-x', warn: 'triangle-alert', ok: 'circle-check', info: 'info' };
+/* The remedies an alarm may name, and what carrying one out means here. The daemon says what can
+   be done about a condition; this is the only place that knows how to do it. */
+const FIX_LABEL = { shutdown: 'Shut Down' };
+const FIX_RUN = { shutdown: () => cmd({ cmd: 'mode', mode: 'Shutdown' }) };
+const snoozeLabel = (s) => (s >= 3600 ? `Snooze ${Math.round(s / 3600)} h` : `Snooze ${Math.round(s / 60)} min`);
+/* Carrying out the remedy answers the alarm, so it is acknowledged at the same time. Without that
+   it would sit in the list as an unanswered warning after the very thing it asked for was done. */
+async function runFix(n) {
+  try { await FIX_RUN[n.fix]?.(); } catch (e) { toast(e.message, true); return; }
+  try { await api('/alarms/ack', { body: { key: n.key } }); } catch {}
+  await refreshAlarms();
+}
+
+/* An alarm that names a remedy is a question, so it is asked rather than filed.
+ *
+ * Only once per activation, and never for one already acknowledged or snoozed: the list behind the
+ * bell is where a question you have already answered lives. If the condition ends by itself -- the
+ * grill goes out -- the alarm goes with it and the question is moot. */
+const asked = new Set();
+function askAboutFixables() {
+  for (const n of PF.alarms.alarms || []) {
+    if (!n.active || !n.fix || n.acked || n.shelved_for || asked.has(n.key)) continue;
+    asked.add(n.key);
+    dialog((close) => el('div', {},
+      el('h3', {}, n.title || 'The grill needs an answer'),
+      n.body ? el('p', { class: 'muted' }, n.body) : null,
+      el('div', { class: 'form-actions' },
+        el('button', { class: 'btn ghost', type: 'button',
+          onclick: async () => { close(); try { await api('/alarms/ack', { body: { key: n.key } }); } catch {} await refreshAlarms(); } }, 'Ignore'),
+        el('button', { class: 'btn ghost', type: 'button',
+          onclick: async () => { close(); try { await api('/alarms/shelve', { body: { key: n.key, seconds: n.snooze_s || 1800 } }); } catch {} await refreshAlarms(); } },
+          snoozeLabel(n.snooze_s || 1800)),
+        el('button', { class: 'btn primary', type: 'button',
+          onclick: () => { close(); runFix(n); } }, FIX_LABEL[n.fix] || 'Fix'))));
+    return;   /* one question at a time */
+  }
+  /* Forget the ones that have gone, so the same condition arising again is asked about again. */
+  const live = new Set((PF.alarms.alarms || []).filter((a) => a.active).map((a) => a.key));
+  for (const k of asked) if (!live.has(k)) asked.delete(k);
+}
 function kindOf(code = '', level = 1) {
   if (/^E\d/.test(code) || level >= 3) return 'error';
   if (/Limit_Alarm|Pellet_Level_Low|Autotune_Failed|W\d\d/.test(code) || level === 2) return 'warn';
@@ -360,10 +401,20 @@ export function openNotifications() {
           el('div', { class: 'nt-body' },
             n.title ? el('div', { class: 'nt-title' }, n.title) : null,
             n.body ? el('div', { class: 'nt-text' }, n.body) : null,
-            el('div', { class: 'meta' }, meta)),
-          /* Mute is for the one that is right, keeps happening, and cannot be fixed this minute. */
-          n.active && !n.shelved_for ? el('button', { class: 'btn xs ghost', type: 'button', title: 'Silence for 30 minutes',
-            onclick: async () => { try { await api('/alarms/shelve', { body: { key: n.key, seconds: 1800 } }); } catch {} await refreshAlarms(); } }, 'Mute') : null,
+            el('div', { class: 'meta' }, meta),
+            /* The verbs sit under what they are about rather than beside it: two buttons alongside
+               a paragraph squeeze the paragraph into a column three words wide. Silencing it comes
+               first and fixing it last, the order every other row in the app is read in. */
+            n.active && (n.fix || !n.shelved_for) ? el('div', { class: 'nt-acts' },
+              /* Mute is for the one that is right, keeps happening, and cannot be fixed now. */
+              !n.shelved_for ? el('button', { class: 'btn xs ghost', type: 'button',
+                title: `Silence for ${Math.round((n.snooze_s || 1800) / 60)} minutes`,
+                onclick: async () => { try { await api('/alarms/shelve', { body: { key: n.key, seconds: n.snooze_s || 1800 } }); } catch {} await refreshAlarms(); } },
+                n.snooze_s ? snoozeLabel(n.snooze_s) : 'Mute') : null,
+              /* An alarm that names a remedy offers it here, rather than sending the reader off to
+                 find the screen the remedy lives on. */
+              n.fix ? el('button', { class: 'btn xs primary', type: 'button',
+                onclick: () => runFix(n) }, FIX_LABEL[n.fix] || 'Fix') : null) : null),
           el('button', { class: 'nt-close', 'aria-label': 'Clear',
             onclick: async () => { try { await api('/alarms/ack', { body: { key: n.key } }); } catch {} await refreshAlarms(); } }, '\u00d7')));
       }

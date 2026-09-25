@@ -36,6 +36,12 @@ typedef struct {
 	double window_start;
 	unsigned window_raises;
 	double shelved_until;
+	/* What can be done about this one besides acknowledging it. `fix` names an action the app
+	 * knows how to carry out, and `snooze_s` how long its snooze offers -- so an alarm that has a
+	 * remedy can offer it where it is read, instead of sending the reader off to find the screen
+	 * the remedy lives on. */
+	char fix[24];
+	double snooze_s;
 } alarm_t;
 
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
@@ -150,6 +156,17 @@ void pf_alarms_clear(const char *key)
 		 * should mean -- while the slot is kept a while longer so its activations keep counting. */
 		if (a->acked || a->crit < PF_CRIT_HIGH) { a->retired = true; a->acked = true; }
 		g_gen++;
+	}
+	pthread_mutex_unlock(&g_mu);
+}
+
+void pf_alarms_offer(const char *key, const char *fix, double snooze_s)
+{
+	pthread_mutex_lock(&g_mu);
+	alarm_t *a = find(key);
+	if (a) {
+		pf_strlcpy(a->fix, fix ? fix : "", sizeof a->fix);
+		a->snooze_s = snooze_s;
 	}
 	pthread_mutex_unlock(&g_mu);
 }
@@ -282,6 +299,8 @@ cJSON *pf_alarms_json(void)
 		if (a->cleared_ts > 0) cJSON_AddNumberToObject(e, "cleared_ts", a->cleared_ts);
 		if (a->raises > 1) cJSON_AddNumberToObject(e, "raises", a->raises);
 		if (a->shelved_until > now) cJSON_AddNumberToObject(e, "shelved_for", round(a->shelved_until - now));
+		if (a->fix[0]) cJSON_AddStringToObject(e, "fix", a->fix);
+		if (a->snooze_s > 0) cJSON_AddNumberToObject(e, "snooze_s", a->snooze_s);
 		cJSON_AddItemToArray(arr, e);
 		if (!a->acked) unacked++;
 		if (a->active) active++;

@@ -13,6 +13,7 @@
 #include "core/settings.h"
 #include "controllers/registry.h"
 #include "features/learning.h"
+#include "features/alarms.h"
 #include "features/recipe.h"
 #include "platform/sim.h"
 #include "probes/probes.h"
@@ -163,6 +164,62 @@ static void test_a_step_with_a_mode_the_grill_does_not_have_is_refused(void)
 	TEST_ASSERT_TRUE(pf_recipe_save("{\"name\":\"\",\"steps\":[{\"mode\":\"Hold\"}]}", err, sizeof err) < 0);
 }
 
+/* A Startup step on a grill that is already lit is satisfied by the fire that is there. The runner
+ * decides that from this one question, so this is where it is pinned down: Shutdown is deliberately
+ * not a firing mode, because the fire in there is already on its way out. */
+static void test_which_modes_count_as_a_grill_that_is_already_lit(void)
+{
+	TEST_ASSERT_TRUE(pf_mode_is_firing(PF_MODE_STARTUP));
+	TEST_ASSERT_TRUE(pf_mode_is_firing(PF_MODE_REIGNITE));
+	TEST_ASSERT_TRUE(pf_mode_is_firing(PF_MODE_SMOKE));
+	TEST_ASSERT_TRUE(pf_mode_is_firing(PF_MODE_HOLD));
+	TEST_ASSERT_FALSE(pf_mode_is_firing(PF_MODE_STOP));
+	TEST_ASSERT_FALSE(pf_mode_is_firing(PF_MODE_MONITOR));
+	TEST_ASSERT_FALSE(pf_mode_is_firing(PF_MODE_PRIME));
+	TEST_ASSERT_FALSE(pf_mode_is_firing(PF_MODE_SHUTDOWN));
+	TEST_ASSERT_FALSE(pf_mode_is_firing(PF_MODE_MANUAL));
+	TEST_ASSERT_FALSE(pf_mode_is_firing(PF_MODE_ERROR));
+}
+
+static cJSON *find_alarm(cJSON *all, const char *code)
+{
+	cJSON *arr = cJSON_GetObjectItem(all, "alarms"), *a;
+	cJSON_ArrayForEach(a, arr) if (!strcmp(pf_json_str(a, "code", ""), code)) return a;
+	return NULL;
+}
+
+/* A recipe that ends without a Shutdown step leaves a fire burning with nothing behind it. That is
+ * a condition, not a moment: it is asked about, it can be snoozed, and it ends by itself when the
+ * grill goes out -- which is what makes snoozing it for an hour harmless. */
+static void test_the_still_running_question_carries_its_own_answers_and_ends_with_the_fire(void)
+{
+	pf_alarms_init();
+	pf_alarms_raise("RECIPE:left_running", "W11_RECIPE_LEFT_RUNNING", "Grill Still Running",
+	                PF_CRIT_HIGH, PF_SINK_ALL, "The grill is still running", "It is still in Hold.");
+	pf_alarms_offer("RECIPE:left_running", "shutdown", 3600);
+
+	cJSON *all = pf_alarms_json();
+	cJSON *a = find_alarm(all, "W11_RECIPE_LEFT_RUNNING");
+	TEST_ASSERT_NOT_NULL(a);
+	TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(a, "active")));
+	/* the remedy and the snooze travel with it, so the app can offer both where it is read */
+	TEST_ASSERT_EQUAL_STRING("shutdown", pf_json_str(a, "fix", ""));
+	TEST_ASSERT_EQUAL_DOUBLE(3600, pf_json_num(a, "snooze_s", 0));
+	cJSON_Delete(all);
+
+	TEST_ASSERT_EQUAL_INT(0, pf_alarms_shelve("RECIPE:left_running", 3600));
+	all = pf_alarms_json();
+	a = find_alarm(all, "W11_RECIPE_LEFT_RUNNING");
+	TEST_ASSERT_TRUE(pf_json_num(a, "shelved_for", 0) > 3500);
+	cJSON_Delete(all);
+
+	/* the grill goes out well inside the hour: the question is moot and the snooze goes with it */
+	pf_alarms_clear("RECIPE:left_running");
+	all = pf_alarms_json();
+	TEST_ASSERT_NULL(find_alarm(all, "W11_RECIPE_LEFT_RUNNING"));
+	cJSON_Delete(all);
+}
+
 int main(void)
 {
 	pf_log_init(PF_LOG_ERROR);
@@ -174,5 +231,7 @@ int main(void)
 	RUN_TEST(test_carryover_follows_the_rate_the_probe_is_climbing_at);
 	RUN_TEST(test_a_step_can_be_aimed_at_any_food_probe);
 	RUN_TEST(test_a_step_with_a_mode_the_grill_does_not_have_is_refused);
+	RUN_TEST(test_which_modes_count_as_a_grill_that_is_already_lit);
+	RUN_TEST(test_the_still_running_question_carries_its_own_answers_and_ends_with_the_fire);
 	return UNITY_END();
 }

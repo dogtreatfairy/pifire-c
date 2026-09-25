@@ -10,6 +10,7 @@
 #include "core/status.h"
 #include "core/util.h"
 #include "controllers/registry.h"
+#include "features/alarms.h"
 #include "features/cookfile.h"
 #include "features/learning.h"
 #include "features/tuner.h"
@@ -648,6 +649,10 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 		if (pf_recipe_load((int)cmd->num, &c->recipe.r)) { LOGW(TAG, "recipe %d not found", (int)cmd->num); break; }
 		c->recipe.active = true;
 		c->recipe.step = 0;
+		/* Something is managing the grill again, so the question left by the last recipe -- that a
+		 * fire was burning with nothing behind it -- is no longer a question. */
+		c->recipe.left_running = false;
+		pf_alarms_clear("RECIPE:left_running");
 		recipe_begin_step(c, now);
 		break;
 	case PF_CMD_RECIPE_NEXT:
@@ -792,7 +797,12 @@ static void recipe_begin_step(pf_control *c, double now)
 	case PF_MODE_STARTUP:
 		c->next_mode = c->recipe.step + 1 < c->recipe.r.nsteps ? c->recipe.r.steps[c->recipe.step + 1].mode : c->cfg.after_startup_mode;
 		if (c->next_mode != PF_MODE_SMOKE && c->next_mode != PF_MODE_HOLD) c->next_mode = PF_MODE_SMOKE;
-		if (c->mode != PF_MODE_STARTUP) enter_mode(c, PF_MODE_STARTUP, now);
+		/* A grill that is already lit is not lit again. Running a recipe on a grill that is
+		 * already at temperature used to drop it back into Startup and put the igniter on over a
+		 * live fire, and cost the cook the twenty minutes it takes to come back up. The step is
+		 * satisfied by the fire that is already there, and the run picks up at the next one. */
+		if (pf_mode_is_firing(c->mode)) LOGI(TAG, "recipe '%s': the grill is already lit, skipping the startup step", c->recipe.r.name);
+		else if (c->mode != PF_MODE_STARTUP) enter_mode(c, PF_MODE_STARTUP, now);
 		break;
 	case PF_MODE_SMOKE: case PF_MODE_HOLD:
 		if (c->mode == PF_MODE_STOP || c->mode == PF_MODE_MONITOR) { c->next_mode = s->mode; enter_mode(c, PF_MODE_STARTUP, now); }
@@ -811,9 +821,34 @@ static void recipe_advance(pf_control *c, double now)
 	if (++c->recipe.step >= c->recipe.r.nsteps) {
 		pf_events_emit("Recipe_Complete", c->recipe.r.name, "Recipe finished.");
 		c->recipe.active = false;
+		/* A recipe whose last step was Shutdown has put the grill out. One that ends any other way
+		 * has handed back a lit grill with nothing left to manage it, which the cook is told about
+		 * and asked what to do with, until they answer or the fire is out. */
+		c->recipe.left_running = pf_mode_is_firing(c->mode);
 		return;
 	}
 	recipe_begin_step(c, now);
+}
+
+/* Asked every tick once a recipe has ended leaving the grill lit. It is a condition, not a moment:
+ * it is true for as long as the fire is burning with no recipe behind it, and it ends by itself
+ * when the grill goes out -- which is what makes a snooze harmless. Snoozing for an hour on a
+ * grill that is shut down twenty minutes later costs nothing, because there is nothing left to
+ * come back to. */
+static void recipe_aftercare(pf_control *c)
+{
+	if (!c->recipe.left_running) return;
+	if (!pf_mode_is_firing(c->mode)) {
+		c->recipe.left_running = false;
+		pf_alarms_clear("RECIPE:left_running");
+		return;
+	}
+	char body[256];
+	snprintf(body, sizeof body, "%s has finished and did not shut the grill down. It is still in %s.",
+	         c->recipe.r.name[0] ? c->recipe.r.name : "The recipe", pf_mode_name(c->mode));
+	pf_alarms_raise("RECIPE:left_running", "W11_RECIPE_LEFT_RUNNING", "Grill Still Running",
+	                PF_CRIT_HIGH, PF_SINK_ALL, "The grill is still running", body);
+	pf_alarms_offer("RECIPE:left_running", "shutdown", 3600);
 }
 
 static void run_recipe(pf_control *c, double now)
@@ -2338,6 +2373,7 @@ void pf_control_step(pf_control *c, double now)
 	apply_request(c, now);
 	run_notify(c, now);
 	run_recipe(c, now);
+	recipe_aftercare(c);
 	learn_rise_track(c, now);
 
 	int action = pf_safety_tick(c, now);
