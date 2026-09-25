@@ -10,13 +10,27 @@ export function renderHistory(view) {
   const header = el('div', { class: 'row between' },
     segmented([[15, '15m'], [60, '1h'], [180, '3h'], [720, '12h'], [1440, '24h']], minutes, (v) => { minutes = v; viewing = null; title.textContent = ''; try { localStorage.setItem('pf.hist.minutes', v); } catch {} load(); }),
     el('label', { class: 'row' }, el('input', { type: 'checkbox', checked: live, onchange: (e) => (live = e.target.checked) }), 'Live'));
-  const stats = el('div', { class: 'grid2' });
-  const cooks = el('div', { class: 'list' });
+  const cooks = el('div', { class: 'ios-list' });
   let viewing = null; // cook file being viewed, or null for live
   const title = el('div', { class: 'help' });
-  view.append(el('div', { class: 'row between', style: 'margin-bottom:8px' }, el('h2', { style: 'margin:0' }, 'History'), el('a', { class: 'btn sm', href: '/api/v1/cooklog', download: 'pifire-cooklog.json', title: 'Current or last cook: samples, controller terms, settings, learning state' }, 'Export analysis log')), el('div', { class: 'card' }, header, title, chartEl), stats,
-    el('div', { class: 'btnrow' }, actionBtn('delete', 'Clear History', { size: '', onclick: async () => { if (await confirmDialog('Clear history?', 'Removes all stored samples.', 'Clear', true)) { await api('/history/clear', { body: {} }); load(); } } })),
-    el('h2', {}, 'Cook files'), el('div', { class: 'card' }, cooks));
+  /* Two sections, each a heading and a bounded body -- the shape every other page uses.
+   *
+   * The chart sat in a card while its heading floated above it, and the cook files had a heading
+   * with nothing under it at all: rows on the page background, no edge, no footprint. A label with
+   * no block beneath it reads as a stray line of text rather than as the name of anything, which is
+   * exactly what it looked like. The readout that used to sit between them is gone: it said the
+   * grill's temperature for the third time on one screen, after the header and the chart's own
+   * legend, and a number repeated three times is two numbers that can disagree. */
+  view.append(
+    el('h2', {}, 'History'),
+    el('div', { class: 'card' },
+      header, title, chartEl,
+      el('div', { class: 'form-actions' },
+        el('a', { class: 'btn sm', href: '/api/v1/cooklog', download: 'pifire-cooklog.json',
+          title: 'Current or last cook: samples, controller terms, settings, learning state' }, 'Export analysis log'),
+        actionBtn('delete', 'Clear History', { onclick: async () => { if (await confirmDialog('Clear history?', 'Removes all stored samples.', 'Clear', true)) { await api('/history/clear', { body: {} }); load(); } } }))),
+    el('h2', {}, 'Cook Files'),
+    cooks);
 
   async function loadCooks() {
     const list = await api('/cookfiles').catch(() => []);
@@ -38,7 +52,8 @@ export function renderHistory(view) {
             title: 'Download the analysis log: samples with controller terms, settings and learning state', 'aria-label': 'Download analysis log' }, lucide('download', 'ic btn-ic')),
           iconBtn('trash-2', 'Delete', { class: 'danger', onclick: async () => { if (await confirmDialog('Delete cook file?', c.name, 'Delete', true)) { await api(`/cookfiles/${c.id}/delete`, { body: {} }); loadCooks(); } } }))));
     }
-    if (!list.length) cooks.append(el('div', { class: 'muted' }, 'Cook files are saved automatically when a cook ends.'));
+    /* the empty state is a row of the list, not a line laid across its first divider */
+    if (!list.length) cooks.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'Cook files are saved automatically when a cook ends.'));
   }
   loadCooks();
 
@@ -94,17 +109,6 @@ export function renderHistory(view) {
     }
     if (!t.length) chartEl.replaceChildren(el('div', { class: 'muted', style: 'padding:24px 0;text-align:center' },
       'Nothing logged in this window. Recording runs only while the grill does.'));
-    stats.innerHTML = '';
-    for (const label of names) {
-      const arr = h.probes[label].temp.filter((v) => v != null);
-      if (!arr.length) continue;
-      const pr = PF.status?.probes.find((p) => p.label === label);
-      /* A 48 h range is tens of thousands of samples per probe, and spreading that many arguments
-         into Math.min blows the call stack on some engines. Walk it instead. */
-      let lo = arr[0], hi = arr[0];
-      for (const v of arr) { if (v < lo) lo = v; if (v > hi) hi = v; }
-      stats.append(el('div', { class: 'card tight stat' }, el('div', { class: 'v' }, `${arr[arr.length - 1].toFixed(0)}${degUnit()}`), el('div', { class: 'l' }, `${pr?.name || label} · min ${lo.toFixed(0)} · max ${hi.toFixed(0)}`)));
-    }
   }
   load();
   const ro = new ResizeObserver(() => { if (plot) plot.setSize({ width: chartEl.clientWidth, height: plot.height }); });

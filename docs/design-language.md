@@ -254,6 +254,40 @@ single `<select>` holding `ADS1115 · ADC0` was enough to make a whole page wide
 its content, its actions in a footer with a rule across the top, and an edge that says where it
 ends. Content that merges into whatever follows is not a section.
 
+**A heading with no bounded block under it is not a heading, it is a stray line of text.** The small
+grey uppercase label only reads as the name of something when something with an edge follows it
+immediately. The History page had "History" floating above a card it was not attached to and "Cook
+files" above rows sitting straight on the page background, and the result read as two random lines
+in the middle of the screen. Every heading is followed by a card or an `.ios-list`, with nothing
+loose in between.
+
+**Say a number once.** The same reading in two places is two readings that can disagree, and the
+reader has to work out which to believe. The History page showed the pit temperature in the header,
+on the chart, in the chart's legend, and again in a small readout underneath — the readout went.
+
+## The mark
+
+PiFire's own symbol is **the barrel seen end on, its chimney, and the seam where the lid closes**.
+One glyph, drawn once at `24 × 24` in `icons.js` as `barrel`, used at every size: the app icon, the
+raised Home button in the tab bar, and the rail on a wide window.
+
+It is drawn to the logo's proportions rather than approximated:
+
+* **The barrel is centred in the box**, so it lands on the centre of the raised Home button and the
+  chimney rises above it — the barrel is the thing the eye centres on, not the glyph's bounding box.
+* **The circle is an arc with a gap, not a circle.** It stops where the chimney's sides cross it, so
+  the barrel does not cut through the stack; the arc's endpoints are computed from the circle and
+  the chimney's width rather than eyeballed, as are the two chords, so everything meets exactly.
+* **The gap between the two chords is wider than the logo's.** At the size the Home button actually
+  renders, the logo's own narrow band merges into a single thick line and the mark stops being the
+  mark. Legible at the size it is used beats faithful at a size nobody sees it. This is the one
+  deliberate departure from the drawing.
+
+The app icon puts that glyph in white on a soft vertical warm gradient with a generous corner
+radius, which is what reads as a modern iOS icon; the maskable variant runs the face to the edges
+and insets the glyph into the safe circle, since the platform crops it to whatever shape it likes.
+The PNGs are rendered from `icon.svg` — there is no second drawing to keep in step.
+
 ## Navigation
 
 Five tabs: **Cook · Probes · Home · History · Settings**, with **Home in the middle, raised out of

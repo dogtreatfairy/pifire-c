@@ -22,7 +22,10 @@ self.addEventListener('install', (e) => {
     for (const u of CORE) {
       try { await c.add(u); } catch { await c.add(u); }   /* a second throw rejects the install */
     }
-    await Promise.all(EXTRA.map((u) => c.add(u).catch(() => {})));
+    /* One attempt each was enough on a LAN and is not enough through a tunnel that is still coming
+       up: a slow fetch here fails quietly and leaves a hole, and the hole is only discovered later
+       when somebody taps the page that lives in it. Retry once, as the core does. */
+    await Promise.all(EXTRA.map((u) => c.add(u).catch(() => c.add(u).catch(() => {}))));
     await self.skipWaiting();
   })());
 });
@@ -50,6 +53,11 @@ self.addEventListener('activate', (e) => {
  * be quicker than the cache, and after that the cache wins and the network response, when it
  * eventually lands, just refreshes the cache for next time. */
 const NET_PATIENCE_MS = 2500;
+/* With nothing cached there is no faster answer to fall back to, so this waits longer than the
+   race above -- but it still waits a bounded time, and tries again, rather than sitting on one
+   request until the operating system times it out. */
+const NO_CACHE_PATIENCE_MS = 6000;
+const sleep = (ms) => new Promise((res) => setTimeout(() => res(null), ms));
 
 /* A response is not an answer just because it arrived. Tailscale's proxy answers a request made
    while the tunnel is still coming up with a gateway error, and this used to hand that straight to
@@ -76,18 +84,32 @@ self.addEventListener('fetch', (e) => {
       const raced = await Promise.race([fromNet, new Promise((res) => setTimeout(() => res(null), NET_PATIENCE_MS))]);
       return raced || cached;
     }
-    let net = await fromNet;
-    if (!net) {
-      /* Nothing cached and the first attempt came to nothing. One more try before giving up:
-         failing a stylesheet leaves the app looking like raw HTML, which is worse than waiting. */
+    /* Nothing cached, so there is nothing to fall back to -- but that is no reason to wait on a
+       socket the operating system will not give up on for the better part of a minute.
+       
+       This is the path a page module takes the first time the app is opened on a NEW ORIGIN, which
+       is exactly what reaching the grill over Tailscale is: the cache for that origin starts empty,
+       and if the install raced a waking tunnel the module was never cached at all. A request into a
+       tunnel that is still handshaking does not fail, it simply never answers, and the tab sits
+       there. Tapping Settings and getting nothing, while the rest of the app works, is what that
+       looks like. Two bounded attempts beat one unbounded one: the tunnel is usually up by the
+       second. */
+    let net = await Promise.race([fromNet, sleep(NO_CACHE_PATIENCE_MS)]);
+    for (let i = 0; !net && i < 2; i++) {
       try {
-        const again = await fetch(e.request, { cache: 'reload' });
+        const again = await Promise.race([
+          fetch(e.request, { cache: 'reload' }),
+          sleep(NO_CACHE_PATIENCE_MS),
+        ]);
         if (usable(again)) {
           if (again.ok) caches.open(VERSION).then((c) => c.put(e.request, again.clone())).catch(() => {});
           net = again;
         }
       } catch { /* still nothing */ }
     }
+    /* Out of bounded attempts: let the last one run to whatever conclusion it reaches rather than
+       hand the page an error it cannot recover from. */
+    if (!net) net = await fromNet;
     if (net) return net;
     /* Nothing cached and nothing usable from the network. For a page, the shell we already have
        beats the browser's error screen, which on a Home Screen app is a dead white rectangle with

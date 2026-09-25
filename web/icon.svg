@@ -1,8 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#111214"/>
-  <path d="M256 84c18 52 74 84 74 156a74 74 0 0 1-148 0c0-30 12-52 26-70 4 34 20 46 32 46 20 0 10-64 16-132z" fill="#ff8a1f"/>
-  <path d="M256 210c8 24 34 40 34 72a34 34 0 0 1-68 0c0-14 6-24 12-32 2 16 10 22 15 22 9 0 4-30 7-62z" fill="#ffd166"/>
-  <rect x="120" y="360" width="272" height="26" rx="13" fill="#3a3b41"/>
-  <rect x="150" y="386" width="26" height="60" rx="8" fill="#3a3b41"/>
-  <rect x="336" y="386" width="26" height="60" rx="8" fill="#3a3b41"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="PiFire">
+  <!-- PiFire's mark: the barrel seen end on, its chimney, and the seam where the lid closes.
+       One glyph, drawn once, used at every size: the app icon, the Home button and the tab rail.
+       The face is a soft vertical warm gradient rather than a flat fill, which is what reads as a
+       modern iOS icon, and the mark is stroked in white so it stays legible when the system
+       rounds, tints or shrinks it. -->
+  <defs>
+    <linearGradient id="pf-face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff9f3d"/>
+      <stop offset="0.55" stop-color="#ff7a18"/>
+      <stop offset="1" stop-color="#e2540a"/>
+    </linearGradient>
+    <linearGradient id="pf-gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="0.45" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="114" fill="url(#pf-face)"/>
+  <rect width="512" height="512" rx="114" fill="url(#pf-gloss)"/>
+  <g transform="translate(256 256) scale(13.0) translate(-12 -12)"
+     fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14.1 3.66A8.6 8.6 0 1 1 9.9 3.66" /><rect x="9.25" y="0.9" width="5.5" height="2.1" rx="0.75" /><path d="M9.9 3v3.9a2.1 2.1 0 0 0 4.2 0V3" /><path d="M3.59 10.2h16.82" /><path d="M3.55 13.6h16.9" />
+  </g>
 </svg>

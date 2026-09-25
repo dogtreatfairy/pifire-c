@@ -13,7 +13,11 @@ export const ICONS = {
 "bell": "<path d=\"M10.268 21a2 2 0 0 0 3.464 0\" /><path d=\"M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326\" />",
 /* The end of a barrel grill, seen head on: the barrel, the seam where the lid closes, and the
    grate bars below it. It is the Home mark, and the one place in the app with a shape of its own. */
-"barrel": "<circle cx=\"12\" cy=\"12\" r=\"9\" /><path d=\"M3.7 9.2h16.6\" /><path d=\"M5.2 14.6h13.6\" />",
+/* PiFire's own mark: the barrel seen end on, its chimney, and the seam where the lid closes.
+   Drawn to the proportions of the logo rather than approximated -- the chimney sits on the
+   barrel and ends in a rounded bottom inside it, and the two chords are computed from the
+   circle so they meet its edge instead of overshooting. */
+"barrel": "<path d=\"M14.1 3.66A8.6 8.6 0 1 1 9.9 3.66\" /><rect x=\"9.25\" y=\"0.9\" width=\"5.5\" height=\"2.1\" rx=\"0.75\" /><path d=\"M9.9 3v3.9a2.1 2.1 0 0 0 4.2 0V3\" /><path d=\"M3.59 10.2h16.82\" /><path d=\"M3.55 13.6h16.9\" />",
 /* The verbs. A modern interface leads with a mark and a colour before it leads with a word: a trash
    can for delete, a pencil for edit, a plus for add. All Lucide, ISC. */
 "trash-2": "<path d=\"M10 11v6\" /><path d=\"M14 11v6\" /><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\" /><path d=\"M3 6h18\" /><path d=\"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\" />",

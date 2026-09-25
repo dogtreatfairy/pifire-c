@@ -798,14 +798,14 @@ h2 { font-size: var(--fs-xs); letter-spacing: var(--track-label); margin: var(--
   border: 4px solid var(--bg);
   transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
 }
-.tab-home-btn svg { width: 26px; height: 26px; }
+.tab-home-btn svg { width: 34px; height: 34px; }
 .tabbar a.tab-home.active .tab-home-btn { background: var(--accent); color: var(--on-accent); }
 /* the raised button is the marker; the rule along the edge would be hidden behind it anyway */
 .tabbar a.tab-home.active { box-shadow: none; }
 @media (min-width: 900px) {
   /* down the side there is no middle to rise out of: it is a row like the others, marked the same */
   .tab-home-btn { position: static; transform: none; width: 34px; height: 34px; border: 0; background: transparent; color: inherit; }
-  .tab-home-btn svg { width: 21px; height: 21px; }
+  .tab-home-btn svg { width: 27px; height: 27px; }
   .tabbar a.tab-home { justify-content: center; padding-bottom: 0; }
   .tabbar a.tab-home.active .tab-home-btn { background: transparent; color: var(--accent); }
   .tabbar a.tab-home.active { box-shadow: inset 2px 0 0 var(--accent); }
