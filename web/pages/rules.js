@@ -389,14 +389,7 @@ function ruleEditor(rule, isNew) {
         el('div', { class: 'field' }, el('label', {}, 'Title'), titleIn),
         el('div', { class: 'field' }, el('label', {}, 'Message'), bodyIn),
         el('div', { class: 'field' }, el('label', {}, 'Insert'), tokenChips),
-        preview,
-        /* Test sends the message so you can see it land on your phone. It belongs beside the
-           message it sends, not on the commit bar: it changes nothing, and a third verb up there
-           pushed Cancel under the Home button. */
-        el('div', { class: 'form-actions' },
-          actionBtn('test', 'Send a test', { size: '', onclick: async () => {
-            try { await api('/rules/test', { body: r }); toast('Sent \u2014 check your phone'); } catch (e) { toast(e.message, true); }
-          } }, 'send')));
+        preview);
 
       // ---- how loudly
       const seg = el('div', { class: 'seg' });
@@ -413,11 +406,22 @@ function ruleEditor(rule, isNew) {
           draw();
         } }, l));
       }
-      const alert = el('div', { class: 'card tight' },
+      /* How loud it is comes first, before the name. It is the decision that changes what every
+         other answer on this screen means -- a critical alert and a quiet one are not the same rule
+         with a different word on it -- and it is the one you are surest about when you open this. */
+      const urgency = el('div', { class: 'card tight' },
         el('div', { class: 'field' }, el('label', {}, 'Urgency'), seg),
         r.level === 'critical' ? el('p', { class: 'help' },
-          'Sends the highest priority each service offers (Pushover Emergency repeats until you acknowledge it). Whether it breaks through a Focus mode depends on how you allow the Pushover or ntfy app in your phone\'s notification settings.') : null,
-        el('div', { class: 'field' }, el('label', {}, 'Send To'), sinkBox));
+          'Sends the highest priority each service offers (Pushover Emergency repeats until you acknowledge it). Whether it breaks through a Focus mode depends on how you allow the Pushover or ntfy app in your phone\'s notification settings.') : null);
+      const alert = el('div', { class: 'card tight' },
+        el('div', { class: 'field' }, el('label', {}, 'Send To'), sinkBox),
+        /* Test sends the real message to the real services, so it belongs with the choice of where
+           it goes. It is not a commit action and never went on the bar; it was down beside the
+           message preview, which is a long way from where anyone looks for it. */
+        el('div', { class: 'form-actions' },
+          actionBtn('test', 'Send a test', { size: '', onclick: async () => {
+            try { await api('/rules/test', { body: r }); toast('Sent \u2014 check your phone'); } catch (e) { toast(e.message, true); }
+          } }, 'send')));
 
       // ---- advanced
       const adv = el('details', { class: 'fold' }, el('summary', {}, el('span', {}, 'Advanced')),
@@ -430,6 +434,7 @@ function ruleEditor(rule, isNew) {
             el('span', { class: 'switch' }, el('input', { type: 'checkbox', checked: r.only_while_cooking !== false, onchange: (e) => (r.only_while_cooking = e.target.checked) }), el('span')))));
 
       body.append(
+        urgency,
         el('div', { class: 'field' }, el('label', {}, 'Name'),
           el('input', { type: 'text', value: r.name || '', onchange: (e) => (r.name = e.target.value) })),
         watch, conds, msg, alert, adv);
@@ -446,11 +451,6 @@ function ruleEditor(rule, isNew) {
       close(undefined);
     };
     wrap.append(
-      /* The screen's own bar already says which notification this is, so the head carries what the
-         bar cannot: how loud it is. Saying the name twice is what a dialog inside a page does. */
-      el('div', { class: 'sheet-head' },
-        el('div', {}, el('div', { class: 'help' }, isNew ? 'Sends when its condition becomes true' : 'Urgency')),
-        el('span', { class: `pill sm lvl-${r.level || 'normal'}` }, (r.level || 'normal').toUpperCase())),
       el('div', { class: 'sheet-body' }, body),
       screenActions({
         onDelete: isNew ? null : () => close('delete'),

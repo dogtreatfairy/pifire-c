@@ -365,7 +365,9 @@ export async function renderProbes(view, opts = {}) {
   /* `append` here is the DOM's, not el()'s, so a null child is written out as the word "null" --
      which is exactly what appeared under the probe list. Filter before appending. */
   view.append(...[
-    el('h2', {}, 'Probes'),
+    /* No "Probes" heading on the Probes tab: the tab says it and the header says it, and a third
+       copy is a line of the screen spent on something already known. */
+    setup ? el('h2', {}, 'Probes') : null,
     setup ? el('p', { class: 'help' }, 'Connect a probe, name it, say what it is for and which profile converts it.') : null,
     /* Adding one goes at the TOP of the section. At the foot it sits below every probe and their
        buttons, which on a phone is a screen and a half of scrolling to reach the one thing you came
