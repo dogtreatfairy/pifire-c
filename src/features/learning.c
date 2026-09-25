@@ -400,9 +400,14 @@ bool pf_learning_plant(double setpoint_c, double *K, double *tau, double *theta)
 	}
 	pthread_mutex_unlock(&g_mu);
 	if (!ok) {
-		/* Nothing in the library yet: the last rise from cold is the whole of what is known. */
+		/* Nothing in the library yet: the last rise from cold is the whole of what is known -- as
+		 * long as it was fitted by a method still in use. A model left behind by the two-point fit
+		 * has a known, one-directional error in it (gain understated, time constant roughly
+		 * halved), and the prediction is built on the model, so the controller's own prior is the
+		 * better answer until a proper capture replaces it. A measurement with a known bias is not
+		 * evidence. It stays on record and on the learning page; it just does not drive the loop. */
 		pf_fopdt p = pf_learning_fopdt();
-		if (!p.valid) return false;
+		if (!p.valid || p.method < PF_FOPDT_METHOD) return false;
 		if (K) *K = p.K;
 		if (tau) *tau = p.tau;
 		if (theta) *theta = p.theta;

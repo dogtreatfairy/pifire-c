@@ -48,6 +48,11 @@
 #define TAU_MAX 3000.0
 /* theta / cycle_time entries at most; 64 covers a 20 minute dead time at a 20 s cycle */
 #define PF_MDL_RING 64
+/* Generation of this controller's own stored record. Bumped when something in it can no longer be
+ * trusted from an older build: generation 2 is the first whose plant came from the least-squares
+ * fit rather than the two-point one, whose model understated the gain and roughly halved the time
+ * constant. An older record's tuning is still read; only its model is dropped. */
+#define LEARNED_REC_GEN 2
 #define SURPLUS_MAX 100.0   /* C; only a guard against a nonsense model, not a working limit */
 #define PF_SCALE_BANDS 4      /* temperature bands the loop-gain correction is learned in */
 
@@ -157,11 +162,11 @@ static void save_learned(ad_t *s)
 	char buf[512];
 	snprintf(buf, sizeof buf, "{\"PB_c\":%.2f,\"Ti\":%.1f,\"Td\":%.1f,\"band_learned\":[%.2f,%.2f,%.2f,%.2f],"
 	         "\"band_anchor\":[%.2f,%.2f,%.2f,%.2f],\"valid\":%s,\"ts\":%.0f,\"src\":\"%s\","
-	         "\"theta\":%.0f,\"K\":%.1f,\"tau\":%.0f}",
+	         "\"theta\":%.0f,\"K\":%.1f,\"tau\":%.0f,\"m\":%d}",
 	         s->l_PB_c, s->l_Ti, s->l_Td,
 	         s->band_learned[0], s->band_learned[1], s->band_learned[2], s->band_learned[3],
 	         s->band_anchor[0], s->band_anchor[1], s->band_anchor[2], s->band_anchor[3],
-	         s->l_valid ? "true" : "false", s->l_ts, s->l_src, s->theta, s->K, s->tau);
+	         s->l_valid ? "true" : "false", s->l_ts, s->l_src, s->theta, s->K, s->tau, LEARNED_REC_GEN);
 	s->env->kv_put(s->env, "learned", buf);
 }
 
@@ -185,9 +190,17 @@ static void load_learned(ad_t *s)
 		s->band_anchor[i] = cJSON_IsNumber(an) && an->valuedouble > 0 ? an->valuedouble : 0;
 	}
 	s->l_ts = pf_pid_cfg_num(j, "ts", 0);
-	s->theta = clampd(pf_pid_cfg_num(j, "theta", THETA_DEFAULT), THETA_MIN, THETA_MAX);
-	s->K = clampd(pf_pid_cfg_num(j, "K", K_DEFAULT), K_MIN, K_MAX);
-	s->tau = clampd(pf_pid_cfg_num(j, "tau", TAU_DEFAULT), TAU_MIN, TAU_MAX);
+	/* The plant is only restored when it was fitted by a method still in use. What the two-point
+	 * fit left behind understates the gain and roughly halves the time constant, and the prediction
+	 * is built on it, so an unstamped record's model is dropped in favour of the defaults until a
+	 * proper capture replaces it. The tuning beside it is a different measurement and is kept. */
+	if (pf_pid_cfg_num(j, "m", 0) >= LEARNED_REC_GEN) {
+		s->theta = clampd(pf_pid_cfg_num(j, "theta", THETA_DEFAULT), THETA_MIN, THETA_MAX);
+		s->K = clampd(pf_pid_cfg_num(j, "K", K_DEFAULT), K_MIN, K_MAX);
+		s->tau = clampd(pf_pid_cfg_num(j, "tau", TAU_DEFAULT), TAU_MIN, TAU_MAX);
+	} else {
+		s->theta = THETA_DEFAULT; s->K = K_DEFAULT; s->tau = TAU_DEFAULT;
+	}
 	cJSON *v = cJSON_GetObjectItem(j, "valid"), *src = cJSON_GetObjectItem(j, "src");
 	s->l_valid = cJSON_IsTrue(v) && s->l_PB_c > 0 && s->l_Ti > 0;
 	snprintf(s->l_src, sizeof s->l_src, "%.7s", cJSON_IsString(src) ? src->valuestring : "");

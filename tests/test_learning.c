@@ -109,6 +109,24 @@ static void test_a_plant_from_the_old_fit_is_replaced_not_averaged(void)
 	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(1.0, 950.0, now_p.tau, "two fits by the same method should still average");
 }
 
+/* And while the old one is all there is, it must not drive the loop either. The prediction is built
+ * on the model, and a model whose error is known and one-directional is worse than the controller's
+ * own prior -- it is still on the learning page, it just does not get a say. */
+static void test_a_plant_from_the_old_fit_does_not_drive_the_loop(void)
+{
+	pf_db_kv_put("learning", "fopdt", "{\"K\":229.5,\"tau\":533.5,\"theta\":87.5,\"ts\":1,\"m\":1}");
+	pf_learning_init();
+	double K = 0, tau = 0, theta = 0;
+	TEST_ASSERT_FALSE_MESSAGE(pf_learning_plant(pf_f_to_c(250), &K, &tau, &theta),
+	                          "a model left by the superseded fit must not be handed to the controller");
+	TEST_ASSERT_TRUE_MESSAGE(pf_learning_fopdt().valid, "it is still on record, and still shown");
+
+	pf_learning_store_fopdt(400, 1000, 75);
+	TEST_ASSERT_TRUE_MESSAGE(pf_learning_plant(pf_f_to_c(250), &K, &tau, &theta),
+	                         "a proper fit is handed over");
+	TEST_ASSERT_DOUBLE_WITHIN(1.0, 1000.0, tau);
+}
+
 static void test_observations_and_fit_across_ambients(void)
 {
 	/* long enough cooks that the pit settles and the steady windows the fit needs can be logged */
@@ -375,6 +393,7 @@ int main(void)
 	pf_log_init(PF_LOG_ERROR);
 	UNITY_BEGIN();
 	RUN_TEST(test_a_plant_from_the_old_fit_is_replaced_not_averaged);
+	RUN_TEST(test_a_plant_from_the_old_fit_does_not_drive_the_loop);
 	RUN_TEST(test_observations_and_fit_across_ambients);
 	RUN_TEST(test_repeat_cook_not_worse);
 	RUN_TEST(test_capture_overshoot);
