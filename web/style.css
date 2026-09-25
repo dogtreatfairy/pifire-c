@@ -124,6 +124,15 @@
      section, a label. One value, so a title in a list and a title inside an
      open section start on the same column. */
   --pad-x: var(--sp-3);
+  /* How far a full-width element inside a padded container has to be pulled out to reach that
+     container's edge -- a card's footer rule, a sheet's header rule, a scrolling body. It is the
+     container's own side padding, so at PAGE level, where the content area has no side padding and
+     cards run to the screen edge on their own, it is nothing at all. Written as a fixed negative
+     margin instead, as it was, every one of those rules hung sixteen pixels off each side of a
+     pushed screen and the page scrolled sideways on a phone. One variable, set by whoever is doing
+     the padding, rather than a neutralising rule per selector that the next page-level container
+     will be missing again. */
+  --bleed: 0px;
   --tab-h: 56px;
   /* how far the Home button rises out of the tab bar; anything that must clear the bar has to
      clear this too, or it sits on top of the one control that is always there */
@@ -178,6 +187,10 @@ h1 { font-size: var(--fs-xl); }
 h3 { font-size: var(--fs-lg); }
 h2 { font-size: var(--fs-lg); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 18px 0 8px; }
 small, .muted { color: var(--muted); }
+/* Hidden means hidden: the browser's own `[hidden]` rule loses to any author `display`, so this
+   states it once with the weight to win. A <dialog> is not covered by it -- it is hidden by the
+   absence of `open`, not by `hidden` -- and needs the same thing said for that attribute, which is
+   down in the dialog block. */
 [hidden] { display: none !important; }
 
 /* ---- shell ---- */
@@ -333,14 +346,12 @@ legend { font-weight: 600; margin-bottom: 6px; }
    which is nearly all of them -- keeps its buttons their own size, at the end. */
 .form-actions, .dialog .btnrow {
   display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--sp-2);
-  margin: var(--sp-3) calc(var(--pad-x) * -1) 0; padding: var(--sp-3) var(--pad-x) 0;
+  margin: var(--sp-3) calc(var(--bleed) * -1) 0; padding: var(--sp-3) var(--pad-x) 0;
   border-top: var(--bw) solid var(--line);
 }
 .form-actions:has(> .btn:nth-child(3)) > .btn { flex: 1 1 8rem; }
 /* A footer inside a card pulls its rule out to the card's own edges, which is why it carries a
-   negative margin. At page level there is no card to hang it on, so the same rule dragged the Save
-   row two pixels off the side of the screen. */
-main.view > .form-actions { margin-left: 0; margin-right: 0; padding-left: var(--pad-x); padding-right: var(--pad-x); }
+   negative margin -- see --bleed, which is zero at page level and so leaves it flush there. */
 
 .num-input { display: flex; align-items: center; gap: 8px; }
 .num-input input { flex: 1; min-width: 0; width: auto; text-align: center; font-size: var(--fs-xl); }
@@ -350,10 +361,25 @@ main.view > .form-actions { margin-left: 0; margin-right: 0; padding-left: var(-
 /* A sheet on a phone: a header that stays, a body that scrolls, a footer that stays. It used to be
    one block 836 px tall in an 874 px viewport, so the title scrolled away and Save was somewhere
    below the fold. */
+/* A closed dialog is gone.
+ *
+ * The browser hides one with `dialog:not([open]) { display: none }` in its own stylesheet, and an
+ * author rule beats that, so `display: flex` written here without qualification kept every dialog
+ * on the screen after close() had run -- still drawn, no longer modal, no backdrop, and nothing
+ * left that could dismiss it. It looked like a dialog that would not close, and it was: close()
+ * worked perfectly and the dialog simply stayed visible. Clearing the learning was where it showed
+ * plainest, because nothing opens a dialog afterwards to wipe it out of the way -- the next one to
+ * open empties this element and fills it again, which is why the fault came and went. Two earlier
+ * fixes went at the symptom, a guaranteed close mark and closing on navigation; both made the page
+ * underneath usable again, and neither could make the panel go away. `[hidden]` is stated with
+ * !important at the top of the file for the same reason; a dialog needs it said for `open`. */
+.dialog { --bleed: var(--pad-x); }   /* a dialog pads itself, so its full-width parts pull back out */
+.dialog:not([open]) { display: none; }
+.dialog[open] { display: flex; flex-direction: column; }
 .dialog {
   border: 0; border-radius: var(--r-lg); background: var(--surface); color: var(--text);
   padding: var(--sp-4) var(--pad-x); width: min(92vw, 420px);
-  max-height: 88dvh; display: flex; flex-direction: column;
+  max-height: 88dvh;
   /* Whatever is inside, it can be reached. A dialog taller than the screen with `overflow: hidden`
      is a trap: on a phone its buttons are below the fold and there is nothing to scroll, so the
      only way out is the sliver of backdrop beside it. A sheet manages its own scrolling in its
@@ -1005,6 +1031,11 @@ body { position: fixed; inset: 0; height: auto; min-height: 0; overflow: hidden;
    that scrolling content shows through. The breathing room at the top of a page is a margin on the
    first thing in it, which scrolls away like any other content. */
 main.view { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  /* The page never scrolls sideways. Anything that genuinely needs more width than the phone has --
+     a wide table -- scrolls inside its own wrapper, where the scroll belongs. This is a backstop
+     behind the fixes above, not a substitute for them: with --bleed and the min-width rules there
+     should be nothing left to clip. */
+  overflow-x: clip;
   padding-top: var(--top-h); padding-bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 34px); }
 main.view > :first-child { margin-top: 12px; }
 .tabbar { position: absolute; }
@@ -1078,9 +1109,18 @@ main.view > :first-child { margin-top: 12px; }
 /* A pushed page. It is a child of the scrolling content, so it cannot sit on the bars: the content
    area already stops where they begin. Its footer scrolls up with it like the rest of the page --
    an action row pinned to the viewport is a panel's habit, not a page's. */
-.screen { display: flex; flex-direction: column; min-height: 0; }
+/* A pushed screen is a page, and a page is exactly as wide as the phone.
+ *
+ * Everything in it therefore has to be allowed to shrink. A flex or grid child sizes to its own
+ * content by default, so one <select> holding "ADS1115 - ADC0 (Ambient)" made the whole settings
+ * page wider than the screen and it scrolled sideways -- which the main settings page never does,
+ * and which is the thing to match. min-width: 0 lets the control give way and ellipsize instead. */
+.screen { display: flex; flex-direction: column; min-height: 0; min-width: 0; max-width: 100%; }
+.screen > .sheet, .screen .sheet-body, .screen .field { min-width: 0; max-width: 100%; }
+.screen .field > select, .screen .field > input, .screen .field > textarea,
+.screen .field.inline > select, .screen .field.inline > input, .screen .field.inline > textarea { min-width: 0; max-width: 100%; }
 .screen > .sheet { max-height: none; padding: 0; gap: var(--sp-3); }
-.screen > .sheet > .sheet-body { overflow: visible; max-height: none; margin: 0; padding: 0; }
+.screen > .sheet > .sheet-body { overflow: visible; max-height: none; }   /* the page scrolls, not the body */
 .screen .dlg-x { display: none; }   /* a page has the header's back arrow */
 
 /* The way out. In a sheet header it sits at the end of the row; in a plain dialog it floats at the
@@ -1095,10 +1135,10 @@ main.view > :first-child { margin-top: 12px; }
 /* Header, body, footer -- the three parts of every sheet, each with its own edge. */
 .sheet { display: flex; flex-direction: column; gap: var(--sp-3); min-height: 0; max-height: 100%; }
 .sheet > .sheet-head { flex: none; }
-.sheet > .sheet-body { flex: 1 1 auto; overflow-y: auto; min-height: 0; margin: 0 calc(var(--pad-x) * -1); padding: 0 var(--pad-x); }
+.sheet > .sheet-body { flex: 1 1 auto; overflow-y: auto; min-height: 0; margin: 0 calc(var(--bleed) * -1); padding: 0 var(--bleed); }
 .sheet > .form-actions, .sheet > .btnrow { flex: none; }
 .sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3);
-  padding-bottom: var(--sp-3); border-bottom: var(--bw) solid var(--line); margin: 0 calc(var(--pad-x) * -1); padding-left: var(--pad-x); padding-right: var(--pad-x); }
+  padding-bottom: var(--sp-3); border-bottom: var(--bw) solid var(--line); margin: 0 calc(var(--bleed) * -1); padding-left: var(--pad-x); padding-right: var(--pad-x); }
 .sheet-head h3 { font-size: var(--fs-lg); }
 .sheet-head .muted { font-size: var(--fs-sm); margin-top: 2px; }
 .sheet-now { text-align: right; font-size: var(--fs-xl); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }

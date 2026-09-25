@@ -212,10 +212,43 @@ project was invisible above 900 px and obvious at 402: buttons hanging out of th
 three footer buttons running off the left edge of the screen, a label folded onto five lines beside
 a narrow input, a sheet 836 px tall in an 874 px viewport with its Save button below the fold.
 
-Chrome's window here often refuses to be resized, so the way to check is to load the app in a
-same-origin **iframe of exactly 402 × 874** and measure inside it: media queries and layout then
-resolve against a true phone viewport. Nothing may extend past the viewport, and nothing may sit
-outside the container that holds it.
+Nothing may extend past the viewport, and nothing may sit outside the container that holds it.
+**The page never scrolls sideways.** Anything that genuinely needs more width than the phone has --
+a wide table -- scrolls inside its own wrapper, where the scroll belongs to the thing that is too
+wide rather than to the page.
+
+The way to check it, when a browser is not to hand, is to run the daemon in the simulator and walk
+it headlessly:
+
+```
+./build/pifired --sim --port 8099
+google-chrome --headless=old --window-size=402,874 --screenshot=out.png \
+  --virtual-time-budget=25000 "http://127.0.0.1:8099/#/settings"
+```
+
+`--screenshot` honours `--window-size` where `--dump-dom` clamps the viewport, so screenshots are
+the reliable measure. For the numbers rather than the picture, serve a temporary script from `web/`
+that walks the routes, opens each pushed screen, and compares every child's `getBoundingClientRect`
+against `document.documentElement.clientWidth`. That is how the fault below was found, and the same
+walk proved it gone: on the broken build the probe editor reported `view=487/485` with
+`.sheet-head` and both `.form-actions` at `[-2.0 .. 487.0]`, and Save clipped off the right-hand
+edge.
+
+### A full-width element pulls out to `--bleed`, never to a number
+
+A card's footer rule, a sheet's header rule and a scrolling sheet body all have to reach the edges
+of the container that pads them, which means a negative side margin. That margin is **the
+container's own side padding and nothing else**, so it is written as `--bleed`, set by whoever is
+doing the padding: `var(--pad-x)` inside a dialog, `0` at page level, where the content area has no
+side padding and cards run to the screen edge on their own.
+
+Writing it as a fixed `calc(var(--pad-x) * -1)` instead is what made every pushed settings screen
+scroll sideways on a phone: the rules were written for a dialog, and each new page-level container
+needed its own neutralising rule that the next one was then missing again. One variable, set once
+by the padder, cannot be forgotten by the next container.
+
+Controls carry `min-width: 0`. A flex or grid child sizes to its own content by default, so a
+single `<select>` holding `ADS1115 · ADC0` was enough to make a whole page wider than the screen.
 
 **Every section has a header, a body and a footer, and a footprint you can see.** A label above it,
 its content, its actions in a footer with a rule across the top, and an edge that says where it
@@ -261,6 +294,17 @@ to no app. A tab root shows no back at all.
 A dialog is for a question — a confirmation, a dial pad. **Navigating away closes any dialog still
 open**, because a box left hanging over the new page is the surest sign you are looking at a
 website.
+
+**A closed thing is gone, and that belongs to the attribute that closes it.** The browser hides a
+`<dialog>` with `dialog:not([open]) { display: none }` in its own stylesheet, and any author rule
+beats it — so `display: flex` written on `.dialog` unqualified kept every dialog on the screen
+after `close()` had run: still drawn, no longer modal, no backdrop, and nothing left that could
+dismiss it. Clearing the learning was where it showed plainest, because nothing opens a dialog
+afterwards to wipe that element out of the way. **Layout properties go on `.dialog[open]`**, and
+`[hidden]` is stated once with `!important` for the same reason. Two earlier fixes went at the
+symptom — a guaranteed close mark, then closing on navigation — and both handed the user a button
+that did exactly nothing they could see. When something will not go away, check what is keeping it
+laid out before adding another way to dismiss it.
 
 ## Sheets
 
