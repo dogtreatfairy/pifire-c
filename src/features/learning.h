@@ -45,7 +45,17 @@ unsigned pf_learning_autotune_gen(void);
  * set point fitted, and they are what the controller's prediction runs on. A pellet grill is a
  * different plant at 180 F than at 450 F -- less gain, more loss -- so a prediction built from one
  * model for the whole range mis-states how much fuel is already on its way at the far end of it. */
-typedef struct { double setpoint_c, Ku, Pu, PB_c, Ti, Td, K, tau, theta, ts, ambient_c, wind; int runs; bool valid; } pf_tune_anchor;
+typedef struct {
+	double setpoint_c, Ku, Pu, PB_c, Ti, Td, K, tau, theta, ts, ambient_c, wind;
+	int runs;
+	/* Where this entry's plant came from: 1 the passive fit of a capture, 2 the relay. A relay is a
+	 * designed experiment and a capture is a guess made from whatever the cook happened to do, so
+	 * they are not two samples of one thing to be averaged -- see anchor_take_plant. */
+	int plant_src;
+	bool valid;
+} pf_tune_anchor;
+#define PF_PLANT_FROM_CAPTURE 1
+#define PF_PLANT_FROM_RELAY   2
 
 /* Store a measurement. A set point already in the library is REFINED rather than replaced: a relay
  * test measures the grill on one afternoon, with that day's wind and that hopper's pellets, and a

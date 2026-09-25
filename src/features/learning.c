@@ -24,6 +24,9 @@ static pf_tune_anchor g_anchors[PF_TUNE_ANCHORS];
 static unsigned g_at_gen;
 static pf_autotune_result g_at;
 
+static void anchors_save(void);
+static bool heal_anchor_plant(pf_tune_anchor *a);
+
 static void load_kv(void)
 {
 	char buf[512];
@@ -55,6 +58,7 @@ static void load_kv(void)
 			g_anchors[i].K = pf_json_num(it, "K", 0);
 			g_anchors[i].tau = pf_json_num(it, "tau", 0);
 			g_anchors[i].theta = pf_json_num(it, "theta", 0);
+			g_anchors[i].plant_src = pf_json_int(it, "psrc", PF_PLANT_FROM_CAPTURE);
 			g_anchors[i].ts = pf_json_num(it, "ts", 0);
 			g_anchors[i].ambient_c = pf_json_num(it, "amb", NAN);
 			g_anchors[i].wind = pf_json_num(it, "wind", 0);
@@ -77,6 +81,11 @@ void pf_learning_init(void)
 {
 	pf_db_exec("CREATE TABLE IF NOT EXISTS observations(id INTEGER PRIMARY KEY, ts REAL, controller TEXT, setpoint_c REAL, ambient_c REAL, u_mean REAL, pit_stdev REAL, pellet TEXT);");
 	load_kv();
+	/* An entry measured by a build that took its plant from the capture, or blended the two, is put
+	 * right here rather than waiting for somebody to be asked for another hour-long run. */
+	bool healed = false;
+	for (int i = 0; i < PF_TUNE_ANCHORS; i++) healed |= heal_anchor_plant(&g_anchors[i]);
+	if (healed) anchors_save();
 	g_fit_dirty = true;
 }
 
@@ -240,6 +249,7 @@ static void anchors_save(void)
 			cJSON_AddNumberToObject(o, "K", g_anchors[i].K);
 			cJSON_AddNumberToObject(o, "tau", g_anchors[i].tau);
 			cJSON_AddNumberToObject(o, "theta", g_anchors[i].theta);
+			cJSON_AddNumberToObject(o, "psrc", g_anchors[i].plant_src);
 		}
 		cJSON_AddNumberToObject(o, "ts", g_anchors[i].ts);
 		cJSON_AddNumberToObject(o, "runs", g_anchors[i].runs);
@@ -262,12 +272,47 @@ static void anchors_save(void)
 static struct { double setpoint_c, K, tau, theta; bool valid; } g_pending_plant;
 
 /* Called with g_mu held. */
-static void anchor_take_plant(pf_tune_anchor *a, double K, double tau, double theta)
+/* The plant a relay result implies, given a time constant. The relay fixes the point where the
+ * phase reaches -pi; tau is the one thing it cannot see, and the capture measures that. */
+static void plant_from_relay(double Ku, double Pu, double tau, double *K, double *theta)
 {
-	/* Averaged in on the same terms as the gains beside it, and for the same reason: one
-	 * afternoon's step, with that day's wind in it, should improve the entry rather than
-	 * replace it. An entry that has never held a plant takes this one whole. */
-	double w = a->K > 0 ? fmax(1.0 / (a->runs > 0 ? a->runs : 1), 0.25) : 1.0;
+	double wu = 2.0 * M_PI / Pu;
+	if (theta) *theta = (M_PI - atan(wu * tau)) / wu;
+	if (K) *K = sqrt(1.0 + wu * tau * wu * tau) / Ku;
+}
+
+/* An anchor that already holds a relay measurement holds everything needed to work its plant out,
+ * so one whose plant came from a capture -- or from a build that blended the two -- can be put
+ * right where it stands, without waiting for another hour-long run to be asked for. */
+static bool heal_anchor_plant(pf_tune_anchor *a)
+{
+	if (!a->valid || a->plant_src == PF_PLANT_FROM_RELAY) return false;
+	if (!(a->Ku > 0) || !(a->Pu > 0) || !(a->tau > 0)) return false;
+	double K = 0, theta = 0;
+	plant_from_relay(a->Ku, a->Pu, a->tau, &K, &theta);
+	if (!(K > 0) || !(theta > 0)) return false;
+	LOGI(TAG, "%.0f C: plant recomputed from the relay this entry already holds -- K %.0f (was %.0f), dead time %.0f s (was %.0f)",
+	     a->setpoint_c, K, a->K, theta, a->theta);
+	a->K = K; a->theta = theta; a->plant_src = PF_PLANT_FROM_RELAY;
+	return true;
+}
+
+static void anchor_take_plant(pf_tune_anchor *a, double K, double tau, double theta, int src)
+{
+	/* Two measurements of the same grill average; two measurements of different quality do not.
+	 *
+	 * A relay is a designed experiment that locates the critical point exactly. A capture is a fit
+	 * to whatever the cook happened to do, and it trades dead time against time constant freely --
+	 * on this grill it returned 15 s where the relay beside it said 104. Averaging those gave 78,
+	 * and since the prediction scales as K*theta/tau it left the loop predicting three quarters of
+	 * what the measurement says: the first tune after the relay fix still overshot 11 F where it
+	 * should manage five. So a relay result REPLACES a capture's guess outright, a capture never
+	 * dilutes a relay result, and only two of a kind are averaged -- which is the same rule the
+	 * stored plant already follows for the fit that superseded the two-point method. */
+	if (a->K > 0 && src == PF_PLANT_FROM_CAPTURE && a->plant_src == PF_PLANT_FROM_RELAY) return;
+	bool replace = a->K <= 0 || (src == PF_PLANT_FROM_RELAY && a->plant_src != PF_PLANT_FROM_RELAY);
+	double w = replace ? 1.0 : fmax(1.0 / (a->runs > 0 ? a->runs : 1), 0.25);
+	a->plant_src = src;
 	a->K += (K - a->K) * w;
 	a->tau += (tau - a->tau) * w;
 	a->theta += (theta - a->theta) * w;
@@ -356,16 +401,15 @@ void pf_learning_store_anchor(double setpoint_c, const pf_autotune_result *r, do
 	double tau_src = g_pending_plant.valid && fabs(g_pending_plant.setpoint_c - setpoint_c) < 5
 	               ? g_pending_plant.tau : a->tau > 0 ? a->tau : g_fopdt.valid ? g_fopdt.tau : 0;
 	if (r->Ku > 0 && r->Pu > 0 && tau_src > 0) {
-		double wu = 2.0 * M_PI / r->Pu;                 /* the ultimate frequency the relay found */
-		double theta = (M_PI - atan(wu * tau_src)) / wu;
-		double K = sqrt(1.0 + wu * tau_src * wu * tau_src) / r->Ku;
+		double theta = 0, K = 0;
+		plant_from_relay(r->Ku, r->Pu, tau_src, &K, &theta);
 		LOGI(TAG, "%.0f C: plant from the relay -- K %.0f C per unit feed, dead time %.0f s (time constant %.0f s from the capture)",
 		     setpoint_c, K, theta, tau_src);
-		anchor_take_plant(a, K, tau_src, theta);
+		anchor_take_plant(a, K, tau_src, theta, PF_PLANT_FROM_RELAY);
 		g_pending_plant.valid = false;
 	} else if (g_pending_plant.valid && fabs(g_pending_plant.setpoint_c - setpoint_c) < 5) {
 		/* no usable relay result: the step fit is all there is */
-		anchor_take_plant(a, g_pending_plant.K, g_pending_plant.tau, g_pending_plant.theta);
+		anchor_take_plant(a, g_pending_plant.K, g_pending_plant.tau, g_pending_plant.theta, PF_PLANT_FROM_CAPTURE);
 		g_pending_plant.valid = false;
 	}
 	anchors_save();
@@ -392,7 +436,7 @@ void pf_learning_store_anchor_plant(double setpoint_c, double K, double tau, dou
 	for (int i = 0; i < PF_TUNE_ANCHORS; i++) {
 		pf_tune_anchor *a = &g_anchors[i];
 		if (!a->valid || fabs(a->setpoint_c - setpoint_c) >= 5) continue;
-		anchor_take_plant(a, K, tau, theta);
+		anchor_take_plant(a, K, tau, theta, PF_PLANT_FROM_CAPTURE);
 		anchors_save();
 		filed = true;
 		break;

@@ -117,6 +117,62 @@ static void test_it_can_say_how_long_the_climb_will_take(void)
 	TEST_ASSERT_TRUE_MESSAGE(pf_learning_time_to(120, 100, 20, 0.9) < 0, "cooling is not a climb it controls");
 }
 
+/* An entry filed by an older build holds the relay's own Ku and Pu, and a time constant from the
+   capture. That is everything needed to work the plant out, so it can be put right where it stands
+   rather than asking for another hour-long run to be started. */
+static void test_an_old_entry_puts_its_own_plant_right(void)
+{
+	pf_learning_clear_anchors();
+	/* exactly what this grill had on disk: the relay's numbers, with a plant blended from a capture */
+	pf_tune_anchor a = { .setpoint_c = pf_f_to_c(250), .Ku = 0.0667, .Pu = 405,
+	                     .PB_c = 33, .Ti = 890, .Td = 64,
+	                     .K = 424, .tau = 1620, .theta = 78,        /* 763 F/duty, blended */
+	                     .runs = 2, .plant_src = PF_PLANT_FROM_CAPTURE, .valid = true };
+	pf_learning_put_anchor(&a);
+	pf_learning_init();                       /* a restart, which is when it heals */
+
+	double K = 0, tau = 0, theta = 0;
+	TEST_ASSERT_TRUE(pf_learning_plant(pf_f_to_c(250), &K, &tau, &theta));
+	double wu = 2 * M_PI / 405.0;
+	double theta_relay = (M_PI - atan(wu * 1620)) / wu;
+	printf("healed on load: theta %.0f (was 78, relay says %.0f), K %.0f F/duty\n", theta, theta_relay, K * 1.8);
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(2.0, theta_relay, theta, "it should recompute from the relay it already holds");
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(1.0, 1620.0, tau, "the time constant is the capture's and stays");
+}
+
+/* Two measurements of the same grill average; two measurements of different quality do not.
+ *
+ * The relay locates the critical point exactly. A capture is a fit to whatever the cook happened to
+ * do, and it trades dead time against time constant freely -- on the real grill it returned 15 s
+ * where the relay beside it said 104. Averaging those gave 78, and since the prediction scales as
+ * K*theta/tau that left the loop predicting three quarters of what had actually been measured: the
+ * first tune after the relay fix still overshot 11 F where the simulator manages five. */
+static void test_a_relay_plant_is_not_diluted_by_a_capture(void)
+{
+	pf_learning_clear_anchors();
+	/* an anchor whose plant came from a capture, with two runs behind its gains */
+	pf_learning_store_anchor_plant(pf_f_to_c(250), 466, 1380, 15);
+	pf_autotune_result r = { .Ku = 0.0667, .Pu = 405, .PB_c = 33, .Ti = 890, .Td = 64, .valid = true };
+	pf_learning_store_anchor(pf_f_to_c(250), &r, 20, 0);
+	pf_learning_store_anchor(pf_f_to_c(250), &r, 20, 0);   /* runs = 2, so a blend would be 50/50 */
+
+	double K = 0, tau = 0, theta = 0;
+	TEST_ASSERT_TRUE(pf_learning_plant(pf_f_to_c(250), &K, &tau, &theta));
+	/* what the relay itself says, from Ku, Pu and the capture's time constant */
+	double wu = 2 * M_PI / r.Pu;
+	double theta_relay = (M_PI - atan(wu * 1380)) / wu;
+	double K_relay = sqrt(1 + wu * 1380 * wu * 1380) / r.Ku;
+	printf("relay says theta %.0f K %.0f; anchor holds theta %.0f K %.0f\n", theta_relay, K_relay, theta, K);
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(2.0, theta_relay, theta, "the relay's dead time, not an average with the capture's guess");
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(15.0, K_relay, K, "and the relay's gain");
+
+	/* and a later capture must not pull it back */
+	pf_learning_store_anchor_plant(pf_f_to_c(250), 466, 1380, 15);
+	double th2 = 0;
+	TEST_ASSERT_TRUE(pf_learning_plant(pf_f_to_c(250), NULL, NULL, &th2));
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(2.0, theta_relay, th2, "a passive fit must not dilute a designed measurement");
+}
+
 /* Where an anchor's plant comes from.
  *
  * A relay test locates one point of the grill's frequency response exactly -- the frequency where
@@ -480,6 +536,8 @@ int main(void)
 	pf_log_init(PF_LOG_ERROR);
 	UNITY_BEGIN();
 	RUN_TEST(test_an_anchor_takes_its_plant_from_the_relay);
+	RUN_TEST(test_a_relay_plant_is_not_diluted_by_a_capture);
+	RUN_TEST(test_an_old_entry_puts_its_own_plant_right);
 	RUN_TEST(test_it_can_say_how_long_the_climb_will_take);
 	RUN_TEST(test_a_plant_from_the_old_fit_is_replaced_not_averaged);
 	RUN_TEST(test_a_plant_from_the_old_fit_does_not_drive_the_loop);
