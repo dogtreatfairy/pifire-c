@@ -129,6 +129,10 @@ typedef struct {
 		 * produces far more amplitude than the measurement needs, so that re-centring cannot put
 		 * the oversized swing back. Zero until then. */
 		double h_cap;
+		/* and the other way: a swing deliberately grown because the oscillation was too thin to
+		 * read must not be undone by the next re-centring, which sizes the swing from the room
+		 * around the centre and knows nothing about why it was widened. */
+		double h_floor;
 		int resizes;            /* swing resizes this run, kept apart from the centring budget */
 
 		/* `halves` holds the time between successive crossings. A full oscillation is one half
@@ -172,6 +176,9 @@ typedef struct {
 } pf_control;
 
 void pf_control_init(pf_control *c, bool sim);
+/* Size the relay's swing to the room around its centre, honouring the cap and floor a run has
+ * learned. Exposed so the tests can check that a deliberate widening survives a re-centring. */
+void pf_control_autotune_size(pf_control *c);
 void pf_control_shutdown(pf_control *c);
 void pf_control_reload_settings(pf_control *c);
 /* One tick: consume commands, read sensors, run mode logic + safety, drive outputs, publish status. */

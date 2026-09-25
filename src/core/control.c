@@ -31,7 +31,6 @@ static void learn_rise_begin(pf_control *c, double now);
 static void autotune_start(pf_control *c, double now);
 static void autotune_finish(pf_control *c, bool ok, const char *why);
 static double autotune_output(const pf_control *c);
-static void autotune_size(pf_control *c);
 static void autotune_cycle(const pf_control *c, int i, double *period, double *amp);
 static bool autotune_settled(const pf_control *c);
 
@@ -1246,15 +1245,26 @@ static void autotune_start(pf_control *c, double now)
 	 * little fuel has almost no room below it: asking for a swing that gets clamped on one side
 	 * gives a lopsided input and an ultimate gain that is too high. Shrink the swing instead, and
 	 * only if that leaves too little to measure, move the centre up to make room. */
-	c->autotune.h_cap = 0; c->autotune.resizes = 0;   /* this run has not yet learned what swing it needs */
-	autotune_size(c);
+	c->autotune.h_cap = 0; c->autotune.h_floor = 0; c->autotune.resizes = 0;   /* this run has not yet learned what swing it needs */
+	pf_control_autotune_size(c);
 	/* Two sigma of the pit's own wander, kept inside sane bounds: small enough that the swing this
 	 * run produces stands well clear of it, large enough that the relay does not chase noise. */
 	double sigma = recent_pit_noise(now, 600);
 	c->autotune.hyst_c = pf_clamp(isnan(sigma) ? 1.0 : 2.0 * sigma, 0.35, 1.2);
 	c->autotune.start_t = now;
 	c->autotune.last_cross_t = now;
-	c->autotune.phase = c->pit_c > c->setpoint_c ? -1 : +1;
+	/* Start in the half that opposes what the pit is already doing.
+	 *
+	 * The relay begins the moment the pit arrives at the set point, which it does climbing. Choosing
+	 * the first half from the sign of the error then starts it feeding, and the fresh feed lands on
+	 * top of the momentum the pit already has: on this grill the first half lasted fifteen seconds
+	 * and the first excursion reached eleven degrees, against five and a half once the cycle
+	 * settled. Sitting at the target with a rising pit, the half worth running is the low one. The
+	 * error still decides when the pit is plainly off the set point; the rate decides when it is
+	 * not. */
+	double e0 = c->pit_c - c->setpoint_c;
+	c->autotune.phase = fabs(e0) > 2.0 ? (e0 > 0 ? -1 : +1)
+	                  : (c->pit_rate_c_min > 0.2 ? -1 : c->pit_rate_c_min < -0.2 ? +1 : (e0 > 0 ? -1 : +1));
 	c->autotune.err_at_move = c->pit_c - c->setpoint_c;
 	c->autotune.peak_max = c->autotune.peak_min = c->pit_c;
 	pf_events_emit("Autotune_Started", "Autotune running", "The grill will oscillate a few degrees around %.0f for 15-40 minutes. Do not cook food during the test.", pf_from_c(c->setpoint_c, c->cfg.units));
@@ -1303,11 +1313,18 @@ static double autotune_output(const pf_control *c)
  * period and the amplitude describe the grill there. At a low set point there is little room below
  * the centre and the swing is small and slow; that is the honest price, and slow is recoverable
  * where biased is not. */
-static void autotune_size(pf_control *c)
+void pf_control_autotune_size(pf_control *c)
 {
 	double h = fmin(0.15, fmin(c->autotune.u_center - c->cfg.u_min, c->cfg.u_max - c->autotune.u_center));
 	if (h < 0.03) h = 0.03;
 	if (c->autotune.h_cap > 0 && h > c->autotune.h_cap) h = c->autotune.h_cap;
+	/* A swing grown on purpose is kept, as far as the room allows. Re-centring used to undo it
+	 * silently -- this run widened to 0.165 and the very next centring put it back to 0.131 -- so
+	 * the widening bought nothing and the oscillation stayed as thin as it had been. */
+	if (c->autotune.h_floor > 0 && h < c->autotune.h_floor) {
+		double room = fmin(c->autotune.u_center - c->cfg.u_min, c->cfg.u_max - c->autotune.u_center);
+		h = fmin(c->autotune.h_floor, fmax(room, h));
+	}
 	c->autotune.h = h;
 }
 
@@ -1457,6 +1474,7 @@ static double autotune_step(pf_control *c, double now)
 					LOGI(TAG, "autotune swing %.3f gave only %.2f C against a %.2f C band; widening to %.3f",
 					     c->autotune.h, A, c->autotune.hyst_c, grown);
 					c->autotune.h = grown;
+					c->autotune.h_floor = grown;
 					c->autotune.resizes++;
 					c->autotune.adjust_at_cross = c->autotune.crossings;
 					c->autotune.hi_sum = c->autotune.lo_sum = 0; c->autotune.hi_n = c->autotune.lo_n = 0;
@@ -1471,7 +1489,7 @@ static double autotune_step(pf_control *c, double now)
 			bool material = fabs(c_step) > 0.15 * c->autotune.h;
 			if (material && c->autotune.adjusts < 2) {
 				c->autotune.u_center = centre;
-				autotune_size(c);
+				pf_control_autotune_size(c);
 				c->autotune.adjusts++;
 				/* Nothing recorded is thrown away -- the run is slow enough that starting the count
 				 * again would spend an hour -- but the result may not be taken from cycles that
@@ -1494,9 +1512,18 @@ static double autotune_step(pf_control *c, double now)
 		 * centring are the measurement, so two whole cycles -- four crossings -- are required before any
 		 * of it counts. One cycle was what the code asked for while this comment asked for two, and
 		 * a single cycle taken straight after a centre moved is still half transient. */
+		/* A limit cycle is only the measurement if it sits ON the set point. An off-centre cycle
+		 * stretches its period and widens its swing, and the describing function reads that as a
+		 * grill that answers feed weakly. The last run finished sitting three degrees high and came
+		 * back with a band five per cent wider than the run before it; the centring trim was still
+		 * working when the run declared itself done. So being centred is a condition of finishing,
+		 * not something hoped for along the way -- with the crossing limit still there to end a run
+		 * that cannot manage it. */
+		double bias_now = c->autotune.meas_err_n > 0 ? fabs(c->autotune.meas_err_sum / c->autotune.meas_err_n) : 0;
+		bool centred = bias_now <= pf_delta_to_c(2.0, PF_UNITS_F) || c->autotune.meas_err_n < 4;
 		if (c->autotune.crossings >= PF_AT_MIN_CROSS &&
 		    c->autotune.crossings >= c->autotune.adjust_at_cross + 4 &&
-		    (autotune_settled(c) || c->autotune.crossings >= PF_AT_MAX)) {
+		    (((autotune_settled(c) && centred)) || c->autotune.crossings >= PF_AT_MAX)) {
 			autotune_finish(c, true, "");
 			return c->autotune.u_center;
 		}
@@ -1537,7 +1564,7 @@ static double autotune_step(pf_control *c, double now)
 			return autotune_output(c);
 		}
 		c->autotune.u_center = moved;
-		autotune_size(c);
+		pf_control_autotune_size(c);
 		c->autotune.recentres++;
 		c->autotune.err_at_move = e;
 		c->autotune.last_recentre_t = now;

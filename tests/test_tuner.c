@@ -809,6 +809,60 @@ static void test_the_swing_is_centred_on_the_set_point(void)
 	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(5.0, 250.0, mean, "the oscillation must sit on the set point");
 }
 
+/* The relay begins the moment the pit arrives at the set point, which it does climbing. Starting
+   the first half from the sign of the error then starts it FEEDING, and that lands on top of the
+   momentum the pit already has: on the real grill the first half lasted fifteen seconds and the
+   first excursion reached eleven degrees against five and a half once the cycle settled. Sitting on
+   the target with a rising pit, the half worth running is the low one. */
+static void test_the_relay_starts_against_the_pit(void)
+{
+	pf_learning_clear_anchors();
+	stop_and_wait_cold();
+	pf_cmd c = { .type = PF_CMD_MODE, .mode = PF_MODE_HOLD, .num = 250 };
+	pf_cmdq_push(&c);
+	for (int i = 0; i < 90 * 60 && !ctrl.target_reached; i += 10) tick(10);
+	TEST_ASSERT_TRUE(ctrl.target_reached);
+
+	/* put the pit exactly on the set point and plainly climbing, as an arrival leaves it */
+	pf_sim_model()->pit_c = ctrl.setpoint_c;
+	tick(10);
+	double rate_before = ctrl.pit_rate_c_min;
+	pf_cmd a = { .type = PF_CMD_AUTOTUNE_START };
+	pf_cmdq_push(&a);
+	tick(5);
+	TEST_ASSERT_TRUE(ctrl.autotune.active);
+	printf("started with the pit on the set point rising %.2f C/min -> phase %+d\n", rate_before, ctrl.autotune.phase);
+	if (rate_before > 0.2)
+		TEST_ASSERT_EQUAL_INT_MESSAGE(-1, ctrl.autotune.phase, "a rising pit should be met with the low half");
+	stop_and_wait_cold();
+}
+
+/* A swing grown because the oscillation was too thin to read must survive the next re-centring,
+   which sizes the swing from the room around the centre and knows nothing about why it was widened.
+   On the real grill it widened to 0.165 and the very next centring put it back to 0.131, so the
+   widening bought nothing and the cycle stayed as thin as it had been. */
+static void test_a_widened_swing_survives_a_recentring(void)
+{
+	pf_learning_clear_anchors();
+	stop_and_wait_cold();
+	pf_cmd c = { .type = PF_CMD_MODE, .mode = PF_MODE_HOLD, .num = 250 };
+	pf_cmdq_push(&c);
+	for (int i = 0; i < 90 * 60 && !ctrl.target_reached; i += 10) tick(10);
+	pf_cmd a = { .type = PF_CMD_AUTOTUNE_START };
+	pf_cmdq_push(&a);
+	tick(30);
+	TEST_ASSERT_TRUE(ctrl.autotune.active);
+
+	/* a run that has deliberately grown its swing */
+	ctrl.autotune.h = 0.165;
+	ctrl.autotune.h_floor = 0.165;
+	ctrl.autotune.u_center = 0.30;
+	pf_control_autotune_size(&ctrl);
+	printf("after re-sizing around 0.30: swing %.3f (floor 0.165)\n", ctrl.autotune.h);
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.autotune.h >= 0.16, "the widening must survive the re-centring");
+	stop_and_wait_cold();
+}
+
 /* What the relay measured decides the tuning, and nothing else does. The same oscillation used to
  * give different answers depending on the static gain it was paired with, which came from the
  * feed-forward or from a startup rise -- neither of them part of the measurement. */
@@ -936,6 +990,8 @@ int main(void)
 	RUN_TEST(test_a_slow_cooling_half_is_not_a_stall);
 	RUN_TEST(test_the_relay_centres_on_holding_not_climbing);
 	RUN_TEST(test_a_relay_result_does_not_depend_on_anything_else);
+	RUN_TEST(test_the_relay_starts_against_the_pit);
+	RUN_TEST(test_a_widened_swing_survives_a_recentring);
 	RUN_TEST(test_the_swing_is_centred_on_the_set_point);
 	RUN_TEST(test_a_biased_swing_is_refused);
 	RUN_TEST(test_relay_recovers_from_a_badly_centred_swing);

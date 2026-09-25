@@ -35,6 +35,27 @@ into a limit cycle at the frequency where the grill's own phase lag reaches 180�
   are the approach. If it has not settled by twelve crossings the result is taken anyway and the
   event says it was still drifting.
 
+### Conditioning the relay: three things a real run got wrong
+
+A run on the real grill returned `Ku 0.065, Pu 432, amplitude ±5.7, sitting 3.1 °F from the set
+point`, and its own log said why:
+
+* **It started by feeding into a climbing pit.** The relay begins the moment the pit arrives, so the
+  error is nearly zero and the *rate* is what matters; picking the first half from the sign of the
+  error started it feeding on top of the momentum the pit already had. The first half lasted fifteen
+  seconds and the first excursion reached eleven degrees against ±5.5 once settled. It now starts in
+  the half that opposes the pit's motion.
+* **A deliberate widening was undone by the next re-centring.** `widening to 0.165` followed
+  immediately by `centre 0.231, swing ±0.131`: the sizer works from the room around the centre and
+  knew nothing about why the swing had been grown. There is a floor now as well as a cap.
+* **It finished off-centre.** High halves of 196 and 166 s against low halves of 256 s — a 41 %
+  asymmetry — because the centre sat at 0.294 where the cycle's own load was 0.268. Being centred is
+  now a condition of finishing, not something hoped for on the way, with the crossing limit still
+  there to end a run that cannot manage it.
+
+Those compound: a thin swing inflates the describing function (±5.7 °F against a 1.2 °C band is 8 %
+of inflation on its own) and an off-centre cycle stretches the period and widens the swing again.
+
 ### The relay's own answer
 
 A relay test measures two numbers and two only: the ultimate gain `Ku` and the period `Pu` of the
