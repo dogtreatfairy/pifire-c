@@ -263,6 +263,45 @@ static void test_a_full_library_gives_up_its_most_redundant_entry(void)
 	TEST_ASSERT_EQUAL_INT_MESSAGE(1, crowded, "one of the two crowded entries is what to give up");
 }
 
+/* The same grill, measured twice, must answer the same twice.
+ *
+ * It did not. Each run tightened the proportional band, the tighter controller then held on a duty
+ * that left less room for the next run's swing, the smaller swing produced an oscillation closer to
+ * the relay's switching band, and the describing function -- which divides by sqrt(A^2 - eps^2) --
+ * handed back an ultimate gain inflated by that. On the real grill it read 150, 56, 67 and then 41
+ * degrees of band across four runs while nothing about the grill had changed, and the overshoot on
+ * the way to the set point grew with it. */
+static void test_measuring_twice_gives_the_same_answer(void)
+{
+	pf_settings_patch("controller", "{\"selected\":\"pid\"}", NULL, 0);
+	pf_control_init(&ctrl, true);
+	pf_sim_reset(18.0);
+	tick(5);
+	pf_cmd_mode(PF_MODE_HOLD, 225);
+	tick(250 + 40 * 60);
+	TEST_ASSERT_TRUE(ctrl.target_reached);
+
+	double pb[2];
+	for (int run = 0; run < 2; run++) {
+		pf_cmd_simple(PF_CMD_AUTOTUNE_START);
+		tick(1);
+		TEST_ASSERT_TRUE(ctrl.autotune.active);
+		double t = 0;
+		while (ctrl.autotune.active && t < 60 * 60) { tick(10); t += 10; }
+		pf_autotune_result r = pf_learning_autotune();
+		TEST_ASSERT_TRUE_MESSAGE(r.valid, "the run produced no usable measurement");
+		/* the swing has to stand clear of the switching band, or the gain is arithmetic noise */
+		TEST_ASSERT_TRUE_MESSAGE(r.amplitude_c > 0, "no amplitude recorded");
+		pb[run] = r.PB_c;
+		printf("run %d: Ku %.4f Pu %.0f amp %.2f C -> PB %.1f C\n", run + 1, r.Ku, r.Pu, r.amplitude_c, r.PB_c);
+		pf_cmd_simple(PF_CMD_TUNING_APPLY);
+		tick(20 * 60);            /* hold on the new tuning, then measure again */
+	}
+	double ratio = pb[1] > pb[0] ? pb[1] / pb[0] : pb[0] / pb[1];
+	printf("band moved by %.2fx between runs\n", ratio);
+	TEST_ASSERT_TRUE_MESSAGE(ratio < 1.5, "the band moved more than half again between two runs on the same grill");
+}
+
 int main(void)
 {
 	pf_log_init(PF_LOG_ERROR);
@@ -270,6 +309,7 @@ int main(void)
 	RUN_TEST(test_observations_and_fit_across_ambients);
 	RUN_TEST(test_repeat_cook_not_worse);
 	RUN_TEST(test_autotune);
+	RUN_TEST(test_measuring_twice_gives_the_same_answer);
 	RUN_TEST(test_a_tune_at_one_set_point_leaves_the_others_alone);
 	RUN_TEST(test_a_repeat_run_refines_that_set_point_only);
 	RUN_TEST(test_an_untuned_set_point_interpolates_between_its_neighbours);

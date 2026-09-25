@@ -896,7 +896,18 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 	/* The relay only switches once the error passes the hysteresis band, so the oscillation can
 	 * never be smaller than that band. An amplitude at or under it means the readings are not
 	 * describing a real swing. */
-	if (A <= c->autotune.hyst_c * 1.05) { pf_events_emit("Autotune_Failed", "Autotune stopped", "Oscillation too small to measure."); return; }
+	/* The describing function divides by sqrt(A^2 - eps^2). At A = 1.05 eps that term is a third of
+	 * A and the ultimate gain it reports is inflated threefold; the old guard let exactly that
+	 * through, and the result was a proportional band that halved run after run while the grill
+	 * itself had not changed. Below twice the band the measurement is not trustworthy and is
+	 * refused rather than stored. */
+	if (A < c->autotune.hyst_c * 2.0) {
+		pf_events_emit("Autotune_Failed", "Autotune stopped",
+		               "The swing was %.1f%s against a %.1f%s switching band -- too close to it to measure the gain. Run it again from a settled grill.",
+		               pf_delta_from_c(A, c->cfg.units), c->cfg.units == PF_UNITS_C ? "C" : "F",
+		               pf_delta_from_c(c->autotune.hyst_c, c->cfg.units), c->cfg.units == PF_UNITS_C ? "C" : "F");
+		return;
+	}
 
 	/* Was the swing actually centred?
 	 *
@@ -1000,6 +1011,32 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
  * in the climb, and on a cold start to the lowest set point the climb is nearly all of it. The
  * centre then came out far higher than the grill needs, so even the low half of the relay kept
  * feeding the fire and the pit walked away from the set point without ever crossing it. */
+/* How much the pit wanders on its own, while it is not being driven anywhere.
+ *
+ * The relay's hysteresis has to sit above the noise, or the relay switches on noise and measures
+ * nothing. It also has to sit well BELOW the oscillation it is about to produce, because the
+ * describing function divides by sqrt(A^2 - eps^2): as the swing approaches the band, that term
+ * collapses and the ultimate gain it reports runs away. A fixed 1 C band was generous for a settled
+ * grill and left no room above it on a well-tuned one. Measure it instead: the standard deviation
+ * of the pit about its own mean over the last few minutes of holding, doubled, is the conventional
+ * choice and is what the band is set from. */
+static double recent_pit_noise(double now, double window_s)
+{
+	const pf_history *h = pf_history_ctrl_view();
+	if (!h) return NAN;
+	double sum = 0, sum2 = 0; int n = 0;
+	for (int i = h->len - 1; i >= 0; i--) {
+		const pf_hist_pt *pt = pf_history_at(h, i);
+		if (!pt || now - pt->t > window_s) break;
+		if (isnan(pt->pit_c) || pt->setpoint_c <= 0) continue;
+		if (fabs(pt->pit_c - pt->setpoint_c) > pf_delta_to_c(12, PF_UNITS_F)) continue;
+		sum += pt->pit_c; sum2 += pt->pit_c * pt->pit_c; n++;
+	}
+	if (n < 30) return NAN;
+	double mean = sum / n, var = sum2 / n - mean * mean;
+	return var > 0 ? sqrt(var) : 0;
+}
+
 static double recent_hold_duty(const pf_control *c, double now, double window_s)
 {
 	const pf_history *h = pf_history_ctrl_view();
@@ -1050,7 +1087,10 @@ static void autotune_start(pf_control *c, double now)
 	 * gives a lopsided input and an ultimate gain that is too high. Shrink the swing instead, and
 	 * only if that leaves too little to measure, move the centre up to make room. */
 	autotune_size(c);
-	c->autotune.hyst_c = 1.0;
+	/* Two sigma of the pit's own wander, kept inside sane bounds: small enough that the swing this
+	 * run produces stands well clear of it, large enough that the relay does not chase noise. */
+	double sigma = recent_pit_noise(now, 600);
+	c->autotune.hyst_c = pf_clamp(isnan(sigma) ? 1.0 : 2.0 * sigma, 0.35, 1.2);
 	c->autotune.start_t = now;
 	c->autotune.last_cross_t = now;
 	c->autotune.phase = c->pit_c > c->setpoint_c ? -1 : +1;
@@ -1182,13 +1222,39 @@ static double autotune_step(pf_control *c, double now)
 			double lim = c->autotune.adjusts == 0 ? 1.0 : c->autotune.h / 2;
 			double c_step = pf_clamp(aim - c->autotune.u_center, -lim, lim);
 			double centre = pf_clamp(c->autotune.u_center + c_step, c->cfg.u_min + 0.02, c->cfg.u_max - 0.02);
-			/* The swing itself is left alone. Trimming it towards a gentler amplitude was tried and
-			 * costs more than it buys: a smaller swing is a relay with less authority, and one
-			 * whose low half no longer cools the grill does not oscillate at all, it just sits
-			 * above the set point -- which is the failure this whole exercise is about. The size of
-			 * the swing does not bias the answer, only the centre does, so the centre is what is
-			 * corrected and the amplitude is reported for the record. */
-			(void)A_target;
+			/* The swing is never trimmed DOWN. A smaller swing is a relay with less authority,
+			 * and one whose low half no longer cools the grill does not oscillate at all, it just
+			 * sits above the set point -- which is the failure this whole exercise is about.
+			 *
+			 * It is grown when the oscillation comes out too small to read, which is the fault that
+			 * made a well-tuned grill tune itself worse: the better it held, the less room the
+			 * centre left for the swing, the smaller the swing, and the closer the amplitude came
+			 * to the switching band -- where the describing function divides by very little and
+			 * hands back an ultimate gain far larger than the grill's. Growing it early, while the
+			 * run is still conditioning itself, costs a couple of cycles and fixes the measurement
+			 * rather than failing it an hour later. */
+			bool thin = A > 0 && A < A_target && c->autotune.adjusts < 2;
+			bool widened = false;
+			if (thin) {
+				double target_h = c->autotune.h * pf_clamp(A_target / A, 1.0, 2.0);
+				double room = fmin(c->cfg.u_max - 0.02 - c->autotune.u_center,
+				                   c->autotune.u_center - c->cfg.u_min - 0.02);
+				double grown = pf_clamp(target_h, c->autotune.h, fmax(room, c->autotune.h));
+				if (grown > c->autotune.h * 1.05) {
+					LOGI(TAG, "autotune swing %.3f gave only %.2f C against a %.2f C band; widening to %.3f",
+					     c->autotune.h, A, c->autotune.hyst_c, grown);
+					c->autotune.h = grown;
+					c->autotune.adjusts++;
+					c->autotune.adjust_at_cross = c->autotune.crossings;
+					c->autotune.hi_sum = c->autotune.lo_sum = 0; c->autotune.hi_n = c->autotune.lo_n = 0;
+					c->autotune.meas_err_sum = 0; c->autotune.meas_err_n = 0;
+					c->autotune.cyc_sum = 0; c->autotune.cyc_n = 0;
+					widened = true;
+				}
+			}
+			/* A run that has just widened its swing has thrown its window away; the centring below
+			 * belongs to the next one. */
+			if (!widened) {
 			bool material = fabs(c_step) > 0.15 * c->autotune.h;
 			if (material && c->autotune.adjusts < 2) {
 				c->autotune.u_center = centre;
@@ -1204,6 +1270,7 @@ static double autotune_step(pf_control *c, double now)
 				     c->autotune.adjusts, load, A, c->autotune.u_center, c->autotune.h);
 			} else if (fabs(c_step) > 0.003) {
 				c->autotune.u_center = centre;   /* a trim this small leaves the record standing */
+			}
 			}
 			c->autotune.cyc_sum = 0; c->autotune.cyc_n = 0;
 		}
