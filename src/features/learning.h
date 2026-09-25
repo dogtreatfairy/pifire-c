@@ -35,7 +35,12 @@ unsigned pf_learning_autotune_gen(void);
 /* `ambient_c` and `wind` are the conditions the measurement was taken in. A grill behaves
  * differently on a still 80 F afternoon than in a 20 F wind, so an anchor is only fully meaningful
  * alongside the weather it was measured in, and the app shows both. */
-typedef struct { double setpoint_c, Ku, Pu, PB_c, Ti, Td, ts, ambient_c, wind; int runs; bool valid; } pf_tune_anchor;
+/* An entry in the tuning library: everything one run at one set point found out about the grill
+ * there. The gains are what the relay measured; K, tau and theta are the plant the step into that
+ * set point fitted, and they are what the controller's prediction runs on. A pellet grill is a
+ * different plant at 180 F than at 450 F -- less gain, more loss -- so a prediction built from one
+ * model for the whole range mis-states how much fuel is already on its way at the far end of it. */
+typedef struct { double setpoint_c, Ku, Pu, PB_c, Ti, Td, K, tau, theta, ts, ambient_c, wind; int runs; bool valid; } pf_tune_anchor;
 
 /* Store a measurement. A set point already in the library is REFINED rather than replaced: a relay
  * test measures the grill on one afternoon, with that day's wind and that hopper's pellets, and a
@@ -47,6 +52,13 @@ void pf_learning_put_anchor(const pf_tune_anchor *a);
 /* Gains for this set point, interpolated between anchors and clamped outside their range.
  * False when the schedule is empty, in which case the controller keeps its own tuning. */
 bool pf_learning_gains(double setpoint_c, double *PB_c, double *Ti, double *Td);
+/* File the plant fitted from the step into `setpoint_c` against that set point's library entry.
+ * Silently does nothing when there is no entry there: a plant without a measured band is half an
+ * anchor, and the library's own rules about which entries survive are about measurements. */
+void pf_learning_store_anchor_plant(double setpoint_c, double K, double tau, double theta);
+/* The plant model for a set point, interpolated between library entries the same way the gains
+ * are, falling back to the last cold-start fit. False when nothing has ever been fitted. */
+bool pf_learning_plant(double setpoint_c, double *K, double *tau, double *theta);
 int  pf_learning_anchor_list(pf_tune_anchor *out, int max);
 void pf_learning_clear_anchors(void);
 /* Two clearings, because two different things can be wrong.

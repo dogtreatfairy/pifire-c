@@ -240,41 +240,62 @@ static void test_gain_change_does_not_jolt_the_integrator(void)
 {
 	g_kv[0] = 0;
 	const pf_controller_ops *ops = pf_controller_find("adaptive");
-	void *c = ops->create("{\"_units\":\"C\",\"PB\":80,\"Ti\":400,\"Td\":30}", &env);
-	pf_ctrl_dbg dbg = { 0 };
+	/* Two identical loops, fed the same inputs cycle for cycle. Only one of them is handed a new
+	 * tuning part way through, so whatever the integrator does in the other is what this input was
+	 * always going to make it do -- the prediction winding in, the wind-up trim at the band edge --
+	 * and the gap between the two is the jolt the gain change itself caused, which is the only
+	 * thing this test is about. Comparing a single loop against its own previous cycle cannot tell
+	 * those apart, and it wrote off a correctly behaving controller once already. */
+	const char *cfg = "{\"_units\":\"C\",\"PB\":80,\"Ti\":400,\"Td\":30}";
+	void *a = ops->create(cfg, &env);   /* gains change under this one */
+	void *b = ops->create(cfg, &env);   /* control: same inputs, same gains throughout */
+	pf_ctrl_dbg da = { 0 }, db = { 0 };
 	double t = 1000;
 
 	/* settle in with a seeded integrator, close to the target */
 	pf_ctrl_in in = { .now_s = t, .pit_c = 108, .setpoint_c = 110, .ambient_c = 20,
 	                  .u_prev_applied = 0.45, .u_ff = 0.30, .cycle_time_s = 20, .u_min = 0.1, .u_max = 0.9 };
-	ops->reset(c, &in);
-	for (int k = 0; k < 5; k++) { t += 20; in.now_s = t; ops->update(c, &in, &dbg); }
-	double i_before = dbg.i, u_before = dbg.p + dbg.i + dbg.d + dbg.ff;
+	ops->reset(a, &in); ops->reset(b, &in);
+	for (int k = 0; k < 5; k++) { t += 20; in.now_s = t; ops->update(a, &in, &da); ops->update(b, &in, &db); }
+	double i_before = da.i, inter_before = da.integral;
 
 	/* now hand over a very different tuning for this set point, as the library does */
-	in.sched_PB_c = 20; in.sched_Ti = 60; in.sched_Td = 10;
-	t += 20; in.now_s = t;
-	double u = ops->update(c, &in, &dbg);
-	/* Those gains are about twenty-seven times more aggressive. Unrescaled, the integral's
-	 * contribution would be multiplied by that; it should instead carry over, moving only by the
-	 * one cycle of fresh integration that genuinely happened. */
-	printf("integral %.4f -> %.4f, output %.3f -> %.3f\n", i_before, dbg.i, u_before, u);
+	pf_ctrl_in sched = in;
+	sched.sched_PB_c = 20; sched.sched_Ti = 60; sched.sched_Td = 10;
+	t += 20; in.now_s = t; sched.now_s = t;
+	double u = ops->update(a, &sched, &da);
+	ops->update(b, &in, &db);
+	/* Those gains are about twenty-seven times more aggressive. What the accumulator did this
+	 * cycle is the same in both loops -- the error it integrates does not depend on the gains -- so
+	 * the untouched loop measures it, and the contribution the changed loop should be showing is
+	 * the one it carried in plus that fresh error at the NEW gain. Unrescaled, the carried part
+	 * would arrive multiplied by twenty-seven instead. */
+	double d_inter = db.integral - inter_before;
+	double ki_new = -1.0 / (state_num(ops, a, "PB_c") * state_num(ops, a, "Ti"));
+	double carried = i_before + ki_new * d_inter;
+	printf("integral %.4f -> %.4f (carry-over predicts %.4f), output %.3f\n", i_before, da.i, carried, u);
 	TEST_ASSERT_TRUE_MESSAGE(fabs(u) <= 5.0, "the output must stay in range when the gains change");
-	TEST_ASSERT_TRUE_MESSAGE(fabs(dbg.i - i_before) < 0.5 * fabs(i_before) + 0.05, "the integral's contribution should carry over, not scale with the gains");
+	TEST_ASSERT_TRUE_MESSAGE(fabs(da.i - carried) < 0.5 * fabs(i_before) + 0.05,
+	                         "the integral's contribution should carry over, not scale with the gains");
 
 	/* several more cycles at the new gains: it must stay bounded rather than run away */
-	for (int k = 0; k < 20; k++) { t += 20; in.now_s = t; u = ops->update(c, &in, &dbg); }
-	printf("after 20 more cycles: integral %.4f, output %.3f\n", dbg.i, u);
+	for (int k = 0; k < 20; k++) { t += 20; sched.now_s = in.now_s = t; u = ops->update(a, &sched, &da); ops->update(b, &in, &db); }
+	printf("after 20 more cycles: integral %.4f, output %.3f\n", da.i, u);
 	TEST_ASSERT_TRUE_MESSAGE(fabs(u) <= 5.0, "the output must stay in range");
 
-	/* and back the other way, to a much wider band */
-	double i_mid = dbg.i;
-	in.sched_PB_c = 200; in.sched_Ti = 1200; in.sched_Td = 90;
-	t += 20; in.now_s = t;
-	u = ops->update(c, &in, &dbg);
+	/* and back the other way, to a much wider band. The control loop carries on at the gains it
+	 * has had all along, so it still measures only what this input does on its own. */
+	double i_mid = da.i, ctrl_mid = db.integral;
+	sched.sched_PB_c = 200; sched.sched_Ti = 1200; sched.sched_Td = 90;
+	t += 20; sched.now_s = in.now_s = t;
+	u = ops->update(a, &sched, &da);
+	ops->update(b, &in, &db);
+	ki_new = -1.0 / (state_num(ops, a, "PB_c") * state_num(ops, a, "Ti"));
+	carried = i_mid + ki_new * (db.integral - ctrl_mid);
 	TEST_ASSERT_TRUE(fabs(u) <= 5.0);
-	TEST_ASSERT_TRUE_MESSAGE(fabs(dbg.i - i_mid) < 0.5 * fabs(i_mid) + 0.05, "widening the band should not jolt it either");
-	ops->destroy(c);
+	TEST_ASSERT_TRUE_MESSAGE(fabs(da.i - carried) < 0.5 * fabs(i_mid) + 0.05,
+	                         "widening the band should not jolt it either");
+	ops->destroy(a); ops->destroy(b);
 }
 
 /* Learning settles a correction per temperature range, and a tuning run measures the grill at one

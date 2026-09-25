@@ -499,6 +499,16 @@ cJSON *pf_tuner_json(void)
 		cJSON_AddNumberToObject(e, "Ti", round(a[i].Ti));
 		cJSON_AddNumberToObject(e, "Td", round(a[i].Td));
 		cJSON_AddNumberToObject(e, "ts", a[i].ts);
+		/* What the relay measured, which the app shows behind the entry. It was asking for these
+		 * already and being given nothing, so every anchor's measurement read as unknown. */
+		if (a[i].Ku > 0) cJSON_AddNumberToObject(e, "Ku", a[i].Ku);
+		if (a[i].Pu > 0) cJSON_AddNumberToObject(e, "Pu", round(a[i].Pu));
+		/* and the grill the step into this set point fitted, which is what the prediction runs on */
+		if (a[i].K > 0) {
+			cJSON_AddNumberToObject(e, "K", round(pf_delta_from_c(a[i].K, u)));
+			cJSON_AddNumberToObject(e, "tau", round(a[i].tau));
+			cJSON_AddNumberToObject(e, "theta", round(a[i].theta));
+		}
 		/* How many measurements are behind this entry. The app says how deep the library is, and
 		 * without it the refinement is invisible -- there is no way to tell a number that has been
 		 * measured once from one that three runs agree on. */

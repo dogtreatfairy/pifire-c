@@ -71,7 +71,13 @@ export function renderLearning(view, slots = {}) {
       el('div', { class: 'kv' },
         el('div', {}, 'Ultimate gain'), el('div', {}, a.Ku ? a.Ku.toFixed(4) : '\u2014'),
         el('div', {}, 'Period'), el('div', {}, a.Pu ? `${Math.round(a.Pu)} s` : '\u2014'),
-        el('div', {}, 'Wind'), el('div', {}, a.wind_kmh ? `${a.wind_kmh} km/h` : '\u2014'))),
+        el('div', {}, 'Wind'), el('div', {}, a.wind_kmh ? `${a.wind_kmh} km/h` : '\u2014')),
+      a.K ? el('h2', {}, 'Grill Model') : null,
+      a.K ? el('div', { class: 'kv' },
+        el('div', {}, 'Gain'), el('div', {}, `${a.K}${degUnit()} / full feed`),
+        el('div', {}, 'Time Constant'), el('div', {}, `${a.tau} s`),
+        el('div', {}, 'Dead Time'), el('div', {}, `${a.theta} s`)) : null,
+      a.K ? el('div', { class: 'help' }, 'Used to predict heat already on its way.') : null),
     el('div', { class: 'form-actions' },
       actionBtn('cancel', 'Close', { size: '', onclick: () => close() }))));
 

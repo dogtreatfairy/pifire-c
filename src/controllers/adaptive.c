@@ -1,3 +1,9 @@
+	/* The coast look-ahead that used to live here -- cut back to the feed-forward once the pit,
+	 * rising at its current rate, would reach the target within one dead time -- is gone. It was
+	 * the same idea done from the slope instead of from the model, and it could only ever cut back
+	 * TO the steady-state feed, never below it, which is why it left ten degrees of overshoot on
+	 * the table. The prediction above does the whole job, and two mechanisms aiming at one thing
+	 * would fight. */
 /* Adaptive controller: learned feed-forward plus a self-tuning PID on the error.
  *   u = ff_gain * u_ff(setpoint, ambient)  +  Kp*e + Ki*∫e + Kd*de/dt
  * u_ff comes from the daemon (features/learning.c) via pf_ctrl_in.u_ff; the PID only has to
@@ -33,6 +39,16 @@
 #define THETA_MIN     40.0
 #define THETA_MAX     240.0
 #define THETA_DEFAULT 90.0
+/* the plant, until a run measures this grill's own */
+#define K_DEFAULT     330.0     /* C per unit duty */
+#define TAU_DEFAULT   1000.0    /* s */
+#define K_MIN 60.0
+#define K_MAX 900.0
+#define TAU_MIN 120.0
+#define TAU_MAX 3000.0
+/* theta / cycle_time entries at most; 64 covers a 20 minute dead time at a 20 s cycle */
+#define PF_MDL_RING 64
+#define SURPLUS_MAX 100.0   /* C; only a guard against a nonsense model, not a working limit */
 #define PF_SCALE_BANDS 4      /* temperature bands the loop-gain correction is learned in */
 
 typedef struct {
@@ -65,8 +81,18 @@ typedef struct {
 	double win_start, win_abs_sum, win_peak; int win_n, win_changes, win_sat, last_sign;
 	double step_t, step_size, step_peak; bool step_open;
 	int settled_n;
-	double theta;           /* plant dead time estimate (s) for the coast look-ahead */
-	bool in_band, coasting;
+	/* The grill as a first-order lag with a dead time, which is what a pellet grill is: fuel goes
+	 * in, the pot takes a while to notice, and the pit then follows with a long time constant. */
+	double K, tau, theta;   /* C per unit duty, time constant (s), dead time (s) */
+	/* The Smith predictor's model state and its delay line. `mdl` is the normalised lag state, the
+	 * fraction of the current feed's effect the pot has taken up; the ring holds what it was over
+	 * the last theta seconds, so K times the difference between the two is the heat that is
+	 * committed and has not yet been felt. */
+	double mdl;
+	double ring_t[PF_MDL_RING], ring_y[PF_MDL_RING];
+	int ring_n, ring_head;
+	double surplus;         /* C of committed rise the pit has not shown yet */
+	bool in_band;
 } ad_t;
 
 /* No learning switch here. Whether the grill learns is one decision, made once, in the Learning
@@ -130,11 +156,12 @@ static void save_learned(ad_t *s)
 	if (!s->env || !s->env->kv_put) return;
 	char buf[512];
 	snprintf(buf, sizeof buf, "{\"PB_c\":%.2f,\"Ti\":%.1f,\"Td\":%.1f,\"band_learned\":[%.2f,%.2f,%.2f,%.2f],"
-	         "\"band_anchor\":[%.2f,%.2f,%.2f,%.2f],\"valid\":%s,\"ts\":%.0f,\"src\":\"%s\",\"theta\":%.0f}",
+	         "\"band_anchor\":[%.2f,%.2f,%.2f,%.2f],\"valid\":%s,\"ts\":%.0f,\"src\":\"%s\","
+	         "\"theta\":%.0f,\"K\":%.1f,\"tau\":%.0f}",
 	         s->l_PB_c, s->l_Ti, s->l_Td,
 	         s->band_learned[0], s->band_learned[1], s->band_learned[2], s->band_learned[3],
 	         s->band_anchor[0], s->band_anchor[1], s->band_anchor[2], s->band_anchor[3],
-	         s->l_valid ? "true" : "false", s->l_ts, s->l_src, s->theta);
+	         s->l_valid ? "true" : "false", s->l_ts, s->l_src, s->theta, s->K, s->tau);
 	s->env->kv_put(s->env, "learned", buf);
 }
 
@@ -159,6 +186,8 @@ static void load_learned(ad_t *s)
 	}
 	s->l_ts = pf_pid_cfg_num(j, "ts", 0);
 	s->theta = clampd(pf_pid_cfg_num(j, "theta", THETA_DEFAULT), THETA_MIN, THETA_MAX);
+	s->K = clampd(pf_pid_cfg_num(j, "K", K_DEFAULT), K_MIN, K_MAX);
+	s->tau = clampd(pf_pid_cfg_num(j, "tau", TAU_DEFAULT), TAU_MIN, TAU_MAX);
 	cJSON *v = cJSON_GetObjectItem(j, "valid"), *src = cJSON_GetObjectItem(j, "src");
 	s->l_valid = cJSON_IsTrue(v) && s->l_PB_c > 0 && s->l_Ti > 0;
 	snprintf(s->l_src, sizeof s->l_src, "%.7s", cJSON_IsString(src) ? src->valuestring : "");
@@ -184,7 +213,7 @@ static void *create(const char *json, const pf_env *env)
 	ad_t *s = calloc(1, sizeof *s);
 	if (!s) return NULL;
 	s->env = env;
-	s->theta = THETA_DEFAULT;
+	s->theta = THETA_DEFAULT; s->K = K_DEFAULT; s->tau = TAU_DEFAULT;
 	load_learned(s);
 	apply_config(s, json);
 	if (env && env->log && s->l_valid) env->log(PF_LVL_INFO, "adaptive", "learned tuning restored: PB %.1f C, Ti %.0f s, Td %.0f s (%s)", s->l_PB_c, s->l_Ti, s->l_Td, s->l_src);
@@ -209,6 +238,14 @@ static void reset(void *self, const pf_ctrl_in *in)
 	s->last_err = in->pit_c - in->setpoint_c;
 	s->have_last = true;
 	window_reset(s, in->now_s);
+	/* Start the model where the feed already has it, with no history behind it, so it predicts
+	 * nothing until the feed moves. Started from zero instead -- which is where a fresh controller
+	 * finds it -- it spends a whole time constant climbing to meet the duty, and reads that climb
+	 * out as a rise on its way to the pit: the loop starves a fire that is doing nothing of the
+	 * kind, and settles the pit ten degrees high. What the prediction says must depend on what the
+	 * feed has done, never on when the controller happened to start. */
+	s->mdl = clampd(in->u_prev_applied, 0, 1);
+	s->ring_n = 0; s->ring_head = 0; s->surplus = 0;
 	/* Integrator seed. Near the target (controller swap, software restart, small set-point nudge) it is
 	 * bumpless: the integrator absorbs the gap between the last applied duty and ff + P, within the
 	 * same +/-0.15 duty the band trim allows. Far from the target the last duty is meaningless (it was
@@ -306,22 +343,68 @@ static void monitor(ad_t *s, const pf_ctrl_in *in, double e)
 	window_reset(s, in->now_s);
 }
 
-/* pit slope in C/s from the daemon's 1 Hz history (last ~60 s), 0 when unavailable */
-static double pit_slope(const pf_ctrl_in *in)
+
+/* A Smith predictor, in the only form a pellet grill needs.
+ *
+ * The fault it fixes: fuel committed to the pot does not show up in the pit for a dead time, and
+ * keeps arriving for a time constant after that. A controller that only ever sees the measurement
+ * is therefore always a minute behind the fire, so on the way up it keeps feeding a grill that has
+ * already been given enough, and the pit sails past the target. That is the overshoot on capture,
+ * and no amount of tuning the three numbers removes it: on this grill it was 12.9 F with a 150 F
+ * proportional band and 9.3 F with a 67 F one.
+ *
+ * Smith's answer (1957) is to run a model of the plant alongside it and feed the controller the
+ * model's UNDELAYED output corrected by however wrong the model has turned out to be:
+ *
+ *     what the controller sees  =  pit  +  [ y_model(t) - y_model(t - theta) ]
+ *
+ * The bracket is the rise that is already committed and not yet measured. At steady state the two
+ * model terms are equal, the bracket is zero, and the loop is exactly as it was -- so this cannot
+ * introduce an offset. On a climb the bracket is positive and the controller backs off early, by
+ * the amount the fire is about to deliver on its own.
+ *
+ * The model is deviation-from-ambient, so the ambient never enters: only the difference between two
+ * points on the same curve is used, and any constant offset cancels.
+ */
+/* The grill as a first-order lag with a dead time, run alongside the real one and driven by the
+ * same feed.
+ *
+ * It is kept in NORMALISED form: `mdl` is the lag's response to the duty, between 0 and 1, and the
+ * temperature it stands for is K times that. Two things fall out of writing it that way. A new
+ * plant model -- a fresh fit, or the library handing over the one measured at this set point --
+ * changes K and tau without moving the state, so nothing jolts. And the model carries no absolute
+ * temperature, so it cannot disagree with the pit about where the grill IS; it only ever says how
+ * much of the feed's effect has yet to arrive, which is the one thing it is asked. */
+static void model_step(ad_t *s, const pf_ctrl_in *in, double dt)
 {
-	const pf_history *h = in->hist;
-	if (!h || h->len < 20) return 0;
-	int n = h->len < 60 ? h->len : 60;
-	double sx = 0, sy = 0, sxx = 0, sxy = 0; int k = 0;
-	for (int i = h->len - n; i < h->len; i++) {
-		const pf_hist_pt *pt = pf_history_at(h, i);
-		if (!pt || isnan(pt->pit_c)) continue;
-		double x = pt->t - in->now_s, y = pt->pit_c;
-		sx += x; sy += y; sxx += x * x; sxy += x * y; k++;
+	if (!(s->tau > 0) || !(s->K > 0) || !(dt > 0)) { s->surplus = 0; return; }
+	double drive = clampd(in->u_prev_applied, 0, 1);
+	s->mdl += (drive - s->mdl) * (dt / s->tau);
+
+	/* keep the last theta seconds of it */
+	s->ring_t[s->ring_head] = in->now_s;
+	s->ring_y[s->ring_head] = s->mdl;
+	s->ring_head = (s->ring_head + 1) % PF_MDL_RING;
+	if (s->ring_n < PF_MDL_RING) s->ring_n++;
+
+	/* what the model said one dead time ago; linear between the two samples that straddle it */
+	double want = in->now_s - clampd(s->theta, THETA_MIN, THETA_MAX);
+	double then = s->mdl, prev_t = 0, prev_y = 0;
+	bool have = false;
+	for (int k = 0; k < s->ring_n; k++) {
+		int i = (s->ring_head - 1 - k + 2 * PF_MDL_RING) % PF_MDL_RING;
+		if (s->ring_t[i] <= want) {
+			then = have && prev_t > s->ring_t[i]
+			     ? s->ring_y[i] + (prev_y - s->ring_y[i]) * (want - s->ring_t[i]) / (prev_t - s->ring_t[i])
+			     : s->ring_y[i];
+			break;
+		}
+		prev_t = s->ring_t[i]; prev_y = s->ring_y[i]; have = true;
+		/* ran out of history: the model has not been going for a whole dead time yet, so there is
+		   nothing committed that we can vouch for */
+		if (k == s->ring_n - 1) { then = s->mdl; }
 	}
-	if (k < 10) return 0;
-	double det = k * sxx - sx * sx;
-	return det != 0 ? (k * sxy - sx * sy) / det : 0;
+	s->surplus = clampd(s->K * (s->mdl - then), -SURPLUS_MAX, SURPLUS_MAX);
 }
 
 static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
@@ -340,15 +423,27 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 		 * band is re-applied against it rather than left pointing at the old one. */
 		use_band(s, in->setpoint_c);
 	}
+	/* The plant the library measured at this set point, when it has one. It comes from the step
+	 * into this temperature rather than from the last light, so the prediction is built on how the
+	 * grill answers fuel HERE -- a low smoke set point and a hot sear are not the same plant, and
+	 * one model for both over-predicts at one end and under-predicts at the other. */
+	if (in->sched_K > 0 && in->sched_tau > 0) {
+		s->K = clampd(in->sched_K, K_MIN, K_MAX);
+		s->tau = clampd(in->sched_tau, TAU_MIN, TAU_MAX);
+		if (in->sched_theta > 0) s->theta = clampd(in->sched_theta, THETA_MIN, THETA_MAX);
+	}
 	double dt = in->now_s - s->last_t;
 	if (dt <= 0) dt = in->cycle_time_s > 0 ? in->cycle_time_s : 1;
-	double e = in->pit_c - in->setpoint_c;
+	/* What the loop acts on is the pit plus what is already on its way to it. */
+	model_step(s, in, dt);
+	double e_true = in->pit_c - in->setpoint_c;
+	double e = e_true + s->surplus;
 	s->ff = s->ff_gain * in->u_ff;
 	s->p = s->kp * e;
 	/* integrate only near the target (and never while pushing into a clamp): the approach is handled by
 	 * P + feed-forward + the coast look-ahead, so the integrator cannot wind up on the way there */
 	bool sat_push = (in->saturated > 0 && e < 0) || (in->saturated < 0 && e > 0);
-	bool in_band = fabs(e) <= IBAND_C;
+	bool in_band = fabs(e_true) <= IBAND_C;
 	if (in_band && !s->in_band && s->ki != 0) {
 		/* arriving at the target: whatever the integrator accumulated on the way is approach wind-up, not a
 		 * steady-state correction. Keep at most +/-0.15 duty of it so the pit does not sag, drop the rest. */
@@ -363,11 +458,21 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 	 * the probe comes back. Integrate only real numbers, and throw away an accumulator that has
 	 * already gone bad. */
 	if (!isfinite(s->inter)) s->inter = 0;
+	/* The integrator is fed the PREDICTED error, like the rest of the law. This is the whole point
+	 * of the Smith structure: the pit spends half an hour below its set point on the way in, and an
+	 * integrator watching the measurement banks every second of that as a deficit to be repaid,
+	 * which is precisely the wind-up that throws the pit past the target once it arrives. Fed the
+	 * prediction, it stops accumulating as soon as enough fuel is committed to close the gap, which
+	 * is the moment the deficit stops being real. The prediction is zero at steady state, so this
+	 * costs no accuracy where the integrator actually earns its keep. */
 	if (!sat_push && isfinite(e) && isfinite(dt)) s->inter += e * dt;
-	/* the integral never opposes a large error: a negative integral while the pit is far below the target
-	 * (or positive while far above) is left-over wind-down, not a steady-state correction */
-	if (e < -IBAND_C && s->inter < 0) s->inter = 0;
-	if (e > IBAND_C && s->inter > 0) s->inter = 0;
+	/* The integral never opposes a large error: a negative integral while the pit is far below the
+	 * target (or positive while far above) is left-over wind-down, not a steady-state correction.
+	 * This too is about where the pit REALLY is -- a pit sitting on its set point with fuel still on
+	 * its way reads as a large error to the prediction, and throwing the integral away there would
+	 * discard a correction that is doing its job. */
+	if (e_true < -IBAND_C && s->inter < 0) s->inter = 0;
+	if (e_true > IBAND_C && s->inter > 0) s->inter = 0;
 	s->i = s->ki * s->inter;
 	double lim = 0.5;
 	if (s->i > lim) { s->i = lim; s->inter = s->ki != 0 ? lim / s->ki : 0; }
@@ -375,22 +480,24 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 	double derv = (in->pit_c - s->last_pit) / dt;
 	s->d = s->kd * derv;
 	s->u = s->ff + s->p + s->i + s->d;
-	/* coast look-ahead: the pot keeps heating for about one dead time after the feed is cut. Once the pit,
-	 * rising at its current rate, would reach the target on its own, fall back to the steady-state feed. */
-	s->coasting = false;
-	if (e < 0) {
-		double rate = pit_slope(in);                      /* C/s, only a genuine climb counts */
-		double coast = rate >= 0.05 ? rate * clampd(s->theta, THETA_MIN, THETA_MAX) : 0;   /* only on a fast climb (>= 3 C/min) */
-		if (coast > 0 && in->pit_c + coast >= in->setpoint_c && s->u > s->ff) { s->u = s->ff; s->coasting = true; }
-	}
+	/* The coast look-ahead that used to sit here -- cut back to the feed-forward once the pit,
+	 * rising at its current rate, would reach the target within one dead time -- is gone. It was
+	 * this same idea taken from the slope instead of from a model, and it could only ever cut back
+	 * TO the steady-state feed, never below it, which is why it still left ten degrees of overshoot
+	 * on the table. The prediction above does the whole job, and two mechanisms aiming at one thing
+	 * fight each other. */
 	s->last_t = in->now_s;
 	s->last_pit = in->pit_c;
 	s->last_err = e;
-	monitor(s, in, e);
+	/* The monitor asks how well the GRILL is holding, so it is shown the real error. Judging it on
+	 * the predicted one would have it reacting to the model: a pit sitting exactly on the set point
+	 * with fuel still on its way looks like an error to the prediction, and the band would be
+	 * adjusted for something that has not happened. */
+	monitor(s, in, e_true);
 	if (dbg) {
 		dbg->p = s->p; dbg->i = s->i; dbg->d = s->d; dbg->ff = s->ff; dbg->error = e; dbg->derivative = derv; dbg->integral = s->inter;
 		/* PB, Ti and Td here are what the loop is running on, with nothing applied on top. */
-		snprintf(dbg->note, sizeof dbg->note, "ff %.2f · PB %.0f Ti %.0f Td %.0f%s%s", s->ff, pf_delta_from_c(s->PB_c, s->units), s->Ti, s->Td, s->sch_valid ? " tuned" : s->auto_tune && s->l_valid ? " learned" : "", s->coasting ? " · coasting" : "");
+		snprintf(dbg->note, sizeof dbg->note, "ff %.2f · PB %.0f Ti %.0f Td %.0f%s%s", s->ff, pf_delta_from_c(s->PB_c, s->units), s->Ti, s->Td, s->sch_valid ? " tuned" : s->auto_tune && s->l_valid ? " learned" : "", s->surplus > 0.5 ? " · holding back" : "");
 	}
 	return s->u;
 }
@@ -408,7 +515,7 @@ static void forget(void *self, unsigned what)
 		s->l_valid = false;
 		s->l_ts = 0;
 		s->l_src[0] = 0;
-		s->theta = THETA_DEFAULT;
+		s->theta = THETA_DEFAULT; s->K = K_DEFAULT; s->tau = TAU_DEFAULT;
 	}
 	if (what & PF_FORGET_REFINEMENT) {
 		for (int i = 0; i < PF_SCALE_BANDS; i++) { s->band_learned[i] = 0; s->band_anchor[i] = 0; }
@@ -427,9 +534,11 @@ static int state_json(void *self, char *out, size_t n)
 {
 	ad_t *s = self;
 	return snprintf(out, n, "{\"kp\":%.6g,\"ki\":%.6g,\"kd\":%.6g,\"ff\":%.4f,\"p\":%.4f,\"i\":%.4f,\"d\":%.4f,\"u\":%.4f,"
-	                "\"PB_c\":%.2f,\"Ti\":%.1f,\"Td\":%.1f,\"learned\":%s,\"auto_tune\":%s,\"learned_ts\":%.0f,\"src\":\"%s\"}",
+	                "\"PB_c\":%.2f,\"Ti\":%.1f,\"Td\":%.1f,\"learned\":%s,\"auto_tune\":%s,\"learned_ts\":%.0f,\"src\":\"%s\","
+	                "\"surplus\":%.2f,\"mdl\":%.3f,\"K\":%.0f,\"tau\":%.0f,\"theta\":%.0f}",
 	                s->kp, s->ki, s->kd, s->ff, s->p, s->i, s->d, s->u, s->PB_c, s->Ti, s->Td,
-	                s->l_valid ? "true" : "false", s->auto_tune ? "true" : "false", s->l_ts, s->l_src);
+	                s->l_valid ? "true" : "false", s->auto_tune ? "true" : "false", s->l_ts, s->l_src,
+	                s->surplus, s->mdl, s->K, s->tau, s->theta);
 }
 
 /* Ku/Pu from a relay autotune (Tyreus-Luyben), or K/tau/theta from the passive plant model (SIMC).
@@ -449,6 +558,9 @@ static void apply_tuning(void *self, double Ku, double Pu, double K, double tau,
 	bool relay = Ku > 0 && Pu > 0;
 	src = relay ? "relay" : "model";
 	if (theta > 0) s->theta = clampd(theta, THETA_MIN, THETA_MAX);
+	/* the model the prediction runs on: whatever the grill last measured about itself */
+	if (K > 0) s->K = clampd(K, K_MIN, K_MAX);
+	if (tau > 0) s->tau = clampd(tau, TAU_MIN, TAU_MAX);
 	if (relay) pf_tuning_from_relay(Ku, Pu, &PB, &Ti, &Td);
 	else if (K > 0 && tau > 0 && theta > 0) pf_tuning_from_plant(K, tau, theta, &PB, &Ti, &Td);
 	else return;

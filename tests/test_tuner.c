@@ -196,11 +196,20 @@ static void test_guided_tune_improves_holding(void)
 	int anchors = cJSON_GetArraySize(cJSON_GetObjectItem(res, "anchors"));
 	printf("tuner: phase %s, measured %d, anchors %d\n", pf_json_str(res, "phase", "?"), measured, anchors);
 	cJSON *arr = cJSON_GetObjectItem(res, "anchors"), *a;
-	cJSON_ArrayForEach(a, arr)
-		printf("  %4.0f F -> PB %3.0f F, Ti %4.0f s, Td %3.0f s\n",
-		       pf_json_num(a, "setpoint", 0), pf_json_num(a, "PB", 0), pf_json_num(a, "Ti", 0), pf_json_num(a, "Td", 0));
+	int with_plant = 0;
+	cJSON_ArrayForEach(a, arr) {
+		printf("  %4.0f F -> PB %3.0f F, Ti %4.0f s, Td %3.0f s, plant K %4.0f tau %4.0f theta %3.0f\n",
+		       pf_json_num(a, "setpoint", 0), pf_json_num(a, "PB", 0), pf_json_num(a, "Ti", 0), pf_json_num(a, "Td", 0),
+		       pf_json_num(a, "K", 0), pf_json_num(a, "tau", 0), pf_json_num(a, "theta", 0));
+		if (pf_json_num(a, "K", 0) > 0 && pf_json_num(a, "tau", 0) > 0) with_plant++;
+	}
 	cJSON_Delete(res);
 	TEST_ASSERT_TRUE_MESSAGE(measured >= 3, "the run should measure at least three set points");
+	/* The run walks up through the set points, and each step into one is a step test of the grill
+	 * AT that temperature. Those models are what the controller's prediction runs on, so a profile
+	 * that measures bands and leaves the models behind has only done half its job. */
+	printf("  %d of %d anchors carry a grill model\n", with_plant, anchors);
+	TEST_ASSERT_TRUE_MESSAGE(with_plant >= 2, "a profile run should fit the grill at the set points it walks through");
 	TEST_ASSERT_TRUE(anchors >= 3);
 
 	stop_and_cool();
@@ -771,9 +780,16 @@ static void test_the_swing_is_centred_on_the_set_point(void)
 	/* What matters is where the oscillation SITS, not that the halves are equal: the relay steps
 	 * up harder than it steps down, so the grill spends unequal time either side by design. The
 	 * measurement is only about the set point if the swing averages out on it. */
-	double sum = 0, above = 0, below = 0; int n = 0;
+	double sum = 0, above = 0, below = 0; int n = 0, window_from = -1;
 	for (int i = 0; i < 3 * 60 * 60 && ctrl.autotune.active; i += 5) {
 		tick(5);
+		/* Only the cycles after the LAST conditioning change are the limit cycle. Accumulating
+		 * across a centre move as well averaged the correction itself into the answer, which is
+		 * the transient this is meant to be measuring the absence of. */
+		if (ctrl.autotune.adjust_at_cross != window_from) {
+			window_from = ctrl.autotune.adjust_at_cross;
+			sum = above = below = 0; n = 0;
+		}
 		if (ctrl.autotune.adjusts >= 1 && ctrl.autotune.crossings > ctrl.autotune.adjust_at_cross) {
 			double f = pf_from_c(ctrl.pit_c, PF_UNITS_F);
 			sum += f; n++;

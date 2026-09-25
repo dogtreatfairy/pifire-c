@@ -815,6 +815,102 @@ static void learn_track_steady(pf_control *c, double now)
 	}
 }
 
+/* Fit the grill as a first-order lag with a dead time, from the capture that just happened.
+ *
+ * Every approach to a set point is a step test that has already been run: a known duty went in and
+ * the pit is on record for what it did about it. So fit the model to THAT, by least squares over
+ * the whole capture, rather than reading two points off the curve.
+ *
+ * The two-point method this replaces took the set point as the final value of the step, which it is
+ * not -- the pit only arrives there because the controller backs the feed off. Taking it as the
+ * final value understates the gain and, because the 28 and 63 per cent marks are then measured
+ * against the wrong total, collapses the time constant. On the simulator it returned 120 s and on a
+ * real grill 534 s, where fitting four of that grill's own cooks properly gives 930 to 1110 s with
+ * a residual of 4 F. A prediction is only as good as the model under it, so this is the measurement
+ * everything else rests on.
+ *
+ * Cost: the grid below is about 900 candidate models over a few hundred samples, which is a few
+ * hundred thousand multiply-adds -- tens of milliseconds, once, at the end of a capture.
+ */
+static bool fit_plant_from_history(double now, double window_s, double *K_out, double *tau_out, double *theta_out)
+{
+	const pf_history *h = pf_history_ctrl_view();
+	if (!h) return false;
+	enum { MAXN = 1200 };
+	static double T[MAXN], U[MAXN], Y[MAXN];
+	int n = 0;
+	/* oldest first, so the simulation below runs forwards */
+	for (int i = 0; i < h->len && n < MAXN; i++) {
+		const pf_hist_pt *pt = pf_history_at(h, i);
+		if (!pt || now - pt->t > window_s) continue;
+		if (isnan(pt->pit_c) || isnan(pt->u_applied)) continue;
+		T[n] = pt->t; U[n] = pt->u_applied; Y[n] = pt->pit_c; n++;
+	}
+	if (n < 60) return false;
+	double ymin = Y[0], ymax = Y[0];
+	for (int i = 1; i < n; i++) { if (Y[i] < ymin) ymin = Y[i]; if (Y[i] > ymax) ymax = Y[i]; }
+	if (ymax - ymin < 20.0) return false;            /* not enough of a rise to fit anything to */
+
+	double best_err = 1e30, bK = 0, bTau = 0, bTheta = 0;
+	static int dly[MAXN];
+	for (double theta = 0; theta <= 240; theta += 15) {
+		/* for each sample, the sample one dead time earlier -- computed once per theta */
+		int j = 0;
+		for (int i = 0; i < n; i++) {
+			while (j + 1 < n && T[j + 1] <= T[i] - theta) j++;
+			dly[i] = T[j] <= T[i] - theta ? j : 0;
+		}
+		for (double tau = 180; tau <= 2400; tau += 60) {
+			double x = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+			for (int i = 0; i < n; i++) {
+				double dt = i ? T[i] - T[i - 1] : 0;
+				if (dt > 0 && dt < 120) x += (U[dly[i]] - x) * (dt / tau);
+				sx += x; sy += Y[i]; sxx += x * x; sxy += x * Y[i];
+			}
+			double den = n * sxx - sx * sx;
+			if (fabs(den) < 1e-9) continue;
+			double K = (n * sxy - sx * sy) / den;       /* C per unit duty */
+			if (!(K > 0)) continue;
+			double b = (sy - K * sx) / n, err = 0;
+			/* second pass for the residual; cheap next to the first */
+			x = 0;
+			for (int i = 0; i < n; i++) {
+				double dt = i ? T[i] - T[i - 1] : 0;
+				if (dt > 0 && dt < 120) x += (U[dly[i]] - x) * (dt / tau);
+				double r = K * x + b - Y[i];
+				err += r * r;
+			}
+			if (err < best_err) { best_err = err; bK = K; bTau = tau; bTheta = theta; }
+		}
+	}
+	if (!(bK > 0) || !(bTau > 0)) return false;
+	double rms = sqrt(best_err / n);
+	if (rms > pf_delta_to_c(15, PF_UNITS_F)) return false;   /* the model does not describe this grill */
+	/* A model fitted from a loop that was already controlling is only identifiable if the feed
+	 * actually went somewhere: when the duty barely moves, or moves only in step with the pit, an
+	 * enormous gain with an enormous time constant fits as well as a modest one with a modest
+	 * time constant, and the search simply runs to the end of the grid. Both of those are refusals,
+	 * not answers -- a wrong model is worse than the previous one, because everything downstream
+	 * trusts it. The rise from cold that follows a light is the well-excited case and is where
+	 * this fit does its work. */
+	if (bTau >= 2400 - 1 || bTheta >= 240 - 1 || bK >= 890) {
+		LOGI(TAG, "plant fit ran to the end of its range (K %.0f, tau %.0f, theta %.0f): not identifiable from this capture", bK, bTau, bTheta);
+		return false;
+	}
+	double umin = U[0], umax = U[0];
+	for (int i = 1; i < n; i++) { if (U[i] < umin) umin = U[i]; if (U[i] > umax) umax = U[i]; }
+	if (umax - umin < 0.15) {
+		LOGI(TAG, "the feed hardly moved during this capture (%.2f to %.2f): nothing to fit a model to", umin, umax);
+		return false;
+	}
+	if (theta_out) *theta_out = bTheta < 5 ? 5 : bTheta;
+	if (tau_out) *tau_out = bTau;
+	if (K_out) *K_out = bK;
+	LOGI(TAG, "grill fitted from the last capture: %.0f C per unit feed, time constant %.0f s, dead time %.0f s (residual %.1f C over %d samples)",
+	     bK, bTau, bTheta, rms, n);
+	return true;
+}
+
 /* passive FOPDT: watch the rise from STARTUP entry until the pit first settles near the set point.
  *
  * Only from a cold grill. The two-point method reads a step response, and a step starts from rest:
@@ -833,38 +929,102 @@ static void learn_rise_begin(pf_control *c, double now)
 		     c->pit_c, amb);
 	c->learn.rise_active = pf_learning_enabled() && c->pit_valid && cold;
 	c->learn.rise_t0 = 0; c->learn.rise_T0_c = c->pit_c; c->learn.rise_u_sum = 0; c->learn.rise_n = 0;   /* clock starts at ignition, see learn_rise_track */
-	c->learn.rise_t28 = c->learn.rise_t63 = 0;
+	c->learn.rise_t28 = c->learn.rise_t63 = c->learn.rise_arrived_t = 0;
+	c->learn.rise_sp_c = c->setpoint_c;
+	c->learn.rise_from_step = false;
+}
+
+/* A step from one held set point to a higher one is the same experiment as the rise from cold, and
+ * a cleaner one: the grill starts from a genuine steady state rather than from whatever the fire
+ * was doing as it caught, which is the only reason the cold-start fit insists on being cold. Every
+ * such step is therefore measured, which is what gives a tuning run -- a walk up through the
+ * anchors -- a plant model at each of them rather than only at the first. */
+static void learn_step_begin(pf_control *c, double now)
+{
+	c->learn.rise_active = pf_learning_enabled() && c->pit_valid;
+	c->learn.rise_t0 = now;                  /* no ignition to wait for: the step is the start */
+	c->learn.rise_T0_c = c->pit_c;
+	c->learn.rise_u_sum = 0; c->learn.rise_n = 0;
+	c->learn.rise_t28 = c->learn.rise_t63 = c->learn.rise_arrived_t = 0;
+	c->learn.rise_sp_c = c->setpoint_c;
+	c->learn.rise_from_step = true;
+	if (c->learn.rise_active)
+		LOGI(TAG, "measuring the grill on the step from %.0f C to %.0f C", c->learn.rise_T0_c, c->setpoint_c);
 }
 
 static void learn_rise_track(pf_control *c, double now)
 {
+	/* Every step up from one held set point to a higher one is a step test, and the grill is
+	 * measured on it. What makes it a test is the condition it starts from: the pit had arrived at
+	 * the previous set point and had been sitting at it a while, so the whole of what follows
+	 * belongs to the step. "Arrived" is ten degrees rather than three on purpose -- a relay limit
+	 * cycle swings either side of its target by design, and the one run that walks deliberately
+	 * through the set points is a tuning profile, which is exactly where these models are wanted. */
+	bool hold = c->mode == PF_MODE_HOLD && c->pit_valid && c->setpoint_c > 0;
+	if (hold) {
+		if (c->setpoint_c != c->learn.sp_seen_c) {
+			bool step = c->learn.sp_seen_c > 0 && c->learn.sp_reached && !c->learn.rise_active
+			            && c->learn.sp_since > 0 && now - c->learn.sp_since >= 300.0
+			            && c->setpoint_c - c->learn.sp_seen_c >= 20.0;
+			c->learn.sp_seen_c = c->setpoint_c;
+			c->learn.sp_since = now;
+			c->learn.sp_reached = false;
+			if (step) learn_step_begin(c, now);
+		}
+		if (fabs(c->pit_c - c->setpoint_c) <= 10.0) c->learn.sp_reached = true;
+	} else if (c->mode != PF_MODE_STARTUP) {
+		c->learn.sp_seen_c = 0; c->learn.sp_since = 0; c->learn.sp_reached = false;
+	}
+
 	if (!c->learn.rise_active) return;
+	/* The set point moved again part way through: the experiment no longer has one answer. */
+	if (c->learn.rise_sp_c > 0 && fabs(c->setpoint_c - c->learn.rise_sp_c) > 1.0) { c->learn.rise_active = false; return; }
 	if (c->mode == PF_MODE_STOP || c->mode == PF_MODE_ERROR || c->mode == PF_MODE_SHUTDOWN) { c->learn.rise_active = false; return; }
 	/* the step test starts when the fire is evidently lit (+3 C over the startup baseline), so the ignition
 	 * delay does not masquerade as plant dead time */
 	if (c->learn.rise_t0 == 0) { if (c->pit_valid && c->pit_c >= c->learn.rise_T0_c + 3.0) { c->learn.rise_t0 = now; c->learn.rise_T0_c = c->pit_c; } return; }
-	if (now - c->learn.rise_t0 > 3600) { c->learn.rise_active = false; return; }
+	if (!c->learn.rise_arrived_t && now - c->learn.rise_t0 > 3600) { c->learn.rise_active = false; return; }
 	if (c->mode != PF_MODE_HOLD) return;
 	double span = c->setpoint_c - c->learn.rise_T0_c;
 	if (span < 20) { c->learn.rise_active = false; return; }
 	double frac = (c->pit_c - c->learn.rise_T0_c) / span;
 	if (!c->learn.rise_t28 && frac >= 0.283) c->learn.rise_t28 = now - c->learn.rise_t0;
 	if (!c->learn.rise_t63 && frac >= 0.632) c->learn.rise_t63 = now - c->learn.rise_t0;
-	if (c->learn.rise_t63 && c->learn.rise_t28 && fabs(c->pit_c - c->setpoint_c) < 3.0) {
-		double tau = 1.5 * (c->learn.rise_t63 - c->learn.rise_t28);
-		double theta = c->learn.rise_t63 - tau;
-		if (theta < 5) theta = 5;
-		double u_mean = c->learn.rise_n ? c->learn.rise_u_sum / c->learn.rise_n : c->cfg.u_max;
-		double K = u_mean > 0.05 ? span / u_mean : 0;
+	if (!c->learn.rise_arrived_t && c->learn.rise_t63 && c->learn.rise_t28 && fabs(c->pit_c - c->setpoint_c) < 3.0)
+		c->learn.rise_arrived_t = now;
+	/* Arriving is not the moment to fit. A rise that stops at the set point is still on the steep
+	 * part of the curve: the pit never approached the asymptote it was heading for, so the data
+	 * pins down only the ratio K/tau, and the search slides along that ray to whatever end of the
+	 * grid it reaches -- a huge gain with a huge time constant fits the same straight climb as a
+	 * modest one. What separates them is the hold that follows, where the feed settles to whatever
+	 * balances the losses and fixes the static gain outright. So the capture is the rise AND the
+	 * first stretch of the hold, fitted together once both exist. */
+	if (c->learn.rise_arrived_t && now - c->learn.rise_arrived_t >= 600) {
+		double K = 0, tau = 0, theta = 0;
+		double since = now - c->learn.rise_t0 + 120;
+		if (!fit_plant_from_history(now, since < 300 ? 300 : since, &K, &tau, &theta)) {
+			c->learn.rise_active = false;
+			return;
+		}
 		if (tau > 30 && tau < 3600 && K > 0) {
 			pf_learning_store_fopdt(K, tau, theta);
+			/* and against this set point's library entry, so the prediction runs on the grill as
+			 * it behaves HERE rather than on one model stretched across the whole range */
+			pf_learning_store_anchor_plant(c->learn.rise_sp_c > 0 ? c->learn.rise_sp_c : c->setpoint_c, K, tau, theta);
 			/* Nest-style: hand the fresh plant model straight to the controller so its gains track
 			 * the grill -- except during a tuning run. The startup at the head of a run is part of
 			 * the measurement, and the model fitted from it was being handed over as a learned
 			 * tuning there and then, which is how a single baseline run ended up running numbers it
 			 * had never measured, labelled "learned". The run still needs the fit: the relay result
 			 * is designed from it. It is the handing over that has to wait for the run to finish. */
-			if (pf_learning_enabled() && !pf_tuner_active(NULL, NULL, NULL) && c->cinst && c->cops->apply_tuning) {
+			/* A step between set points measures the GRILL, and that is all it is allowed to do.
+			 * The plant it fits reaches the controller through the library above, where it belongs
+			 * to the set point it was taken at. Designing gains from it as well would have every
+			 * set point change during an ordinary cook quietly re-tune the loop from a fit nobody
+			 * asked for -- the same ratchet, arriving by a new door. Only the rise from cold, which
+			 * is the whole grill from ambient upward and the only measurement a grill with no
+			 * tuning library has, is allowed to set gains. */
+			if (!c->learn.rise_from_step && pf_learning_enabled() && !pf_tuner_active(NULL, NULL, NULL) && c->cinst && c->cops->apply_tuning) {
 				pf_fopdt p = pf_learning_fopdt();
 				c->cops->apply_tuning(c->cinst, 0, 0, p.K, p.tau, p.theta);
 				event(PF_LVL_INFO, "TUNING_LEARNED", "Controller tuning updated from this startup's plant model");
@@ -1086,6 +1246,7 @@ static void autotune_start(pf_control *c, double now)
 	 * little fuel has almost no room below it: asking for a swing that gets clamped on one side
 	 * gives a lopsided input and an ultimate gain that is too high. Shrink the swing instead, and
 	 * only if that leaves too little to measure, move the centre up to make room. */
+	c->autotune.h_cap = 0; c->autotune.resizes = 0;   /* this run has not yet learned what swing it needs */
 	autotune_size(c);
 	/* Two sigma of the pit's own wander, kept inside sane bounds: small enough that the swing this
 	 * run produces stands well clear of it, large enough that the relay does not chase noise. */
@@ -1146,6 +1307,7 @@ static void autotune_size(pf_control *c)
 {
 	double h = fmin(0.15, fmin(c->autotune.u_center - c->cfg.u_min, c->cfg.u_max - c->autotune.u_center));
 	if (h < 0.03) h = 0.03;
+	if (c->autotune.h_cap > 0 && h > c->autotune.h_cap) h = c->autotune.h_cap;
 	c->autotune.h = h;
 }
 
@@ -1202,10 +1364,20 @@ static double autotune_step(pf_control *c, double now)
 		if (c->autotune.crossings >= 2 && c->autotune.crossings <= 8 &&
 		    (c->autotune.crossings % 2) == 0 && c->autotune.cyc_n > 4) {
 			int nx = c->autotune.crossings;
-			double load = c->autotune.cyc_sum / c->autotune.cyc_n;
-			c->autotune.last_load = load;
 			double t_hi = c->autotune.halves[nx - 1], t_lo = c->autotune.halves[nx - 2];
 			if (c->autotune.phase > 0) { double sw = t_hi; t_hi = t_lo; t_lo = sw; }
+			/* The load is what the last complete CYCLE delivered, worked out from the two halves it
+			 * was made of: the relay's two feeds, each weighted by how long that half lasted. A
+			 * plain average of every tick since the window opened was doing this before, and it
+			 * carried whatever the grill was doing before the oscillation began -- most of an
+			 * approach at one end of the swing -- into the answer. One run came out of that with a
+			 * centre of 0.20 on a grill whose load was 0.29, which put the low half on the feed
+			 * floor, and from there no cycle could complete at all. */
+			double u_hi = pf_clamp(c->autotune.u_center + c->autotune.h, c->cfg.u_min, c->cfg.u_max);
+			double u_lo = pf_clamp(c->autotune.u_center - c->autotune.h, c->cfg.u_min, c->cfg.u_max);
+			double load = t_hi + t_lo > 0 ? (t_hi * u_hi + t_lo * u_lo) / (t_hi + t_lo)
+			                              : c->autotune.cyc_sum / c->autotune.cyc_n;
+			c->autotune.last_load = load;
 			if (t_hi > 0 && t_lo > 0) {
 				double split = t_hi > t_lo ? t_hi / t_lo : t_lo / t_hi;
 				if (split > c->autotune.worst_split) c->autotune.worst_split = split;
@@ -1233,8 +1405,49 @@ static double autotune_step(pf_control *c, double now)
 			 * hands back an ultimate gain far larger than the grill's. Growing it early, while the
 			 * run is still conditioning itself, costs a couple of cycles and fixes the measurement
 			 * rather than failing it an hour later. */
-			bool thin = A > 0 && A < A_target && c->autotune.adjusts < 2;
+			/* Sizing the swing and centring it are two different jobs, and a run gets its own
+			 * allowance of each. Charging a resize to the centring budget -- as this did at first
+			 * -- meant a run that had to narrow a wild swing twice arrived at the measurement with
+			 * the centre still wherever it started, which is the one thing that must not happen. */
+			/* A resize throws the previous swing away, but the two halves this amplitude was read
+			 * from straddle the change: the first cycle after it still carries the old swing's
+			 * decay and reads far too big. Judging the new swing on that cycle narrowed a
+			 * reasonable 0.05 down to the floor and left a stretched, off-centre limit cycle that
+			 * understated the grill's gain threefold. So a resize waits two whole cycles for the
+			 * amplitude it is being judged on to be the new swing's own. */
+			bool settled = c->autotune.resizes == 0 || c->autotune.crossings >= c->autotune.adjust_at_cross + 4;
+			bool thin = A > 0 && A < A_target && c->autotune.resizes < 2 && settled;
 			bool widened = false;
+			/* And the other way about. The swing is sized from the room either side of the centre,
+			 * which says nothing about what it does to this grill: on a well-fed cooker the biggest
+			 * swing the clamps allow can throw the pit twenty degrees either way when two or three
+			 * would measure it. That is not merely rude to the grill. A pellet cooker heats faster
+			 * than it cools, so the wider the swing the more the cycle leans upward, and a limit
+			 * cycle sitting above the set point is read by the describing function as a grill that
+			 * answers feed weakly -- the very error the centring above exists to prevent. So a
+			 * swing that comes back far larger than the measurement needs is brought down toward
+			 * it, and capped there so re-centring cannot inflate it again. */
+			bool fat = !thin && A > 2.0 * A_target && c->autotune.resizes < 2 && settled;
+			if (fat) {
+				double target_h = c->autotune.h * pf_clamp(A_target / A, 0.35, 1.0);
+				/* Never below a swing the grill can actually deliver: the auger runs whole seconds
+				 * out of a cycle, so a swing finer than one of those is not a square wave at all,
+				 * and the describing function is being asked about an input that never happened. */
+				double floor_h = fmax(0.05, c->ccfg.cycle_s > 0 ? 1.0 / c->ccfg.cycle_s : 0.05);
+				double shrunk = fmax(target_h, floor_h);
+				if (shrunk < c->autotune.h * 0.95) {
+					LOGI(TAG, "autotune swing %.3f threw the pit %.1f C about a %.1f C measurement; narrowing to %.3f",
+					     c->autotune.h, A, A_target, shrunk);
+					c->autotune.h = shrunk;
+					c->autotune.h_cap = shrunk;
+					c->autotune.resizes++;
+					c->autotune.adjust_at_cross = c->autotune.crossings;
+					c->autotune.hi_sum = c->autotune.lo_sum = 0; c->autotune.hi_n = c->autotune.lo_n = 0;
+					c->autotune.meas_err_sum = 0; c->autotune.meas_err_n = 0;
+					c->autotune.cyc_sum = 0; c->autotune.cyc_n = 0;
+					widened = true;
+				}
+			}
 			if (thin) {
 				double target_h = c->autotune.h * pf_clamp(A_target / A, 1.0, 2.0);
 				double room = fmin(c->cfg.u_max - 0.02 - c->autotune.u_center,
@@ -1244,7 +1457,7 @@ static double autotune_step(pf_control *c, double now)
 					LOGI(TAG, "autotune swing %.3f gave only %.2f C against a %.2f C band; widening to %.3f",
 					     c->autotune.h, A, c->autotune.hyst_c, grown);
 					c->autotune.h = grown;
-					c->autotune.adjusts++;
+					c->autotune.resizes++;
 					c->autotune.adjust_at_cross = c->autotune.crossings;
 					c->autotune.hi_sum = c->autotune.lo_sum = 0; c->autotune.hi_n = c->autotune.lo_n = 0;
 					c->autotune.meas_err_sum = 0; c->autotune.meas_err_n = 0;
@@ -1278,9 +1491,11 @@ static double autotune_step(pf_control *c, double now)
 		/* Stop once the oscillation has settled, not merely once enough of it has gone by. A limit
 		 * cycle that is still growing describes the transient, not the plant, and averaging it
 		 * yields a period that belongs to no real oscillation. The cycles that follow the last
-		 * centring are the measurement, so two of those are required before any of it counts. */
+		 * centring are the measurement, so two whole cycles -- four crossings -- are required before any
+		 * of it counts. One cycle was what the code asked for while this comment asked for two, and
+		 * a single cycle taken straight after a centre moved is still half transient. */
 		if (c->autotune.crossings >= PF_AT_MIN_CROSS &&
-		    c->autotune.crossings >= c->autotune.adjust_at_cross + 2 &&
+		    c->autotune.crossings >= c->autotune.adjust_at_cross + 4 &&
 		    (autotune_settled(c) || c->autotune.crossings >= PF_AT_MAX)) {
 			autotune_finish(c, true, "");
 			return c->autotune.u_center;
@@ -1361,12 +1576,14 @@ static void run_hold_cycle(pf_control *c, double now)
 		 * values down and types them in expecting them to be used: they were overridden in silence
 		 * by a measurement they had never seen. Turning the library off is how you say "use what I
 		 * typed", which is also what makes the three numbers portable to another grill. */
-		double sched_PB = 0, sched_Ti = 0, sched_Td = 0;
+		double sched_PB = 0, sched_Ti = 0, sched_Td = 0, sched_K = 0, sched_tau = 0, sched_theta = 0;
 		if (c->cfg.use_library) pf_learning_gains(c->setpoint_c, &sched_PB, &sched_Ti, &sched_Td);
+		pf_learning_plant(c->setpoint_c, &sched_K, &sched_tau, &sched_theta);
 		pf_ctrl_in in = {
 			.now_s = now, .pit_c = c->pit_c, .setpoint_c = c->setpoint_c, .ambient_c = c->ambient_c,
 			.u_prev_raw = c->u_raw, .u_prev_applied = c->u_applied, .u_ff = c->learn.u_ff, .saturated = c->saturated,
 			.sched_PB_c = sched_PB, .sched_Ti = sched_Ti, .sched_Td = sched_Td,
+			.sched_K = sched_K, .sched_tau = sched_tau, .sched_theta = sched_theta,
 			.cycle_time_s = c->ccfg.cycle_s, .u_min = c->ccfg.u_min, .u_max = c->ccfg.u_max,
 			.target_reached = c->target_reached, .fan_on = pf_outputs_get(PF_OUT_FAN), .fan_pct = pf_outputs_get_fan_pct(),
 			.tuning = c->autotune.active || pf_tuner_active(NULL, NULL, NULL),

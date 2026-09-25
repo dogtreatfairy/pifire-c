@@ -11,7 +11,7 @@
  */
 #include "pifire/common.h"
 
-#define PF_CONTROLLER_ABI 4
+#define PF_CONTROLLER_ABI 5
 
 typedef struct {
 	double t;          /* monotonic seconds */
@@ -45,6 +45,11 @@ typedef struct {
 	 * grill's process gain falls as it gets hotter, so one fixed band cannot suit every set point:
 	 * this is how a single controller stays right from 180 F to 450 F. */
 	double sched_PB_c, sched_Ti, sched_Td;
+	/* The plant measured at this set point -- gain in C per unit feed, time constant, dead time --
+	 * interpolated from the same library. A controller that predicts what the fuel already in the
+	 * pot is going to do needs the grill it is actually running, not one model for the whole range.
+	 * Zero when nothing has been fitted yet. */
+	double sched_K, sched_tau, sched_theta;
 	double u_ff;                         /* learned steady-state feed for this set point/ambient (daemon) */
 	int    saturated;                    /* -1 clamped at u_min, +1 at u_max, 0 free */
 	double cycle_time_s, u_min, u_max;

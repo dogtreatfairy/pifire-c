@@ -117,13 +117,19 @@ typedef struct {
 		double steady_since, last_obs_t, last_disturb_t;
 		double u_sum, pit_sum, pit_sq; int n;
 		double u_ff;
-		double rise_t0, rise_T0_c, rise_u_sum; int rise_n; double rise_t28, rise_t63; bool rise_active;
+		double rise_t0, rise_T0_c, rise_u_sum; int rise_n; double rise_t28, rise_t63, rise_arrived_t, rise_sp_c;
+		double sp_seen_c, sp_since; bool sp_reached, rise_active, rise_from_step;
 	} learn;
 	/* relay autotune (core-owned; controller update() is bypassed while active) */
 #define PF_AT_MAX 14        /* half-cycles kept: seven crossings normally, more while the relay is being conditioned */
 #define PF_AT_MIN_CROSS 5   /* the fewest crossings that can produce a result: two full cycles after the centring */
 	struct {
 		bool active; int phase; double u_center, h, hyst_c, start_t, last_cross_t;
+		/* A ceiling on the swing, set once the relay has shown that the swing it was given
+		 * produces far more amplitude than the measurement needs, so that re-centring cannot put
+		 * the oversized swing back. Zero until then. */
+		double h_cap;
+		int resizes;            /* swing resizes this run, kept apart from the centring budget */
 
 		/* `halves` holds the time between successive crossings. A full oscillation is one half
 		 * plus the next, which is not the same as twice either one: a grill heats far faster

@@ -44,6 +44,9 @@ static void load_kv(void)
 			g_anchors[i].PB_c = pf_json_num(it, "PB", 0);
 			g_anchors[i].Ti = pf_json_num(it, "Ti", 0);
 			g_anchors[i].Td = pf_json_num(it, "Td", 0);
+			g_anchors[i].K = pf_json_num(it, "K", 0);
+			g_anchors[i].tau = pf_json_num(it, "tau", 0);
+			g_anchors[i].theta = pf_json_num(it, "theta", 0);
 			g_anchors[i].ts = pf_json_num(it, "ts", 0);
 			g_anchors[i].ambient_c = pf_json_num(it, "amb", NAN);
 			g_anchors[i].wind = pf_json_num(it, "wind", 0);
@@ -213,6 +216,11 @@ static void anchors_save(void)
 		cJSON_AddNumberToObject(o, "PB", g_anchors[i].PB_c);
 		cJSON_AddNumberToObject(o, "Ti", g_anchors[i].Ti);
 		cJSON_AddNumberToObject(o, "Td", g_anchors[i].Td);
+		if (g_anchors[i].K > 0) {
+			cJSON_AddNumberToObject(o, "K", g_anchors[i].K);
+			cJSON_AddNumberToObject(o, "tau", g_anchors[i].tau);
+			cJSON_AddNumberToObject(o, "theta", g_anchors[i].theta);
+		}
 		cJSON_AddNumberToObject(o, "ts", g_anchors[i].ts);
 		cJSON_AddNumberToObject(o, "runs", g_anchors[i].runs);
 		if (!isnan(g_anchors[i].ambient_c)) cJSON_AddNumberToObject(o, "amb", g_anchors[i].ambient_c);
@@ -223,6 +231,28 @@ static void anchors_save(void)
 	cJSON_Delete(arr);
 	if (txt && pf_db_handle()) pf_db_kv_put("learning", "anchors", txt);
 	free(txt);
+}
+
+/* A plant measured at a set point the library has no entry for yet.
+ *
+ * During a tuning run the step INTO a set point happens before the relay measures the band there,
+ * so the model is always ready before the entry it belongs to exists. Dropping it on the floor for
+ * that reason meant a full profile -- the one run whose whole job is to measure the grill at each
+ * temperature -- produced no models at all. It waits here instead until the anchor appears. */
+static struct { double setpoint_c, K, tau, theta; bool valid; } g_pending_plant;
+
+/* Called with g_mu held. */
+static void anchor_take_plant(pf_tune_anchor *a, double K, double tau, double theta)
+{
+	/* Averaged in on the same terms as the gains beside it, and for the same reason: one
+	 * afternoon's step, with that day's wind in it, should improve the entry rather than
+	 * replace it. An entry that has never held a plant takes this one whole. */
+	double w = a->K > 0 ? fmax(1.0 / (a->runs > 0 ? a->runs : 1), 0.25) : 1.0;
+	a->K += (K - a->K) * w;
+	a->tau += (tau - a->tau) * w;
+	a->theta += (theta - a->theta) * w;
+	LOGI(TAG, "%.0f C: plant %.0f C per unit feed, time constant %.0f s, dead time %.0f s",
+	     a->setpoint_c, a->K, a->tau, a->theta);
 }
 
 void pf_learning_store_anchor(double setpoint_c, const pf_autotune_result *r, double ambient_c, double wind)
@@ -282,6 +312,11 @@ void pf_learning_store_anchor(double setpoint_c, const pf_autotune_result *r, do
 	a->ambient_c = ambient_c;
 	a->wind = wind;
 	a->valid = true;
+	/* The step into this set point was measured before the relay got here; take that model now. */
+	if (g_pending_plant.valid && fabs(g_pending_plant.setpoint_c - setpoint_c) < 5) {
+		anchor_take_plant(a, g_pending_plant.K, g_pending_plant.tau, g_pending_plant.theta);
+		g_pending_plant.valid = false;
+	}
 	anchors_save();
 	pthread_mutex_unlock(&g_mu);
 }
@@ -296,6 +331,64 @@ void pf_learning_put_anchor(const pf_tune_anchor *in)
 	if (slot < 0) for (int i = 0; i < PF_TUNE_ANCHORS; i++) if (!g_anchors[i].valid) { slot = i; break; }
 	if (slot >= 0) { g_anchors[slot] = *in; g_anchors[slot].valid = true; anchors_save(); }
 	pthread_mutex_unlock(&g_mu);
+}
+
+void pf_learning_store_anchor_plant(double setpoint_c, double K, double tau, double theta)
+{
+	if (!(K > 0) || !(tau > 0)) return;
+	pthread_mutex_lock(&g_mu);
+	bool filed = false;
+	for (int i = 0; i < PF_TUNE_ANCHORS; i++) {
+		pf_tune_anchor *a = &g_anchors[i];
+		if (!a->valid || fabs(a->setpoint_c - setpoint_c) >= 5) continue;
+		anchor_take_plant(a, K, tau, theta);
+		anchors_save();
+		filed = true;
+		break;
+	}
+	if (!filed) {
+		g_pending_plant.setpoint_c = setpoint_c; g_pending_plant.K = K;
+		g_pending_plant.tau = tau; g_pending_plant.theta = theta; g_pending_plant.valid = true;
+	}
+	pthread_mutex_unlock(&g_mu);
+}
+
+bool pf_learning_plant(double setpoint_c, double *K, double *tau, double *theta)
+{
+	pthread_mutex_lock(&g_mu);
+	const pf_tune_anchor *lo = NULL, *hi = NULL;
+	for (int i = 0; i < PF_TUNE_ANCHORS; i++) {
+		const pf_tune_anchor *a = &g_anchors[i];
+		if (!a->valid || !(a->K > 0) || !(a->tau > 0)) continue;
+		if (a->setpoint_c <= setpoint_c && (!lo || a->setpoint_c > lo->setpoint_c)) lo = a;
+		if (a->setpoint_c >= setpoint_c && (!hi || a->setpoint_c < hi->setpoint_c)) hi = a;
+	}
+	const pf_tune_anchor *one = lo ? lo : hi;
+	bool ok = one != NULL;
+	if (ok) {
+		double f = lo && hi && hi->setpoint_c > lo->setpoint_c
+		         ? (setpoint_c - lo->setpoint_c) / (hi->setpoint_c - lo->setpoint_c) : -1;
+		if (f >= 0) {
+			if (K) *K = lo->K + f * (hi->K - lo->K);
+			if (tau) *tau = lo->tau + f * (hi->tau - lo->tau);
+			if (theta) *theta = lo->theta + f * (hi->theta - lo->theta);
+		} else {
+			if (K) *K = one->K;
+			if (tau) *tau = one->tau;
+			if (theta) *theta = one->theta;
+		}
+	}
+	pthread_mutex_unlock(&g_mu);
+	if (!ok) {
+		/* Nothing in the library yet: the last rise from cold is the whole of what is known. */
+		pf_fopdt p = pf_learning_fopdt();
+		if (!p.valid) return false;
+		if (K) *K = p.K;
+		if (tau) *tau = p.tau;
+		if (theta) *theta = p.theta;
+		ok = true;
+	}
+	return ok;
 }
 
 bool pf_learning_gains(double setpoint_c, double *PB_c, double *Ti, double *Td)
@@ -506,6 +599,14 @@ cJSON *pf_learning_export(void)
 		cJSON_AddNumberToObject(e, "PB_c", a[i].PB_c);
 		cJSON_AddNumberToObject(e, "Ti", a[i].Ti);
 		cJSON_AddNumberToObject(e, "Td", a[i].Td);
+		if (a[i].K > 0) {
+			/* The plant fitted at this set point travels with the tuning: the controller's
+			 * prediction is built from it, so a library restored without it is not the library
+			 * that was backed up. */
+			cJSON_AddNumberToObject(e, "K", a[i].K);
+			cJSON_AddNumberToObject(e, "tau", a[i].tau);
+			cJSON_AddNumberToObject(e, "theta", a[i].theta);
+		}
 		cJSON_AddNumberToObject(e, "ts", a[i].ts);
 		cJSON_AddNumberToObject(e, "runs", a[i].runs);
 		if (!isnan(a[i].ambient_c)) cJSON_AddNumberToObject(e, "ambient_c", a[i].ambient_c);
@@ -540,7 +641,9 @@ int pf_learning_import(const cJSON *doc, char *err, size_t n)
 			.setpoint_c = pf_json_num((cJSON *)e, "setpoint_c", 0),
 			.Ku = pf_json_num((cJSON *)e, "Ku", 0), .Pu = pf_json_num((cJSON *)e, "Pu", 0),
 			.PB_c = pf_json_num((cJSON *)e, "PB_c", 0), .Ti = pf_json_num((cJSON *)e, "Ti", 0),
-			.Td = pf_json_num((cJSON *)e, "Td", 0), .ts = pf_json_num((cJSON *)e, "ts", pf_wall()),
+			.Td = pf_json_num((cJSON *)e, "Td", 0),
+			.K = pf_json_num((cJSON *)e, "K", 0), .tau = pf_json_num((cJSON *)e, "tau", 0),
+			.theta = pf_json_num((cJSON *)e, "theta", 0), .ts = pf_json_num((cJSON *)e, "ts", pf_wall()),
 			.ambient_c = pf_json_num((cJSON *)e, "ambient_c", NAN),
 			.wind = pf_json_num((cJSON *)e, "wind", 0),
 			.runs = pf_json_int((cJSON *)e, "runs", 1),

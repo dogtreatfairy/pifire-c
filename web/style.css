@@ -125,6 +125,9 @@
      open section start on the same column. */
   --pad-x: var(--sp-3);
   --tab-h: 56px;
+  /* how far the Home button rises out of the tab bar; anything that must clear the bar has to
+     clear this too, or it sits on top of the one control that is always there */
+  --tab-rise: 24px;
   --row-h: var(--h-row);
 
   accent-color: var(--accent);
@@ -660,6 +663,9 @@ h2 { font-size: var(--fs-xs); letter-spacing: var(--track-label); margin: var(--
 /* The tab bar is a bar. A floating pill costs the width of its margins on both sides and the gap
    underneath it, on the one screen where the list wants every pixel. */
 .tabbar {
+  /* Above a pushed screen. The Home button rises out of the bar, so anything that merely stops at
+     the bar's top edge still lands on it; the bar wins the stacking order as well as the space. */
+  z-index: 9;
   inset: auto 0 0 0; height: calc(var(--tab-h) + env(safe-area-inset-bottom)); padding: 0 0 env(safe-area-inset-bottom);
   gap: 0; border: 0; border-top: 1px solid var(--line); border-radius: 0;
   background: var(--surface); box-shadow: none;
@@ -720,7 +726,7 @@ h2 { font-size: var(--fs-xs); letter-spacing: var(--track-label); margin: var(--
 .tabbar a.tab-home { position: relative; justify-content: flex-end; padding-bottom: 6px; }
 .tabbar a.tab-home > svg { display: none; }
 .tab-home-btn {
-  position: absolute; left: 50%; top: -24px; transform: translateX(-50%);
+  position: absolute; left: 50%; top: calc(var(--tab-rise) * -1); transform: translateX(-50%);
   width: 54px; height: 54px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
   background: var(--surface2); color: var(--muted);
@@ -1069,23 +1075,13 @@ main.view > :first-child { margin-top: 12px; }
 .probe .tgt.eta { color: var(--accent-ink); margin-top: 2px; }
 
 /* ---- target sheet: choose a cut, then a doneness, and see what to pull at ---- */
-/* A pushed screen. It covers the content between the bars, so the mode readout and the tabs stay
-   where they are -- you have gone somewhere within the app, not had something thrown over it. */
-.sheet-host {
-  /* Between the bars, not over them: the mode readout and the tabs stay exactly where they were,
-     which is what makes it read as having gone somewhere inside the app rather than as a panel
-     thrown over it. Inset rather than padded, so the bars are not covered by its own background. */
-  position: absolute; z-index: 8; background: var(--bg);
-  inset: var(--top-h) 0 calc(var(--tab-h) + env(safe-area-inset-bottom)) 0;
-  display: flex; flex-direction: column; min-height: 0;
-}
-.sheet-host[hidden] { display: none; }
-/* inside a screen the sheet fills what is left and scrolls its own body */
-.sheet-host > .sheet { flex: 1 1 auto; min-height: 0; max-height: none; padding: 0 var(--pad-x) var(--sp-3); gap: var(--sp-3); }
-.sheet-host > .sheet > .sheet-head { margin: 0 calc(var(--pad-x) * -1); }
-/* a screen has its own back arrow, so the dialog's floating close is not wanted here */
-.sheet-host .dlg-x { display: none; }
-@media (min-width: 900px) { .sheet-host { left: 84px; } }
+/* A pushed page. It is a child of the scrolling content, so it cannot sit on the bars: the content
+   area already stops where they begin. Its footer scrolls up with it like the rest of the page --
+   an action row pinned to the viewport is a panel's habit, not a page's. */
+.screen { display: flex; flex-direction: column; min-height: 0; }
+.screen > .sheet { max-height: none; padding: 0; gap: var(--sp-3); }
+.screen > .sheet > .sheet-body { overflow: visible; max-height: none; margin: 0; padding: 0; }
+.screen .dlg-x { display: none; }   /* a page has the header's back arrow */
 
 /* The way out. In a sheet header it sits at the end of the row; in a plain dialog it floats at the
    top corner, above whatever is there, because that dialog was not built expecting it. */

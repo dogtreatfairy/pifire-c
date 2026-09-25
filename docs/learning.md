@@ -159,18 +159,42 @@ which is the physics of a pellet grill (heat loss is proportional to the tempera
 
 ## 2. Plant model: how this grill responds (`control.c` `learn_rise_track`)
 
-Every startup that runs into Hold is treated as a step test. The rise from the initial pit temperature to the set point is fitted as a first-order-plus-dead-time model (K, τ, θ) using the 28 %/63 % two-point method; results are averaged with the previous estimate and stored. Nothing is injected into the cook to get this.
+Two kinds of capture are treated as step tests, and both are fitted the same way:
 
-As soon as a new model exists, and while `learning.enabled` is on, the daemon hands it to the controller. Adaptive derives PB/Ti/Td from it with the SIMC rules (τ_c = θ), blends them with what it had, and keeps them within 0.5–1.5× the configured baseline because the passive fit is deliberately crude (dead time absorbs the ignition delay). The relay **autotune** (*Settings → Cooking → Hold Mode → Autotune*, run without food) does the same with measured Ku/Pu and is trusted over a wider band (0.33–3×). Learned gains are persisted per controller and restored on the next boot.
+* **the rise from cold** that follows a light, provided the grill really was cold (within 30 °F of ambient and under 150 °F — a warm light gives the tail of somebody else's step); and
+* **every step up between held set points**, once the pit has been at the previous one for five minutes. This is what gives a tuning profile, which walks deliberately up through the anchors, a model at each of them rather than only at the first.
 
-## Approach without overshoot (in the controller)
+The fit is a least-squares search over the whole capture: a grid of dead times (0–240 s) and time constants (180–2400 s), with the gain and offset solved by linear regression at each grid point, keeping the model with the smallest residual. The 28 %/63 % two-point method it replaces took the set point as the step's final value, which it is not — the pit only arrives there because the controller backs the feed off — so it understated the gain and roughly halved the time constant. On one real grill it returned τ = 534 s where fitting four of that grill's own cooks properly gives 930–1110 s at a 4 °F residual.
 
-Two rules keep the climb to a new set point from overshooting, learned from a real cook that went 17 °F over:
+A fit is refused rather than believed when it is not identifiable: if the search runs to the end of the grid, if the feed barely moved during the capture (< 0.15 duty), or if the residual exceeds 15 °F. A wrong model is worse than the previous one, because everything downstream trusts it. This is also why the capture is not fitted the moment the pit arrives: a rise that stops at the set point is still on the steep part of the curve and pins down only the ratio K/τ. The fit waits ten minutes into the hold that follows, where the feed settles to whatever balances the losses and fixes the static gain outright.
+
+The model is filed **against the set point it was taken at**, in the same tuning-library entry that holds that temperature's PB/Ti/Td, and the controller is handed the model for whatever set point it is holding, interpolated between entries exactly as the gains are. A pellet grill is a different plant at 180 °F than at 450 °F, and one model stretched across the range mis-states how much fuel is on its way at both ends. When the library has no entry yet, the most recent fit is used for everything.
+
+Only the **rise from cold** is allowed to design gains from its model: adaptive derives PB/Ti/Td from it with the SIMC rules (τ_c = θ), blends them with what it had, and keeps them within 0.5–1.5× the configured baseline because the passive fit is deliberately crude. A step between set points measures the grill and nothing else — designing gains from it too would have every set point change in an ordinary cook quietly re-tune the loop. The relay **autotune** (*Settings → Cooking → Hold Mode → Autotune*, run without food) designs from measured Ku/Pu and is trusted over a wider band (0.33–3×). Learned gains are persisted per controller and restored on the next boot.
+
+## Approach without overshoot: the prediction (in the controller)
+
+A pellet grill answers a change in feed about seventy-five seconds later and then keeps moving for several minutes. A loop that watches only the thermometer is therefore always acting on news that is out of date, and drives the fire hard right up to the moment the pit arrives — which is exactly when the fuel already in the pot is about to carry it past. Capturing 250 °F from cold used to overshoot by more than 20 °F for this reason.
+
+The controller runs a **Smith predictor** (Smith, 1957). Alongside the real grill it runs the model above, driven by the same feed, and acts on
+
+```
+error = (pit − set point) + K · [ x(t) − x(t − θ) ]
+```
+
+where `x` is the model's normalised response to the feed. The bracket is the rise that is committed and has not been felt yet: it is zero whenever the feed has been steady, so the loop still settles exactly on the set point and the prediction costs nothing at a hold. It goes large during a hard climb, which is precisely when the loop needs to stop feeding. The tuning note shows `· holding back` while the prediction is pulling the feed down.
+
+The model is kept in normalised form and seeded from the feed currently being applied, with an empty delay line, so it predicts nothing until the feed moves. Both matter: started from zero it spends a whole time constant climbing to meet the duty and reads that climb out as a rise on its way to the pit, which starves a fire that is doing nothing of the kind and settles the pit ten degrees high; and keeping the state normalised means a fresh plant model — a new fit, or the library handing over the one measured at this set point — changes K and τ without jolting anything.
+
+Each term acts on the signal it is there for: **P and I on the prediction**, because banking every second of a half-hour climb as a deficit to be repaid is the wind-up that throws the pit past the target; **D on the pit's own slope**; and the performance monitor and the integral's wind-down guards on the **real** error, because a pit sitting on its set point with fuel still on its way is not an error the grill is making.
+
+Alongside it:
 
 * **Integrator trim on arrival** — whatever the integrator accumulated while the pit was more than 15 °F away is approach wind-up, not a steady-state correction; on entering the ±15 °F band it is clipped to ±0.15 duty (never reset to zero, so the pit does not sag).
-* **Coast look-ahead** — the pot keeps heating for about one dead time after the feed is cut. While climbing at ≥ 3 °C/min, the controller predicts `rise rate × θ` (θ from the plant model, 40–240 s) and drops to the steady-state feed as soon as the pit would coast to the target on its own. The tuning note shows `· coasting` while this is active.
 
 The plant model's clock starts when the fire is evidently lit (+3 °C over the startup baseline), so the ignition delay no longer inflates θ.
+
+In the simulator, capturing 250 °F from cold overshoots by **+2 to +4 °F** where the same grill without the prediction went **+23 °F**, and a 250 → 300 °F step by **+1 to +8 °F** where it went **+20 °F**, settling within a degree either way.
 
 Two more rules came from a cook that sat 20–35 °C *under* a 350 °F target for its whole length:
 

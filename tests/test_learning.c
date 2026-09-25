@@ -302,12 +302,55 @@ static void test_measuring_twice_gives_the_same_answer(void)
 	TEST_ASSERT_TRUE_MESSAGE(ratio < 1.5, "the band moved more than half again between two runs on the same grill");
 }
 
+/* The overshoot on the way to a set point, from cold. This is the number the Smith prediction has
+   to move: the pot keeps burning after the feed is cut, and the pit sails past the target. */
+static void test_capture_overshoot(void)
+{
+	pf_settings_patch("controller", "{\"selected\":\"adaptive\"}", NULL, 0);
+	pf_control_init(&ctrl, true);
+	pf_sim_reset(18.0);
+	tick(5);
+	pf_cmd_mode(PF_MODE_HOLD, 250);
+	double peak = -999, sp = pf_f_to_c(250);
+	for (int i = 0; i < 120 * 60 / 10; i++) {
+		tick(10);
+		if (ctrl.pit_c > peak) peak = ctrl.pit_c;
+		if (ctrl.mode != PF_MODE_HOLD && ctrl.mode != PF_MODE_STARTUP) break;
+	}
+	printf("capture 250F: peak %.1f F, overshoot %+.1f F\n",
+	       pf_c_to_f(peak), pf_c_to_f(peak) - 250.0);
+	/* the whole point: the pit must not sail past the target on the way in */
+	TEST_ASSERT_TRUE_MESSAGE(pf_c_to_f(peak) - 250.0 < 8.0, "overshot the set point on capture");
+	TEST_ASSERT_TRUE_MESSAGE(peak > sp - 5, "never got there at all");
+
+	/* and it must still HOLD: a prediction that leaves an offset has traded one fault for another */
+	tick(40 * 60);
+	double err = pf_c_to_f(ctrl.pit_c) - 250.0;
+	printf("settled at %.1f F (%+.1f)\n", pf_c_to_f(ctrl.pit_c), err);
+	TEST_ASSERT_TRUE_MESSAGE(fabs(err) < 8.0, "did not settle on the set point");
+
+	/* a step up is the same problem again, from a running grill rather than a cold one */
+	pf_cmd_mode(PF_MODE_HOLD, 300);
+	double peak2 = -999;
+	for (int i = 0; i < 90 * 60 / 10; i++) {
+		tick(10); if (ctrl.pit_c > peak2) peak2 = ctrl.pit_c;
+		if (i % 12 == 0 && i < 120) {
+			char st[512] = ""; if (ctrl.cops && ctrl.cops->state_json) ctrl.cops->state_json(ctrl.cinst, st, sizeof st);
+			const char *sp2 = strstr(st, "surplus");
+			printf("  t+%2dmin pit %5.1f u %.2f  %s\n", i / 6, pf_c_to_f(ctrl.pit_c), ctrl.u_applied, sp2 ? sp2 : "");
+		}
+	}
+	printf("step 250->300F: peak %.1f F, overshoot %+.1f F\n", pf_c_to_f(peak2), pf_c_to_f(peak2) - 300.0);
+	TEST_ASSERT_TRUE_MESSAGE(pf_c_to_f(peak2) - 300.0 < 8.0, "overshot on a set-point change");
+}
+
 int main(void)
 {
 	pf_log_init(PF_LOG_ERROR);
 	UNITY_BEGIN();
 	RUN_TEST(test_observations_and_fit_across_ambients);
 	RUN_TEST(test_repeat_cook_not_worse);
+	RUN_TEST(test_capture_overshoot);
 	RUN_TEST(test_autotune);
 	RUN_TEST(test_measuring_twice_gives_the_same_answer);
 	RUN_TEST(test_a_tune_at_one_set_point_leaves_the_others_alone);

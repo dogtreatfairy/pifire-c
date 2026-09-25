@@ -19,6 +19,7 @@ The ABI is `include/pifire/controller.h`, currently **version 4**. A plugin buil
 | `u_prev_raw` / `u_prev_applied` | your last output / what the daemon actually ran after clamping |
 | `u_ff` | learned steady-state feed for this set point and ambient (see `docs/safety.md`, "Learning") |
 | `sched_PB_c`, `sched_Ti`, `sched_Td` | tuning autotune measured at this set point, interpolated between the entries in the tuning library; all zero when nothing has been measured. A PID-family plugin should prefer these over its configured values, because a pellet grill's process gain falls as it gets hotter and one fixed band does not suit 180 °F and 450 °F alike. See `docs/learning.md`. |
+| `sched_K`, `sched_tau`, `sched_theta` | the grill itself at this set point, as a first-order-plus-dead-time model: gain in °C per unit feed, time constant and dead time in seconds, interpolated from the same library and zero when nothing has been fitted. A plugin that predicts what the fuel already delivered is going to do — a Smith predictor, a feed-forward, a coast cut-off — should build it from these rather than from one model for the whole range. See `docs/learning.md`. |
 | `saturated` | −1 clamped at `u_min`, +1 at `u_max`, 0 free — use it for conditional integration |
 | `cycle_time_s`, `u_min`, `u_max` | current cycle configuration |
 | `target_reached`, `fan_on`, `fan_pct` | state hints |

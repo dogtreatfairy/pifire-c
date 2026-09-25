@@ -389,18 +389,23 @@ export function openNotifications() {
  */
 let sheetSeq = 0;
 export function pushScreen(build, opts = {}) {
-  const host = document.getElementById('sheet');
+  const view = document.getElementById('view');
   const id = ++sheetSeq;
   return new Promise((resolve) => {
-    let pending, done = false, restoreBack = null;
+    let pending, done = false, restoreBack = null, screenEl = null, stash = null;
     const finish = () => {
       if (done) return;
       done = true;
       restoreBack?.();
       window.removeEventListener('popstate', finish);
       window.removeEventListener('hashchange', onNav);
-      host.hidden = true;
-      host.innerHTML = '';
+      /* Only put the page back if it is still ours to put back. If the route changed underneath us
+         the router has already drawn something else, and restoring would clobber it. */
+      if (screenEl && screenEl.parentNode === view) {
+        screenEl.remove();
+        if (stash) view.append(stash);
+        view.scrollTop = 0;
+      }
       resolve(pending);
     };
     /* Tapping a tab has already pushed its own entry, so unwinding ours would undo their
@@ -426,9 +431,19 @@ export function pushScreen(build, opts = {}) {
     };
     setBack(() => close(undefined), opts.back || 'Back');
 
-    host.innerHTML = '';
-    host.append(build(close));
-    host.hidden = false;
+    /* A page, not a panel over one.
+     *
+     * This used to be an overlay pinned to the viewport, which meant its edges were its own problem
+     * to get right -- and it got them wrong: its pinned footer sat on top of the Home button, the
+     * one control that is always there. A page put INSIDE the scrolling content cannot occlude the
+     * bars, because the content area already stops where they begin. The page it replaces is set
+     * aside whole and put back when this one closes, which is what going somewhere and coming back
+     * actually means. */
+    stash = document.createDocumentFragment();
+    while (view.firstChild) stash.append(view.firstChild);
+    screenEl = el('div', { class: 'screen' }, build(close));
+    view.append(screenEl);
+    view.scrollTop = 0;
     history.pushState({ pfScreen: id }, '');
     window.addEventListener('popstate', finish);
     window.addEventListener('hashchange', onNav);
