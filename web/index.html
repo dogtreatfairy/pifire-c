@@ -15,7 +15,12 @@
 <title>PiFire</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
+<!-- The dark face -- orange grill on black -- for iOS 18's dark app icons and for a dark browser
+     chrome. Safari that predates the media attribute here simply takes the first link, which is
+     the light icon, so there is nothing to fall back to. -->
+<link rel="icon" href="/icon-dark.svg" type="image/svg+xml" media="(prefers-color-scheme: dark)">
 <link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="apple-touch-icon" href="/icon-180-dark.png" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="/uPlot.min.css">
 <link rel="stylesheet" href="/style.css">
 <script>

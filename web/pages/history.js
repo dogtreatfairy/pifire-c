@@ -7,12 +7,45 @@ export function renderHistory(view) {
   let minutes = 15; try { minutes = Number(localStorage.getItem('pf.hist.minutes') || 15); } catch {}
   let live = true, plot = null, timer = null;
   const chartEl = el('div', { class: 'chart' });
-  const header = el('div', { class: 'row between' },
-    segmented([[15, '15m'], [60, '1h'], [180, '3h'], [720, '12h'], [1440, '24h']], minutes, (v) => { minutes = v; viewing = null; title.textContent = ''; try { localStorage.setItem('pf.hist.minutes', v); } catch {} load(); }),
-    el('label', { class: 'row' }, el('input', { type: 'checkbox', checked: live, onchange: (e) => (live = e.target.checked) }), 'Live'));
+  const header = el('div', { class: 'row between hist-head' });
   const cooks = el('div', { class: 'ios-list' });
   let viewing = null; // cook file being viewed, or null for live
-  const title = el('div', { class: 'help' });
+  const exportLink = el('a', { class: 'btn sm' });
+
+  /* The chart shows one of two quite different things and has to say which.
+   *
+   * It said so in a small grey line under the controls, which is nothing next to a whole chart, and
+   * the controls went on claiming otherwise: the range buttons stayed, though a cook file is
+   * whatever length it is, and the Live tick stayed ticked over a recording that finished hours
+   * ago. A control that is lying is worse than a label that is missing. So the header is one or the
+   * other -- the live controls, or the cook's name and the way back -- and never both. */
+  const drawHeader = () => {
+    header.innerHTML = '';
+    if (viewing) {
+      header.append(
+        el('div', { class: 'row hist-viewing' },
+          el('span', { class: 'pill sm' }, 'COOK FILE'),
+          el('span', { class: 'hist-name' }, viewing.name)),
+        actionBtn('cancel', 'Live', { size: '', onclick: () => { viewing = null; drawHeader(); load(); } }, 'refresh-cw'));
+      exportLink.href = `/api/v1/cookfiles/${viewing.id}/log`;
+      exportLink.download = `cooklog_${String(viewing.name).replace(/[^\w.-]+/g, '_')}.json`;
+      exportLink.title = 'The analysis log for this cook';
+      exportLink.textContent = 'Export analysis log';
+    } else {
+      header.append(
+        segmented([[15, '15m'], [60, '1h'], [180, '3h'], [720, '12h'], [1440, '24h']], minutes, (v) => {
+          minutes = v; viewing = null; drawHeader();
+          try { localStorage.setItem('pf.hist.minutes', v); } catch {}
+          load();
+        }),
+        el('label', { class: 'row' }, el('input', { type: 'checkbox', checked: live, onchange: (e) => (live = e.target.checked) }), 'Live'));
+      exportLink.href = '/api/v1/cooklog';
+      exportLink.download = 'pifire-cooklog.json';
+      exportLink.title = 'Current or last cook: samples, controller terms, settings, learning state';
+      exportLink.textContent = 'Export analysis log';
+    }
+  };
+  drawHeader();
   /* Two sections, each a heading and a bounded body -- the shape every other page uses.
    *
    * The chart sat in a card while its heading floated above it, and the cook files had a heading
@@ -24,10 +57,9 @@ export function renderHistory(view) {
   view.append(
     el('h2', {}, 'History'),
     el('div', { class: 'card' },
-      header, title, chartEl,
+      header, chartEl,
       el('div', { class: 'form-actions' },
-        el('a', { class: 'btn sm', href: '/api/v1/cooklog', download: 'pifire-cooklog.json',
-          title: 'Current or last cook: samples, controller terms, settings, learning state' }, 'Export analysis log'),
+        exportLink,
         actionBtn('delete', 'Clear History', { onclick: async () => { if (await confirmDialog('Clear history?', 'Removes all stored samples.', 'Clear', true)) { await api('/history/clear', { body: {} }); load(); } } }))),
     el('h2', {}, 'Cook Files'),
     cooks);
@@ -53,7 +85,7 @@ export function renderHistory(view) {
         icon: 'chart-line', color: '#5ac8fa',
         title: c.name,
         meta: `${(m.duration_s / 3600).toFixed(1)} h · max ${Math.round(m.max_pit || 0)}${degUnit()} · \u2248${((m.pellets_g || 0) / 453.6).toFixed(1)} lb`,
-        onclick: async () => { viewing = await api(`/cookfiles/${c.id}`); title.textContent = `Viewing ${viewing.name}`; render(viewing.history); },
+        onclick: async () => { viewing = await api(`/cookfiles/${c.id}`); viewing.id = c.id; drawHeader(); render(viewing.history); },
         actions: [
           el('a', { class: 'btn icon', href: `/api/v1/cookfiles/${c.id}/log`, download: `cooklog_${c.name.replace(/[^\w.-]+/g, '_')}.json`,
             title: 'Download the analysis log: samples with controller terms, settings and learning state', 'aria-label': 'Download analysis log' }, lucide('download', 'ic btn-ic')),
@@ -107,6 +139,11 @@ export function renderHistory(view) {
       legend: { live: true },
     };
     if (plot) { plot.destroy(); plot = null; }   /* never leave a destroyed plot behind to be reused */
+    /* uPlot APPENDS its canvas, it does not take the element over, so whatever is already in there
+       stays. A previous empty window leaves "Nothing logged in this window" behind, and opening a
+       cook file then drew a chart full of data underneath a line saying there was none. Clear the
+       element first: it holds the chart or it holds the reason there is no chart, never both. */
+    chartEl.replaceChildren();
     try {
       plot = new uPlot(opts, data, chartEl);
       chartEl.classList.remove('chart-empty');

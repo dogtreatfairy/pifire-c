@@ -6,7 +6,7 @@ const VERSION = 'pifire-@PF_VERSION@';
 const CORE = ['/', '/index.html', '/app.js', '/style.css', '/icons.js'];
 /* Everything else is worth having and survivable without: a missing chart library costs the
    history page, not the whole shell. */
-const EXTRA = ['/uPlot.iife.min.js', '/uPlot.min.css', '/manifest.webmanifest', '/icon.svg', '/icon-180.png', '/icon-192.png',
+const EXTRA = ['/uPlot.iife.min.js', '/uPlot.min.css', '/manifest.webmanifest', '/icon.svg', '/icon-dark.svg', '/icon-180.png', '/icon-180-dark.png', '/icon-192.png',
   '/pages/home.js', '/pages/history.js', '/pages/cook.js', '/pages/settings.js', '/pages/more.js', '/pages/network.js',
   '/pages/pellets.js', '/pages/learning.js', '/pages/probes.js', '/pages/rules.js'];
 

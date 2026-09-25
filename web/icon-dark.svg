@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="PiFire">
+  <defs>
+    <linearGradient id="f" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#17171a"/><stop offset="1" stop-color="#000000"/></linearGradient>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff8a1f" stop-opacity="0.10"/>
+      <stop offset="0.5" stop-color="#ff8a1f" stop-opacity="0"/></linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="114" fill="url(#f)"/>
+  <rect width="512" height="512" rx="114" fill="url(#g)"/>
+  <g transform="translate(256 256) scale(13.0) translate(-12 -12)"
+     fill="none" stroke="#ff8a1f" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14.1 3.66A8.6 8.6 0 1 1 9.9 3.66" /><rect x="9.25" y="0.9" width="5.5" height="2.1" rx="0.75" /><path d="M9.9 3v3.9a2.1 2.1 0 0 0 4.2 0V3" /><path d="M3.59 10.2h16.82" /><path d="M3.55 13.6h16.9" />
+  </g>
+</svg>

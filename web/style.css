@@ -577,6 +577,16 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .cc-head > .cc-del { flex: none; margin-right: var(--sp-1); }
 .cc-body { padding: 0 12px 12px; display: flex; flex-direction: column; gap: var(--sp-2); }
 .cc-add { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+/* the list of kinds an Add condition offers: the same row as everywhere, with the mark in place of
+   a tile so AND, OR and NOT are recognisable before their names are read */
+.kind-row { width: 100%; text-align: left; background: none; border: 0; padding: 10px 12px; color: inherit; cursor: pointer; }
+.kind-row .cc-glyph { font-size: var(--fs-md); }
+/* Which chart this is. The name takes the slack and ellipsizes; the way back to live sits at the
+   end where a screen's committing action always does. */
+.hist-head { gap: var(--sp-2); min-width: 0; }
+.hist-viewing { gap: var(--sp-2); min-width: 0; flex: 1 1 auto; }
+.hist-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-medium); }
+
 .chips.tight { gap: 4px; }
 .chips.tight .chip { padding: 3px 9px; }
 .btn.xs { padding: 3px 7px; font-size: var(--fs-2xs); min-width: 0; }

@@ -214,26 +214,58 @@ const GROUP_OPS = [['all', 'AND', '&'], ['any', 'OR', '\u2265'], ['not', 'NOT', 
    It belongs to the condition rather than to the whole rule, so one arm of an AND can wait while
    the others answer at once -- which is what makes "in Hold, within 5 degrees of the set point,
    for ten minutes" a single rule. */
-const forField = (node, onChange) => el('div', { class: 'field' },
-  el('label', {}, 'For'),
-  el('div', { class: 'row', style: 'gap:var(--sp-2)' },
-    el('input', {
-      type: 'text', inputmode: 'decimal', style: 'flex:1 1 auto; min-width:0',
-      value: node.for_s ? (node.for_s >= 60 ? node.for_s / 60 : node.for_s) : '',
-      placeholder: 'immediately',
-      onchange: (e) => {
-        const n = parseFloat(e.target.value);
-        const mins = (node._for_unit || 'min') === 'min';
-        if (!(n > 0)) delete node.for_s; else node.for_s = Math.round(mins ? n * 60 : n);
-        onChange();
-      },
-    }),
-    segmented([['min', 'min'], ['s', 'sec']], node._for_unit || 'min', (u) => {
-      const was = node._for_unit || 'min';
-      node._for_unit = u;
-      if (node.for_s && was !== u) node.for_s = u === 'min' ? node.for_s : node.for_s;
+/* Seconds are what is stored; the unit is only how the number is written. A whole number of
+   minutes is written in minutes, anything else in seconds, so 90 reads as 90 sec and not 1.5 min. */
+const forUnit = (node) => node._for_unit || (node.for_s && node.for_s % 60 === 0 ? 'min' : 's');
+
+const forField = (node, onChange) => {
+  const unit = forUnit(node);
+  /* No duration reads as "0 min", not "immediately". A condition that answers the moment it is
+     true is a condition held for zero time, and saying so keeps the field one kind of thing --
+     a number with a unit -- instead of a number that sometimes turns into a word. */
+  const input = el('input', {
+    type: 'text', inputmode: 'decimal', style: 'flex:1 1 auto; min-width:0', placeholder: '0',
+    value: String(unit === 'min' ? (node.for_s || 0) / 60 : (node.for_s || 0)),
+    onchange: (e) => {
+      const n = parseFloat(e.target.value);
+      node.for_s = n > 0 ? Math.round(forUnit(node) === 'min' ? n * 60 : n) : 0;
+      e.target.value = String(forUnit(node) === 'min' ? node.for_s / 60 : node.for_s);
       onChange();
-    })));
+    },
+  });
+  return el('div', { class: 'field' },
+    el('label', {}, 'For'),
+    el('div', { class: 'row', style: 'gap:var(--sp-2)' }, input,
+      /* Switching the unit keeps the number written and reinterprets it: 5 min becomes 5 sec,
+         which is what someone correcting the unit meant, rather than 0.08 min. */
+      segmented([['min', 'min'], ['s', 'sec']], unit, (u) => {
+        node._for_unit = u;
+        node.for_s = Math.round((parseFloat(input.value) || 0) * (u === 'min' ? 60 : 1));
+        onChange();
+      })));
+};
+
+/* What can be added, as a list of kinds -- the shape Home Assistant uses. A comparison first,
+   because it is what most rules are made of, then the three ways of joining them. */
+function addKind(node, domain, depth, done) {
+  const t = traitsOf(domain)[0];
+  const kinds = [
+    { glyph: '123', name: 'Condition', sub: 'Compare a reading with a value',
+      make: () => ({ trait: t?.id || 'temp', op: t?.operators?.[0] || '>=', value: 0 }) },
+    ...(depth < 3 ? [
+      { glyph: '&', name: 'AND', sub: 'True when all are true', make: () => ({ op: 'all', conditions: [] }) },
+      { glyph: '\u2265', name: 'OR', sub: 'True when any is true', make: () => ({ op: 'any', conditions: [] }) },
+      { glyph: '\u2260', name: 'NOT', sub: 'True when the inside is false', make: () => ({ op: 'not', conditions: [] }) },
+    ] : []),
+  ];
+  return dialog((close) => el('div', {},
+    el('h3', {}, 'Add condition'),
+    el('div', { class: 'ios-list', style: 'margin-top:var(--sp-2)' },
+      kinds.map((k) => el('button', { class: 'irow kind-row', type: 'button', onclick: () => { node.conditions.push(k.make()); close(); done(); } },
+        el('span', { class: 'cc-glyph' }, k.glyph),
+        el('span', { class: 'body' }, el('span', { class: 't' }, k.name), el('span', { class: 's' }, k.sub))))),
+    el('div', { class: 'form-actions' }, actionBtn('cancel', 'Cancel', { size: '', onclick: () => close() }))));
+}
 
 /* A condition, and a group of conditions, are both a card: a header you can read with it shut and
    a body you open to change it. Nesting is what lets one rule say "the mode is Hold or Smoke, and
@@ -270,15 +302,15 @@ function condNode(node, domain, onChange, onRemove, depth) {
       node.conditions.forEach((k, i) => body.append(condNode(k, domain, () => { retitle(); onChange(); },
         () => { node.conditions.splice(i, 1); draw(); retitle(); onChange(); }, depth + 1)));
       const t = traitsOf(domain)[0];
+      /* One button, and it asks what KIND of thing to add.
+       *
+       * Two buttons -- "Condition" and "Group" -- made the reader work out what a group was before
+       * they could use one, and buried AND, OR and NOT inside whichever of the two happened to
+       * mean them. Home Assistant offers a single Add condition that opens a list of the kinds,
+       * with the logical ones sitting in the same list as the rest, and that is right: adding "or"
+       * is adding a condition, it is just a condition made of other conditions. */
       body.append(el('div', { class: 'cc-add' },
-        actionBtn('add', 'Condition', { onclick: () => {
-          node.conditions.push({ trait: t?.id || 'temp', op: t?.operators?.[0] || '>=', value: 0 });
-          draw(); retitle(); onChange();
-        } }),
-        depth < 3 ? actionBtn('add', 'Group', { onclick: () => {
-          node.conditions.push({ op: 'any', conditions: [] });
-          draw(); retitle(); onChange();
-        } }) : null));
+        actionBtn('add', 'Add condition', { onclick: () => addKind(node, domain, depth, () => { draw(); retitle(); onChange(); }) })));
     } else {
       body.append(conditionRow(node, domain, () => { retitle(); onChange(); }));
     }
@@ -294,6 +326,10 @@ function ruleEditor(rule, isNew) {
   r.select ||= { domain: 'probe', role: 'any', link: 'any', match: 'any' };
   r.when ||= { op: 'all', conditions: [] };
   r.when.conditions ||= [];
+  /* An older rule kept its hold time beside the condition rather than on it; fold it in so the
+     one control shown is the one that runs. */
+  if (r.for_s > 0 && !r.when.for_s) r.when.for_s = r.for_s;
+  r.for_s = 0;
 
   return pushScreen((close) => {
     const wrap = el('div', { class: 'rule-edit sheet' });
@@ -358,14 +394,11 @@ function ruleEditor(rule, isNew) {
       }
 
       // ---- the condition
+      /* One duration control, not two. "Hold For" used to sit under the condition saying exactly
+         what the root group's own "For" says, and the two could disagree. */
       const conds = el('div', { class: 'card tight' },
         el('div', { class: 'field' }, el('label', {}, 'When'),
-          condNode(r.when, sel.domain, () => { touched(); refreshPreview(); }, null, 0)),
-        el('div', { class: 'field inline' },
-          el('div', {}, el('label', {}, 'Hold For'),
-            el('div', { class: 'help' }, 'Seconds it must stay true before sending. 180 is three minutes.')),
-          el('input', { type: 'text', inputmode: 'numeric', value: r.for_s ?? 0,
-            onchange: (e) => { r.for_s = parseInt(e.target.value, 10) || 0; refreshPreview(); } })));
+          condNode(r.when, sel.domain, () => { touched(); refreshPreview(); }, null, 0)));
 
       // ---- the message
       const tokenChips = el('div', { class: 'chips' });
