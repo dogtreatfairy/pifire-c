@@ -168,6 +168,32 @@ The fit is a least-squares search over the whole capture: a grid of dead times (
 
 A fit is refused rather than believed when it is not identifiable: if the search runs to the end of the grid, if the feed barely moved during the capture (< 0.15 duty), or if the residual exceeds 15 °F. A wrong model is worse than the previous one, because everything downstream trusts it. This is also why the capture is not fitted the moment the pit arrives: a rise that stops at the set point is still on the steep part of the curve and pins down only the ratio K/τ. The fit waits ten minutes into the hold that follows, where the feed settles to whatever balances the losses and fixes the static gain outright.
 
+### The relay measures the plant; the capture measures only its time constant
+
+A capture fitted on its own gives all three of K, τ and θ, and it is poor at two of them: θ and τ
+trade off against each other, and the search happily returns a short dead time with a long lag. On
+this grill's own baseline run the capture returned θ = 15 s and K = 466 °C per unit feed where four
+of its real cooks fit 70–80 s and 313–348.
+
+A relay test does not have that problem. It locates one point of the frequency response exactly —
+the frequency where the phase reaches −π, and the gain there — and for a first-order-plus-dead-time
+plant that fixes θ and K outright, given τ:
+
+```
+ω = 2π/Pu        θ = (π − atan(ωτ)) / ω        K = √(1 + (ωτ)²) / Ku
+```
+
+τ is the one thing the relay cannot see, because it never waits for the pit to finish arriving
+anywhere; the capture into the set point measures exactly that. So each measurement supplies the
+half it is good at. On the run above that gives θ = 97 s and K = 336 °C per unit feed — both inside
+the range the real cooks fit. It matters because the Smith prediction scales as `K·θ/τ`: taking the
+whole plant from the capture made the prediction about five times too small, and a prediction that
+small lets the loop feed straight through the dead time and sail past the set point, which is the
+one thing it is there to stop.
+
+θ always lands between Pu/4 and Pu/2 whatever τ is, because atan is bounded, so the relay brackets
+the dead time on its own and a poor τ can only move it inside that bracket.
+
 The model is filed **against the set point it was taken at**, in the same tuning-library entry that holds that temperature's PB/Ti/Td, and the controller is handed the model for whatever set point it is holding, interpolated between entries exactly as the gains are. A pellet grill is a different plant at 180 °F than at 450 °F, and one model stretched across the range mis-states how much fuel is on its way at both ends. When the library has no entry yet, the most recent fit is used for everything.
 
 Only the **rise from cold** is allowed to design gains from its model: adaptive derives PB/Ti/Td from it with the SIMC rules (τ_c = θ), blends them with what it had, and keeps them within 0.5–1.5× the configured baseline because the passive fit is deliberately crude. A step between set points measures the grill and nothing else — designing gains from it too would have every set point change in an ordinary cook quietly re-tune the loop. The relay **autotune** (*Settings → Cooking → Hold Mode → Autotune*, run without food) designs from measured Ku/Pu and is trusted over a wider band (0.33–3×). Learned gains are persisted per controller and restored on the next boot.

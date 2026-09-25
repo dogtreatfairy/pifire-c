@@ -332,8 +332,39 @@ void pf_learning_store_anchor(double setpoint_c, const pf_autotune_result *r, do
 	a->ambient_c = ambient_c;
 	a->wind = wind;
 	a->valid = true;
-	/* The step into this set point was measured before the relay got here; take that model now. */
-	if (g_pending_plant.valid && fabs(g_pending_plant.setpoint_c - setpoint_c) < 5) {
+	/* The plant for this set point, from the two measurements that are each good at one half of it.
+	 *
+	 * The relay is a designed experiment and it locates one point of the grill's frequency response
+	 * exactly: the frequency where the phase reaches -pi, and the gain there. For a first-order plant
+	 * with a dead time that fixes the dead time and the static gain outright, given the time
+	 * constant -- which is the one thing a relay cannot see, because it never waits for the pit to
+	 * finish arriving anywhere. The step into the set point is what measures that.
+	 *
+	 *     w = 2*pi/Pu      theta = (pi - atan(w*tau)) / w      K = sqrt(1 + (w*tau)^2) / Ku
+	 *
+	 * Taking the whole plant from the step fit instead was leaving the prediction far weaker than
+	 * the grill needs. On this grill's own baseline run the step fit returned theta = 15 s and
+	 * K = 466 C per unit feed where the relay beside it says 97 s and 336 -- and the second pair is
+	 * what four of that grill's real cooks fit (70-80 s, 313-348). The Smith prediction scales as
+	 * K*theta/tau, so the difference is a prediction about five times too small: the loop would have
+	 * gone on feeding through the dead time and sailed past the set point, which is the whole fault
+	 * the prediction exists to stop.
+	 *
+	 * Note theta always lands between Pu/4 and Pu/2, whatever tau is, because atan is bounded. The
+	 * relay therefore brackets the dead time on its own, and a bad tau can only move it inside that
+	 * bracket -- which is a far better failure than a grid search sliding to the end of its range. */
+	double tau_src = g_pending_plant.valid && fabs(g_pending_plant.setpoint_c - setpoint_c) < 5
+	               ? g_pending_plant.tau : a->tau > 0 ? a->tau : g_fopdt.valid ? g_fopdt.tau : 0;
+	if (r->Ku > 0 && r->Pu > 0 && tau_src > 0) {
+		double wu = 2.0 * M_PI / r->Pu;                 /* the ultimate frequency the relay found */
+		double theta = (M_PI - atan(wu * tau_src)) / wu;
+		double K = sqrt(1.0 + wu * tau_src * wu * tau_src) / r->Ku;
+		LOGI(TAG, "%.0f C: plant from the relay -- K %.0f C per unit feed, dead time %.0f s (time constant %.0f s from the capture)",
+		     setpoint_c, K, theta, tau_src);
+		anchor_take_plant(a, K, tau_src, theta);
+		g_pending_plant.valid = false;
+	} else if (g_pending_plant.valid && fabs(g_pending_plant.setpoint_c - setpoint_c) < 5) {
+		/* no usable relay result: the step fit is all there is */
 		anchor_take_plant(a, g_pending_plant.K, g_pending_plant.tau, g_pending_plant.theta);
 		g_pending_plant.valid = false;
 	}

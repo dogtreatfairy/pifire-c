@@ -83,6 +83,59 @@ static double cook(const char *controller, double ambient_c, double minutes, dou
 	return iae;
 }
 
+/* Where an anchor's plant comes from.
+ *
+ * A relay test locates one point of the grill's frequency response exactly -- the frequency where
+ * the phase reaches -pi, and the gain there -- which fixes the dead time and the static gain, given
+ * a time constant. The capture that led into the set point measures the time constant, which is the
+ * one thing a relay never sees. Taking the whole plant from the capture instead put theta = 15 s on
+ * a real grill where the relay beside it said 97 s, and the Smith prediction scales as K*theta/tau,
+ * so the loop was predicting about a fifth of the heat that was really on its way.
+ *
+ * The check is that the relay result and the plant filed with it describe the same grill: run the
+ * stored plant through the FOPDT phase condition and the ultimate gain and period must come back. */
+static void test_an_anchor_takes_its_plant_from_the_relay(void)
+{
+	pf_learning_clear_anchors();
+	/* a time constant from the capture, as the step fit would have filed it */
+	pf_learning_store_anchor_plant(pf_f_to_c(250), 466, 1380, 15);
+
+	pf_autotune_result r = { .Ku = 0.0685, .Pu = 377, .PB_c = 32, .Ti = 829, .Td = 60, .valid = true };
+	pf_learning_store_anchor(pf_f_to_c(250), &r, 20, 0);
+
+	double K = 0, tau = 0, theta = 0;
+	TEST_ASSERT_TRUE(pf_learning_plant(pf_f_to_c(250), &K, &tau, &theta));
+	printf("relay Ku %.4f Pu %.0f + capture tau %.0f -> K %.0f C/duty, theta %.0f s\n", r.Ku, r.Pu, tau, K, theta);
+
+	/* the time constant is the capture's, untouched */
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(1.0, 1380.0, tau, "the time constant comes from the capture");
+	/* and theta is nothing like the 15 s the capture claimed */
+	TEST_ASSERT_TRUE_MESSAGE(theta > 60.0, "the relay's dead time, not the capture's guess");
+
+	/* round trip: what ultimate point does this plant have? */
+	double lo = 1e-5, hi = 1.0;
+	for (int i = 0; i < 200; i++) {
+		double wm = 0.5 * (lo + hi);
+		if (-wm * theta - atan(wm * tau) > -M_PI) lo = wm; else hi = wm;
+	}
+	double wu = 0.5 * (lo + hi);
+	double Ku_back = sqrt(1 + wu * tau * wu * tau) / K, Pu_back = 2 * M_PI / wu;
+	printf("  back out of the stored plant: Ku %.4f, Pu %.0f s\n", Ku_back, Pu_back);
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.002, r.Ku, Ku_back, "the stored plant must reproduce the measured gain");
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(10.0, r.Pu, Pu_back, "the stored plant must reproduce the measured period");
+
+	/* theta always lands between Pu/4 and Pu/2, whatever the capture said the time constant was */
+	for (double t_guess = 200; t_guess <= 3000; t_guess += 400) {
+		pf_learning_clear_anchors();
+		pf_learning_store_anchor_plant(pf_f_to_c(250), 466, t_guess, 15);
+		pf_learning_store_anchor(pf_f_to_c(250), &r, 20, 0);
+		double th = 0;
+		TEST_ASSERT_TRUE(pf_learning_plant(pf_f_to_c(250), NULL, NULL, &th));
+		TEST_ASSERT_TRUE_MESSAGE(th > r.Pu / 4 - 1 && th < r.Pu / 2 + 1,
+		                         "the relay brackets the dead time however wrong the time constant is");
+	}
+}
+
 /* The plant stored on a grill that has been running a while was fitted by whatever method that
  * version shipped, and the one before this used the 28 %/63 % two-point method -- which took the
  * set point as the step's final value and came back with a time constant roughly half the truth.
@@ -392,6 +445,7 @@ int main(void)
 {
 	pf_log_init(PF_LOG_ERROR);
 	UNITY_BEGIN();
+	RUN_TEST(test_an_anchor_takes_its_plant_from_the_relay);
 	RUN_TEST(test_a_plant_from_the_old_fit_is_replaced_not_averaged);
 	RUN_TEST(test_a_plant_from_the_old_fit_does_not_drive_the_loop);
 	RUN_TEST(test_observations_and_fit_across_ambients);
