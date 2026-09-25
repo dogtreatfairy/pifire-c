@@ -27,10 +27,18 @@ static pf_autotune_result g_at;
 static void load_kv(void)
 {
 	char buf[512];
+	/* What is in memory afterwards is what is in THIS database, and nothing else. Loading on top of
+	 * whatever happened to be here already meant a fresh database left the previous one's plant and
+	 * anchors in place, because a missing row simply left the variable alone -- so a grill whose
+	 * learning had been wiped went on predicting from the model it was supposed to have forgotten. */
+	memset(&g_fopdt, 0, sizeof g_fopdt);
+	memset(&g_at, 0, sizeof g_at);
+	memset(g_anchors, 0, sizeof g_anchors);
 	if (pf_db_kv_get("learning", "fopdt", buf, sizeof buf) == 0) {
 		cJSON *j = cJSON_Parse(buf);
 		g_fopdt.K = pf_json_num(j, "K", 0); g_fopdt.tau = pf_json_num(j, "tau", 0); g_fopdt.theta = pf_json_num(j, "theta", 0);
-		g_fopdt.ts = pf_json_num(j, "ts", 0); g_fopdt.valid = g_fopdt.tau > 0;
+		g_fopdt.ts = pf_json_num(j, "ts", 0); g_fopdt.method = pf_json_int(j, "m", 1);
+		g_fopdt.valid = g_fopdt.tau > 0;
 		cJSON_Delete(j);
 	}
 	if (pf_db_kv_get("learning", "anchors", buf, sizeof buf) == 0) {
@@ -175,11 +183,23 @@ double pf_learning_uff(double setpoint_c, double ambient_c, double u_min, double
 void pf_learning_store_fopdt(double K, double tau, double theta)
 {
 	pthread_mutex_lock(&g_mu);
-	/* blend with the previous estimate so one odd startup doesn't dominate */
-	if (g_fopdt.valid) { K = 0.5 * (K + g_fopdt.K); tau = 0.5 * (tau + g_fopdt.tau); theta = 0.5 * (theta + g_fopdt.theta); }
+	/* Blend with the previous estimate so one odd capture does not dominate -- but only when the
+	 * previous estimate was measured the same way. The two-point 28/63 fit that came before took
+	 * the set point as the step's final value, which it is not, and on a real grill it returned a
+	 * time constant of 534 s where that grill's own cooks fit 930 to 1110 s. Averaging a proper
+	 * least-squares fit with a number from the broken method halves how much of the measurement
+	 * arrives and leaves the stale figure in the model for cooks afterwards. A fit from a newer
+	 * method replaces outright; two fits from the same method still average. */
+	if (g_fopdt.valid && g_fopdt.method >= PF_FOPDT_METHOD) {
+		K = 0.5 * (K + g_fopdt.K); tau = 0.5 * (tau + g_fopdt.tau); theta = 0.5 * (theta + g_fopdt.theta);
+	} else if (g_fopdt.valid) {
+		LOGI(TAG, "replacing the stored plant (K=%.0f tau=%.0f theta=%.0f) outright: it was fitted by an older method",
+		     g_fopdt.K, g_fopdt.tau, g_fopdt.theta);
+	}
 	g_fopdt.K = K; g_fopdt.tau = tau; g_fopdt.theta = theta; g_fopdt.ts = pf_wall(); g_fopdt.valid = true;
+	g_fopdt.method = PF_FOPDT_METHOD;
 	char buf[160];
-	snprintf(buf, sizeof buf, "{\"K\":%.4f,\"tau\":%.1f,\"theta\":%.1f,\"ts\":%.0f}", K, tau, theta, g_fopdt.ts);
+	snprintf(buf, sizeof buf, "{\"K\":%.4f,\"tau\":%.1f,\"theta\":%.1f,\"ts\":%.0f,\"m\":%d}", K, tau, theta, g_fopdt.ts, PF_FOPDT_METHOD);
 	if (pf_db_handle()) pf_db_kv_put("learning", "fopdt", buf);
 	pthread_mutex_unlock(&g_mu);
 	LOGI(TAG, "plant estimate: K=%.3f C per unit feed, tau=%.0f s, theta=%.0f s", K, tau, theta);

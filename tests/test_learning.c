@@ -83,6 +83,32 @@ static double cook(const char *controller, double ambient_c, double minutes, dou
 	return iae;
 }
 
+/* The plant stored on a grill that has been running a while was fitted by whatever method that
+ * version shipped, and the one before this used the 28 %/63 % two-point method -- which took the
+ * set point as the step's final value and came back with a time constant roughly half the truth.
+ * Averaging a proper fit with that leaves the old error in the model for cooks afterwards, and the
+ * prediction is built on the model. A fit from a newer method replaces; same method still
+ * averages, so one odd capture still cannot run away with it. */
+static void test_a_plant_from_the_old_fit_is_replaced_not_averaged(void)
+{
+	pf_db_kv_put("learning", "fopdt", "{\"K\":229.5,\"tau\":533.5,\"theta\":87.5,\"ts\":1,\"m\":1}");
+	pf_learning_init();
+	pf_fopdt had = pf_learning_fopdt();
+	TEST_ASSERT_TRUE(had.valid);
+	TEST_ASSERT_DOUBLE_WITHIN(1.0, 533.5, had.tau);
+
+	pf_learning_store_fopdt(400, 1000, 75);
+	pf_fopdt now_p = pf_learning_fopdt();
+	printf("old-method plant tau %.0f, then a proper fit of 1000 -> %.0f\n", had.tau, now_p.tau);
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(1.0, 1000.0, now_p.tau, "a fit by the new method must replace one by the old, not average with it");
+	TEST_ASSERT_DOUBLE_WITHIN(1.0, 400.0, now_p.K);
+
+	pf_learning_store_fopdt(420, 900, 85);
+	now_p = pf_learning_fopdt();
+	printf("a second fit of 900 by the same method -> %.0f\n", now_p.tau);
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(1.0, 950.0, now_p.tau, "two fits by the same method should still average");
+}
+
 static void test_observations_and_fit_across_ambients(void)
 {
 	/* long enough cooks that the pit settles and the steady windows the fit needs can be logged */
@@ -348,6 +374,7 @@ int main(void)
 {
 	pf_log_init(PF_LOG_ERROR);
 	UNITY_BEGIN();
+	RUN_TEST(test_a_plant_from_the_old_fit_is_replaced_not_averaged);
 	RUN_TEST(test_observations_and_fit_across_ambients);
 	RUN_TEST(test_repeat_cook_not_worse);
 	RUN_TEST(test_capture_overshoot);

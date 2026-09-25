@@ -8,7 +8,12 @@
 #include <stdbool.h>
 
 typedef struct { double a, b; int n; double rms; } pf_ff_fit;
-typedef struct { double K, tau, theta; double ts; bool valid; } pf_fopdt;
+/* Which fit produced a stored plant. 1 was the 28 %/63 % two-point method, which took the set point
+ * as the step's final value and so understated the gain and roughly halved the time constant; 2 is
+ * the least-squares fit over the whole capture. A fit is only ever averaged with one of its own
+ * method -- see pf_learning_store_fopdt. */
+#define PF_FOPDT_METHOD 2
+typedef struct { double K, tau, theta; double ts; int method; bool valid; } pf_fopdt;
 typedef struct { double Ku, Pu, PB_c, Ti, Td, amplitude_c; double ts; bool valid; } pf_autotune_result;
 
 void pf_learning_init(void);
