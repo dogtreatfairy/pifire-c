@@ -220,6 +220,50 @@ static void test_the_still_running_question_carries_its_own_answers_and_ends_wit
 	cJSON_Delete(all);
 }
 
+static bool warns(const char *steps_json, const char *code)
+{
+	cJSON *steps = cJSON_Parse(steps_json);
+	cJSON *w = pf_recipe_shape_warnings(steps), *e;
+	bool found = false;
+	cJSON_ArrayForEach(e, w) if (!strcmp(pf_json_str(e, "code", ""), code)) found = true;
+	cJSON_Delete(w); cJSON_Delete(steps);
+	return found;
+}
+
+/* A recipe lights the grill before it cooks and puts it out when it is done. Both are said rather
+ * than enforced, and the case that decides why is the cool-down: a recipe of nothing but Shutdown
+ * must not be told to add a step that lights the grill. */
+static void test_a_recipe_is_told_when_it_does_not_light_the_grill_first(void)
+{
+	TEST_ASSERT_TRUE(warns("[{\"mode\":\"Hold\",\"setpoint\":225}]", "no_startup"));
+	TEST_ASSERT_TRUE(warns("[{\"mode\":\"Smoke\"},{\"mode\":\"Shutdown\"}]", "no_startup"));
+	TEST_ASSERT_FALSE(warns("[{\"mode\":\"Startup\"},{\"mode\":\"Hold\",\"setpoint\":225}]", "no_startup"));
+	/* a cool-down cooks nothing, so there is nothing to light and nothing to say */
+	TEST_ASSERT_FALSE(warns("[{\"mode\":\"Shutdown\"}]", "no_startup"));
+	TEST_ASSERT_FALSE(warns("[{\"mode\":\"Shutdown\"},{\"mode\":\"Stop\"}]", "no_startup"));
+	TEST_ASSERT_FALSE(warns("[]", "no_startup"));
+}
+
+static void test_a_recipe_is_told_when_it_leaves_the_grill_running(void)
+{
+	TEST_ASSERT_TRUE(warns("[{\"mode\":\"Startup\"},{\"mode\":\"Hold\",\"setpoint\":225}]", "no_shutdown"));
+	TEST_ASSERT_FALSE(warns("[{\"mode\":\"Startup\"},{\"mode\":\"Hold\"},{\"mode\":\"Shutdown\"}]", "no_shutdown"));
+	/* a cool-down ends in Shutdown by definition, so it is not warned about either */
+	TEST_ASSERT_FALSE(warns("[{\"mode\":\"Shutdown\"}]", "no_shutdown"));
+	TEST_ASSERT_FALSE(warns("[]", "no_shutdown"));
+}
+
+/* The one that ships has both ends. */
+static void test_the_built_in_ribs_recipe_has_nothing_wrong_with_its_shape(void)
+{
+	pf_recipes_seed();
+	cJSON *l = pf_recipes_list();
+	cJSON *r = cJSON_GetArrayItem(l, 0);
+	cJSON *w = pf_recipe_shape_warnings(cJSON_GetObjectItem(r, "steps"));
+	TEST_ASSERT_EQUAL_INT(0, cJSON_GetArraySize(w));
+	cJSON_Delete(w); cJSON_Delete(l);
+}
+
 int main(void)
 {
 	pf_log_init(PF_LOG_ERROR);
@@ -232,6 +276,9 @@ int main(void)
 	RUN_TEST(test_a_step_can_be_aimed_at_any_food_probe);
 	RUN_TEST(test_a_step_with_a_mode_the_grill_does_not_have_is_refused);
 	RUN_TEST(test_which_modes_count_as_a_grill_that_is_already_lit);
+	RUN_TEST(test_a_recipe_is_told_when_it_does_not_light_the_grill_first);
+	RUN_TEST(test_a_recipe_is_told_when_it_leaves_the_grill_running);
+	RUN_TEST(test_the_built_in_ribs_recipe_has_nothing_wrong_with_its_shape);
 	RUN_TEST(test_the_still_running_question_carries_its_own_answers_and_ends_with_the_fire);
 	return UNITY_END();
 }

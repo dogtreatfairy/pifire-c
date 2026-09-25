@@ -52,5 +52,9 @@ void pf_recipes_seed(void);
 cJSON *pf_recipes_list(void);                       /* [{id,name,description,steps:[...]}] */
 int  pf_recipe_save(const char *json, char *err, size_t errn);   /* returns id or <0 */
 int  pf_recipe_delete(int id);
+/* What is wrong with the shape of a recipe's steps, as [{code,message}]: "no_startup" when it
+ * cooks without lighting the grill first, "no_shutdown" when it finishes without putting it out.
+ * Advisory -- see the note on the implementation for why neither is enforced. Caller frees. */
+cJSON *pf_recipe_shape_warnings(const cJSON *steps);
 /* Load into a runner-ready struct (temperatures converted to Celsius). 0 on success. */
 int  pf_recipe_load(int id, pf_recipe *out);

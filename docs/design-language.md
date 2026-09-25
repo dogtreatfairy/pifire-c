@@ -724,6 +724,22 @@ What reaches a phone is decided by the rule that fired, not by a second layer of
 names its own services and its own urgency; the category switches exist for the daemon's own
 chatter and must not silently swallow anything a person wrote.
 
+## Say what is wrong where it is wrong, with the remedy beside it
+
+A form that only complains when you press Save has made you do the work twice. When something about
+what is on the screen is not right, it says so in place — a `.notice` where the problem is, carrying
+the button that fixes it, so the reader is one tap from done rather than being sent to find the
+control themselves. Save is for the thing that is genuinely a decision, and it says what the
+decision costs: "this recipe will leave the grill running when it finishes" is worth a confirm,
+"you forgot to light the grill" is not, because there is only one thing anybody meant.
+
+Do it where it can be done silently and safely. A recipe that cooks gets its Startup step added on
+save whether or not it was asked for, because the runner skips that step on a grill that is already
+lit, so it costs nothing and its absence costs everything. The same rule must not be applied to a
+recipe of nothing but Shutdown: that is a cool-down, and adding a Startup to it would light a grill
+somebody asked to put out. Before making a rule automatic, find the case where it does the opposite
+of what the person meant.
+
 ## An alarm that has a remedy offers it
 
 Most alarms are things to know. A few are questions: the grill is still burning and the recipe that

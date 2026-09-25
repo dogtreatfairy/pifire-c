@@ -190,6 +190,26 @@ function stepSummary(s) {
   return parts.join(' · ');
 }
 
+/* What is wrong with the shape of a recipe, mirroring pf_recipe_shape_warnings in
+   src/features/recipe.c -- the two must agree. A recipe lights the grill before it cooks and puts
+   it out when it is done; neither is enforced outright, because a recipe of nothing but Shutdown
+   is a cool-down and must not gain a step that lights the grill, and one that hands back a hot
+   grill on purpose is a real thing the runner already asks about when it gets there. */
+const COOKING = ['Startup', 'Smoke', 'Hold'];
+function shapeIssues(steps) {
+  const out = [];
+  if (!steps.length) return out;
+  if (steps.some((s) => COOKING.includes(s.mode)) && steps[0].mode !== 'Startup') {
+    out.push({ code: 'no_startup', text: 'Does not light the grill first.',
+      fix: 'Add Startup', apply: () => steps.unshift({ mode: 'Startup' }) });
+  }
+  if (steps[steps.length - 1].mode !== 'Shutdown') {
+    out.push({ code: 'no_shutdown', text: 'Leaves the grill running when it finishes.',
+      fix: 'Add Shutdown', apply: () => steps.push({ mode: 'Shutdown' }) });
+  }
+  return out;
+}
+
 const blankStep = () => ({ mode: 'Hold', setpoint: PF.units === 'C' ? 110 : 225, timer_min: 0, probe: '', probe_temp: 0, wait: 'none', message: '' });
 
 /* The editor is a pushed screen with a pinned action bar, and each step is a fold -- the same two
@@ -278,6 +298,14 @@ function recipeEditor(rec0, isNew) {
           el('input', { type: 'text', value: rec.description || '', placeholder: 'One line about it',
             onchange: (e) => { rec.description = e.target.value; touched(); } })));
       const steps = el('div', { class: 'card tight' }, el('div', { class: 'field' }, el('label', {}, 'Steps')));
+      /* Said while the recipe is being written, with the remedy next to it, rather than after it
+         has been saved. Each one is one tap from gone. */
+      for (const iss of shapeIssues(rec.steps)) {
+        steps.append(el('div', { class: 'notice warn' },
+          el('span', { class: 'grow' }, iss.text),
+          el('button', { class: 'btn xs ghost', type: 'button',
+            onclick: () => { iss.apply(); touched(); draw(); } }, iss.fix)));
+      }
       rec.steps.forEach((s, i) => steps.append(stepCard(s, i, draw)));
       if (!rec.steps.length) steps.append(el('div', { class: 'muted', style: 'padding:6px 2px' }, 'No steps yet.'));
       steps.append(el('div', { class: 'cc-add' }, actionBtn('add', 'Add step', {
@@ -296,7 +324,22 @@ function recipeEditor(rec0, isNew) {
         onDelete: isNew ? null : () => close('delete'),
         deleteTitle: 'Delete recipe',
         onCancel: dismiss,
-        onSave: () => { if (!rec.name?.trim()) { toast('Give it a name', true); return; } close(rec); },
+        onSave: async () => {
+          if (!rec.name?.trim()) { toast('Give it a name', true); return; }
+          const issues = shapeIssues(rec.steps);
+          /* A cooking recipe gets its Startup step whether or not it was asked for. It costs
+             nothing -- the runner skips it on a grill that is already lit -- and without it a
+             recipe run on a cold grill simply never gets going. */
+          const needStart = issues.find((i) => i.code === 'no_startup');
+          if (needStart) { needStart.apply(); toast('Added a Startup step so it lights a cold grill'); }
+          /* Ending without one is allowed, and is the thing to be warned about rather than stopped
+             for: the runner asks what to do with the lit grill when it gets there. */
+          if (issues.some((i) => i.code === 'no_shutdown')
+              && !await confirmDialog('Leave the grill running?',
+                   'This recipe does not end with a Shutdown step. When it finishes the grill will still be lit, and PiFire will ask you whether to shut it down.',
+                   'Save Anyway')) { draw(); return; }
+          close(rec);
+        },
         dirty: isNew,
       }));
     setTimeout(() => { ready = true; }, 0);
@@ -367,7 +410,7 @@ export function renderCook(view) {
             el('div', { class: 'help' }, `Step ${rc.step + 1} of ${rc.nsteps} · ${rc.step_mode}`)),
           rc.waiting ? null : el('div', { class: 'run-left' }, rc.remaining_s >= 0 ? fmtDur(rc.remaining_s) : '')),
         el('div', { class: 'progress' }, el('div', { style: `width:${((rc.step + (rc.waiting ? 1 : 0)) / rc.nsteps) * 100}%` })),
-        rc.message ? el('div', { class: `run-msg${rc.waiting ? ' now' : ''}` }, rc.message) : null,
+        rc.message ? el('div', { class: rc.waiting ? 'notice warn' : 'run-msg' }, rc.message) : null,
         rc.waiting
           ? el('button', { class: 'btn primary block', type: 'button', onclick: () => cmd({ cmd: 'recipe', op: 'next' }) }, 'Done, carry on')
           : null,

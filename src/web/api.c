@@ -438,6 +438,13 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		cJSON *o = cJSON_CreateObject();
 		cJSON_AddStringToObject(o, "result", "OK");
 		cJSON_AddNumberToObject(o, "id", id);
+		/* Saved, and here is what is odd about it. The recipe is stored either way -- these are
+		 * things to know, not reasons to refuse -- so a caller that is not the editor still hears
+		 * that its recipe will not light the grill or will not put it out. */
+		cJSON *body = cJSON_Parse(req->body);
+		cJSON *warn = pf_recipe_shape_warnings(body ? cJSON_GetObjectItem(body, "steps") : NULL);
+		if (cJSON_GetArraySize(warn)) cJSON_AddItemToObject(o, "warnings", warn); else cJSON_Delete(warn);
+		cJSON_Delete(body);
 		reply(resp, 200, o);
 		return;
 	}

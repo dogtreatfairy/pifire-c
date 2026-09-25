@@ -73,6 +73,43 @@ int pf_recipe_save(const char *json, char *err, size_t errn)
 	return id > 0 ? id : (int)sqlite3_last_insert_rowid(pf_db_handle());
 }
 
+/* The shape a recipe is meant to have: it lights the grill before it cooks anything, and it puts
+ * the grill out when it is done.
+ *
+ * Advisory, not enforced. A recipe of nothing but Shutdown is a cool-down, and quietly prepending
+ * a Startup to that would light a grill somebody had asked to put out -- so this says what is
+ * missing and leaves the decision where it belongs. Ending without a Shutdown is allowed outright:
+ * a recipe that hands back a hot grill on purpose is a real thing, and the runner asks what to do
+ * about it when it gets there. The editor mirrors these two rules so it can say so while the
+ * recipe is being written rather than after it has been saved. */
+cJSON *pf_recipe_shape_warnings(const cJSON *steps)
+{
+	cJSON *out = cJSON_CreateArray();
+	int n = cJSON_GetArraySize((cJSON *)steps);
+	if (n <= 0) return out;
+	const char *first = pf_json_str(cJSON_GetArrayItem((cJSON *)steps, 0), "mode", "");
+	const char *last = pf_json_str(cJSON_GetArrayItem((cJSON *)steps, n - 1), "mode", "");
+	bool cooks = false;
+	cJSON *st;
+	cJSON_ArrayForEach(st, (cJSON *)steps) {
+		const char *m = pf_json_str(st, "mode", "");
+		if (!strcmp(m, "Startup") || !strcmp(m, "Smoke") || !strcmp(m, "Hold")) { cooks = true; break; }
+	}
+	if (cooks && strcmp(first, "Startup")) {
+		cJSON *w = cJSON_CreateObject();
+		cJSON_AddStringToObject(w, "code", "no_startup");
+		cJSON_AddStringToObject(w, "message", "This recipe cooks but does not start with a Startup step, so it will not light a cold grill.");
+		cJSON_AddItemToArray(out, w);
+	}
+	if (strcmp(last, "Shutdown")) {
+		cJSON *w = cJSON_CreateObject();
+		cJSON_AddStringToObject(w, "code", "no_shutdown");
+		cJSON_AddStringToObject(w, "message", "This recipe does not end with a Shutdown step, so it will leave the grill running when it finishes.");
+		cJSON_AddItemToArray(out, w);
+	}
+	return out;
+}
+
 int pf_recipe_delete(int id)
 {
 	sqlite3_stmt *st;

@@ -528,11 +528,10 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .run-name { font-weight: var(--fw-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .run-left { font-size: var(--fs-lg); font-variant-numeric: tabular-nums; flex: none; }
 .run-msg { font-size: var(--fs-sm); color: var(--muted); }
-.run-msg.now {
-  color: var(--text); font-weight: var(--fw-medium);
-  background: color-mix(in oklab, var(--warn) 16%, transparent);
-  border-left: 3px solid var(--warn); border-radius: var(--r-sm); padding: 8px 10px;
-}
+/* .notice is defined with the rest of the shell, up by .banner: a tinted box that says something
+   about the screen it is on, in danger colours by default and .notice.warn for a warning. Its
+   button floats to the end on its own. */
+.notice .grow { flex: 1 1 auto; min-width: 0; }
 .run-card .form-actions { justify-content: flex-start; }
 
 /* ---- the header's timer chip and its drop-down ---- */
