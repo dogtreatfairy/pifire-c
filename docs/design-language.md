@@ -301,8 +301,16 @@ right, which is the order everything else uses. **The middle stays empty**, beca
 rises out of the tab bar and passes over this row: the bar sits below it in the stacking order, so
 the circle is a layer on top and lands on nothing.
 
-`screenActions()` in `app.js` builds it; an editor with nothing to delete passes no `onDelete`, and
-a screen with an extra verb (Test on a notification rule) puts it before Cancel. The screen reserves
+**A tab page can carry the same bar**, for the one or two things that page is for: the Probes page
+puts *Add Probe* on it, in the primary colour because it is why you came to the page with a probe in
+your hand, and *Filter* opposite. Same bar, same rules, so a page and an editor do not look like two
+different apps.
+
+What decides the side is what the action does, not what it is called: **the left slot changes the
+thing** — add it, delete it — and **the right slot ends or governs the view** — Cancel and Save
+finish the edit, Filter says what you are looking at. `actionBar(left, right)` in `app.js` is the
+bar; `screenActions()` is the edit form's arrangement of it. An editor with nothing to delete passes
+no `onDelete`, and a screen with an extra verb (Test on a notification rule) puts it before Cancel. The screen reserves
 the row's height at its foot so the last field can still be scrolled clear. A footer with a rule
 across the top remains right for a **section** inside a page; it is the whole-screen edit form that
 moved.
@@ -367,6 +375,11 @@ Content runs to the end and **disappears behind the tab bar**, which the content
 padding already accounts for, so the last row can always be scrolled clear of it.
 
 ## Actions carry a mark and a colour
+
+**Say it the way it is written, not the way it is spoken.** The conditional editor offered "All Of
+These" and "Any Of These" where every other tool on earth writes AND and OR; a rule is a logical
+expression and the person building one already knows the words. A technical term that is exact beats
+a friendly phrase that is longer and vaguer.
 
 A modern interface says what a control does with a shape and a colour before it says it with a word.
 Every action button leads with its icon — **a trash can for delete, a pencil for edit, a plus for

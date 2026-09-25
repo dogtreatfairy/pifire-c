@@ -442,6 +442,22 @@ export function pushScreen(build, opts = {}) {
     stash = document.createDocumentFragment();
     while (view.firstChild) stash.append(view.firstChild);
     screenEl = el('div', { class: 'screen' }, build(close));
+    /* Anything the person types, picks or toggles makes the screen dirty, and the screen's own Save
+       lights up. One listener at the top rather than a flag threaded through every field. */
+    /* Not armed until the screen has finished drawing itself. Building a form can raise change
+       events of its own -- a select settling on its first option, a field filled from the rule --
+       and counting those would light Save on a screen nobody has touched, which is the one thing
+       this is here to stop. */
+    let armed = false;
+    requestAnimationFrame(() => requestAnimationFrame(() => { armed = true; }));
+    const wake = () => {
+      if (!armed) return;
+      const g = screenEl.querySelector('[data-save-guard]');
+      if (g) { g.disabled = false; delete g.dataset.saveGuard; }
+    };
+    screenEl.addEventListener('input', wake);
+    screenEl.addEventListener('change', wake);
+    screenEl.addEventListener('pf-dirty', wake);
     view.append(screenEl);
     view.scrollTop = 0;
     history.pushState({ pfScreen: id }, '');
@@ -503,13 +519,34 @@ export function dialog(build) {
  * on the left as a mark with no word -- it is not a thing to reach for by reading -- and the
  * dismissive then the committing action on the right, which is the order everything else in this
  * app uses. See docs/design-language.md. */
-export function screenActions({ onDelete, deleteTitle = 'Delete', onCancel, onSave, saveLabel = 'Save', extra } = {}) {
+export function actionBar(left = [], right = []) {
+  /* The Home button rises out of the tab bar and passes over this row, so the row keeps a hole in
+     the middle the size of that circle. A single stretchy spacer was not enough: it only holds the
+     two groups apart, and as soon as a screen had a third verb the right-hand group grew back
+     across the centre and the circle landed on Cancel. The hole is reserved, and the groups share
+     what is left either side of it. */
   return el('div', { class: 'screen-actions' },
-    onDelete ? iconBtn('trash-2', deleteTitle, { class: 'danger', onclick: onDelete }) : null,
-    el('span', { class: 'grow' }),
-    ...(extra || []),
-    onCancel ? actionBtn('cancel', 'Cancel', { size: '', onclick: onCancel }) : null,
-    onSave ? actionBtn('save', saveLabel, { size: '', onclick: onSave }) : null);
+    ...left.filter(Boolean), el('span', { class: 'grow' }),
+    el('span', { class: 'home-gap', 'aria-hidden': 'true' }),
+    el('span', { class: 'grow' }), ...right.filter(Boolean));
+}
+
+export function screenActions({ onDelete, deleteTitle = 'Delete', onCancel, onSave, saveLabel = 'Save', extra, dirty = true } = {}) {
+  const save = onSave ? actionBtn('save', saveLabel, { size: '', onclick: onSave }) : null;
+  /* Save is lit only once there is something to save.
+   *
+   * An always-live Save on a screen you opened to read says the same thing whether you changed
+   * anything or not, so it stops meaning anything, and it invites a pointless write on the way out.
+   * The screen watches its own inputs (see pushScreen) and lights this the moment one of them
+   * moves; anything the page changes in code -- adding a condition, ticking a chip -- says so by
+   * dispatching `pf-dirty`. Passing dirty: true keeps a screen that is born changed, such as a new
+   * rule, ready to save from the start. */
+  if (save && !dirty) { save.disabled = true; save.dataset.saveGuard = ''; }
+  return actionBar(
+    [onDelete ? iconBtn('trash-2', deleteTitle, { class: 'danger', onclick: onDelete }) : null],
+    [...(extra || []),
+     onCancel ? actionBtn('cancel', 'Cancel', { size: '', onclick: onCancel }) : null,
+     save]);
 }
 
 export function confirmDialog(title, text, okLabel = 'Confirm', danger = false) {
@@ -577,6 +614,7 @@ const VERB = {
   delete: { icon: 'trash-2', cls: 'danger' },
   save: { icon: 'check', cls: 'primary' },
   cancel: { icon: 'x', cls: 'ghost' },
+  filter: { icon: 'sliders-horizontal', cls: '' },
 };
 export function actionBtn(kind, label, attrs = {}, iconOverride) {
   const v = VERB[kind] || { icon: iconOverride || kind, cls: '' };

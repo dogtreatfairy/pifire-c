@@ -14,6 +14,52 @@ rules ship in the defaults and a schema-5 migration carries the old predictive s
 
 ---
 
+## Joining conditions: AND, OR, NOT
+
+A condition node is either a comparison or a group of them, and a group joins its children with
+`all` (AND), `any` (OR) or `not`. This is the shape Home Assistant uses, for the same reason: one
+rule often needs an OR to bind tighter than an AND — *"the mode is Hold or Smoke, and the pit is
+within 15 of the set point"* — and a flat list cannot say that.
+
+```json
+{ "op": "all", "conditions": [
+  { "op": "any", "conditions": [ ... ] },
+  { "op": "not", "conditions": [ ... ] } ] }
+```
+
+`not` denies everything inside it: with one condition, which is how it is nearly always used, that
+is plain negation. An **empty** group of any kind is false, `not` included — inverting nothing would
+make a rule that is still being written fire the moment it was saved.
+
+## A condition can carry its own time
+
+Any node, comparison or group, may carry `for_s`: it counts as true only once it has been
+continuously true that long, and the clock starts again from nothing the moment it lapses.
+
+```json
+{ "trait": "mode", "op": "is", "value": "Hold", "for_s": 600 }
+```
+
+The rule as a whole still has its own `for_s`, and the two are different tools. The rule's applies
+to the finished expression; a condition's applies to that arm alone, which is what makes *"in Hold
+for ten minutes, and within 5 degrees of the set point"* one rule rather than three that cannot be
+combined. Each timed node keeps its clock against its position in the tree, so editing the tree
+resets those clocks — which is right, because a condition that has been rewritten has not been true
+for any length of time.
+
+## Comparing against a reading, with an offset
+
+The right-hand side of a comparison is a number **or** another reading — the same field either way,
+as Home Assistant's `above`/`below` take a number or an entity. A reading may carry an `offset`:
+
+```json
+{ "trait": "temp", "op": "<", "value": { "trait": "setpoint", "offset": 15 } }
+```
+
+That is what lets a band follow a number that moves. *"Within 15 of the set point"* written as a
+fixed pair of numbers stops meaning anything the moment the set point changes, which is the whole
+reason for comparing against a reading rather than a constant.
+
 ## 1. Entities and traits
 
 Everything testable is an *entity* with named *traits*. The daemon publishes the catalogue at

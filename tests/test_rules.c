@@ -74,6 +74,120 @@ static void only_rule(const char *json)
 
 static cJSON *status(void) { return cJSON_Parse(STATUS); }
 
+/* A band around a number that moves. "Within 15 of the set point" written as a fixed pair of
+   numbers stops meaning anything the moment the set point changes, which is the whole reason for
+   comparing against a reading rather than a constant. An offset on the reading is what lets the
+   pair be written as the set point plus and minus something, the way it would be said out loud. */
+static void test_a_band_around_a_moving_reading(void)
+{
+	/* the fixture holds 225 with the pit at 223, so it sits inside a +/- 15 band and outside +/- 1 */
+	only_rule("{\"id\":\"b\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":["
+	            "{\"trait\":\"temp\",\"op\":\"<\",\"value\":{\"trait\":\"setpoint\",\"offset\":15}},"
+	            "{\"trait\":\"temp\",\"op\":\">\",\"value\":{\"trait\":\"setpoint\",\"offset\":-15}}]},"
+	          "\"title\":\"settled\",\"body\":\"x\",\"level\":\"normal\",\"sinks\":[\"app\"]}");
+	cJSON *st = status();
+	pf_rules_tick(st, 1000);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_ncap, "the pit is inside the set point +/- 15");
+
+	g_ncap = 0;
+	only_rule("{\"id\":\"b2\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":["
+	            "{\"trait\":\"temp\",\"op\":\"<\",\"value\":{\"trait\":\"setpoint\",\"offset\":1}},"
+	            "{\"trait\":\"temp\",\"op\":\">\",\"value\":{\"trait\":\"setpoint\",\"offset\":-1}}]},"
+	          "\"title\":\"tight\",\"body\":\"x\",\"level\":\"normal\",\"sinks\":[\"app\"]}");
+	pf_rules_tick(st, 2000);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_ncap, "and outside the set point +/- 1");
+	cJSON_Delete(st);
+}
+
+/* Not holds conditions and denies the lot. It is what you reach for when the thing worth saying is
+   that something is NOT so -- the grill is not in Hold, the probe is not within reach of its target
+   -- and writing that as a comparison turned inside out is how a rule ends up meaning the opposite
+   of what it reads. An empty Not is still an empty group and says nothing, so it cannot be true:
+   inverting nothing would make a half-written rule fire, which is the same fault in a new hat. */
+static void test_not_denies_what_is_inside_it(void)
+{
+	only_rule("{\"id\":\"n\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"not\",\"conditions\":["
+	            "{\"trait\":\"mode\",\"op\":\"is\",\"value\":\"Smoke\"}]},"
+	          "\"title\":\"not smoking\",\"body\":\"x\",\"level\":\"normal\",\"sinks\":[\"app\"]}");
+	cJSON *st = status();
+	/* the fixture is in Hold, so "not Smoke" is true and it speaks */
+	pf_rules_tick(st, 1000);
+	TEST_ASSERT_EQUAL_INT(1, g_ncap);
+	cJSON_Delete(st);
+
+	g_ncap = 0;
+	only_rule("{\"id\":\"n2\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"not\",\"conditions\":["
+	            "{\"trait\":\"mode\",\"op\":\"is\",\"value\":\"Hold\"}]},"
+	          "\"title\":\"not holding\",\"body\":\"x\",\"level\":\"normal\",\"sinks\":[\"app\"]}");
+	cJSON *st2 = status();
+	pf_rules_tick(st2, 2000);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_ncap, "the grill IS in Hold, so \"not Hold\" must say nothing");
+
+	g_ncap = 0;
+	only_rule("{\"id\":\"n3\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"not\",\"conditions\":[]},"
+	          "\"title\":\"empty\",\"body\":\"x\",\"level\":\"normal\",\"sinks\":[\"app\"]}");
+	pf_rules_tick(st2, 3000);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_ncap, "an empty Not describes nothing and cannot be true");
+	cJSON_Delete(st2);
+}
+
+/* "in Hold for half an hour", "above 200 for five minutes": a time that belongs to one condition
+   rather than to the whole rule, so it can be one arm of an And while the other arms answer at
+   once. This is what makes "in Hold, within 5 degrees of the set point, for ten minutes" one rule
+   instead of three that cannot be combined. */
+static void test_a_condition_can_carry_its_own_time(void)
+{
+	only_rule("{\"id\":\"h\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":["
+	            "{\"trait\":\"mode\",\"op\":\"is\",\"value\":\"Hold\",\"for_s\":600},"
+	            "{\"trait\":\"over\",\"op\":\"within\",\"value\":0,\"value2\":20}]},"
+	          "\"title\":\"settled\",\"body\":\"x\",\"level\":\"normal\",\"sinks\":[\"app\"]}");
+	cJSON *st = status();
+	pf_rules_tick(st, 1000);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_ncap, "it has only just become true");
+	pf_rules_tick(st, 1000 + 599);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_ncap, "still a second short");
+	pf_rules_tick(st, 1000 + 601);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_ncap, "ten minutes in Hold, and within reach of the set point");
+	cJSON_Delete(st);
+}
+
+/* And the clock is a clock: it starts again from nothing when the condition lapses, rather than
+   totting up the time it has been true across the gaps. */
+static void test_a_timed_condition_starts_over_when_it_lapses(void)
+{
+	only_rule("{\"id\":\"h2\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":["
+	            "{\"trait\":\"mode\",\"op\":\"is\",\"value\":\"Hold\",\"for_s\":600}]},"
+	          "\"title\":\"held\",\"body\":\"x\",\"level\":\"normal\",\"sinks\":[\"app\"]}");
+	cJSON *st = status();
+	pf_rules_tick(st, 1000);
+	pf_rules_tick(st, 1500);            /* 500 s of it */
+
+	cJSON *other = status();
+	cJSON_ReplaceItemInObject(other, "mode", cJSON_CreateString("Smoke"));
+	pf_rules_tick(other, 1600);         /* lapsed */
+	pf_rules_tick(st, 1700);            /* true again, but from scratch */
+	pf_rules_tick(st, 1700 + 599);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_ncap, "the clock restarted when the condition lapsed");
+	pf_rules_tick(st, 1700 + 601);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_ncap, "and ten minutes later it speaks");
+	cJSON_Delete(other);
+	cJSON_Delete(st);
+}
+
 /* a rule over every food probe fires once per probe that matches, naming the one that did */
 static void test_class_rule_fires_per_probe(void)
 {
@@ -768,5 +882,9 @@ int main(void)
 	RUN_TEST(test_without_a_deadband_it_still_chatters);
 	RUN_TEST(test_at_temperature_separates_hold_from_smoke);
 	RUN_TEST(test_an_unset_target_is_not_zero);
+	RUN_TEST(test_a_band_around_a_moving_reading);
+	RUN_TEST(test_not_denies_what_is_inside_it);
+	RUN_TEST(test_a_condition_can_carry_its_own_time);
+	RUN_TEST(test_a_timed_condition_starts_over_when_it_lapses);
 	return UNITY_END();
 }

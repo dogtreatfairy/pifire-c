@@ -1,4 +1,4 @@
-import { PF, el, api, cmd, patchSettings, toast, confirmDialog, dialog, pushScreen, degUnit, segmented, actionBtn, itemRow, iconBtn, addRow, iconField, listGroup, screenActions } from '../app.js';
+import { PF, el, api, cmd, patchSettings, toast, confirmDialog, dialog, pushScreen, degUnit, segmented, actionBtn, itemRow, iconBtn, addRow, iconField, listGroup, screenActions, actionBar } from '../app.js';
 import { targetDialog, limitsDialog, stepsDialog } from './cook.js';
 import { icon as lucide, MODE_ICON } from '../icons.js';
 
@@ -137,41 +137,74 @@ export async function renderProbes(view, opts = {}) {
   }, { title: isNew ? 'New Probe' : p.name, back: 'Probes' }).then(async (r) => { if (r) await save(); });
 
   // ---- add: free wired port, or pair a Bluetooth probe
+  /* The way out when the classifier does not know a probe: say what it is, then scan for that. */
+  const pickBrand = () => dialog((close) => {
+    const btMods = Object.entries(mods).filter(([, m]) => wirelessMod(m));
+    return el('div', {}, el('h3', {}, 'Which make?'),
+      el('div', { class: 'opts' }, ...btMods.map(([, m]) => el('button', { class: 'btn', type: 'button', onclick: () => { close(); pairBluetooth(m.filename); } }, btIcon(), ` ${m.friendly_name}`))),
+      el('button', { class: 'btn ghost block', type: 'button', style: 'margin-top:10px', onclick: () => close() }, 'Cancel'));
+  });
+
   const addProbe = () => dialog((close) => {
     const free = freePorts(null).filter((o) => !o.wireless);
-    const btMods = Object.entries(mods).filter(([, m]) => wirelessMod(m));
     return el('div', {}, el('h3', {}, 'Add probe'),
       el('div', { class: 'help' }, free.length ? 'Free wired ports' : 'No free wired ports \u2014 add a device under Settings \u2192 Grill Hardware \u2192 Probe Hardware'),
       el('div', { class: 'opts' }, ...free.map((o) => el('button', { class: 'btn', type: 'button', onclick: () => { close(); const n = map.probe_info.length + 1; const p = { type: 'Food', label: `Probe${n}`, name: `Probe ${n}`, profile: 'TWPS00', device: o.device, port: o.port, enabled: true, show_on_home: true }; map.probe_info.push(p); editProbe(p, true).then(() => { if (!map.probe_info.includes(p)) return; }); } }, `${o.device} · ${o.port}`))),
       el('div', { class: 'help' }, 'Bluetooth'),
-      el('div', { class: 'opts' }, ...btMods.map(([id, m]) => el('button', { class: 'btn', type: 'button', onclick: () => { close(); pairBluetooth(id, m); } }, btIcon(), ` Pair ${m.friendly_name}`))),
+      el('div', { class: 'opts' }, el('button', { class: 'btn', type: 'button', onclick: () => { close(); pairBluetooth(); } }, btIcon(), ' Scan and Pair')),
       el('button', { class: 'btn ghost block', type: 'button', style: 'margin-top:10px', onclick: () => close() }, 'Cancel'));
   });
-  const pairBluetooth = async (id, m) => {
-    const kind = m.filename;   // ibbq | meater | chefiq: the scan classifies devices the same way
-    const addr = await dialog((close) => {
-      const list = el('div', { class: 'opts' }, el('div', { class: 'muted' }, 'Scanning for 8 s… make sure the probe is on and nearby.'));
-      const row = (f) => el('button', { class: 'btn', type: 'button', onclick: () => close(f.address) },
-        el('div', { class: 'row between', style: 'width:100%' }, el('span', {}, f.kind ? btIcon() : null, ' ', f.name || 'Unknown device'), el('span', { class: 'help row', style: 'gap:6px' }, f.address, f.rssi ? sigBars(barsFromRssi(f.rssi), `${f.rssi} dBm`) : null, f.rssi ? `${f.rssi} dBm` : '')));
+  /* Pair what the scan found, rather than asking which brand it is first.
+   *
+   * The daemon already recognises a Chef iQ, a Meater and an iBBQ from the manufacturer id, the
+   * service UUIDs and the name -- `kind` comes back on every device it sees. Asking for the brand
+   * and then scanning filtered by it made the user answer a question the grill had already
+   * answered, and answer it wrong if they guessed: pick Meater, see nothing, conclude the probe is
+   * broken. So: scan once, list what is recognisably a probe with its make beside it, and take the
+   * module from what the scan said it was. Picking the brand by hand is still there, underneath,
+   * for a probe the classifier does not know. */
+  const pairBluetooth = async (only) => {
+    const kindName = (k) => {
+      const e = Object.entries(mods).find(([, mm]) => mm.filename === k);
+      return e ? e[1].friendly_name : k;
+    };
+    const picked = await dialog((close) => {
+      const list = el('div', { class: 'opts' }, el('div', { class: 'muted' }, 'Scanning for 8 s\u2026 make sure the probe is on and nearby.'));
+      const row = (f) => el('button', { class: 'btn', type: 'button', onclick: () => close(f) },
+        el('div', { class: 'row between', style: 'width:100%' },
+          el('span', {}, btIcon(), ' ', f.name || 'Unknown device'),
+          el('span', { class: 'help row', style: 'gap:6px' },
+            f.kind ? el('span', { class: 'pill sm' }, kindName(f.kind)) : null,
+            f.rssi ? sigBars(barsFromRssi(f.rssi), `${f.rssi} dBm`) : null)));
       api('/probes/ble/scan?seconds=8', { body: {} }).then((found) => {
         list.innerHTML = '';
         found.sort((a, b) => (b.rssi || -999) - (a.rssi || -999));
         // already-paired addresses (any Bluetooth device's bt_address config) are left out of the list
         const paired = new Set(map.probe_devices.flatMap((d) => Object.values(d.config || {})).filter((v) => typeof v === 'string' && /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(v)).map((v) => v.toUpperCase()));
         const seen = found.filter((f) => !paired.has((f.address || '').toUpperCase()));
-        const mine = seen.filter((f) => f.kind === kind), others = seen.filter((f) => f.kind !== kind && f.kind !== 'chefiq-hub');
-        if (!mine.length) list.append(el('div', { class: 'muted', style: 'margin-bottom:8px' }, `No unpaired ${m.friendly_name} seen. A probe only broadcasts while it is out of its charger and awake (Chef iQ: take it out of the dock, wait a few seconds), then scan again.`));
-        for (const f of mine) list.append(row(f));
-        // only devices recognised as this kind of probe are offered: the neighbours' phones and watches
-        // look nothing like a probe, and pairing one of them gives readings that can never appear
-        if (others.length && kind !== 'chefiq') {
-          const more = el('div', { class: 'opts', hidden: true }, ...others.map(row));
-          list.append(el('button', { class: 'btn ghost sm', type: 'button', onclick: (e) => { more.hidden = !more.hidden; e.target.textContent = more.hidden ? `Show all ${others.length} other devices` : 'Hide other devices'; } }, `Show all ${others.length} other devices`), more);
+        const known = new Set(Object.values(mods).filter(wirelessMod).map((mm) => mm.filename));
+        const probes = seen.filter((f) => known.has(f.kind) && (!only || f.kind === only));
+        const rest = seen.filter((f) => !probes.includes(f) && f.kind !== 'chefiq-hub');
+        if (!probes.length) list.append(el('div', { class: 'muted', style: 'margin-bottom:8px' },
+          'No unpaired probe seen. A probe only broadcasts while it is out of its charger and awake (Chef iQ: take it out of the dock, wait a few seconds), then scan again.'));
+        for (const f of probes) list.append(row(f));
+        /* Anything else nearby is a phone or a watch. It is listed so the page does not look blind,
+           but it cannot be paired from here: nothing says what it is, so nothing could read it. */
+        if (rest.length) {
+          const more = el('div', { class: 'opts', hidden: true }, ...rest.map((f) => el('div', { class: 'row between help', style: 'padding:6px 2px' },
+            el('span', {}, f.name || f.address), el('span', {}, 'not a known probe'))));
+          list.append(el('button', { class: 'btn ghost sm', type: 'button', onclick: (e) => { more.hidden = !more.hidden; e.target.textContent = more.hidden ? `Show ${rest.length} other device${rest.length === 1 ? '' : 's'} nearby` : 'Hide other devices'; } }, `Show ${rest.length} other device${rest.length === 1 ? '' : 's'} nearby`), more);
         }
-        list.append(el('button', { class: 'btn sm', type: 'button', onclick: () => { close(undefined); setTimeout(() => pairBluetooth(id, m), 50); } }, 'Scan again'));
+        list.append(el('button', { class: 'btn sm', type: 'button', onclick: () => { close(undefined); setTimeout(() => pairBluetooth(only), 50); } }, 'Scan again'));
+        if (!only) list.append(el('button', { class: 'btn ghost sm', type: 'button', onclick: () => { close(undefined); setTimeout(pickBrand, 50); } }, 'Choose the make myself'));
       }).catch((e) => { list.innerHTML = ''; list.append(el('div', { class: 'muted' }, e.message)); });
-      return el('div', {}, el('h3', {}, `Pair ${m.friendly_name}`), list, el('button', { class: 'btn ghost block', type: 'button', style: 'margin-top:10px', onclick: () => close(undefined) }, 'Cancel'));
+      return el('div', {}, el('h3', {}, 'Pair a Probe'), list, el('button', { class: 'btn ghost block', type: 'button', style: 'margin-top:10px', onclick: () => close(undefined) }, 'Cancel'));
     });
+    if (!picked) return;
+    const addr = picked.address;
+    const entry = Object.entries(mods).find(([, mm]) => mm.filename === picked.kind);
+    if (!entry) { toast('That device is not a probe this grill can read', true); return; }
+    const m = entry[1];
     if (!addr) return;
     // devices: ChefiQ1, ChefiQ2 ... (first free number); probes: BT1, BT2 ... counted across every
     // Bluetooth device, with the ambient sensor as "BTn Ambient" - hidden on Home, shown inside BTn's card
@@ -196,7 +229,6 @@ export async function renderProbes(view, opts = {}) {
 
   // ---- the probes themselves, one list per role
   const table = el('div', {});
-  let showDisabled = false;
   /* The step you are waiting for is what you want off the row; once they are all done the target
      is again the only thing left to say. */
   const nextStep = (live) => {
@@ -213,15 +245,11 @@ export async function renderProbes(view, opts = {}) {
     /* A disabled probe is not part of the cook, so it is not in the way of one. It is still here
        when you go looking for it -- that is what the count at the foot is for -- but a page about
        what the grill is measuring should not be padded out with what it is not. */
-    const off = map.probe_info.filter((p) => p.enabled === false);
-    /* Two different "not here". A DISABLED probe is switched off: it reads nothing and is only in
-       Settings, where you would go to switch it back on. A HIDDEN one is working perfectly and
-       simply not part of this cook -- the third grate probe, the ambient sensor you are not using
-       today -- so it keeps reading and keeps feeding the rules, and is only out of the way. */
-    const hidden = map.probe_info.filter((p) => p.enabled !== false && p.show_on_home === false);
-    const shown = setup || showDisabled
-      ? map.probe_info
-      : map.probe_info.filter((p) => p.enabled !== false && p.show_on_home !== false);
+    /* One rule for what is on this page: the tick in Filter. A probe switched off in Settings reads
+       nothing, so it is shown as Off rather than hidden behind a second button -- there is one
+       reason a probe is missing from this page and one place to change it. */
+    const hidden = map.probe_info.filter((p) => p.show_on_home === false);
+    const shown = setup ? map.probe_info : map.probe_info.filter((p) => p.show_on_home !== false);
     for (const [role, heading] of GROUPS) {
       const members = shown.filter((p) => (p.type || 'Food') === role);
       if (!members.length) continue;
@@ -230,17 +258,8 @@ export async function renderProbes(view, opts = {}) {
       for (const p of members) renderRow(list, p);
     }
     if (!map.probe_info.length) table.append(el('p', { class: 'help' }, 'No probes yet.'));
-    else if (!shown.length) table.append(el('p', { class: 'help' }, 'Every probe is disabled.'));
-    if (!setup && (hidden.length || off.length)) {
-      table.append(el('p', { class: 'help' },
-        [hidden.length ? `${hidden.length} hidden` : null, off.length ? `${off.length} disabled` : null]
-          .filter(Boolean).join(' \u00b7 ')));
-    }
-    if (off.length && !setup) {
-      table.append(el('button', { class: 'btn ghost block', type: 'button', onclick: () => { showDisabled = !showDisabled; renderTable(); } },
-        lucide(showDisabled ? 'eye-off' : 'eye', 'ic btn-ic'),
-        el('span', {}, showDisabled ? 'Hide disabled' : `Show ${off.length} disabled`)));
-    }
+    else if (!shown.length) table.append(el('p', { class: 'help' }, 'Nothing is ticked in Filter.'));
+    if (!setup && hidden.length) table.append(el('p', { class: 'help' }, `${hidden.length} hidden \u00b7 Filter`));
 
     /* One row per probe, and everything you do to a probe is on it: the reading, its target and its
        alarms, and its settings behind the chevron. The targets used to be cards on the Cook page
@@ -299,27 +318,47 @@ export async function renderProbes(view, opts = {}) {
   /* Which of the working probes are part of this cook. It is not the same question as whether a
      probe is switched on, so it is not the same control: this one only decides what is in the way
      while you are cooking, and lives where you are cooking rather than in Settings. */
-  const manageVisible = () => dialog((close) => {
-    const rows = map.probe_info.filter((p) => p.enabled !== false);
-    const inner = el('div', { class: 'ios-list' });
-    for (const p of rows) {
-      inner.append(el('label', { class: 'toggle' },
-        el('div', {}, p.name, el('div', { class: 'help' }, `${p.type || 'Food'} \u00b7 ${p.device}`)),
-        el('span', { class: 'switch' }, el('input', {
-          type: 'checkbox', checked: p.show_on_home !== false,
-          onchange: (e) => { p.show_on_home = e.target.checked; },
-        }), el('span'))));
+  /* One filter, one idea: which probes this page shows.
+   *
+   * There were two controls for it -- "Show or Hide Probes", which listed only the switched-on ones,
+   * and "Show N disabled", a separate escape hatch at the foot of the list -- and between them a
+   * probe could be invisible for two different reasons with two different cures. Now every probe is
+   * in one list with one tick, and a disabled one is shown as disabled rather than hidden behind a
+   * second button: switching a probe off entirely is a hardware matter and stays in Settings.
+   *
+   * It is a screen and not a box because it is a list of everything you own, which is bigger than a
+   * question. */
+  const filterProbes = () => pushScreen((close) => {
+    const draft = new Map(map.probe_info.map((p) => [p.label, p.show_on_home !== false]));
+    const inner = el('div', {});   /* headings sit OUTSIDE the lists they label, as they do everywhere */
+    const GROUPS = [['Primary', 'Grill'], ['Food', 'Food'], ['Aux', 'Aux & Ambient']];
+    for (const [role, heading] of GROUPS) {
+      const members = map.probe_info.filter((p) => (p.type || 'Food') === role);
+      if (!members.length) continue;
+      inner.append(el('h2', {}, heading));
+      const grp = el('div', { class: 'ios-list' });
+      for (const p of members) {
+        grp.append(el('label', { class: 'toggle' },
+          el('div', {}, p.name,
+            el('div', { class: 'help' }, [p.device, p.enabled === false ? 'switched off in Settings' : null].filter(Boolean).join(' \u00b7 '))),
+          el('span', { class: 'switch' }, el('input', {
+            type: 'checkbox', checked: draft.get(p.label),
+            onchange: (e) => draft.set(p.label, e.target.checked),
+          }), el('span'))));
+      }
+      inner.append(grp);
     }
-    if (!rows.length) inner.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No probes are switched on.'));
+    if (!map.probe_info.length) inner.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No probes yet.'));
     return el('div', { class: 'sheet' },
       el('div', { class: 'sheet-head' }, el('div', {},
-        el('h3', {}, 'Show on This Cook'),
+        el('h3', {}, 'Show on This Page'),
         el('div', { class: 'help' }, 'Hidden probes keep reading and keep feeding the notifications'))),
       el('div', { class: 'sheet-body' }, inner),
-      el('div', { class: 'form-actions' },
-        actionBtn('cancel', 'Cancel', { size: '', onclick: () => close(undefined) }),
-        actionBtn('save', 'Save', { size: '', onclick: () => close('save') })));
-  }).then(async (r) => { if (r === 'save') await save(); else { map.probe_info = structuredClone(PF.settings.probe_settings.probe_map).probe_info; renderTable(); } });
+      screenActions({
+        onCancel: () => close(undefined),
+        onSave: () => { for (const p of map.probe_info) p.show_on_home = draft.get(p.label) !== false; close('save'); },
+      }));
+  }, { title: 'Show Probes', back: 'Probes' }).then(async (r) => { if (r === 'save') await save(); renderTable(); });
 
   const renderAll = () => { renderTable(); };
   renderAll();
@@ -331,13 +370,18 @@ export async function renderProbes(view, opts = {}) {
     /* Adding one goes at the TOP of the section. At the foot it sits below every probe and their
        buttons, which on a phone is a screen and a half of scrolling to reach the one thing you came
        to this page to do when you have a new probe in your hand. */
-    addRow(setup ? 'Connect a Probe' : 'Add or Pair a Probe', addProbe),
-    setup ? null : el('button', { class: 'btn ghost block', type: 'button', style: 'margin-top:8px', onclick: manageVisible },
-      lucide('eye', 'ic btn-ic'), el('span', {}, 'Show or Hide Probes')),
+    setup ? addRow('Connect a Probe', addProbe) : null,
     table,
     setup ? listGroup('Profiles', [
       { href: '#/settings/probeprofiles', icon: 'activity', color: '#ff9f0a', title: 'Probe Profiles', sub: 'Curves you assign to probes, and the 3-point tuner' },
     ]) : null,
+    /* The two things this page does, on the bar: add one on the left, choose what you are looking
+       at on the right, and the Home button riding over the gap between them. Adding a probe is why
+       you came here with one in your hand, so it takes the primary colour; the filter only changes
+       what you are looking at, so it does not. See docs/design-language.md. */
+    setup ? null : actionBar(
+      [actionBtn('add', 'Add Probe', { size: '', class: 'primary', onclick: () => pairBluetooth() })],
+      [actionBtn('filter', 'Filter', { size: '', onclick: filterProbes })]),
   ].filter(Boolean));
 }
 

@@ -224,7 +224,16 @@ static val resolve_operand(const cJSON *status, const inst *in, const cJSON *v)
 	if (cJSON_IsString(v)) return v_str(v->valuestring);
 	if (cJSON_IsObject(v)) {
 		const cJSON *t = jget(v, "trait");
-		if (cJSON_IsString(t)) return trait_of(status, in, pf_json_str((cJSON *)v, "entity", "this"), t->valuestring);
+		if (cJSON_IsString(t)) {
+			val a = trait_of(status, in, pf_json_str((cJSON *)v, "entity", "this"), t->valuestring);
+			/* A reading can be compared against with an offset on it: "below the set point plus 15",
+			 * "above its target minus 5". Without one, a band around a moving number has to be
+			 * written as a fixed pair that stops meaning anything the moment the set point changes,
+			 * which is the whole reason for comparing against a reading in the first place. */
+			const cJSON *off = jget(v, "offset");
+			if (a.t == VT_NUM && cJSON_IsNumber(off)) a.num += off->valuedouble;
+			return a;
+		}
 	}
 	return v_none();
 }
@@ -275,23 +284,85 @@ static bool compare(const val *a, const char *op, const val *b, const val *b2, d
 	return false;
 }
 
-/* A condition node is either a comparison or a group of them joined by all/any. */
-static bool eval_node(const cJSON *status, const inst *in, const cJSON *node, val *matched, double db)
+/* A condition can carry a time of its own -- "above 200 for five minutes", "in Hold for half an
+ * hour" -- so each node that asks for one needs somewhere to remember when it first became true.
+ * The node is identified by its position in the tree, hashed as we descend, which costs nothing in
+ * the stored rule and needs no migration; editing the tree resets the timers, which is right,
+ * because a condition that has been rewritten has not been true for any length of time. */
+#define MAX_NODE_TIMERS 12
+typedef struct { uint32_t path; double since; } node_timer;
+
+typedef struct rstate_s {
+	bool used;
+	char rule[40], inst[40];
+	node_timer timers[MAX_NODE_TIMERS];
+	double held_since;    /* when the condition first became true, 0 = not true */
+	double false_since;   /* when it went false, for the delay before it is declared over */
+	double last_fired;
+	bool armed;           /* false once fired, until the condition goes false again */
+	bool raised;          /* there is an entry in the alarm table waiting to be cleared */
+} rstate;
+
+/* What a whole evaluation of one rule against one instance needs to carry with it. */
+typedef struct {
+	const cJSON *status;
+	const inst *in;
+	double db;
+	double now;
+	rstate *st;            /* where the per-condition timers live; NULL while previewing */
+} evalctx;
+
+/* Has this node been true long enough? A node with no time of its own is answered at once.
+ *
+ * While previewing there is no state to keep a clock in, and none is wanted: the editor is asking
+ * "is this true now", so it can show the condition, not "has it been true for five minutes". */
+static bool held_long_enough(evalctx *cx, uint32_t path, const cJSON *node, bool now_true)
 {
+	double need = pf_json_num((cJSON *)node, "for_s", 0);
+	if (need <= 0 || !cx->st) return now_true;
+	node_timer *t = NULL, *spare = NULL;
+	for (int i = 0; i < MAX_NODE_TIMERS; i++) {
+		if (cx->st->timers[i].path == path) { t = &cx->st->timers[i]; break; }
+		if (!spare && cx->st->timers[i].path == 0) spare = &cx->st->timers[i];
+	}
+	if (!t) t = spare;
+	/* More timed conditions than there is room for. Refusing is the safe direction: a rule that
+	 * cannot time itself must not fire early. */
+	if (!t) return false;
+	t->path = path;
+	if (!now_true) { t->since = 0; return false; }
+	if (t->since == 0) t->since = cx->now;
+	return cx->now - t->since >= need;
+}
+
+static bool eval_path(evalctx *cx, const cJSON *node, val *matched, uint32_t path);
+
+/* A condition node is either a comparison or a group of them joined by all, any or not. */
+static bool eval_node_inner(evalctx *cx, const cJSON *node, val *matched, uint32_t path)
+{
+	const cJSON *status = cx->status;
+	const inst *in = cx->in;
+	double db = cx->db;
 	const cJSON *kids = jget(node, "conditions");
 	if (cJSON_IsArray(kids)) {
 		/* A group with nothing in it describes nothing, so it cannot be true. It used to return
 		 * true, which meant a rule still being written matched every instance it watched and
-		 * started sending the moment it was saved. */
+		 * started sending the moment it was saved. NOT of nothing is nothing either: inverting an
+		 * empty group would make a half-written rule fire, the same fault in a new hat. */
 		if (cJSON_GetArraySize((cJSON *)kids) == 0) return false;
-		bool any = !strcasecmp(pf_json_str((cJSON *)node, "op", "all"), "any");
+		const char *gop = pf_json_str((cJSON *)node, "op", "all");
+		bool invert = !strcasecmp(gop, "not");
+		bool any = !strcasecmp(gop, "any");
 		bool result = !any;   /* all: start true; any: start false */
 		const cJSON *k;
+		int i = 0;
 		cJSON_ArrayForEach(k, kids) {
-			bool r = eval_node(status, in, k, matched, db);
+			bool r = eval_path(cx, k, matched, path * 31u + (uint32_t)(++i));
 			if (any) result = result || r; else result = result && r;
 		}
-		return result;
+		/* Not holds everything inside it and denies the lot: "not (this and that)". With one
+		 * condition in it, which is how it is nearly always used, that is plain negation. */
+		return invert ? !result : result;
 	}
 	const cJSON *tr = jget(node, "trait");
 	if (!cJSON_IsString(tr)) return true;
@@ -319,6 +390,27 @@ static bool eval_node(const cJSON *status, const inst *in, const cJSON *node, va
 	bool r = compare(&a, op, &b, &b2, db);
 	if (r && matched && matched->t == VT_NONE) *matched = a;
 	return r;
+}
+
+/* One node: what it says right now, then how long it has been saying it. */
+static bool eval_path(evalctx *cx, const cJSON *node, val *matched, uint32_t path)
+{
+	return held_long_enough(cx, path, node, eval_node_inner(cx, node, matched, path));
+}
+
+/* `st` and `now` are what the per-condition clocks run on. Preview and Test pass neither: there is
+ * no cook in progress to have been true for any length of time, and the editor is asking what the
+ * conditions say right now. */
+static bool eval_node_at(const cJSON *status, const inst *in, const cJSON *node, val *matched,
+                         double db, rstate *st, double now)
+{
+	evalctx cx = { .status = status, .in = in, .db = db, .now = now, .st = st };
+	return eval_path(&cx, node, matched, 1u);
+}
+
+static bool eval_node(const cJSON *status, const inst *in, const cJSON *node, val *matched, double db)
+{
+	return eval_node_at(status, in, node, matched, db, NULL, 0);
 }
 
 /* ------------------------------------------------------------------ message templates */
@@ -386,16 +478,6 @@ static void render(char *out, size_t cap, const char *tpl, const cJSON *status, 
 }
 
 /* ------------------------------------------------------------------ per-rule state */
-
-typedef struct {
-	bool used;
-	char rule[40], inst[40];
-	double held_since;    /* when the condition first became true, 0 = not true */
-	double false_since;   /* when it went false, for the delay before it is declared over */
-	double last_fired;
-	bool armed;           /* false once fired, until the condition goes false again */
-	bool raised;          /* there is an entry in the alarm table waiting to be cleared */
-} rstate;
 
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 static rstate g_state[MAX_STATE];
@@ -528,7 +610,7 @@ void pf_rules_tick(const cJSON *status, double now)
 			 * report ends, never when it starts. */
 			rstate *pre = state_for(id, instances[i].label);
 			double db = (pre && pre->raised) ? pf_json_num((cJSON *)rule, "deadband", 0) : 0;
-			bool ok = when ? eval_node(status, &instances[i], when, &matched, db) : false;
+			bool ok = when ? eval_node_at(status, &instances[i], when, &matched, db, pre, now) : false;
 			if (every) { matches += ok ? 1 : 0; continue; }
 
 			rstate *st = pre;

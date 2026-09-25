@@ -1,4 +1,4 @@
-import { PF, el, api, patchSettings, toast, confirmDialog, dialog, pushScreen, degUnit, actionBtn, screenActions } from '../app.js';
+import { PF, el, api, patchSettings, toast, confirmDialog, dialog, pushScreen, degUnit, actionBtn, screenActions, iconBtn, segmented } from '../app.js';
 import { icon as lucide } from '../icons.js';
 
 // Conditional Notifications: a table of rules, and an editor that builds them out of the entity
@@ -35,6 +35,34 @@ const isGroup = (n) => Array.isArray(n?.conditions);
 const listOp = (op) => op === 'is_one_of' || op === 'is_none_of';
 
 /** a one-line plain-English description of what a rule watches */
+/* How long a node has to have been true, said the way a person would. */
+const forLabel = (secs) => !secs ? '' : secs >= 3600 ? ` for ${(secs / 3600).toFixed(secs % 3600 ? 1 : 0)} h`
+  : secs >= 60 ? ` for ${Math.round(secs / 60)} min` : ` for ${secs}s`;
+
+/* One line saying what a node means, used both for the row in the list and for the header of each
+   condition card when it is folded shut. A card you cannot read without opening it is a card that
+   has to be opened. */
+function describeNode(node, domain, top) {
+  if (isGroup(node)) {
+    const inner = (node.conditions || []).map((k) => describeNode(k, domain, false)).filter(Boolean);
+    if (!inner.length) return '';
+    const join = node.op === 'any' ? ' or ' : ' and ';
+    const body = top || inner.length < 2 ? inner.join(join) : `(${inner.join(join)})`;
+    return (node.op === 'not' ? `not ${inner.length > 1 ? `(${inner.join(' and ')})` : inner[0]}` : body) + forLabel(node.for_s);
+  }
+  if (!node?.trait) return '';
+  const from = node.entity && node.entity !== 'this' ? node.entity : domain;
+  const lhs = node.entity && node.entity !== 'this'
+    ? `${titleCase(node.entity)} ${traitLabel(from, node.trait)}` : traitLabel(from, node.trait);
+  const v = node.value;
+  const vs = Array.isArray(v) ? ` ${v.join(' or ')}`
+    : v && typeof v === 'object' && v.trait
+      ? `${v.entity ? ` ${titleCase(v.entity)} ${traitLabel(v.entity, v.trait)}` : ` its ${traitLabel(from, v.trait)}`}${
+          v.offset ? ` ${v.offset > 0 ? '+' : '\u2212'} ${Math.abs(v.offset)}` : ''}`
+      : v === undefined ? '' : ` ${v}`;
+  return `${lhs} ${OP_LABEL[node.op] || node.op}${vs}${node.value2 !== undefined ? ` \u00b1 ${node.value2}` : ''}${forLabel(node.for_s)}`;
+}
+
 function summarise(r) {
   const sel = r.select || {};
   let who = titleCase(sel.domain || 'grill');
@@ -46,26 +74,7 @@ function summarise(r) {
     if (sel.include?.length) who = sel.include.join(', ');
     if (sel.exclude?.length) who += ` (not ${sel.exclude.join(', ')})`;
   }
-  const describe = (node, top) => {
-    if (isGroup(node)) {
-      const inner = node.conditions.map((k) => describe(k, false)).filter(Boolean);
-      if (!inner.length) return '';
-      const join = node.op === 'any' ? ' or ' : ' and ';
-      // only a nested group needs brackets; the outermost one reads better without them
-      return top || inner.length < 2 ? inner.join(join) : `(${inner.join(join)})`;
-    }
-    if (!node?.trait) return '';
-    const from = node.entity && node.entity !== 'this' ? node.entity : (r.select?.domain || 'grill');
-    const lhs = node.entity && node.entity !== 'this'
-      ? `${titleCase(node.entity)} ${traitLabel(from, node.trait)}` : traitLabel(from, node.trait);
-    const v = node.value;
-    const vs = Array.isArray(v) ? ` ${v.join(' or ')}`
-      : v && typeof v === 'object' && v.trait
-        ? (v.entity ? ` ${titleCase(v.entity)} ${traitLabel(v.entity, v.trait)}` : ` its ${traitLabel(from, v.trait)}`)
-        : v === undefined ? '' : ` ${v}`;
-    return `${lhs} ${OP_LABEL[node.op] || node.op}${vs}${node.value2 !== undefined ? ` \u00b1 ${node.value2}` : ''}`;
-  };
-  const what = describe(r.when, true);
+  const what = describeNode(r.when, r.select?.domain || 'grill', true);
   const held = r.for_s ? ` for ${r.for_s >= 60 ? `${Math.round(r.for_s / 60)} min` : `${r.for_s}s`}` : '';
   return `${who} · ${what || 'nothing yet'}${held}`;
 }
@@ -80,7 +89,7 @@ const blankRule = () => ({
 
 // ---- editor -------------------------------------------------------------
 
-function conditionRow(cond, domain, onChange, onRemove) {
+function conditionRow(cond, domain, onChange) {
   const row = el('div', { class: 'cond' });
   const draw = () => {
     row.innerHTML = '';
@@ -113,28 +122,52 @@ function conditionRow(cond, domain, onChange, onRemove) {
         draw(); onChange();
       } }, groups),
       el('select', { class: 'c-op', onchange: (e) => { cond.op = e.target.value; draw(); onChange(); } },
-        ops.map((o) => el('option', { value: o, selected: o === cond.op }, OP_LABEL[o] || o))),
-      el('button', { class: 'btn xs ghost c-del', type: 'button', 'aria-label': 'Remove this condition', onclick: onRemove }, '×'));
+        ops.map((o) => el('option', { value: o, selected: o === cond.op }, OP_LABEL[o] || o))));
 
     if (needsValue) {
       const pair = cond.op === 'between' || cond.op === 'within';
       let valueField;
-      if (asTrait) {
-        // "its own target" for the probe being watched, or any reading of a single-instance entity
-        // such as the grill's set point, which is how "pit reached its set point" is written
-        const cur = `${cond.value.entity || 'this'}:${cond.value.trait}`;
-        const opts = [el('optgroup', { label: 'This ' + titleCase(domain) },
-          traitsOf(domain).map((t) => el('option', { value: `this:${t.id}`, selected: cur === `this:${t.id}` }, `its ${titleCase(t.id)}`)))];
+      if (asTrait || (!isList && def?.type !== 'enum')) {
+        /* What it is compared against: a number, or another reading.
+         *
+         * Home Assistant's numeric_state takes a number OR an entity in the same `above`/`below`
+         * field, and that is right -- they are two kinds of answer to one question, not two modes
+         * of the editor. There used to be a "Compare with" switch above this deciding which sort of
+         * field you were about to get, which is a question about the interface rather than about
+         * the grill. One list: "a number" first, then every reading it could mean.
+         *
+         * A reading can carry an offset, because a band around a moving number is the point of
+         * comparing against one at all: "below the set point + 15" and "above the set point - 15"
+         * is a rule that still means something after the set point changes, where a fixed pair of
+         * numbers does not. */
+        const cur = asTrait ? `${cond.value.entity || 'this'}:${cond.value.trait}` : 'num';
+        const opts = [el('option', { value: 'num', selected: !asTrait }, 'a number'),
+          el('optgroup', { label: `This ${titleCase(domain)}` },
+            traitsOf(domain).map((t) => el('option', { value: `this:${t.id}`, selected: cur === `this:${t.id}` }, `its ${t.label || titleCase(t.id)}`)))];
         for (const d of CAT.domains) {
           if (d.multi || d.id === domain) continue;
           opts.push(el('optgroup', { label: titleCase(d.id) },
-            d.traits.map((t) => el('option', { value: `${d.id}:${t.id}`, selected: cur === `${d.id}:${t.id}` }, `${titleCase(d.id)} ${titleCase(t.id)}`))));
+            d.traits.map((t) => el('option', { value: `${d.id}:${t.id}`, selected: cur === `${d.id}:${t.id}` }, `${titleCase(d.id)} ${t.label || titleCase(t.id)}`))));
         }
-        valueField = el('select', { class: 'c-val', onchange: (e) => {
-          const [ent, tr] = e.target.value.split(':');
-          cond.value = ent === 'this' ? { trait: tr } : { entity: ent, trait: tr };
-          onChange();
+        const chooser = el('select', { class: 'c-val', onchange: (e) => {
+          const v = e.target.value;
+          if (v === 'num') cond.value = 0;
+          else { const [ent, tr] = v.split(':'); cond.value = ent === 'this' ? { trait: tr } : { entity: ent, trait: tr }; }
+          draw(); onChange();
         } }, opts);
+        if (asTrait) {
+          const unit = def?.type === 'temperature' ? degUnit() : '';
+          valueField = el('div', { class: 'c-val c-operand' }, chooser,
+            el('input', { type: 'text', inputmode: 'decimal', class: 'c-off',
+              value: cond.value.offset ?? '', placeholder: `\u00b1 ${unit || '0'}`,
+              title: 'Offset on that reading',
+              onchange: (e) => { const n = parseFloat(e.target.value); if (n) cond.value.offset = n; else delete cond.value.offset; onChange(); } }));
+        } else {
+          const unit = def?.type === 'temperature' ? degUnit() : def?.type === 'duration' ? 'seconds' : def?.unit === '%' ? '%' : 'value';
+          valueField = el('div', { class: 'c-val c-operand' }, chooser,
+            el('input', { type: 'text', inputmode: 'decimal', class: 'c-num', value: cond.value ?? '', placeholder: unit,
+              onchange: (e) => { cond.value = parseFloat(e.target.value) || 0; onChange(); } }));
+        }
       } else if (isList) {
         // several accepted values as chips: "the mode is Hold or Smoke" stays one row
         const opts = def?.type === 'enum' ? (CAT.modes || []) : [];
@@ -154,55 +187,97 @@ function conditionRow(cond, domain, onChange, onRemove) {
       } else if (def?.type === 'enum') {
         valueField = el('select', { class: 'c-val', onchange: (e) => { cond.value = e.target.value; onChange(); } },
           (CAT.modes || []).map((m) => el('option', { value: m, selected: m === cond.value }, m)));
-      } else {
-        const unit = def?.type === 'temperature' ? degUnit() : def?.type === 'duration' ? 'seconds' : def?.unit === '%' ? '%' : 'value';
-        valueField = el('input', {
-          class: 'c-val', type: 'text', inputmode: 'decimal', value: cond.value ?? '',
-          placeholder: unit, onchange: (e) => { cond.value = parseFloat(e.target.value) || 0; onChange(); },
-        });
       }
       if (pair) valueField.style.gridColumn = '1';
       row.append(valueField);
       if (pair) row.append(el('input', { class: 'c-val2', type: 'text', inputmode: 'decimal', value: cond.value2 ?? '',
         placeholder: 'and', onchange: (e) => { cond.value2 = parseFloat(e.target.value) || 0; onChange(); } }));
-      // comparing against another reading is what lets one rule cover every probe
-      if (!isList) row.append(el('button', {
-        class: `btn xs c-kind ${asTrait ? 'primary' : 'ghost'}`, type: 'button', title: 'Compare with another reading',
-        onclick: () => { cond.value = asTrait ? 0 : { trait: 'target' }; draw(); onChange(); },
-      }, asTrait ? 'trait' : '123'));
     }
   };
   draw();
   return row;
 }
 
-/* A condition is either a comparison or a group of them with its own all/any. Nesting is what lets
-   one rule say "the mode is Hold or Smoke, and the pit is within 15 of the set point": the or has
-   to bind tighter than the and, and a single flat list cannot express that. */
+/* The three ways conditions join, with the mark each one is written with. */
+const GROUP_OPS = [['all', 'AND', '&'], ['any', 'OR', '\u2265'], ['not', 'NOT', '\u2260']];
+
+/* A duration on a single condition: "in Hold for half an hour", "above 200 for five minutes".
+   It belongs to the condition rather than to the whole rule, so one arm of an AND can wait while
+   the others answer at once -- which is what makes "in Hold, within 5 degrees of the set point,
+   for ten minutes" a single rule. */
+const forField = (node, onChange) => el('div', { class: 'field' },
+  el('label', {}, 'For'),
+  el('div', { class: 'row', style: 'gap:var(--sp-2)' },
+    el('input', {
+      type: 'text', inputmode: 'decimal', style: 'flex:1 1 auto; min-width:0',
+      value: node.for_s ? (node.for_s >= 60 ? node.for_s / 60 : node.for_s) : '',
+      placeholder: 'immediately',
+      onchange: (e) => {
+        const n = parseFloat(e.target.value);
+        const mins = (node._for_unit || 'min') === 'min';
+        if (!(n > 0)) delete node.for_s; else node.for_s = Math.round(mins ? n * 60 : n);
+        onChange();
+      },
+    }),
+    segmented([['min', 'min'], ['s', 'sec']], node._for_unit || 'min', (u) => {
+      const was = node._for_unit || 'min';
+      node._for_unit = u;
+      if (node.for_s && was !== u) node.for_s = u === 'min' ? node.for_s : node.for_s;
+      onChange();
+    })));
+
+/* A condition, and a group of conditions, are both a card: a header you can read with it shut and
+   a body you open to change it. Nesting is what lets one rule say "the mode is Hold or Smoke, and
+   the pit is within 15 of the set point": the OR has to bind tighter than the AND, and a flat list
+   cannot express that. The card is the app's own fold -- the same shape every collapsible section
+   uses -- rather than a second collapsible invented for this screen. */
 function condNode(node, domain, onChange, onRemove, depth) {
-  if (!isGroup(node)) return conditionRow(node, domain, onChange, onRemove);
-  const box = el('div', { class: `cond-group d${Math.min(depth, 3)}` });
+  const group = isGroup(node);
+  const det = el('details', { class: `fold cond-card${group ? ' is-group' : ''} d${Math.min(depth, 3)}`, open: depth < 1 || !group });
+  const title = el('span', { class: 'cc-title' });
+  const glyph = el('span', { class: 'cc-glyph' });
+  const head = el('summary', { class: 'cc-head' }, glyph, title,
+    onRemove ? iconBtn('trash-2', group ? 'Remove this group' : 'Remove this condition', {
+      class: 'danger cc-del',
+      onclick: (e) => { e.preventDefault(); e.stopPropagation(); onRemove(); },
+    }) : null);
+  const body = el('div', { class: 'cc-body' });
+  det.append(head, body);
+
+  const retitle = () => {
+    const g = GROUP_OPS.find(([v]) => v === (node.op || 'all'));
+    glyph.textContent = group ? (g?.[2] || '&') : '123';
+    const said = describeNode(node, domain, false);
+    title.textContent = group ? `${g?.[1] || 'AND'}${node.conditions?.length ? ` \u00b7 ${node.conditions.length}` : ''}`
+                              : (said || 'New condition');
+  };
+
   const draw = () => {
-    box.innerHTML = '';
-    box.append(el('div', { class: 'cg-head' },
-      el('select', { class: 'cg-op', onchange: (e) => { node.op = e.target.value; onChange(); } },
-        [['all', 'All Of These'], ['any', 'Any Of These']].map(([v, l]) => el('option', { value: v, selected: v === node.op }, l))),
-      onRemove ? el('button', { class: 'btn xs ghost c-del', type: 'button', 'aria-label': 'Remove this group', onclick: onRemove }, '×') : null));
-    node.conditions.forEach((k, i) => box.append(condNode(k, domain, onChange,
-      () => { node.conditions.splice(i, 1); draw(); onChange(); }, depth + 1)));
-    const t = traitsOf(domain)[0];
-    box.append(el('div', { class: 'cg-add' },
-      el('button', { class: 'btn xs ghost', type: 'button', onclick: () => {
-        node.conditions.push({ trait: t?.id || 'temp', op: t?.operators?.[0] || '>=', value: 0 });
-        draw(); onChange();
-      } }, '+ Condition'),
-      depth < 3 ? el('button', { class: 'btn xs ghost', type: 'button', onclick: () => {
-        node.conditions.push({ op: 'any', conditions: [] });
-        draw(); onChange();
-      } }, '+ Group') : null));
+    body.innerHTML = '';
+    if (group) {
+      /* The operator is a choice of three, so it is three buttons rather than a dropdown you have
+         to open to find out what the options were. */
+      body.append(segmented(GROUP_OPS.map(([v, l]) => [v, l]), node.op || 'all', (v) => { node.op = v; retitle(); onChange(); }));
+      node.conditions.forEach((k, i) => body.append(condNode(k, domain, () => { retitle(); onChange(); },
+        () => { node.conditions.splice(i, 1); draw(); retitle(); onChange(); }, depth + 1)));
+      const t = traitsOf(domain)[0];
+      body.append(el('div', { class: 'cc-add' },
+        actionBtn('add', 'Condition', { onclick: () => {
+          node.conditions.push({ trait: t?.id || 'temp', op: t?.operators?.[0] || '>=', value: 0 });
+          draw(); retitle(); onChange();
+        } }),
+        depth < 3 ? actionBtn('add', 'Group', { onclick: () => {
+          node.conditions.push({ op: 'any', conditions: [] });
+          draw(); retitle(); onChange();
+        } }) : null));
+    } else {
+      body.append(conditionRow(node, domain, () => { retitle(); onChange(); }));
+    }
+    body.append(forField(node, () => { retitle(); onChange(); }));
+    retitle();
   };
   draw();
-  return box;
+  return det;
 }
 
 function ruleEditor(rule, isNew) {
@@ -213,6 +288,10 @@ function ruleEditor(rule, isNew) {
 
   return pushScreen((close) => {
     const wrap = el('div', { class: 'rule-edit sheet' });
+    /* Adding a condition, ticking a chip or switching AND to OR is not an <input> event, so the
+       builder says for itself that something moved and the pinned Save lights up. */
+    let ready = false;   /* the first draw is not a change the person made */
+    const touched = () => { if (ready) wrap.dispatchEvent(new CustomEvent('pf-dirty', { bubbles: true })); };
     const preview = el('div', { class: 'rule-preview' }, el('div', { class: 'muted' }, 'Preview…'));
     let previewTimer = null;
     const refreshPreview = () => {
@@ -272,7 +351,7 @@ function ruleEditor(rule, isNew) {
       // ---- the condition
       const conds = el('div', { class: 'card tight' },
         el('div', { class: 'field' }, el('label', {}, 'When'),
-          condNode(r.when, sel.domain, refreshPreview, null, 0)),
+          condNode(r.when, sel.domain, () => { touched(); refreshPreview(); }, null, 0)),
         el('div', { class: 'field inline' },
           el('div', {}, el('label', {}, 'Hold For'),
             el('div', { class: 'help' }, 'Seconds it must stay true before sending. 180 is three minutes.')),
@@ -301,7 +380,14 @@ function ruleEditor(rule, isNew) {
         el('div', { class: 'field' }, el('label', {}, 'Title'), titleIn),
         el('div', { class: 'field' }, el('label', {}, 'Message'), bodyIn),
         el('div', { class: 'field' }, el('label', {}, 'Insert'), tokenChips),
-        preview);
+        preview,
+        /* Test sends the message so you can see it land on your phone. It belongs beside the
+           message it sends, not on the commit bar: it changes nothing, and a third verb up there
+           pushed Cancel under the Home button. */
+        el('div', { class: 'form-actions' },
+          actionBtn('test', 'Send a test', { size: '', onclick: async () => {
+            try { await api('/rules/test', { body: r }); toast('Sent \u2014 check your phone'); } catch (e) { toast(e.message, true); }
+          } }, 'send')));
 
       // ---- how loudly
       const seg = el('div', { class: 'seg' });
@@ -362,10 +448,11 @@ function ruleEditor(rule, isNew) {
         deleteTitle: 'Delete notification',
         onCancel: dismiss,
         onSave: () => close(r),
-        extra: [actionBtn('test', 'Test', { size: '', onclick: async () => {
-          try { await api('/rules/test', { body: r }); toast('Sent — check your phone'); } catch (e) { toast(e.message, true); }
-        } }, 'send')],
+        /* A new rule is born changed and is ready to save; an existing one lights Save only once
+           something has actually moved. */
+        dirty: isNew,
       }));
+    setTimeout(() => { ready = true; }, 0);
     return wrap;
   }, { title: isNew ? 'New Notification' : rule.name, back: 'Notifications' });
 }
@@ -422,7 +509,8 @@ export async function renderRules(view) {
   view.append(
     el('div', { class: 'row between' }, el('h2', {}, 'Conditional Notifications'),
       el('button', { class: 'btn sm', type: 'button', onclick: () => edit(blankRule(), true) }, '+ Add')),
-    el('p', { class: 'help' },
-      'A rule sends when its condition becomes true. Comparing a reading with another reading — "temperature at or above target" — covers every probe at once; the message names the one that matched.'),
-    el('div', { class: 'card' }, list));
+    /* The list is a settings list and nothing more: no paragraph explaining what a rule is -- the
+       rows say it -- and no card wrapped round a list that draws its own border, which is where the
+       double outline came from. Every other section on the page appends its list directly. */
+    list);
 }
