@@ -1800,8 +1800,16 @@ static double autotune_step(pf_control *c, double now)
 		double A_target = fmax(3.0 * c->autotune.hyst_c, pf_delta_to_c(2.5, PF_UNITS_F));
 		/* Conditioning belongs to the start of the run: after this the relay is left alone and what
 		 * it does is the measurement. */
-		if (c->autotune.crossings >= 2 && c->autotune.crossings <= 8 &&
-		    (c->autotune.crossings % 2) == 0 && c->autotune.cyc_n > 4) {
+		/* Never from the first half. The run begins wherever the pit happens to be, part way
+		 * through a swing, so the first half is whatever was left of it: on this grill at 250 F
+		 * it was 90 s of the low feed, begun with the pit falling from 4.7 C over, against a full
+		 * 166 s of the high feed. Read as a cycle that said the load was 0.306 on a grill whose
+		 * settled hold had just been feeding 0.263, the centre stepped the wrong way, the next
+		 * swing threw the pit 6 C over, and two cycles went on finding the way back. The first
+		 * cycle that is a cycle is the second and third halves, so the conditioning starts at
+		 * the third crossing and runs on the odd ones. */
+		if (c->autotune.crossings >= 3 && c->autotune.crossings <= 9 &&
+		    (c->autotune.crossings % 2) == 1 && c->autotune.cyc_n > 4) {
 			int nx = c->autotune.crossings;
 			double t_hi = c->autotune.halves[nx - 1], t_lo = c->autotune.halves[nx - 2];
 			if (c->autotune.phase > 0) { double sw = t_hi; t_hi = t_lo; t_lo = sw; }
