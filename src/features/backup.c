@@ -844,7 +844,17 @@ static void api_error(const char *who, membuf *m, long status, char *err, size_t
 	const char *msg = j ? pf_json_str(j, "error.message", "") : "";
 	if (!msg[0] && j) msg = pf_json_str(j, "error_description", "");
 	if (!msg[0] && j) msg = pf_json_str(j, "error", "");
-	snprintf(err, n, "%s said %ld%s%.160s", who, status, msg[0] ? ": " : "", msg);
+	/* Google's descriptions arrive HTML-escaped -- &#39; for a quote -- which reads as garbage on
+	 * a phone */
+	char clean[240]; size_t k = 0;
+	for (const char *c = msg; *c && k < sizeof clean - 1; ) {
+		if (!strncmp(c, "&#39;", 5)) { clean[k++] = '\''; c += 5; }
+		else if (!strncmp(c, "&quot;", 6)) { clean[k++] = '"'; c += 6; }
+		else if (!strncmp(c, "&amp;", 5)) { clean[k++] = '&'; c += 5; }
+		else clean[k++] = *c++;
+	}
+	clean[k] = 0;
+	snprintf(err, n, "%s said %ld%s%.200s", who, status, clean[0] ? ": " : "", clean);
 	cJSON_Delete(j);
 }
 
@@ -1181,9 +1191,9 @@ int pf_backup_connect(const char *loc_id, char *err, size_t n)
 	membuf m = { 0 };
 	long st = http_form(google ? GDRIVE_DEVICE_URL : MS_DEVICE_URL, form, &m, err, n);
 	if (st < 0) { free(m.buf); return -1; }
-	if (st != 200) { api_error(google ? "Google" : "Microsoft", &m, st, err, n); free(m.buf); return -1; }
+	if (st != 200) { api_error(google ? "Google" : "Microsoft", &m, st, err, n); free(m.buf); LOGW(TAG, "%s: sign-in could not start: %s", L.name, err); return -1; }
 	cJSON *j = cJSON_Parse(m.buf); free(m.buf);
-	if (!j || !pf_json_str(j, "device_code", "")[0]) { cJSON_Delete(j); snprintf(err, n, "no device code came back"); return -1; }
+	if (!j || !pf_json_str(j, "device_code", "")[0]) { cJSON_Delete(j); snprintf(err, n, "no device code came back"); LOGW(TAG, "%s: %s", L.name, err); return -1; }
 	pthread_mutex_lock(&g.mu);
 	g.dev.pending = true;
 	pf_strlcpy(g.dev.loc, loc_id, sizeof g.dev.loc);

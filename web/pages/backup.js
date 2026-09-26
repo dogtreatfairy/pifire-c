@@ -130,7 +130,7 @@ export function renderBackup(view) {
           fields.push(...own);
         } else {
           body.append(el('p', { class: 'help', style: 'padding:6px 0' }, loc.type === 'gdrive'
-            ? 'This build ships without a Google client, so one of your own is needed: at console.cloud.google.com create a project, turn on the Google Drive API, and under Credentials add an OAuth client of type "TVs and Limited Input devices".'
+            ? 'This build ships without a Google client, so one of your own is needed. At console.cloud.google.com: create a project, turn on the Google Drive API, and under Credentials add an OAuth client ID whose type is TVs and Limited Input devices \u2014 no other type works from a grill. Paste its ID and secret below.'
             : 'This build ships without a Microsoft client, so one of your own is needed: at portal.azure.com register an application for personal Microsoft accounts, allow public client flows, and copy its Application (client) ID.'));
           fields.push(...own);
         }
@@ -228,7 +228,20 @@ export function renderBackup(view) {
 
   /* a cloud sign-in: a code to type into the service's device page on the phone */
   const connectCloud = async (loc) => {
-    try { st = await api('/backup/connect', { body: { id: loc.id } }); } catch (e) { toast(e.message, true); return; }
+    try { st = await api('/backup/connect', { body: { id: loc.id } }); }
+    catch (e) {
+      /* Google's one common refusal, said in the words of the console rather than of the
+         protocol: the client was made as the wrong kind */
+      if (/TVs and Limited Input/i.test(e.message || '')) {
+        await dialog((close) => el('div', {},
+          el('h3', {}, 'Wrong kind of Google client'),
+          el('p', { class: 'muted' }, 'Signing in from a grill uses Google\u2019s flow for devices without a browser, and Google only allows it for a client of type \u201cTVs and Limited Input devices\u201d. The client ID entered here is another kind.'),
+          el('p', { class: 'muted' }, 'In Google Cloud Console: APIs & Services \u2192 Credentials \u2192 Create credentials \u2192 OAuth client ID \u2192 type \u201cTVs and Limited Input devices\u201d. Paste that client\u2019s ID and secret here and try again.'),
+          el('div', { class: 'btnrow' }, el('button', { class: 'btn primary', type: 'button', onclick: () => close() }, 'OK'))));
+        return;
+      }
+      toast(e.message, true); return;
+    }
     const p = st.pending;
     if (!p || p.loc !== loc.id) return;
     let timer = null;
