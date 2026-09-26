@@ -146,9 +146,46 @@ static void test_a_hold_steps_clock_starts_when_the_pit_arrives(void)
 	TEST_ASSERT_TRUE_MESSAGE(ctrl.recipe.step >= 2 || !ctrl.recipe.active, "the step should have ended twenty minutes after arrival");
 }
 
+/* The overrides a cook sets while the run is going: a step marked Skip is passed over when the
+ * run reaches it, one marked Auto answers its own prompt, one marked Pause waits at its end for
+ * the cook and goes on when they continue. */
+static void test_step_overrides_skip_auto_and_pause(void)
+{
+	pf_recipes_init();
+	int id = save_recipe("{\"name\":\"Overrides\",\"units\":\"C\",\"steps\":[{\"mode\":\"Startup\"},"
+	                     "{\"mode\":\"Hold\",\"setpoint\":100,\"ends\":{\"op\":\"all\",\"conditions\":[{\"trait\":\"elapsed\",\"op\":\">=\",\"value\":10},{\"trait\":\"prompt\",\"op\":\"is_on\"}]}},"
+	                     "{\"mode\":\"Hold\",\"setpoint\":110,\"ends\":{\"op\":\"all\",\"conditions\":[{\"trait\":\"elapsed\",\"op\":\">=\",\"value\":10}]}},"
+	                     "{\"mode\":\"Hold\",\"setpoint\":120,\"ends\":{\"op\":\"all\",\"conditions\":[{\"trait\":\"elapsed\",\"op\":\">=\",\"value\":10}]}},"
+	                     "{\"mode\":\"Shutdown\"}]}");
+	pf_cmd c = { .type = PF_CMD_RECIPE_START, .num = id };
+	pf_cmdq_push(&c);
+	tick(2);
+	pf_cmd f1 = { .type = PF_CMD_RECIPE_FLAG, .num = 1, .num2 = 3 };   /* auto */
+	pf_cmd f2 = { .type = PF_CMD_RECIPE_FLAG, .num = 2, .num2 = 2 };   /* skip */
+	pf_cmd f3 = { .type = PF_CMD_RECIPE_FLAG, .num = 3, .num2 = 1 };   /* pause */
+	pf_cmdq_push(&f1); pf_cmdq_push(&f2); pf_cmdq_push(&f3);
+	tick(2);
+	TEST_ASSERT_EQUAL_INT(3, ctrl.recipe.flags[1]);
+	/* step 1 answers its own prompt: the run must reach step 3 (skipping 2) without any Next */
+	for (int i = 0; i < 3 * 60 * 60 && ctrl.recipe.active && ctrl.recipe.step < 3; i++) tick(1);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(3, ctrl.recipe.step, "auto should have answered step 1's prompt and skip should have passed over step 2");
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, ctrl.recipe.flags[2], "a skip is spent when it is used");
+	/* step 3 ends after ten seconds at 120 C, then pauses for the cook */
+	for (int i = 0; i < 2 * 60 * 60 && ctrl.recipe.active && !ctrl.recipe.waiting; i++) tick(1);
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.recipe.waiting, "the paused step should wait for the cook");
+	TEST_ASSERT_EQUAL_INT(3, ctrl.recipe.step);
+	tick(120);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(3, ctrl.recipe.step, "and keep waiting");
+	pf_cmd n = { .type = PF_CMD_RECIPE_NEXT };
+	pf_cmdq_push(&n);
+	for (int i = 0; i < 60 && ctrl.recipe.step == 3; i++) tick(1);
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.recipe.step >= 4 || !ctrl.recipe.active, "Next releases the pause and the run goes on");
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
 	RUN_TEST(test_a_hold_steps_clock_starts_when_the_pit_arrives);
+	RUN_TEST(test_step_overrides_skip_auto_and_pause);
 	return UNITY_END();
 }

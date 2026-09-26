@@ -649,6 +649,7 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 		if (pf_recipe_load((int)cmd->num, &c->recipe.r)) { LOGW(TAG, "recipe %d not found", (int)cmd->num); break; }
 		c->recipe.active = true;
 		c->recipe.step = 0;
+		memset(c->recipe.flags, 0, sizeof c->recipe.flags);
 		/* Something is managing the grill again, so the question left by the last recipe -- that a
 		 * fire was burning with nothing behind it -- is no longer a question. */
 		c->recipe.left_running = false;
@@ -663,13 +664,26 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 		/* Next records that the cook has answered. Whether that ends the step is the step's own
 		 * condition to decide -- with "the lid AND you confirmed" it does not, until the lid has
 		 * been opened too, because the point of asking for both is that the meat has come off. */
-		if (c->recipe.active) { c->recipe.prompt_given = true; c->recipe.last_eval = 0; }
+		if (c->recipe.active) {
+			c->recipe.prompt_given = true; c->recipe.last_eval = 0;
+			/* a pause the cook asked for is released by the same tap, and the step goes on to end */
+			if (c->recipe.step < 16 && c->recipe.flags[c->recipe.step] == 1) c->recipe.flags[c->recipe.step] = 0;
+		}
 		break;
 	/* Stepping by hand, forwards or back. The step is ended or begun again exactly as the recipe
 	 * would have done it; the app asks before sending either. */
 	case PF_CMD_RECIPE_SKIP:
 		if (c->recipe.active) { LOGI(TAG, "recipe '%s' step %d skipped by user", c->recipe.r.name, c->recipe.step + 1); recipe_advance(c, now); }
 		break;
+	case PF_CMD_RECIPE_FLAG: {
+		int i = (int)cmd->num;
+		if (c->recipe.active && i >= 0 && i < c->recipe.r.nsteps && i < 16) {
+			c->recipe.flags[i] = (unsigned char)cmd->num2;
+			LOGI(TAG, "recipe '%s' step %d: %s", c->recipe.r.name, i + 1,
+			     cmd->num2 == 1 ? "will pause when it ends" : cmd->num2 == 2 ? "will be skipped" : cmd->num2 == 3 ? "will continue on its own" : "no override");
+		}
+		break;
+	}
 	case PF_CMD_RECIPE_BACK:
 		if (c->recipe.active && c->recipe.step > 0) { c->recipe.step--; LOGI(TAG, "recipe '%s' back to step %d by user", c->recipe.r.name, c->recipe.step + 1); recipe_begin_step(c, now); }
 		break;
@@ -899,6 +913,15 @@ static double tree_eta_impl(pf_control *c, const cJSON *node, double now, bool c
 static void recipe_begin_step(pf_control *c, double now)
 {
 	pf_recipe_step *s = &c->recipe.r.steps[c->recipe.step];
+	/* a step the cook marked to be skipped is passed over the moment the run reaches it, its
+	 * message unsaid */
+	if (c->recipe.step < 16 && c->recipe.flags[c->recipe.step] == 2) {
+		LOGI(TAG, "recipe '%s' step %d/%d skipped as asked", c->recipe.r.name, c->recipe.step + 1, c->recipe.r.nsteps);
+		c->recipe.flags[c->recipe.step] = 0;
+		c->recipe.said = true;
+		recipe_advance(c, now);
+		return;
+	}
 	c->recipe.step_start = now;
 	c->recipe.at_temp_since = 0;
 	c->recipe.clock_s = -1;
@@ -991,6 +1014,18 @@ static void recipe_aftercare(pf_control *c)
 	pf_alarms_offer("RECIPE:left_running", "shutdown", 3600);
 }
 
+/* A step held at its end by the cook: the run waits as it would for a prompt, and says so once. */
+static void recipe_hold_here(pf_control *c, const pf_recipe_step *s)
+{
+	c->recipe.waiting = true;
+	c->recipe.eta_s = -1; c->recipe.clock_s = -1;
+	if (!c->recipe.said) {
+		c->recipe.said = true;
+		pf_events_emit("Recipe_Step_Done", c->recipe.r.name, "%s%sPaused here as you asked - continue when ready.",
+		               s->message[0] ? s->message : "", s->message[0] ? " " : "");
+	}
+}
+
 static void run_recipe(pf_control *c, double now)
 {
 	if (!c->recipe.active) return;
@@ -1011,13 +1046,19 @@ static void run_recipe(pf_control *c, double now)
 		bool trig = s->mode == PF_MODE_STARTUP
 			? (c->mode != PF_MODE_STARTUP && c->mode != PF_MODE_REIGNITE && c->mode != PF_MODE_PRIME)
 			: s->mode == PF_MODE_SHUTDOWN ? c->mode == PF_MODE_STOP : true;
-		if (trig) recipe_advance(c, now);
+		if (trig) {
+			if (c->recipe.step < 16 && c->recipe.flags[c->recipe.step] == 1) { recipe_hold_here(c, s); return; }
+			recipe_advance(c, now);
+		}
 		return;
 	}
 	if (c->mode != s->mode) return;   /* still getting into the mode this step runs in */
 
 	/* A step that says nothing about its ending is a setting, and is done once it is applied. */
-	if (tree_empty(c->recipe.ends)) { recipe_advance(c, now); return; }
+	if (tree_empty(c->recipe.ends)) {
+		if (c->recipe.step < 16 && c->recipe.flags[c->recipe.step] == 1) { recipe_hold_here(c, s); return; }
+		recipe_advance(c, now); return;
+	}
 
 	/* Once a second is often enough to ask a question whose answers are minutes and degrees, and
 	 * it keeps the tick free of building a facts object a hundred times over. */
@@ -1032,6 +1073,8 @@ static void run_recipe(pf_control *c, double now)
 	cJSON *facts = step_facts(c, now, false);
 	bool done = pf_rules_eval_tree(c->recipe.ends, facts, "step", &c->recipe.clocks, now);
 	cJSON_Delete(facts);
+	/* the cook asked the run to pause when this step ends: it is done, and it waits for them */
+	if (done && c->recipe.step < 16 && c->recipe.flags[c->recipe.step] == 1) { recipe_hold_here(c, s); return; }
 
 	/* Everything except the cook. Asking the tree again with the prompt and the lid forced true
 	 * says whether the only thing still missing is the person -- which is the moment to tell them
@@ -1043,6 +1086,16 @@ static void run_recipe(pf_control *c, double now)
 		pf_rules_clocks spare = c->recipe.clocks;   /* asking must not advance the real clocks */
 		ready = pf_rules_eval_tree(c->recipe.ends, as_if, "step", &spare, now);
 		cJSON_Delete(as_if);
+	}
+	/* a step the cook marked to continue on its own answers its own prompt the moment the rest
+	 * of its ending is satisfied; a lid it also waits for is still waited for */
+	if (ready && !done && c->recipe.wants_prompt && !c->recipe.prompt_given
+	    && c->recipe.step < 16 && c->recipe.flags[c->recipe.step] == 3) {
+		c->recipe.prompt_given = true;
+		LOGI(TAG, "recipe '%s' step %d: continued on its own as asked", c->recipe.r.name, c->recipe.step + 1);
+		cJSON *again = step_facts(c, now, false);
+		done = pf_rules_eval_tree(c->recipe.ends, again, "step", &c->recipe.clocks, now);
+		cJSON_Delete(again);
 	}
 	c->recipe.waiting = ready && !done;
 
@@ -2438,6 +2491,7 @@ char *pf_control_resume_json(const pf_control *c, double now)
 		cJSON_AddBoolToObject(rc, "waiting", c->recipe.waiting);
 		cJSON_AddBoolToObject(rc, "lead_fired", c->recipe.lead_fired);
 		cJSON_AddBoolToObject(rc, "lid_seen", c->recipe.lid_seen);
+		{ cJSON *fl = cJSON_AddArrayToObject(rc, "flags"); for (int i = 0; i < c->recipe.r.nsteps && i < 16; i++) cJSON_AddItemToArray(fl, cJSON_CreateNumber(c->recipe.flags[i])); }
 		cJSON_AddBoolToObject(rc, "prompt_given", c->recipe.prompt_given);
 		cJSON_AddBoolToObject(rc, "said", c->recipe.said);
 	}
@@ -2517,6 +2571,7 @@ bool pf_control_resume(pf_control *c, const char *json, double now)
 				/* What the cook had already done before the restart. Losing these would ask them
 				 * to open the lid a second time for a step they had already answered. */
 				c->recipe.prompt_given = pf_json_bool(rc, "prompt_given", false);
+				{ cJSON *fl = cJSON_GetObjectItem(rc, "flags"); int i = 0; cJSON *v; cJSON_ArrayForEach(v, fl) { if (i < 16) c->recipe.flags[i] = (unsigned char)v->valueint; i++; } }
 				c->recipe.lid_seen = pf_json_bool(rc, "lid_seen", false);
 				/* The step's condition comes back with the recipe, and its clocks start again:
 				 * a "for ten minutes" cannot be said to have been running while nothing was. */
@@ -2686,6 +2741,7 @@ static void publish(pf_control *c, double now)
 		s.recipe.nsteps = c->recipe.r.nsteps;
 		s.recipe.waiting = c->recipe.waiting;
 		s.recipe.step_mode = rs->mode;
+		memcpy(s.recipe.flags, c->recipe.flags, sizeof s.recipe.flags);
 		/* What the cook is actually waiting for: the clock when there is one, and otherwise the
 		 * estimate of when the meat gets there. Either way it is "how long until something
 		 * happens", which is the only question the number is asked. */

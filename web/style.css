@@ -536,17 +536,23 @@ legend { font-weight: 600; margin-bottom: 6px; }
 /* the run card's rail: the recipe's steps in order, the mark of each, done / now / to come */
 .run-rail { position: relative; display: flex; flex-direction: column; gap: 2px; margin: 10px 0 4px; }
 .run-rail::before { content: ''; position: absolute; left: 13px; top: 14px; bottom: 14px; width: 2px; background: var(--line); }
-.rr-step { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; position: relative; }
+.rr-step { display: flex; gap: 8px; align-items: center; padding: 2px 0; position: relative; min-height: 36px; }
+.rr-acts { display: flex; gap: 0; flex: none; margin-left: auto; }
+.rr-acts .btn.icon { width: 34px; min-height: 34px; color: var(--muted); }
+.rr-acts .btn.icon.on { color: var(--accent-ink); background: color-mix(in oklab, var(--accent) 22%, transparent); border-radius: var(--r-sm); }
+.rr-step.rr-skip .rr-title { text-decoration: line-through; opacity: .7; }
+.rr-step.rr-hold .rr-glyph { background: var(--warn); color: var(--on-warn); }
+.cbar.mini { flex: none; }
+.cbar.mini .cgroup { padding: 2px; }
+.cbar.mini .cb { min-height: 34px; padding: 0 8px; }
 .rr-glyph { flex: none; width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--surface2); color: var(--muted); border: 2px solid var(--surface); z-index: 1; }
 .rr-glyph .ic { width: 15px; height: 15px; stroke-width: 2.4; }
 .rr-step.rr-done .rr-glyph { background: var(--ok); color: var(--on-ok); }
 .rr-step.rr-now .rr-glyph { background: var(--accent); color: var(--on-accent); }
-.rr-body { min-width: 0; flex: 1; padding-top: 4px; }
-.rr-title { font-size: var(--fs-md); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr-title { flex: 1 1 auto; min-width: 0; font-size: var(--fs-md); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rr-step.rr-now .rr-title { color: var(--text); font-weight: var(--fw-medium); }
 .rr-step.rr-done .rr-title { text-decoration: line-through; opacity: .7; }
-.rr-state { font-size: var(--fs-sm); color: var(--accent-ink); margin-top: 2px; font-variant-numeric: tabular-nums; }
-.rr-msg { font-size: var(--fs-sm); color: var(--muted); margin-top: 2px; }
+.rr-state { font-size: var(--fs-sm); color: var(--accent-ink); font-variant-numeric: tabular-nums; }
 /* Home: which recipe has the grill -- readable across the kitchen, not a footnote */
 .recipe-line { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: var(--fs-md); color: var(--text); margin-top: 4px; }
 .recipe-line .ic.inl { width: 15px; height: 15px; color: var(--accent-ink); margin: 0; }

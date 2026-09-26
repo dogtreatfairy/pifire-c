@@ -113,6 +113,9 @@ typedef struct {
 		/* The two things only a person can do, latched for as long as the step lasts: a tap is a
 		 * moment and a condition needs a fact. Both are cleared when the step changes. */
 		bool prompt_given, lid_seen;
+		/* per-step overrides the cook sets while the run is going: 1 = pause when this step ends
+		 * until the cook continues, 2 = skip this step when the run reaches it */
+		unsigned char flags[16];
 		bool wants_prompt;    /* this step's ending mentions the cook at all */
 		bool said;            /* the step's message has gone out */
 		/* When the step ends, parsed once when it begins, and the clocks behind any "for N

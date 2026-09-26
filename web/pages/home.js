@@ -1,5 +1,5 @@
 import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, numberDialog, dialog, confirmDialog, patchSettings, toast, actionBtn } from '../app.js';
-import { targetDialog, limitsDialog, timerDialog, stepsDialog } from './cook.js';
+import { targetDialog, limitsDialog, timerDialog, stepsDialog, stepControls } from './cook.js';
 import { btIcon, isWireless, sigBars, fmtEta, battIcon, pickFoodProbes } from './probes.js';
 import { icon as lucide, MODE_ICON } from '../icons.js';
 
@@ -165,23 +165,7 @@ function controlBar(s) {
      for them: back and forward. Forward flashes while the recipe is waiting on the cook, and
      asks in the step's own words; either way round, moving by hand always asks first. */
   const rc = s.recipe;
-  const steps = [];
-  if (rc?.active) {
-    const stepIx = rc.step ?? 0;
-    steps.push(b('chevron-left', '', { cls: 'accent', disabled: stepIx === 0, aria: 'Previous step', onclick: async () => {
-      if (await confirmDialog('Go back a step?', `Starts step ${stepIx} again.`, 'Go back')) cmd({ cmd: 'recipe', op: 'back' });
-    } }));
-    /* what the arrows step through, between them: the recipe's mark and where it is, so the
-       group cannot be mistaken for the grill's own controls beside it */
-    steps.push(el('span', { class: 'cb-label', title: rc.name }, `${stepIx + 1}/${rc.nsteps}`));
-    steps.push(b('chevron-right', '', { cls: rc.waiting ? 'flash accent' : 'accent', aria: rc.waiting ? 'Continue' : 'Skip to the next step', onclick: async () => {
-      if (rc.waiting) {
-        if (rc.needs_lid) { toast('Open the lid first, then continue'); return; }
-        if (await confirmDialog('Continue to the next step?', rc.message || 'This step is done.', 'Continue')) cmd({ cmd: 'recipe', op: 'next' });
-      } else if (await confirmDialog('Skip this step?', `Ends step ${stepIx + 1} now and starts step ${stepIx + 2}${stepIx + 2 > rc.nsteps ? '' : ''}.`, 'Skip')) cmd({ cmd: 'recipe', op: 'skip' });
-    } }));
-  }
-  return el('div', { class: 'cbar' }, steps.length ? el('div', { class: 'cgroup steps' }, ...steps) : null, left.length ? el('div', { class: 'cgroup' }, ...left) : null, el('div', { class: 'cgroup' }, ...right));
+  return el('div', { class: 'cbar' }, rc?.active ? stepControls(rc).firstChild : null, left.length ? el('div', { class: 'cgroup' }, ...left) : null, el('div', { class: 'cgroup' }, ...right));
 }
 
 // Probe popup: live reading, target (tap to set, doneness presets), high/low alerts (alerts only)

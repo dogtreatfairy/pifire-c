@@ -175,6 +175,11 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 		cJSON_AddNumberToObject(rc, "clock_s", s->recipe.clock_s);
 		cJSON_AddBoolToObject(rc, "at_temp", s->recipe.at_temp);
 		cJSON_AddNumberToObject(rc, "id", s->recipe.id);
+		{
+			cJSON *fl = cJSON_AddArrayToObject(rc, "flags");
+			for (int i = 0; i < s->recipe.nsteps && i < 16; i++)
+				cJSON_AddItemToArray(fl, cJSON_CreateString(s->recipe.flags[i] == 1 ? "hold" : s->recipe.flags[i] == 2 ? "skip" : s->recipe.flags[i] == 3 ? "auto" : ""));
+		}
 		cJSON_AddStringToObject(rc, "message", s->recipe.message);
 	}
 

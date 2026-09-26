@@ -54,7 +54,7 @@ typedef struct {
 		int nsteps; struct { char name[24]; double temp_c; bool fired; } steps[PF_MAX_STEPS];
 	} notify[PF_MAX_PROBES]; /* parallel to sensors.p */
 	struct { bool running, paused; double remaining, duration; int after; } timer;
-	struct { bool active, waiting, needs_lid; char name[64]; int step, nsteps, stage, stages; pf_mode step_mode; double remaining_s; double clock_s; bool at_temp; int id; char message[128]; } recipe;
+	struct { bool active, waiting, needs_lid; char name[64]; int step, nsteps, stage, stages; pf_mode step_mode; double remaining_s; double clock_s; bool at_temp; int id; unsigned char flags[16]; char message[128]; } recipe;
 	bool autotune_active; int autotune_crossings; double u_ff;
 	int hopper_pct;           /* -1 unknown */
 	bool sim;

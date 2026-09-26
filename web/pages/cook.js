@@ -468,6 +468,25 @@ function recipeEditor(rec0, isNew) {
   }, { title: isNew ? 'New Recipe' : rec0.name, back: 'Cook' });
 }
 
+/* The recipe's step group -- back, the step count, forward -- the same on Home's control bar
+   and on the run card. Forward flashes while the recipe waits on the cook and asks in the step's
+   own words; moving by hand in either direction always asks first. */
+export function stepControls(rc) {
+  const stepIx = rc.step ?? 0;
+  const btn = (ic, label, opts) => el('button', { class: `cb accent ${opts.cls || ''}`, disabled: !!opts.disabled, 'aria-label': label, onclick: opts.onclick }, lucide(ic));
+  return el('div', { class: 'cbar mini' }, el('div', { class: 'cgroup steps' },
+    btn('chevron-left', 'Previous step', { disabled: stepIx === 0, onclick: async () => {
+      if (await confirmDialog('Go back a step?', `Starts step ${stepIx} again.`, 'Go back')) cmd({ cmd: 'recipe', op: 'back' });
+    } }),
+    el('span', { class: 'cb-label', title: rc.name }, `${stepIx + 1}/${rc.nsteps}`),
+    btn('chevron-right', rc.waiting ? 'Continue' : 'Skip to the next step', { cls: rc.waiting ? 'flash' : '', onclick: async () => {
+      if (rc.waiting) {
+        if (rc.needs_lid) { toast('Open the lid first, then continue'); return; }
+        if (await confirmDialog('Continue to the next step?', rc.message || 'This step is done.', 'Continue')) cmd({ cmd: 'recipe', op: 'next' });
+      } else if (await confirmDialog('Skip this step?', `Ends step ${stepIx + 1} now and starts step ${stepIx + 2}.`, 'Skip')) cmd({ cmd: 'recipe', op: 'skip' });
+    } })));
+}
+
 export function renderCook(view) {
   const timerCard = el('div', { class: 'card' });
   const runCard = el('div', { class: 'card run-card' });
@@ -600,35 +619,45 @@ export function renderCook(view) {
       const rec = recipesById.get(rc.id);
       if (!rec) { fetchRecipes(); }
       const stepIx = rc.step ?? 0;
+      const flags = rc.flags || [];
+      const u = degUnit();
+      /* One row per step: its mark, one line of title with the live state folded in for the one
+         running, and on the right the overrides the cook can set for the run -- marks only, the
+         way Edit and Play sit on a recipe's row. Pause holds the step at its end until the cook
+         continues; Skip passes the step over when the run reaches it; Auto answers a step's
+         prompt by itself. A tap sets it, a second tap clears it. */
       const rail = el('div', { class: 'run-rail' });
+      const setFlag = (i, f) => cmd({ cmd: 'recipe', op: 'flag', step: i, flag: flags[i] === f ? 'none' : f });
+      const wantsPrompt = (st) => JSON.stringify(st.ends || '').includes('"prompt"');
       for (const [i, st] of (rec?.steps || []).entries()) {
         const state = i < stepIx ? 'rr-done' : i === stepIx ? 'rr-now' : 'rr-todo';
-        const line = el('div', { class: `rr-step ${state}` },
-          el('span', { class: 'rr-glyph' }, lucide(state === 'rr-done' ? 'check' : (MODE_ICON[st.mode] || 'crosshair'))),
-          el('div', { class: 'rr-body' }, el('div', { class: 'rr-title' }, ...stepTitleNodes(st))));
+        const title = el('span', { class: 'rr-title' }, ...stepTitleNodes(st));
         if (state === 'rr-now') {
-          const u = degUnit();
-          let said;
-          if (rc.waiting) said = rc.needs_lid ? 'Open the lid, then continue' : 'Continue?';
-          else if (st.mode === 'Hold' && rc.at_temp === false) said = `Heating to ${st.setpoint}${u}${rc.remaining_s >= 0 ? ` \u00b7 about ${fmtDur(rc.remaining_s)} in all` : ''}`;
-          else {
-            const parts = [];
-            if (rc.clock_s >= 0) parts.push(`${fmtDur(rc.clock_s)} left`);
-            if (rc.remaining_s >= 0 && (rc.clock_s < 0 || rc.remaining_s < rc.clock_s - 30)) parts.push(`~${fmtDur(rc.remaining_s)} by probe`);
-            said = parts.join(' \u00b7 ');
-          }
-          if (said) line.querySelector('.rr-body').append(el('div', { class: 'rr-state' }, said));
-          if (rc.waiting && rc.message) line.querySelector('.rr-body').append(el('div', { class: 'rr-msg' }, rc.message));
+          let said = '';
+          if (rc.waiting) said = rc.needs_lid ? 'lid, then continue' : 'Continue?';
+          else if (st.mode === 'Hold' && rc.at_temp === false) said = `heating${rc.remaining_s >= 0 ? ` \u00b7 ~${fmtDur(rc.remaining_s)}` : ''}`;
+          else if (rc.clock_s >= 0) said = `${fmtDur(rc.clock_s)} left${rc.remaining_s >= 0 && rc.remaining_s < rc.clock_s - 30 ? ` \u00b7 ~${fmtDur(rc.remaining_s)} by probe` : ''}`;
+          else if (rc.remaining_s >= 0) said = `~${fmtDur(rc.remaining_s)} by probe`;
+          if (said) title.append(el('span', { class: 'rr-state' }, ` \u00b7 ${said}`));
         }
-        rail.append(line);
+        const acts = el('span', { class: 'rr-acts' });
+        if (state !== 'rr-done') {
+          acts.append(iconBtn('pause', 'Pause when this step ends', { class: flags[i] === 'hold' ? 'on' : '', onclick: () => setFlag(i, 'hold') }));
+          if (state === 'rr-todo') acts.append(iconBtn('chevrons-right', 'Skip this step', { class: flags[i] === 'skip' ? 'on' : '', onclick: () => setFlag(i, 'skip') }));
+          if (wantsPrompt(st)) acts.append(iconBtn('circle-check', 'Continue on its own', { class: flags[i] === 'auto' ? 'on' : '', onclick: () => setFlag(i, 'auto') }));
+        }
+        rail.append(el('div', { class: `rr-step ${state}${flags[i] ? ` rr-${flags[i]}` : ''}` },
+          el('span', { class: 'rr-glyph' }, lucide(state === 'rr-done' ? 'check' : flags[i] === 'skip' ? 'chevrons-right' : (MODE_ICON[st.mode] || 'crosshair'))),
+          title, acts));
       }
       runCard.replaceChildren(...[
         el('div', { class: 'row between' },
           el('div', { style: 'min-width:0' },
             el('div', { class: 'run-name' }, rc.name),
             el('div', { class: 'help' }, `Step ${stepIx + 1} of ${rc.nsteps}`)),
-          rc.waiting || !(rc.clock_s >= 0) ? null : el('div', { class: 'run-left' }, fmtDur(rc.clock_s))),
+          stepControls(rc)),
         rail,
+        rc.waiting && rc.message ? el('div', { class: 'notice warn' }, el('span', {}, rc.message)) : null,
         rc.waiting && rc.needs_lid
           ? el('div', { class: 'help' }, 'Open the lid, then confirm.')
           : rc.waiting

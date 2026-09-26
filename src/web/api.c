@@ -171,6 +171,12 @@ int pf_api_command_json(const char *json, char *err, size_t errn)
 		else if (!strcmp(op, "stop")) c.type = PF_CMD_RECIPE_STOP;
 		else if (!strcmp(op, "skip")) c.type = PF_CMD_RECIPE_SKIP;
 		else if (!strcmp(op, "back")) c.type = PF_CMD_RECIPE_BACK;
+		else if (!strcmp(op, "flag")) {
+			const char *f = pf_json_str(j, "flag", "none");
+			c.type = PF_CMD_RECIPE_FLAG; c.num = pf_json_num(j, "step", -1);
+			c.num2 = !strcmp(f, "hold") ? 1 : !strcmp(f, "skip") ? 2 : !strcmp(f, "auto") ? 3 : 0;
+			if (c.num < 0) { snprintf(err, errn, "step required"); rc = -1; }
+		}
 		else { snprintf(err, errn, "unknown recipe op"); rc = -1; }
 	} else {
 		snprintf(err, errn, "unknown command '%s'", cmd);
