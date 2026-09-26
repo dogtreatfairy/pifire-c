@@ -215,6 +215,26 @@ static void test_the_old_single_destination_becomes_a_location(void)
 	cJSON_Delete(locs);
 }
 
+static void test_the_share_listing_yields_its_folders(void)
+{
+	const char *listing =
+		"  .                                   D        0  Fri Sep 26 12:00:00 2026\n"
+		"  ..                                  D        0  Fri Sep 26 12:00:00 2026\n"
+		"  Photos                              D        0  Fri Sep 26 12:00:00 2026\n"
+		"  My Backups                         DA        0  Sat Sep 27 03:00:12 2026\n"
+		"  notes.txt                           A     1234  Fri Sep 26 12:00:00 2026\n"
+		"  DSC001.jpg                                 99  Fri Sep 26 12:00:00 2026\n"
+		"  PHOTOS.OLD                          N        0  Fri Sep 26 12:00:00 2026\n"
+		"\n"
+		"\t\t1234567 blocks of size 1024. 456 blocks available\n";
+	char *names[16];
+	int k = pf_backup_parse_smb_ls(listing, names, 16);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(2, k, "two directories, the dot entries and the files left out");
+	TEST_ASSERT_EQUAL_STRING("Photos", names[0]);
+	TEST_ASSERT_EQUAL_STRING("My Backups", names[1]);
+	for (int i = 0; i < k; i++) free(names[i]);
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -223,5 +243,6 @@ int main(void)
 	RUN_TEST(test_a_staged_restore_lands_before_the_database_opens);
 	RUN_TEST(test_a_folder_location_round_trips_and_prunes);
 	RUN_TEST(test_the_old_single_destination_becomes_a_location);
+	RUN_TEST(test_the_share_listing_yields_its_folders);
 	return UNITY_END();
 }

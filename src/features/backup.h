@@ -24,6 +24,8 @@ cJSON *pf_backup_browse(cJSON *req, char *err, size_t n);
 /* Called by main() before the database is opened: if a restore was staged, put it in place. */
 int    pf_backup_apply_staged(const char *data_dir, const char *config_path);
 
+/* The directory names in an smbclient "ls" listing (strdup'd into names); for the tests. */
+int    pf_backup_parse_smb_ls(const char *listing, char **names, int max);
 /* The archive itself, for the worker and the tests: writes out_path (a .tar.gz). */
 int    pf_backup_make(const char *out_path, char *err, size_t n);
 /* Unpacks and checks an archive into a staging directory; 0 when it is a PiFire backup. */

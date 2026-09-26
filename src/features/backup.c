@@ -644,6 +644,55 @@ static cJSON *browse_shares(const loc_t *L, char *err, size_t n)
 	return o;
 }
 
+/* The directories in smbclient's listing:
+ *
+ *     .                                   D        0  Fri Sep 26 12:00:00 2026
+ *     Photos                              D        0  Fri Sep 26 12:00:00 2026
+ *     notes.txt                           A     1234  Fri Sep 26 12:00:00 2026
+ *
+ * Read from the right, because the name may hold spaces: five words of date, the size, the
+ * attribute letters, and everything before that is the name. A file with no attributes prints
+ * nothing in that column, which would put the name's last word where the letters go; the
+ * letters are checked to be letters and the size to be a number before a line counts. The first
+ * version of this walked one column too few and took the size for the attribute, so no line
+ * ever said D and the share showed no folders at all. */
+int pf_backup_parse_smb_ls(const char *listing, char **names, int max)
+{
+	int k = 0;
+	char *copy = strdup(listing ? listing : "");
+	if (!copy) return 0;
+	char *save = NULL;
+	for (char *line = strtok_r(copy, "\n", &save); line && k < max; line = strtok_r(NULL, "\n", &save)) {
+		if (line[0] != ' ') continue;
+		int end = (int)strlen(line);
+		while (end > 0 && (line[end - 1] == ' ' || line[end - 1] == '\r')) end--;
+		/* seven words from the right: attr size wday mon day time year */
+		int j = end, words = 0;
+		while (j > 0 && words < 7) {
+			while (j > 0 && line[j - 1] == ' ') j--;
+			while (j > 0 && line[j - 1] != ' ') j--;
+			words++;
+		}
+		if (words < 7) continue;
+		char attr[16] = "", size[32] = "";
+		if (sscanf(line + j, "%15s %31s", attr, size) != 2) continue;
+		bool letters = attr[0] != 0, digits = size[0] != 0;
+		for (const char *c = attr; *c; c++) if (!isupper((unsigned char)*c)) letters = false;
+		for (const char *c = size; *c; c++) if (!isdigit((unsigned char)*c)) digits = false;
+		if (!letters || !digits || !strchr(attr, 'D')) continue;
+		int e = j; while (e > 0 && line[e - 1] == ' ') e--;
+		int b = 0; while (line[b] == ' ') b++;
+		if (e <= b) continue;
+		char name[256];
+		int nl = e - b; if (nl > 255) nl = 255;
+		memcpy(name, line + b, (size_t)nl); name[nl] = 0;
+		if (!strcmp(name, ".") || !strcmp(name, "..")) continue;
+		names[k++] = strdup(name);
+	}
+	free(copy);
+	return k;
+}
+
 static cJSON *browse_share(const loc_t *L, const char *path, char *err, size_t n)
 {
 	loc_t at = *L;
@@ -664,31 +713,7 @@ static cJSON *browse_share(const loc_t *L, const char *path, char *err, size_t n
 		free(out);
 		return NULL;
 	}
-	/* "  name   D   0  Fri Sep 26 ..." -- the attribute column says D for a directory */
-	char *names[512]; int k = 0;
-	char *save = NULL;
-	for (char *line = strtok_r(out, "\n", &save); line && k < 512; line = strtok_r(NULL, "\n", &save)) {
-		if (line[0] != ' ') continue;
-		/* the name may hold spaces: it ends where the attribute column begins, which is the
-		 * last run of spaces before a short token of attribute letters */
-		char name[256] = "", attr[16] = "";
-		long size = -1;
-		/* scan from the right: "<size> <weekday> ..." after the attribute */
-		int i = (int)strlen(line);
-		while (i > 0 && line[i - 1] == ' ') i--;
-		/* walk back over the date (5 tokens) and size */
-		int tokens = 0; int j = i;
-		while (j > 0 && tokens < 6) { while (j > 0 && line[j - 1] != ' ') j--; tokens++; if (tokens < 6) while (j > 0 && line[j - 1] == ' ') j--; }
-		if (tokens < 6) continue;
-		if (sscanf(line + j, "%15s %ld", attr, &size) != 2) continue;
-		int e = j; while (e > 0 && line[e - 1] == ' ') e--;
-		int b = 0; while (line[b] == ' ') b++;
-		if (e <= b) continue;
-		int nl2 = e - b; if (nl2 > 255) nl2 = 255;
-		memcpy(name, line + b, (size_t)nl2); name[nl2] = 0;
-		if (!strchr(attr, 'D') || !strcmp(name, ".") || !strcmp(name, "..")) continue;
-		names[k++] = strdup(name);
-	}
+	char *names[512]; int k = pf_backup_parse_smb_ls(out, names, 512);
 	free(out);
 	cJSON *o = cJSON_CreateObject();
 	cJSON_AddStringToObject(o, "path", at.path);

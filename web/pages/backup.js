@@ -136,7 +136,7 @@ export function renderBackup(view) {
         }
       } else if (loc.type === 'smb') {
         if (st && st.smbclient === false) body.append(el('div', { class: 'notice warn' }, el('span', {}, 'smbclient is not installed on the grill. Run: sudo apt install smbclient')));
-        fields.push({ path: 'host', label: 'Host', help: 'Name or address of the NAS or computer', type: 'text' },
+        fields.push({ path: 'host', label: 'Host', help: 'Name or address of the NAS or computer. A Tailscale name or 100.x address works too', type: 'text' },
           { path: 'share', label: 'Share', type: 'text' },
           { path: 'path', label: 'Folder in the share', help: 'Made if it is not there', type: 'text' },
           { path: 'user', label: 'User', type: 'text' },
@@ -151,6 +151,20 @@ export function renderBackup(view) {
         if (fold) form.insertBefore(node, fold); else form.append(node);
       }
       body.append(form);
+      /* the machines on the tailnet, offered under the host field: the NAS is reachable by its
+         Tailscale name from anywhere the grill is, not only from the kitchen */
+      if (loc.type === 'smb') {
+        api('/network/tailscale').then((ts) => {
+          const peers = (ts.peers || []).filter((p) => p.os !== 'iOS' && p.os !== 'android');
+          const host = form.querySelector('[name="host"]');
+          if (!peers.length || !host) return;
+          const dl = el('datalist', { id: `hosts-${loc.id}` }, ...peers.flatMap((p) => [
+            el('option', { value: p.name, label: `${p.name} \u00b7 Tailscale${p.online ? '' : ' (offline)'}` }),
+            p.ip ? el('option', { value: p.ip, label: `${p.name} \u00b7 ${p.ip}` }) : null].filter(Boolean)));
+          host.setAttribute('list', dl.id);
+          host.after(dl);
+        }).catch(() => {});
+      }
       const read = () => { const out = { ...loc }; for (const f of fields) out[f.path] = readField(f, form); return out; };
       const persist = async (next) => {
         const all = locs();

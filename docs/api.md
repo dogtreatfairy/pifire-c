@@ -65,6 +65,9 @@ Recipe step: `{"mode":"Startup|Smoke|Hold|Shutdown","setpoint":225,"s_plus":fals
 
 ## Network
 
+`GET /network/tailscale` — the grill's Tailscale state, with `peers: [{name, dns, ip, online, os}]` for the other machines on the tailnet (the backup page offers them under a share's Host field).
+
+
 `GET /network/status`, `GET /network/scan?rescan=1`, `GET /network/saved`, `POST /network/connect {ssid,psk}`, `POST /network/forget {ssid}`, `POST /network/hotspot {on}`.
 
 ## Admin

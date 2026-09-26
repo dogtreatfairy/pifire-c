@@ -153,6 +153,27 @@ cJSON *pf_tailscale_status_json(void)
 	cJSON_AddStringToObject(o, "dns_name", dns);
 	cJSON_AddBoolToObject(o, "online", pf_json_bool(self, "Online", false));
 	cJSON_AddStringToObject(o, "tailnet", pf_json_str(cJSON_GetObjectItem(js, "CurrentTailnet"), "Name", ""));
+	/* The other machines on the tailnet, by the names Tailscale gives them, so a page that asks
+	 * for a host -- a backup share, say -- can offer them rather than leave the cook to remember
+	 * that the NAS is 100.69.209.35 from here. */
+	cJSON *peers = cJSON_AddArrayToObject(o, "peers");
+	cJSON *pm = cJSON_GetObjectItem(js, "Peer"), *pe;
+	cJSON_ArrayForEach(pe, pm) {
+		const char *hn = pf_json_str(pe, "HostName", "");
+		if (!hn[0]) continue;
+		cJSON *p = cJSON_CreateObject();
+		cJSON_AddStringToObject(p, "name", hn);
+		char pdns[128];
+		pf_strlcpy(pdns, pf_json_str(pe, "DNSName", ""), sizeof pdns);
+		size_t pl = strlen(pdns);
+		if (pl && pdns[pl - 1] == '.') pdns[pl - 1] = 0;
+		cJSON_AddStringToObject(p, "dns", pdns);
+		cJSON *pips = cJSON_GetObjectItem(pe, "TailscaleIPs");
+		cJSON_AddStringToObject(p, "ip", cJSON_IsArray(pips) && cJSON_GetArraySize(pips) ? cJSON_GetArrayItem(pips, 0)->valuestring : "");
+		cJSON_AddBoolToObject(p, "online", pf_json_bool(pe, "Online", false));
+		cJSON_AddStringToObject(p, "os", pf_json_str(pe, "OS", ""));
+		cJSON_AddItemToArray(peers, p);
+	}
 	cJSON_Delete(js);
 	return o;
 }
