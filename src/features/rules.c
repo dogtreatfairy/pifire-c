@@ -127,6 +127,8 @@ static val trait_of(const cJSON *status, const inst *in, const char *entity, con
 		{ "step", "elapsed", "step.elapsed" },
 		{ "step", "food_max", "step.food_max" }, { "step", "food_min", "step.food_min" },
 		{ "step", "food_rested", "step.food_rested" },
+		{ "step", "food_avg", "step.food_avg" }, { "step", "food_battery", "step.food_battery" },
+		{ "step", "food_eta", "step.food_eta" },
 		{ "step", "prompt", "step.prompt" }, { "step", "lid", "step.lid" },
 	};
 	if (!strcmp(domain, "grill") && (!strcmp(trait, "temp") || !strcmp(trait, "over"))) {
@@ -791,6 +793,9 @@ static const struct trait_def TRAIT_TABLE[] = {
 		{ "step", "food_max", "temperature", "deg", "Hottest Food Probe", false },
 		{ "step", "food_min", "temperature", "deg", "Coolest Food Probe", false },
 		{ "step", "food_rested", "temperature", "deg", "Hottest Food Probe, Rested", false },
+		{ "step", "food_avg", "temperature", "deg", "Average Food Probe", false },
+		{ "step", "food_battery", "percent", "%", "Lowest Food Probe Battery", false },
+		{ "step", "food_eta", "duration", "s", "Soonest Food Probe To Its Target", false },
 		{ "step", "prompt", "bool", "", "You Confirmed", false },
 		{ "step", "lid", "bool", "", "Lid Opened", false },
 	
@@ -829,6 +834,14 @@ cJSON *pf_rules_catalogue_json(const cJSON *status)
 			cJSON_AddStringToObject(t, "type", TRAITS[i].type);
 			cJSON_AddStringToObject(t, "unit", TRAITS[i].unit);
 			cJSON_AddStringToObject(t, "label", TRAITS[i].label);
+			/* Which heading the picker lists it under. A step's readings are about three different
+			 * things -- the step itself, the food, the cook -- and the list is easier to scan when
+			 * it says so; every other domain is its own heading. */
+			const char *cat = DOMS[d];
+			if (!strcmp(DOMS[d], "step"))
+				cat = !strncmp(TRAITS[i].trait, "food_", 5) ? "Probes"
+				    : (!strcmp(TRAITS[i].trait, "prompt") || !strcmp(TRAITS[i].trait, "lid")) ? "You" : "Step";
+			cJSON_AddStringToObject(t, "category", cat);
 			const char *const *ops = !strcmp(TRAITS[i].type, "bool") ? BOOL_OPS
 			                       : (!strcmp(TRAITS[i].type, "string") || !strcmp(TRAITS[i].type, "enum")) ? STR_OPS : NUM_OPS;
 			cJSON *oj = cJSON_AddArrayToObject(t, "operators");

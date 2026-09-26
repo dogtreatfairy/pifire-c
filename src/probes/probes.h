@@ -57,6 +57,12 @@ void pf_probes_poll(double now);
 /* Tell the probe layer whether a cook is under way, so it can work out which probes are part of it.
  * Passing false ends the cook and clears every probe's in-use flag. */
 void pf_probes_set_cooking(bool cooking);
+/* The cook said which probes are in the food. From here until the cook ends only those count as in
+ * use (plus any probe later given a target, which is a deliberate act); a probe merely reading
+ * while the grill is lit no longer does. An empty list means none of them. */
+void pf_probes_set_in_use(const char *labels_csv);
+/* The labels currently in use, comma separated, for the warm-restart snapshot. */
+void pf_probes_in_use_csv(char *out, size_t n);
 void pf_probes_snapshot(pf_sensors *out);
 /* Per-device status for the UI: [{"device":..,"module":..,"status":{...}}] */
 cJSON *pf_probes_device_status(void);

@@ -734,25 +734,37 @@ chatter and must not silently swallow anything a person wrote.
 
 "When is this true" is one question, and it is asked in one set of shapes wherever it comes up: a
 notification that fires, a recipe step that ends, anything after them. The cards, the rows, the
-AND / OR / NOT marks (`&`, `\u2265`, `\u2260`), the single **Add condition** that asks what kind, the
-per-node **For**, and the summary in each folded header all live in `web/conditions.js` and are
-imported, never re-implemented. The daemon publishes one catalogue of domains and traits, and
-`pf_rules_eval_tree` evaluates one kind of tree, so a condition means the same thing in both
-places and a trait added in C appears in both editors on the next load.
+picker and the per-node **For** live in `web/conditions.js` and are imported, never re-implemented.
+The daemon publishes one catalogue of domains and traits, and `pf_rules_eval_tree` evaluates one
+kind of tree, so a condition means the same thing in both places and a trait added in C appears in
+both editors on the next load.
 
-This rule exists because it was broken. A recipe step's ending was built as its own little stack of
-segmented controls and toggles -- "Straight on / Wait For Me", a lid switch, a Joined By -- which
-asked exactly the question the notification editor asks and asked it in a different visual
-language. Enumerating the combinations as modes is the symptom; the cause is answering a question
-somebody else's component already answers. When a new surface needs conditions, extend the
-catalogue with a domain, not the interface with a lookalike.
+**Add condition lists what can be tested, by name, under a heading.** "Hottest Food Probe",
+"Time In This Step", "Pit Temperature" -- grouped as the catalogue groups them: Step, Probes, Grill,
+Hopper. Picking one adds a row already aimed at that reading. It used to list *kinds* -- Condition,
+AND, OR, NOT -- which asked the reader to decide what shape of thing they wanted before they could
+say what they wanted to test. Where an editor allows nesting, AND and OR sit at the end of the same
+list under their own heading. NOT is not offered: every operator has its opposite, and "is not
+connected" reads better than a NOT wrapped round "is connected".
 
-A domain names what can be asked about, and should be written so that the common thing is one row.
-A step does not ask about each food probe in turn: it asks about the **hottest** and the
-**coolest** of the ones in this cook, so "any of them is there" and "all of them are" are each a
-single comparison. Where a reading needs adjusting to mean what the cook means -- the meat's
-temperature after it rests, not as it comes off -- that is its own trait rather than a checkbox
-bolted to the row.
+**A row is the reading, then how, then against what.** The reading takes the whole first line; the
+operator and the value share the second. A time is typed as a number and *min* or *sec*, never as
+a count of seconds. Comparing against another reading -- "below the set point + 15" -- is one tap
+away under the value, not a select reading "a number" sitting in every row. A card's header says
+the condition with symbols, `Hottest Food Probe \u2265 160\u00b0F`, so it can be read shut.
+
+**A recipe step's ending is a flat list.** One level, joined by AND or OR, with no card of its own
+round it: a fold headed "OR \u00b7 2" over rows that already said what they were was one more border
+inside the step's, and that nesting is what made the whole thing hard to read. The two things only a
+person can do -- confirm, open the lid -- are not rows in that list. They are asked as one plain
+choice underneath, **Then Carry On**: right away, after I confirm, after the lid opens or I confirm,
+after the lid opens and I confirm. Underneath they are the same prompt and lid facts the daemon
+evaluates; the editor splits the one tree into the list and the choice and joins it back on save.
+
+A domain names what can be asked about, and is written so that the common thing is one row. A step
+asks about the **hottest**, the **coolest** and the **average** food probe in this cook, the hottest
+**rested**, the lowest **battery** and the **soonest to its target**, so "any of them is there" and
+"all of them are" are each a single comparison.
 
 ## More than one way for something to finish is a condition
 
@@ -766,6 +778,17 @@ One of the signals should be one a person can always give. A step that only a li
 has no way out of it if the switch never fires, so the prompt is shown as a fixed part of the
 answer rather than a box that can be unticked, and what the cook chooses is whether the lid counts
 as well.
+
+## A cook starts by saying which probes are in the food
+
+Which probes are in the meat is a fact only the cook has. A probe on the counter reads perfectly
+well and is in nothing, and every reading a recipe or a notification takes from "the food" is wrong
+if it counts. So starting a cook -- from the Home screen or by running a recipe -- asks once:
+**Which probes are in the food?**, as a list of the enabled food probes with a switch each, and the
+answer holds until the cook ends. Before it is answered the daemon's guess stands (a probe reading
+while the grill is lit); once it is answered the guess is not used. A probe switched off is not
+offered, and gets no target or step buttons on the Probes page either: dead controls under an "off"
+row say the opposite of what the row says.
 
 ## Say what is wrong where it is wrong, with the remedy beside it
 

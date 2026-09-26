@@ -618,6 +618,18 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .cond { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-items: center; padding: 2px 0; }
 .cond select, .cond input { min-width: 0; width: 100%; box-sizing: border-box; }
 .cond .c-val { grid-column: 1 / span 2; } .cond .c-val2 { grid-column: 2; }
+/* the reading takes the whole first line; how and against what share the second */
+.cond .c-trait { grid-column: 1 / span 2; }
+.cond .c-op { grid-column: 1; }
+.cond .c-val:not(.c-operand):not(.chips):not(.c-dur) { grid-column: 2; }
+/* a time is a number and its unit, and the two need a line of their own at phone width */
+.cond .c-dur { grid-column: 1 / span 2; display: flex; gap: 6px; align-items: center; }
+.cond .c-dur > input { flex: 1 1 4rem; min-width: 0; text-align: center; }
+.cond .c-operand.wide { grid-column: 1 / span 2; grid-template-columns: 1fr 5.5rem auto; }
+.cond .c-alt { grid-column: 1 / span 2; justify-self: start; }
+/* a flat list of conditions: the rows and the join, with no card of its own round them */
+.cond-flat { display: flex; flex-direction: column; gap: var(--sp-2); }
+.cond-flat > .cond-card { margin: 0; }
 /* What it is compared against: the chooser, then the number -- or, when a reading was chosen, the
    offset on it. One row that reads left to right as a sentence, the way Home Assistant's own
    above/below field takes a number or an entity without asking which you meant first. */
@@ -651,6 +663,11 @@ legend { font-weight: 600; margin-bottom: 6px; }
 /* the list of kinds an Add condition offers: the same row as everywhere, with the mark in place of
    a tile so AND, OR and NOT are recognisable before their names are read */
 .kind-row { width: 100%; text-align: left; background: none; border: 0; padding: 10px 12px; color: inherit; cursor: pointer; }
+/* The condition picker: what can be tested, under the heading it belongs to. It scrolls, because a
+   grill with a few probes has more to say than fits on one phone screen. */
+.pick-list { max-height: 60vh; overflow: auto; }
+.pick-sec + .pick-sec { margin-top: var(--sp-3); }
+.pick-sec h2 { margin: 0 0 6px; }
 .kind-row .cc-glyph { font-size: var(--fs-md); }
 /* Which chart this is. The name takes the slack and ellipsizes; the way back to live sits at the
    end where a screen's committing action always does. */

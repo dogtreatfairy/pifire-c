@@ -43,6 +43,11 @@ static int g_ndev;
 static pf_sensors g_snap;
 static probe_priv_t g_priv[PF_MAX_PROBES];
 static bool g_cooking;
+/* True once the cook has said which probes are in the food. Until then a probe that is reading
+ * while the grill is lit is assumed to be in use, which is the best guess available; once they
+ * have said, the guess is wrong by definition -- the spare probe on the counter reads perfectly
+ * well and is not in anything. */
+static bool g_in_use_explicit;
 
 /* Device reads happen outside the lock, because a Bluetooth read can block for a moment and the
  * whole probe layer must not stall behind it. That leaves a window: a settings reload tears the
@@ -54,9 +59,43 @@ static pthread_cond_t g_idle = PTHREAD_COND_INITIALIZER;
 void pf_probes_set_cooking(bool cooking)
 {
 	pthread_mutex_lock(&g_mu);
-	if (!cooking && g_cooking)
+	if (!cooking && g_cooking) {
 		for (int i = 0; i < g_snap.n; i++) g_snap.p[i].in_use = false;   /* the cook is over */
+		g_in_use_explicit = false;
+	}
 	g_cooking = cooking;
+	pthread_mutex_unlock(&g_mu);
+}
+
+void pf_probes_set_in_use(const char *labels_csv)
+{
+	pthread_mutex_lock(&g_mu);
+	g_in_use_explicit = true;
+	for (int i = 0; i < g_snap.n; i++) {
+		pf_probe_reading *r = &g_snap.p[i];
+		bool named = false;
+		const char *p = labels_csv ? labels_csv : "";
+		while (*p) {
+			const char *e = strchr(p, ',');
+			size_t len = e ? (size_t)(e - p) : strlen(p);
+			if (len == strlen(r->label) && !strncmp(p, r->label, len)) { named = true; break; }
+			p = e ? e + 1 : p + len;
+		}
+		r->in_use = named && r->enabled;
+	}
+	pthread_mutex_unlock(&g_mu);
+}
+
+void pf_probes_in_use_csv(char *out, size_t n)
+{
+	out[0] = 0;
+	pthread_mutex_lock(&g_mu);
+	if (g_in_use_explicit)
+		for (int i = 0; i < g_snap.n; i++) {
+			if (!g_snap.p[i].in_use) continue;
+			size_t len = strlen(out);
+			snprintf(out + len, n - len, "%s%s", len ? "," : "", g_snap.p[i].label);
+		}
 	pthread_mutex_unlock(&g_mu);
 }
 
@@ -293,8 +332,9 @@ void pf_probes_poll(double now)
 			r->temp_c = pf_tempq_push(&pv->q, c);
 			r->valid = true;
 			r->last_valid_t = now;
-			/* it is reading while a cook is on, so it is part of the cook from here until the end */
-			if (g_cooking && r->enabled) r->in_use = true;
+			/* it is reading while a cook is on, so it is part of the cook from here until the end
+			 * -- unless the cook has said which probes are in the food, in which case they know */
+			if (g_cooking && r->enabled && !g_in_use_explicit) r->in_use = true;
 			if (r->enabled && r->target_c > 0) r->in_use = true;   /* given a job, so it is in use */
 		} else {
 			r->valid = false;

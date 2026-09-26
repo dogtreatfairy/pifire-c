@@ -170,3 +170,20 @@ static const pf_platform_ops ops = {
 };
 
 const pf_platform_ops *pf_platform_sim(void) { return &ops; }
+
+void pf_sim_plant(double *tau_s, double *theta_s, double *pot_tau_s)
+{
+	if (tau_s) *tau_s = PIT_TAU_S;
+	if (theta_s) *theta_s = DEAD_TIME_S;
+	if (pot_tau_s) *pot_tau_s = POT_TAU_S;
+}
+
+/* The simulator's gain at an operating point: degrees of settled pit per unit of auger duty, from
+ * the same equilibrium the model runs on. Radiation makes it fall with temperature, which is why
+ * a test cannot take the convective constant and call it the gain. */
+double pf_sim_small_signal_gain(double amb_c, double duty)
+{
+	double per_duty = GAIN_C_PER_GPS * AUGER_GPS;
+	double p = per_duty * duty, dp = per_duty * 0.01;
+	return (equilibrium_rise(p + dp, amb_c) - equilibrium_rise(p - dp, amb_c)) / (2 * dp) * per_duty;
+}

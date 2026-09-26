@@ -27,3 +27,9 @@ const pf_platform_ops *pf_platform_sim(void);
 pf_sim_state *pf_sim_model(void);          /* NULL until the sim platform is created */
 void pf_sim_step(double dt_s);              /* advance the model */
 void pf_sim_reset(double ambient_c);
+
+/* The simulator's own dynamics -- the pit's time constant, its dead time and the pot's lag -- so a
+ * test can work out the ultimate period the relay ought to find and hold the tuner to it. */
+void pf_sim_plant(double *tau_s, double *theta_s, double *pot_tau_s);
+/* Degrees of settled pit per unit duty at this ambient and duty; see the implementation. */
+double pf_sim_small_signal_gain(double amb_c, double duty);

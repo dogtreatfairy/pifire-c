@@ -655,6 +655,10 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 		pf_alarms_clear("RECIPE:left_running");
 		recipe_begin_step(c, now);
 		break;
+	case PF_CMD_PROBES_IN_USE:
+		pf_probes_set_in_use(cmd->str);
+		LOGI(TAG, "probes in the food: %s", cmd->str[0] ? cmd->str : "none");
+		break;
 	case PF_CMD_RECIPE_NEXT:
 		/* Next records that the cook has answered. Whether that ends the step is the step's own
 		 * condition to decide -- with "the lid AND you confirmed" it does not, until the lid has
@@ -706,17 +710,28 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
  * the coolest, and the hottest plus the climb it will still do once it is off the heat. Any one of
  * them getting there is the hottest; all of them is the coolest; where the meat finishes rather
  * than where it came off is the rested one. NAN when nothing is in the meat. */
-static void food_numbers(pf_control *c, double *hi, double *lo, double *rested)
+typedef struct { double hi, lo, avg, rested, battery, eta; } food_stats;
+
+static food_stats food_numbers(pf_control *c)
 {
-	*hi = NAN; *lo = NAN; *rested = NAN;
-	double rate_at_hi = 0;
+	food_stats f = { NAN, NAN, NAN, NAN, NAN, -1 };
+	double sum = 0, rate_at_hi = 0;
+	int n = 0;
 	for (int i = 0; i < c->sensors.n; i++) {
 		const pf_probe_reading *p = &c->sensors.p[i];
-		if (p->role != PF_PROBE_FOOD || !p->enabled || !p->in_use || !p->valid) continue;
-		if (isnan(*hi) || p->temp_c > *hi) { *hi = p->temp_c; rate_at_hi = pf_notify_probe_rate(&c->notify, p->label); }
-		if (isnan(*lo) || p->temp_c < *lo) *lo = p->temp_c;
+		if (p->role != PF_PROBE_FOOD || !p->enabled || !p->in_use) continue;
+		/* battery and time-to-target are about the probe, not its reading, and count even while
+		 * a reading is briefly missing */
+		if (p->wireless && p->battery >= 0 && (isnan(f.battery) || p->battery < f.battery)) f.battery = p->battery;
+		const pf_notify_probe *np = pf_notify_find(&c->notify, p->label);
+		if (np && np->eta_s >= 0 && (f.eta < 0 || np->eta_s < f.eta)) f.eta = np->eta_s;
+		if (!p->valid) continue;
+		if (isnan(f.hi) || p->temp_c > f.hi) { f.hi = p->temp_c; rate_at_hi = pf_notify_probe_rate(&c->notify, p->label); }
+		if (isnan(f.lo) || p->temp_c < f.lo) f.lo = p->temp_c;
+		sum += p->temp_c; n++;
 	}
-	if (!isnan(*hi)) *rested = *hi + pf_carryover_c(rate_at_hi);
+	if (n) { f.avg = sum / n; f.rested = f.hi + pf_carryover_c(rate_at_hi); }
+	return f;
 }
 
 /* What a step's ending is evaluated against.
@@ -748,13 +763,15 @@ static cJSON *step_facts(pf_control *c, double now, bool as_if_answered)
 		cJSON_AddNumberToObject(pp, "temp", c->sensors.p[pi].temp_c);
 		cJSON_AddItemToArray(probes, pp);
 	}
-	double hi, lo, rested;
-	food_numbers(c, &hi, &lo, &rested);
+	food_stats f = food_numbers(c);
 	cJSON *st = cJSON_AddObjectToObject(o, "step");
 	cJSON_AddNumberToObject(st, "elapsed", now - c->recipe.step_start);
-	if (!isnan(hi)) cJSON_AddNumberToObject(st, "food_max", hi);
-	if (!isnan(lo)) cJSON_AddNumberToObject(st, "food_min", lo);
-	if (!isnan(rested)) cJSON_AddNumberToObject(st, "food_rested", rested);
+	if (!isnan(f.hi)) cJSON_AddNumberToObject(st, "food_max", f.hi);
+	if (!isnan(f.lo)) cJSON_AddNumberToObject(st, "food_min", f.lo);
+	if (!isnan(f.avg)) cJSON_AddNumberToObject(st, "food_avg", f.avg);
+	if (!isnan(f.rested)) cJSON_AddNumberToObject(st, "food_rested", f.rested);
+	if (!isnan(f.battery)) cJSON_AddNumberToObject(st, "food_battery", f.battery);
+	if (f.eta >= 0) cJSON_AddNumberToObject(st, "food_eta", f.eta);
 	cJSON_AddBoolToObject(st, "prompt", as_if_answered || c->recipe.prompt_given);
 	cJSON_AddBoolToObject(st, "lid", as_if_answered || c->recipe.lid_seen);
 	return o;
@@ -813,7 +830,7 @@ static double tree_eta(pf_control *c, const cJSON *node, double now)
 	if (strcmp(op, ">=") && strcmp(op, ">")) return -1;
 	double want = pf_json_num((cJSON *)node, "value", 0);
 	if (!strcmp(tr, "elapsed")) return fmax(0, want - (now - c->recipe.step_start));
-	if (strcmp(tr, "food_max") && strcmp(tr, "food_min") && strcmp(tr, "food_rested")) return -1;
+	if (strcmp(tr, "food_max") && strcmp(tr, "food_min") && strcmp(tr, "food_avg") && strcmp(tr, "food_rested")) return -1;
 
 	double target_c = want;   /* the tree is in Celsius */
 	double best = -1;
@@ -1384,16 +1401,73 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 		double t_hi = 0, t_lo = 0; int gk = 0;
 		/* the same cycles the period and amplitude came from, split into their two halves */
 		for (int i = n - 1; i >= 2 && gk < 3; i -= 2, gk++) {
-			/* halves[i] is the half that ended at crossing i+1; phase tells which way round */
+			/* halves[i] is the half that ended at crossing i+1 and ran under the phase that crossing
+			 * switched AWAY from, so the last half, halves[n-1], was the high one exactly when the
+			 * phase now is low. The parity was written the other way round; sin(pi*g) is symmetric
+			 * about a half so the gain never noticed, but the number was still the wrong one. */
 			double a = c->autotune.halves[i], b = c->autotune.halves[i - 1];
-			bool i_was_high = ((n - i) % 2) == (c->autotune.phase > 0 ? 1 : 0);
+			bool i_was_high = ((n - i) % 2) == (c->autotune.phase > 0 ? 0 : 1);
 			t_hi += i_was_high ? a : b;
 			t_lo += i_was_high ? b : a;
 		}
 		if (t_hi + t_lo > 0) gamma = t_hi / (t_hi + t_lo);
 		gamma = pf_clamp(gamma, 0.15, 0.85);
 	}
-	double Ku = (2.0 / M_PI) * (2.0 * h_eff) * sin(M_PI * gamma) / (denom > 0.1 ? denom : A);
+	(void)denom;
+	/* Where the relay measured, and where the tuning rules look.
+	 *
+	 * A relay with hysteresis does not switch at the set point: it waits until the error has passed
+	 * eps, so the oscillation it sets up is the one where the grill's phase lag is not 180 degrees
+	 * but 180 - asin(eps/A). That is a lower frequency, so a longer period, and a point further up
+	 * the Nyquist curve where the gain is higher. The tuning rules want the ultimate point -- the
+	 * 180 degree crossing -- and Tyreus-Luyben's Ti and Td scale with the period, so feeding them
+	 * the measured period as though it were the ultimate one hands back an integral and a
+	 * derivative time too long by the same factor, and a band too wide. On this grill's own run
+	 * the hysteresis was 1.2 C against a 3.3 C swing: 22 degrees of phase, a period 24% long and
+	 * a gain 22% short. That is a tune that is safe and slow, which is what the cooks have shown.
+	 *
+	 * The describing function gives the point exactly: |1/G(jw_m)| = 4h sin(pi g)/(pi A). Taking
+	 * sqrt(A^2 - eps^2) for A projects it onto the real axis, which is right only if the curve fell
+	 * straight down to it from there; on a lag-dominant plant it does not. So the point is taken
+	 * as it is and carried along the plant's own curve to the crossing:
+	 *
+	 *   - with a time constant in hand, exactly for a first-order lag plus dead time: the dead
+	 *     time is whatever puts the phase where the relay found it, and the crossing is where that
+	 *     dead time takes it to 180;
+	 *   - without one, along the asymptote every lag-dominant plant shares near its crossing, where
+	 *     the phase is -90 - w*theta and the gain falls as 1/w, so the period shortens and the gain
+	 *     rises by the same factor 1 - (2/pi) asin(eps/A).
+	 *
+	 * Astrom and Hagglund's advice is to keep eps just above the noise for this reason; here the
+	 * noise is what sets it, so the correction is made instead. */
+	double phi = A > eps ? asin(eps / A) : 0;
+	double Ku_m = (2.0 / M_PI) * (2.0 * h_eff) * sin(M_PI * gamma) / A;
+	double w_m = 2.0 * M_PI / Pu, w_u = w_m, Ku = Ku_m;
+	pf_fopdt m0 = pf_learning_fopdt();
+	const char *how = "asymptote";
+	if (m0.valid && m0.tau > 0 && w_m * m0.tau > 1.0) {
+		double theta_eff = (M_PI - phi - atan(w_m * m0.tau)) / w_m;
+		if (theta_eff > 1.0) {
+			double lo = w_m, hi = w_m * 3.0;
+			for (int i = 0; i < 60; i++) {
+				double mid = 0.5 * (lo + hi);
+				if (mid * theta_eff + atan(mid * m0.tau) < M_PI) lo = mid; else hi = mid;
+			}
+			w_u = 0.5 * (lo + hi);
+			Ku = Ku_m * sqrt(1 + w_u * m0.tau * w_u * m0.tau) / sqrt(1 + w_m * m0.tau * w_m * m0.tau);
+			how = "first-order lag plus dead time";
+		}
+	}
+	if (w_u == w_m) {
+		double f = 1.0 - (2.0 / M_PI) * phi;
+		if (f < 0.6) f = 0.6;   /* A >= 2 eps is enforced above, so this is 0.67 at worst */
+		w_u = w_m / f;
+		Ku = Ku_m / f;
+	}
+	double Pu_m = Pu;
+	Pu = 2.0 * M_PI / w_u;
+	LOGI(TAG, "autotune: relay found |1/G| %.4f at %.0f s with %.0f deg of hysteresis phase; ultimate point %.4f at %.0f s (%s)",
+	     Ku_m, Pu_m, phi * 180 / M_PI, Ku, Pu, how);
 	pf_autotune_result r = { .Ku = Ku, .Pu = Pu, .amplitude_c = A };
 
 	/* The tuning comes out of what the relay measured, and nothing else.
@@ -2229,6 +2303,11 @@ char *pf_control_resume_json(const pf_control *c, double now)
 		cJSON_AddBoolToObject(rc, "prompt_given", c->recipe.prompt_given);
 		cJSON_AddBoolToObject(rc, "said", c->recipe.said);
 	}
+	/* Which probes the cook said were in the food: a fact only they can supply, so it must not
+	 * have to be supplied twice. */
+	char in_use[256];
+	pf_probes_in_use_csv(in_use, sizeof in_use);
+	if (in_use[0]) cJSON_AddStringToObject(o, "probes_in_use", in_use);
 	cJSON *pr = cJSON_AddArrayToObject(o, "probes");
 	for (int i = 0; i < c->notify.n; i++) {
 		const pf_notify_probe *p = &c->notify.probes[i];
@@ -2329,6 +2408,8 @@ bool pf_control_resume(pf_control *c, const char *json, double now)
 		if (u > 0 && u <= 1) c->u_raw = c->u_applied = u;   /* bumpless controller reset on the first cycle */
 	}
 	pf_notify_sync(&c->notify, &c->sensors);
+	const char *in_use = pf_json_str(o, "probes_in_use", NULL);
+	if (in_use) pf_probes_set_in_use(in_use);
 	cJSON *pr = cJSON_GetObjectItem(o, "probes"), *po;
 	cJSON_ArrayForEach(po, pr) {
 		const char *label = pf_json_str(po, "label", "");

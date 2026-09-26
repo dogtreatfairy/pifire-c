@@ -4,6 +4,7 @@ import { fmtEta } from './probes.js';
    the same kind of question -- "when is this true" -- and has to be asked in the same shapes.
    See web/conditions.js and docs/design-language.md. */
 import { catalogue, condNode, describeNode } from '../conditions.js';
+import { pickFoodProbes } from './probes.js';
 
 /* Doneness presets, in °F and converted for °C users.
  *
@@ -182,14 +183,63 @@ const MODES = [['Startup', 'Startup'], ['Smoke', 'Smoke'], ['Hold', 'Hold'], ['S
  * visual language, which is the one thing this interface is not allowed to do. */
 const blankEnds = () => ({ op: 'all', conditions: [] });
 
+/* How a step carries on once its conditions are met. These are the two things only a person can
+   do, and they are asked for here as one plain choice rather than as rows in the condition list:
+   "after the lid opens, or I confirm" is how a cook says it, and a row reading "Lid Opened is on"
+   is not. Underneath they are the prompt and lid facts the daemon already evaluates. */
+const CARRY = [
+  ['auto', 'Right away'],
+  ['prompt', 'After I confirm'],
+  ['lid_or', 'After the lid opens, or I confirm'],
+  ['lid_and', 'After the lid opens and I confirm'],
+];
+const HANDOVER = new Set(['prompt', 'lid']);
+
+/* A step's ending is stored as one condition tree, because that is what the daemon evaluates. The
+   editor shows it as two things: the list of conditions, joined by AND or OR, and how it carries
+   on. Splitting is what makes the built-in ribs step read as "3 h or 160 F, then wait for the lid
+   or me" instead of a nest of groups. */
+function splitEnding(tree) {
+  const out = { when: { op: 'all', conditions: [] }, carry: 'auto' };
+  if (!tree) return out;
+  const leaves = (n, acc) => { if (Array.isArray(n?.conditions)) n.conditions.forEach((k) => leaves(k, acc)); else if (n?.trait) acc.push(n); return acc; };
+  const hand = leaves(tree, []).filter((n) => HANDOVER.has(n.trait));
+  const hasPrompt = hand.some((n) => n.trait === 'prompt'), hasLid = hand.some((n) => n.trait === 'lid');
+  /* the group holding the handover, if it is a group, says how the two join */
+  const findHandGroup = (n) => Array.isArray(n?.conditions) && n.conditions.length && n.conditions.every((k) => k.trait && HANDOVER.has(k.trait)) ? n
+    : Array.isArray(n?.conditions) ? n.conditions.map(findHandGroup).find(Boolean) : null;
+  const hg = findHandGroup(tree);
+  out.carry = hasLid && hasPrompt ? (hg?.op === 'all' ? 'lid_and' : 'lid_or') : hasPrompt || hasLid ? 'prompt' : 'auto';
+  /* everything else is the list; if it was a group of its own, keep its AND / OR */
+  const rest = Array.isArray(tree.conditions) ? tree.conditions.filter((k) => !(k.trait && HANDOVER.has(k.trait)) && k !== hg) : (tree.trait && !HANDOVER.has(tree.trait) ? [tree] : []);
+  if (rest.length === 1 && Array.isArray(rest[0].conditions)) out.when = { op: rest[0].op === 'any' ? 'any' : 'all', conditions: leaves(rest[0], []).filter((n) => !HANDOVER.has(n.trait)) };
+  else out.when = { op: tree.op === 'any' ? 'any' : 'all', conditions: rest.flatMap((k) => leaves(k, [])).filter((n) => !HANDOVER.has(n.trait)) };
+  return out;
+}
+function joinEnding(when, carry) {
+  const terms = when.conditions || [];
+  const hand = carry === 'prompt' ? { trait: 'prompt', op: 'is_on' }
+    : carry === 'lid_or' || carry === 'lid_and'
+      ? { op: carry === 'lid_and' ? 'all' : 'any', conditions: [{ trait: 'prompt', op: 'is_on' }, { trait: 'lid', op: 'is_on' }] }
+      : null;
+  const list = terms.length ? (terms.length === 1 ? terms[0] : { op: when.op || 'all', conditions: terms }) : null;
+  if (list && hand) return { op: 'all', conditions: [list, hand] };
+  if (hand) return hand;
+  return { op: when.op || 'all', conditions: terms };
+}
+
+
 /* One line saying what a step does, for the row in the list and for the header of the card when it
    is folded shut -- the same rule the notification editor follows: a card you cannot read without
    opening it is a card that has to be opened. The ending is described by the shared code, so a
    step and a notification say the same condition in the same words. */
 function stepSummary(s) {
   const parts = [s.mode + (s.mode === 'Hold' && s.setpoint ? ` ${s.setpoint}${degUnit()}` : '')];
-  const said = s.ends ? describeNode(s.ends, 'step', true) : '';
+  const e = splitEnding(s.ends);
+  const said = describeNode(e.when, 'step', true);
   if (said) parts.push(said);
+  const c = CARRY.find(([v]) => v === e.carry)?.[1];
+  if (e.carry !== 'auto' && c) parts.push(c.toLowerCase());
   return parts.join(' \u00b7 ');
 }
 
@@ -260,9 +310,14 @@ function recipeEditor(rec0, isNew) {
              own summary, AND / OR / NOT as & \u2265 \u2260, one Add condition that asks what kind, and
              a duration on any of them. "Three hours, or any food probe at 160, and then you
              confirm" is one tree and reads as one sentence. */
-          s.ends ||= blankEnds();
+          /* Kept split while editing and joined back into s.ends on every change, so what the
+             daemon reads is always the one tree. */
+          s._e ||= splitEnding(s.ends);
+          const sync = () => { s.ends = joinEnding(s._e.when, s._e.carry); changed(); };
           inner.append(el('div', { class: 'field' }, el('label', {}, 'Ends When'),
-            condNode(s.ends, 'step', () => changed(), null, 0)));
+            condNode(s._e.when, 'step', sync, null, 0, { flat: true, exclude: ['prompt', 'lid'] })));
+          inner.append(field('Then Carry On', el('select', { onchange: (e) => { s._e.carry = e.target.value; sync(); } },
+            CARRY.map(([v, l]) => el('option', { value: v, selected: s._e.carry === v }, l)))));
         }
         inner.append(field('Message', el('input', { type: 'text', value: s.message || '', placeholder: 'e.g. Wrap the ribs',
           onchange: (e) => { s.message = e.target.value; changed(); } }), 'Sent when the step ends'));
@@ -307,7 +362,8 @@ function recipeEditor(rec0, isNew) {
     draw();
 
     const dismiss = async () => {
-      if (JSON.stringify(rec) !== JSON.stringify({ ...rec0, units: PF.units }) &&
+      const clean = structuredClone(rec); for (const st of clean.steps) delete st._e;
+      if (JSON.stringify(clean) !== JSON.stringify({ ...rec0, units: PF.units }) &&
           !await confirmDialog('Discard changes?', rec.name || '', 'Discard', true)) return;
       close(undefined);
     };
@@ -326,6 +382,7 @@ function recipeEditor(rec0, isNew) {
           if (needStart) { needStart.apply(); toast('Added a Startup step so it lights a cold grill'); }
           /* Ending without one is allowed, and is the thing to be warned about rather than stopped
              for: the runner asks what to do with the lit grill when it gets there. */
+          for (const st of rec.steps) delete st._e;   /* editor scratch, not part of the recipe */
           if (issues.some((i) => i.code === 'no_shutdown')
               && !await confirmDialog('Leave the grill running?',
                    'This recipe does not end with a Shutdown step. When it finishes the grill will still be lit, and PiFire will ask you whether to shut it down.',
@@ -366,6 +423,11 @@ export function renderCook(view) {
   const run = async (r) => {
     const first = r.steps?.[0];
     if (!await confirmDialog(`Run ${r.name}?`, first ? `Starts with ${stepSummary(first)}.` : '', 'Run')) return;
+    /* Which probes are in the food is a fact only the cook has, and every reading a step takes
+       from "the food" is wrong without it. Asked once, here, when it is known. */
+    const labels = await pickFoodProbes();
+    if (labels === undefined) return;
+    await cmd({ cmd: 'probes_in_use', labels });
     cmd({ cmd: 'recipe', op: 'start', id: r.id });
   };
 

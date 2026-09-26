@@ -1,4 +1,27 @@
-import { PF, el, api, cmd, patchSettings, toast, confirmDialog, dialog, pushScreen, degUnit, segmented, actionBtn, itemRow, iconBtn, addRow, iconField, listGroup, screenActions, actionBar } from '../app.js';
+import { PF, el, api, cmd, fmtTemp, patchSettings, toast, confirmDialog, dialog, pushScreen, degUnit, segmented, actionBtn, itemRow, iconBtn, addRow, iconField, listGroup, screenActions, actionBar } from '../app.js';
+
+/* Which probes are in the food. Asked when a cook starts, because it is a fact only the cook has:
+   a spare probe on the counter reads perfectly well and is not in anything, and every reading a
+   recipe takes from "the food" -- hottest, coolest, average, soonest to its target -- is wrong if
+   it counts. Only enabled Food probes are offered; the pit probe is never in the meat. Resolves to
+   the labels chosen, [] for none, or undefined if the person backed out. */
+export function pickFoodProbes(title = 'Which probes are in the food?') {
+  const food = (PF.status?.probes || []).filter((p) => p.role === 'Food' && p.enabled && !p.companion);
+  if (!food.length) return Promise.resolve([]);
+  const chosen = new Set(food.filter((p) => p.in_use).map((p) => p.label));
+  return dialog((close) => el('div', {},
+    el('h3', {}, title),
+    el('div', { class: 'ios-list', style: 'margin-top:var(--sp-2)' }, food.map((p) => {
+      const box = el('input', { type: 'checkbox', checked: chosen.has(p.label),
+        onchange: (e) => { if (e.target.checked) chosen.add(p.label); else chosen.delete(p.label); } });
+      return el('label', { class: 'irow toggle' },
+        el('div', { class: 'body' }, el('div', { class: 't' }, p.name), el('div', { class: 's' }, p.valid ? `${fmtTemp(p.temp)}${degUnit()} now` : 'No reading')),
+        el('span', { class: 'switch' }, box, el('span')));
+    })),
+    el('div', { class: 'form-actions' },
+      el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'),
+      el('button', { class: 'btn primary', type: 'button', onclick: () => close([...chosen]) }, chosen.size ? 'Start' : 'None, Start'))));
+}
 import { targetDialog, limitsDialog, stepsDialog } from './cook.js';
 import { icon as lucide, MODE_ICON } from '../icons.js';
 
@@ -307,7 +330,9 @@ export async function renderProbes(view, opts = {}) {
            Its alarms are conditional notifications -- "Grill Stalled Hot", "Grill Stalled Cold" --
            which compare it with the set point and so keep working when the set point changes,
            where a fixed limit typed once would not. */
-        p.type === 'Primary' ? null : el('div', { class: 'prow-acts' },
+        /* A probe that is switched off has no reading to set a target against, so it gets no
+           buttons: two dead controls under an "off" row said the opposite of what the row said. */
+        p.type === 'Primary' || !p.enabled ? null : el('div', { class: 'prow-acts' },
           actionBtn('target', tgt ? 'Change Target' : 'Set Target', { size: 'xs', onclick: async () => {
             const r = await targetDialog({ ...p, ...live }); if (r) cmd({ cmd: 'target', label: p.label, ...r });
           } }, MODE_ICON.Hold),

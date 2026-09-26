@@ -1,6 +1,6 @@
 import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, numberDialog, dialog, confirmDialog, patchSettings, toast, actionBtn } from '../app.js';
 import { targetDialog, limitsDialog, timerDialog, stepsDialog } from './cook.js';
-import { btIcon, isWireless, sigBars, fmtEta, battIcon } from './probes.js';
+import { btIcon, isWireless, sigBars, fmtEta, battIcon, pickFoodProbes } from './probes.js';
 import { icon as lucide, MODE_ICON } from '../icons.js';
 
 // Home: status row (AUG/FAN/IGN, P-mode), the gauge with the grill temperature (reads 0 while stopped),
@@ -86,6 +86,11 @@ const holdAt = async (s, change, force = false) => {
 // Play: honours Settings -> Startup -> "After startup go to" and the hold prompt, like the original
 async function startGrill() {
   const st = PF.settings?.startup?.start_to_mode || {};
+  /* Which probes are in the food, asked as the cook starts -- the same question a recipe asks,
+     because a probe sitting on the counter reads perfectly well and is not in anything. */
+  const labels = await pickFoodProbes();
+  if (labels === undefined) return;
+  await cmd({ cmd: 'probes_in_use', labels });
   if (st.after_startup_mode === 'Hold') {
     if (st.start_to_hold_prompt) { const v = await numberDialog('Hold temperature after startup', st.primary_setpoint || 225, { presets: presets() }); if (v) cmd({ cmd: 'mode', mode: 'Hold', setpoint: v }); }
     else cmd({ cmd: 'mode', mode: 'Hold', setpoint: st.primary_setpoint || 225 });

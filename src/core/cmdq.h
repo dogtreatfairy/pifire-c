@@ -24,6 +24,7 @@ typedef enum {
 	PF_CMD_TIMER_RESUME,
 	PF_CMD_TIMER_CANCEL,
 	PF_CMD_NOTIFY_TEST,
+	PF_CMD_PROBES_IN_USE,  /* str = comma-separated labels of the probes that are in the food */
 	PF_CMD_RECIPE_START,   /* num = recipe id */
 	PF_CMD_RECIPE_NEXT,    /* continue past a paused step */
 	PF_CMD_RECIPE_STOP,    /* abandon the program (grill keeps its current mode) */
@@ -48,7 +49,7 @@ typedef struct {
 	double num, num2;
 	int aux;
 	bool flag;
-	char str[64];
+	char str[256];         /* room for a list of probe labels */
 } pf_cmd;
 
 void pf_cmdq_init(void);

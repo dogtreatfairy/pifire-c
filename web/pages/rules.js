@@ -1,8 +1,8 @@
-import { PF, el, api, patchSettings, toast, confirmDialog, dialog, pushScreen, degUnit, actionBtn, screenActions, iconBtn, segmented } from '../app.js';
+import { PF, el, api, patchSettings, addRow, toast, confirmDialog, dialog, pushScreen, degUnit, actionBtn, screenActions, iconBtn, segmented } from '../app.js';
 import { icon as lucide } from '../icons.js';
 /* The condition cards, rows and picker are shared: recipes ask the same kind of question about
    when a step ends, and must ask it in the same shapes. See web/conditions.js. */
-import { titleCase, describeNode, catalogue, condNode, cat } from '../conditions.js';
+import { titleCase, describeNode, catalogue, condNode, cat, domainOf } from '../conditions.js';
 
 // Conditional Notifications: a table of rules, and an editor that builds them out of the entity
 // catalogue the daemon publishes. Nothing here hardcodes what the grill can be asked about, so a
@@ -269,12 +269,15 @@ export async function renderRules(view) {
           sw)));
     }
     if (!rules.length) list.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No conditional notifications yet.'));
+    list.append(addRow('Add Notification', () => edit(blankRule(), true)));
   };
   draw();
 
+  /* The way to add one is the same as on every other list: a full-width button at its foot, where
+     the eye ends up after reading what is already there. A "+ Add" in the heading was the one
+     place in the app that put it somewhere else. */
   view.append(
-    el('div', { class: 'row between' }, el('h2', {}, 'Conditional Notifications'),
-      el('button', { class: 'btn sm', type: 'button', onclick: () => edit(blankRule(), true) }, '+ Add')),
+    el('h2', {}, 'Conditional Notifications'),
     /* The list is a settings list and nothing more: no paragraph explaining what a rule is -- the
        rows say it -- and no card wrapped round a list that draws its own border, which is where the
        double outline came from. Every other section on the page appends its list directly. */

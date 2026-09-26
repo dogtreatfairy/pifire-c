@@ -153,6 +153,16 @@ int pf_api_command_json(const char *json, char *err, size_t errn)
 		c.type = pf_json_bool(j, "start", true) ? PF_CMD_AUTOTUNE_START : PF_CMD_AUTOTUNE_STOP;
 	} else if (!strcmp(cmd, "apply_tuning")) {
 		c.type = PF_CMD_TUNING_APPLY;
+	} else if (!strcmp(cmd, "probes_in_use")) {
+		/* which probes are in the food, as a list of labels; none is a valid answer */
+		c.type = PF_CMD_PROBES_IN_USE;
+		c.str[0] = 0;
+		cJSON *it;
+		cJSON_ArrayForEach(it, cJSON_GetObjectItem(j, "labels")) {
+			if (!cJSON_IsString(it)) continue;
+			size_t len = strlen(c.str);
+			snprintf(c.str + len, sizeof c.str - len, "%s%s", len ? "," : "", it->valuestring);
+		}
 	} else if (!strcmp(cmd, "recipe")) {
 		const char *op = pf_json_str(j, "op", "start");
 		if (!strcmp(op, "start")) { c.type = PF_CMD_RECIPE_START; c.num = pf_json_num(j, "id", 0); if (c.num <= 0) { snprintf(err, errn, "id required"); rc = -1; } }

@@ -320,7 +320,33 @@ static void test_autotune(void)
 	printf("autotune: valid=%d Ku=%.3f Pu=%.0f amp=%.1f C -> PB %.1f C Ti %.0f Td %.0f (took %.0f min)\n", r.valid, r.Ku, r.Pu, r.amplitude_c, r.PB_c, r.Ti, r.Td, t / 60);
 	TEST_ASSERT_FALSE(ctrl.autotune.active);
 	TEST_ASSERT_TRUE(r.valid);
-	TEST_ASSERT_TRUE(r.Pu > 60 && r.Pu < 1800);
+	/* The plant is known here, so the period is a number, not a range.
+	 *
+	 * The limit cycle sits where the loop's phase lag reaches 180 degrees. Three things set that:
+	 * the plant itself (w*theta + atan(w*tau) + atan(w*pot)); the auger, which only changes what
+	 * it is doing at a cycle boundary and so behaves as a further half-cycle of dead time; and the
+	 * relay's own hysteresis, which switches asin(eps/A) short of the crossing and so identifies a
+	 * slightly lower frequency. The first two are the loop the PID will drive through and belong in
+	 * the answer; the third is the test's artefact and is small when eps is small against the
+	 * swing. A relay that found some other period would be measuring its own transient. */
+	double tau, theta, pot;
+	pf_sim_plant(&tau, &theta, &pot);
+	double eps = ctrl.autotune.hyst_c, A = r.amplitude_c;
+	double theta_loop = theta + 0.5 * ctrl.ccfg.cycle_s;
+	double phase_at = M_PI;   /* the relay corrects its own hysteresis, so the crossing itself */
+	double w_plant = 0.001, w_loop = 0.001;
+	while (w_plant * theta + atan(w_plant * tau) + atan(w_plant * pot) < M_PI) w_plant *= 1.001;
+	while (w_loop * theta_loop + atan(w_loop * tau) + atan(w_loop * pot) < phase_at) w_loop *= 1.001;
+	double Pu_plant = 2 * M_PI / w_plant, Pu_expected = 2 * M_PI / w_loop;
+	printf("autotune: bare plant Pu %.0f s; through a %.0f s auger cycle, %.0f s; relay found %.0f s (hysteresis %.2f C on a %.2f C swing)\n",
+	       Pu_plant, ctrl.ccfg.cycle_s, Pu_expected, r.Pu, eps, A);
+	TEST_ASSERT_DOUBLE_WITHIN(0.20 * Pu_expected, Pu_expected, r.Pu);
+	/* and the gain: the plant's own ultimate gain at that frequency, which for the simulator's
+	 * near-linear middle is 1/|G(jw)| with K the convective rise per unit duty */
+	double K = pf_sim_small_signal_gain(18.0, ctrl.autotune.u_center);
+	double Ku_expected = sqrt(1 + w_loop * tau * w_loop * tau) * sqrt(1 + w_loop * pot * w_loop * pot) / K;
+	printf("autotune: plant K %.0f C/duty at %.3f duty -> Ku about %.4f, relay found %.4f\n", K, ctrl.autotune.u_center, Ku_expected, r.Ku);
+	TEST_ASSERT_DOUBLE_WITHIN(0.35 * Ku_expected, Ku_expected, r.Ku);
 	TEST_ASSERT_TRUE(r.PB_c > 0 && r.Ti > 0);
 	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
 	/* apply and keep holding */
