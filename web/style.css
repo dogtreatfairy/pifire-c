@@ -624,9 +624,11 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .readout.tappable { cursor: pointer; }
 /* the recipe's forward button while it waits on the cook: the one control on the screen that is
    asking for something, so it is the one that moves */
-@keyframes cb-flash { 0%, 100% { background: var(--ok); color: var(--on-ok); } 50% { background: transparent; color: var(--ok-ink); } }
+@keyframes cb-flash { 0%, 100% { background: var(--accent); color: var(--on-accent); } 50% { background: transparent; color: var(--accent-ink); } }
 .cbar .cb.flash { animation: cb-flash 1.2s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .cbar .cb.flash { animation: none; background: var(--ok); color: var(--on-ok); } }
+/* the recipe's mark and step count between its two arrows */
+.cbar .cb-label { display: inline-flex; align-items: center; padding: 0 4px; font-size: var(--fs-sm); font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .cbar .cb.flash { animation: none; background: var(--accent); color: var(--on-accent); } }
 .readout .rd-mode { display: flex; align-items: center; gap: 5px; padding: 0 8px; font-size: var(--fs-3xs); font-weight: 800; letter-spacing: .07em; text-transform: uppercase; background: var(--surface2); color: var(--muted); }
 .readout .rd-ico { display: inline-flex; align-items: center; }
 .readout .rd-ico svg { width: 13px; height: 13px; stroke-width: 2.4; }

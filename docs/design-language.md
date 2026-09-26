@@ -847,8 +847,8 @@ probe's estimate, which wanders with every reading: the probe's figure is a seco
 ones behind ticked and struck through, the one running with what it waits for, the rest dimmed;
 a thin progress bar said none of that. While the recipe waits on the cook the plate reads
 "Continue?", a tap on it asks in the step's own words and carries on, and the run card's button is
-Continue. Home's control bar grows a group for the recipe's steps -- back and forward -- with
-forward flashing while the recipe waits; moving by hand in either direction always asks first. A
+Continue. Home's control bar grows a group for the recipe's steps -- back, the step count (`2/5`), forward, both arrows in the
+accent -- with forward flashing while the recipe waits; moving by hand in either direction always asks first. A
 step's message is said when the step ENDS, which is where the rail draws it.
 
 ## A cook starts by saying which probes are in the food

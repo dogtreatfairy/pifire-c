@@ -168,10 +168,13 @@ function controlBar(s) {
   const steps = [];
   if (rc?.active) {
     const stepIx = rc.step ?? 0;
-    steps.push(b('chevron-left', '', { disabled: stepIx === 0, aria: 'Previous step', onclick: async () => {
+    steps.push(b('chevron-left', '', { cls: 'accent', disabled: stepIx === 0, aria: 'Previous step', onclick: async () => {
       if (await confirmDialog('Go back a step?', `Starts step ${stepIx} again.`, 'Go back')) cmd({ cmd: 'recipe', op: 'back' });
     } }));
-    steps.push(b('chevron-right', '', { cls: rc.waiting ? 'flash ok' : '', aria: rc.waiting ? 'Continue' : 'Skip to the next step', onclick: async () => {
+    /* what the arrows step through, between them: the recipe's mark and where it is, so the
+       group cannot be mistaken for the grill's own controls beside it */
+    steps.push(el('span', { class: 'cb-label', title: rc.name }, `${stepIx + 1}/${rc.nsteps}`));
+    steps.push(b('chevron-right', '', { cls: rc.waiting ? 'flash accent' : 'accent', aria: rc.waiting ? 'Continue' : 'Skip to the next step', onclick: async () => {
       if (rc.waiting) {
         if (rc.needs_lid) { toast('Open the lid first, then continue'); return; }
         if (await confirmDialog('Continue to the next step?', rc.message || 'This step is done.', 'Continue')) cmd({ cmd: 'recipe', op: 'next' });
