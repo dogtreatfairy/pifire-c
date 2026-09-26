@@ -93,7 +93,7 @@ add_custom_command(
 set(PF_WEB_FILES index.html style.css app.js sw.js manifest.webmanifest icon.svg icon-dark.svg
     icon-180.png icon-192.png icon-512.png icon-512-maskable.png
     icon-180-dark.png icon-192-dark.png icon-512-dark.png icon-512-maskable-dark.png
-    pages/home.js pages/history.js pages/cook.js pages/settings.js pages/more.js pages/network.js pages/pellets.js pages/learning.js pages/probes.js pages/rules.js icons.js)
+    pages/home.js pages/history.js pages/cook.js pages/settings.js pages/more.js pages/network.js pages/pellets.js pages/learning.js pages/probes.js pages/rules.js icons.js conditions.js)
 # The service worker names its cache after the build. Hand-editing that string was one more thing
 # to remember at release time, and forgetting it leaves a phone running the previous shell.
 configure_file(${CMAKE_SOURCE_DIR}/web/sw.js ${CMAKE_BINARY_DIR}/gen/web-src/sw.js @ONLY)

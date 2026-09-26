@@ -730,6 +730,30 @@ What reaches a phone is decided by the rule that fired, not by a second layer of
 names its own services and its own urgency; the category switches exist for the daemon's own
 chatter and must not silently swallow anything a person wrote.
 
+## One condition builder, everywhere a condition is asked for
+
+"When is this true" is one question, and it is asked in one set of shapes wherever it comes up: a
+notification that fires, a recipe step that ends, anything after them. The cards, the rows, the
+AND / OR / NOT marks (`&`, `\u2265`, `\u2260`), the single **Add condition** that asks what kind, the
+per-node **For**, and the summary in each folded header all live in `web/conditions.js` and are
+imported, never re-implemented. The daemon publishes one catalogue of domains and traits, and
+`pf_rules_eval_tree` evaluates one kind of tree, so a condition means the same thing in both
+places and a trait added in C appears in both editors on the next load.
+
+This rule exists because it was broken. A recipe step's ending was built as its own little stack of
+segmented controls and toggles -- "Straight on / Wait For Me", a lid switch, a Joined By -- which
+asked exactly the question the notification editor asks and asked it in a different visual
+language. Enumerating the combinations as modes is the symptom; the cause is answering a question
+somebody else's component already answers. When a new surface needs conditions, extend the
+catalogue with a domain, not the interface with a lookalike.
+
+A domain names what can be asked about, and should be written so that the common thing is one row.
+A step does not ask about each food probe in turn: it asks about the **hottest** and the
+**coolest** of the ones in this cook, so "any of them is there" and "all of them are" are each a
+single comparison. Where a reading needs adjusting to mean what the cook means -- the meat's
+temperature after it rests, not as it comes off -- that is its own trait rather than a checkbox
+bolted to the row.
+
 ## More than one way for something to finish is a condition
 
 When two different things can end the same wait -- a prompt and a lid switch, a timer and a

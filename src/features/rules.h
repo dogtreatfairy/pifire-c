@@ -5,9 +5,19 @@
  * field added to the status becomes something a rule can test without touching this engine.
  *
  * Rules live in settings.notify.rules[]. See docs/conditional-notifications.md. */
+#include "pifire/common.h"
 #include <cJSON.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
+
+/* The clocks behind a condition's "for N seconds", one per node of one tree.
+ *
+ * A plain value type so anything evaluating a tree over time -- a rule, a recipe step -- can hold
+ * its own without allocating. Zero it to start the tree's clocks again from now. */
+#define PF_RULES_NODE_TIMERS 12
+typedef struct { uint32_t path; double since; } pf_rules_node_timer;
+typedef struct { pf_rules_node_timer t[PF_RULES_NODE_TIMERS]; } pf_rules_clocks;
 
 void pf_rules_init(void);
 void pf_rules_shutdown(void);
@@ -25,3 +35,18 @@ int pf_rules_test(const cJSON *rule, const cJSON *status, char *err, size_t n);
  * Reports how many entities the rule currently selects and how many of them match right now. */
 void pf_rules_preview(const cJSON *rule, const cJSON *status, char *title, size_t tn, char *body, size_t bn,
                       int *selected, int *matching);
+
+/* Evaluate one condition tree -- the kind the notification editor builds -- against a facts object,
+ * as if the tree belonged to `domain`.
+ *
+ * Exposed so a recipe step can say when it ends in exactly the words and shapes a notification
+ * says when it fires: same editor, same operators, same "for N minutes". `clocks` carries those
+ * durations across calls and may be NULL to ask only what is true this instant. */
+bool pf_rules_eval_tree(const cJSON *node, const cJSON *facts, const char *domain,
+                        pf_rules_clocks *clocks, double now);
+
+/* Rewrite the temperatures inside a condition tree from one unit to the other, asking the trait
+ * catalogue which of its values are temperatures and which are gaps rather than readings. A recipe
+ * is stored in the unit it was written in, so its conditions are converted to the grill's unit
+ * before they are compared against it. */
+void pf_rules_convert_tree(cJSON *node, const char *domain, pf_units from, pf_units to);

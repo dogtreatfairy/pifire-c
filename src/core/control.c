@@ -656,16 +656,18 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 		recipe_begin_step(c, now);
 		break;
 	case PF_CMD_RECIPE_NEXT:
-		if (c->recipe.active && c->recipe.waiting) {
-			/* Both signals, and only one of them has happened. Tapping Next cannot stand in for
-			 * the lid: the point of asking for both is that the meat has actually come off. */
-			if (c->recipe.r.steps[c->recipe.step].wait == PF_RSTEP_WAIT_LID_AND && !c->recipe.lid_seen)
-				LOGI(TAG, "recipe '%s' step %d: still waiting for the lid", c->recipe.r.name, c->recipe.step + 1);
-			else recipe_advance(c, now);
-		}
+		/* Next records that the cook has answered. Whether that ends the step is the step's own
+		 * condition to decide -- with "the lid AND you confirmed" it does not, until the lid has
+		 * been opened too, because the point of asking for both is that the meat has come off. */
+		if (c->recipe.active) { c->recipe.prompt_given = true; c->recipe.last_eval = 0; }
 		break;
 	case PF_CMD_RECIPE_STOP:
-		if (c->recipe.active) { c->recipe.active = false; LOGI(TAG, "recipe stopped by user"); }
+		if (c->recipe.active) {
+			c->recipe.active = false;
+			cJSON_Delete(c->recipe.ends);
+			c->recipe.ends = NULL;
+			LOGI(TAG, "recipe stopped by user");
+		}
 		break;
 	case PF_CMD_AUTOTUNE_START: autotune_start(c, now); break;
 	case PF_CMD_AUTOTUNE_STOP: if (c->autotune.active) autotune_finish(c, false, "Stopped by user."); break;
@@ -700,83 +702,136 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 
 /* ------------------------------------------------------------------ recipe runner */
 
-/* The probes a step is aimed at: one by name, or every Food probe that is actually in this cook.
- * Returns how many were found and, through `hit`, how many have reached the temperature. */
-static int recipe_probes(pf_control *c, const pf_recipe_step *s, double target_c, int *hit)
+/* The food probes in this cook as the three numbers a step condition can ask about: the hottest,
+ * the coolest, and the hottest plus the climb it will still do once it is off the heat. Any one of
+ * them getting there is the hottest; all of them is the coolest; where the meat finishes rather
+ * than where it came off is the rested one. NAN when nothing is in the meat. */
+static void food_numbers(pf_control *c, double *hi, double *lo, double *rested)
 {
-	int found = 0;
-	*hit = 0;
-	if (strcmp(s->probe, PF_RECIPE_ANY_FOOD)) {
-		int i = pf_probes_find(&c->sensors, s->probe);
-		if (i < 0 || !c->sensors.p[i].valid) return 0;
-		found = 1;
-		if (c->sensors.p[i].temp_c >= target_c) (*hit)++;
-		return found;
-	}
+	*hi = NAN; *lo = NAN; *rested = NAN;
+	double rate_at_hi = 0;
 	for (int i = 0; i < c->sensors.n; i++) {
 		const pf_probe_reading *p = &c->sensors.p[i];
 		if (p->role != PF_PROBE_FOOD || !p->enabled || !p->in_use || !p->valid) continue;
-		found++;
-		if (p->temp_c >= target_c) (*hit)++;
+		if (isnan(*hi) || p->temp_c > *hi) { *hi = p->temp_c; rate_at_hi = pf_notify_probe_rate(&c->notify, p->label); }
+		if (isnan(*lo) || p->temp_c < *lo) *lo = p->temp_c;
 	}
-	return found;
+	if (!isnan(*hi)) *rested = *hi + pf_carryover_c(rate_at_hi);
 }
 
-/* The temperature this step actually pulls at. With carryover on, that is the number in the recipe
- * less the climb the meat will still do off the heat, worked out from how fast it is climbing now
- * -- so "205" means 205 when it has rested, not 205 the moment it came off. */
-static double recipe_target_c(pf_control *c, const pf_recipe_step *s)
-{
-	if (!s->carryover || s->probe_temp_c <= 0) return s->probe_temp_c;
-	double rate = 0;
-	if (strcmp(s->probe, PF_RECIPE_ANY_FOOD)) rate = pf_notify_probe_rate(&c->notify, s->probe);
-	else {
-		/* The one that will get there first is the one that decides when it comes off, so its
-		 * coast is the one that matters. */
-		for (int i = 0; i < c->sensors.n; i++) {
-			const pf_probe_reading *p = &c->sensors.p[i];
-			if (p->role != PF_PROBE_FOOD || !p->enabled || !p->in_use || !p->valid) continue;
-			double r = pf_notify_probe_rate(&c->notify, p->label);
-			if (r > rate) rate = r;
-		}
-	}
-	return s->probe_temp_c - pf_carryover_c(rate);
-}
-
-/* Seconds until this step is due to end, or -1 when nothing can say.
+/* What a step's ending is evaluated against.
  *
- * A clock knows exactly. A temperature is the estimator's business -- the same recency-weighted
- * fit the probe ETAs use. A step with both ends at whichever comes first, so that is the smaller
- * of the two. This is what the warning before a step is timed against, and what the header's timer
- * shows during a recipe. */
-static double recipe_step_eta(pf_control *c, const pf_recipe_step *s, double now)
+ * Small on purpose: a step asks about itself, the grill and the food, and building the whole status
+ * once a second to answer that would be waste. The shape matches the status the rules engine reads,
+ * so the same trait paths work and a condition means the same thing in both places.
+ *
+ * `as_if_answered` forces the two signals only a person can give. Evaluating the tree that way says
+ * whether everything except the cook is done, which is the moment to tell them so. */
+static cJSON *step_facts(pf_control *c, double now, bool as_if_answered)
 {
-	double eta = -1;
-	if (s->timer_s > 0 && c->mode == s->mode) eta = fmax(0, s->timer_s - (now - c->recipe.step_start));
-	if (s->probe_temp_c > 0) {
-		double target = recipe_target_c(c, s);
-		double best = -1;
-		for (int i = 0; i < c->sensors.n; i++) {
-			const pf_probe_reading *p = &c->sensors.p[i];
-			bool mine = strcmp(s->probe, PF_RECIPE_ANY_FOOD)
-				? !strcmp(p->label, s->probe)
-				: (p->role == PF_PROBE_FOOD && p->enabled && p->in_use);
-			if (!mine || !p->valid) continue;
-			const pf_notify_probe *np = pf_notify_find(&c->notify, p->label);
-			if (!np) continue;
-			double lin[PF_ETA_SAMPLES];
-			int n = np->hist_len;
-			for (int k = 0; k < n; k++) lin[k] = np->hist[(np->hist_head - n + k + PF_ETA_SAMPLES) % PF_ETA_SAMPLES];
-			double e = pf_notify_estimate_eta(lin, n, target, 3.0);
-			if (e < 0) continue;
-			/* Any probe ends the step, so the soonest decides; all of them, and the last does. */
-			if (best < 0) best = e;
-			else if (s->probe_all) best = fmax(best, e);
-			else best = fmin(best, e);
-		}
-		if (best >= 0) eta = eta < 0 ? best : fmin(eta, best);
+	/* Celsius throughout, which is what the step's conditions were converted to when the recipe
+	 * was loaded. The grill's display unit does not come into it: both sides of every comparison
+	 * are in the same unit, and it is the one the control loop already thinks in. */
+	cJSON *o = cJSON_CreateObject();
+	cJSON_AddStringToObject(o, "units", "C");
+	cJSON_AddStringToObject(o, "mode", pf_mode_name(c->mode));
+	cJSON_AddNumberToObject(o, "setpoint", c->setpoint_c);
+	cJSON_AddBoolToObject(o, "lid_open", c->lid_open);
+	cJSON_AddNumberToObject(o, "cook_elapsed", c->cook_start_wall > 0 ? pf_wall() - c->cook_start_wall : 0);
+	cJSON_AddNumberToObject(o, "aiming_s", now - c->aim_since);
+	/* the pit, where the grill traits look for it */
+	cJSON *probes = cJSON_AddArrayToObject(o, "probes");
+	int pi = c->sensors.primary;
+	if (pi >= 0 && pi < c->sensors.n && c->sensors.p[pi].valid) {
+		cJSON *pp = cJSON_CreateObject();
+		cJSON_AddStringToObject(pp, "role", "Primary");
+		cJSON_AddNumberToObject(pp, "temp", c->sensors.p[pi].temp_c);
+		cJSON_AddItemToArray(probes, pp);
 	}
-	return eta;
+	double hi, lo, rested;
+	food_numbers(c, &hi, &lo, &rested);
+	cJSON *st = cJSON_AddObjectToObject(o, "step");
+	cJSON_AddNumberToObject(st, "elapsed", now - c->recipe.step_start);
+	if (!isnan(hi)) cJSON_AddNumberToObject(st, "food_max", hi);
+	if (!isnan(lo)) cJSON_AddNumberToObject(st, "food_min", lo);
+	if (!isnan(rested)) cJSON_AddNumberToObject(st, "food_rested", rested);
+	cJSON_AddBoolToObject(st, "prompt", as_if_answered || c->recipe.prompt_given);
+	cJSON_AddBoolToObject(st, "lid", as_if_answered || c->recipe.lid_seen);
+	return o;
+}
+
+/* Does this step's ending mention the cook at all? If it does there is a button to show and a
+ * message to send when everything else is ready; if it does not, the step ends on its own. */
+static bool tree_mentions(const cJSON *node, const char *trait)
+{
+	if (!node) return false;
+	const cJSON *kids = cJSON_GetObjectItem((cJSON *)node, "conditions");
+	if (cJSON_IsArray(kids)) {
+		const cJSON *k;
+		cJSON_ArrayForEach(k, kids) if (tree_mentions(k, trait)) return true;
+		return false;
+	}
+	return !strcmp(pf_json_str((cJSON *)node, "trait", ""), trait);
+}
+
+/* A step that says nothing about when it ends ends as soon as it has been applied. The evaluator
+ * reads an empty group as false, which is right for a half-written rule and wrong here. */
+static bool tree_empty(const cJSON *node)
+{
+	if (!node) return true;
+	const cJSON *kids = cJSON_GetObjectItem((cJSON *)node, "conditions");
+	if (cJSON_GetObjectItem((cJSON *)node, "trait")) return false;
+	return !cJSON_IsArray(kids) || cJSON_GetArraySize((cJSON *)kids) == 0;
+}
+
+/* Seconds until the step is due to end, or -1 when nothing can say.
+ *
+ * A condition can be about anything, so this is deliberately not general: it looks through the tree
+ * for the two kinds of term that can be projected forwards -- a time in the step, and a food probe
+ * climbing towards a number -- and takes whichever decides. That is what the warning before a step
+ * is timed against and what the header's timer shows. Anything else contributes no estimate, which
+ * is honest: the grill cannot say when somebody will open the lid. */
+static double tree_eta(pf_control *c, const cJSON *node, double now)
+{
+	if (!node) return -1;
+	const cJSON *kids = cJSON_GetObjectItem((cJSON *)node, "conditions");
+	if (cJSON_IsArray(kids)) {
+		bool all = strcasecmp(pf_json_str((cJSON *)node, "op", "all"), "any") != 0;
+		double best = -1;
+		const cJSON *k;
+		cJSON_ArrayForEach(k, kids) {
+			double e = tree_eta(c, k, now);
+			if (e < 0) continue;
+			/* everything has to happen: the last one decides. any one will do: the first. */
+			if (best < 0) best = e;
+			else best = all ? fmax(best, e) : fmin(best, e);
+		}
+		return best;
+	}
+	const char *tr = pf_json_str((cJSON *)node, "trait", "");
+	const char *op = pf_json_str((cJSON *)node, "op", "");
+	if (strcmp(op, ">=") && strcmp(op, ">")) return -1;
+	double want = pf_json_num((cJSON *)node, "value", 0);
+	if (!strcmp(tr, "elapsed")) return fmax(0, want - (now - c->recipe.step_start));
+	if (strcmp(tr, "food_max") && strcmp(tr, "food_min") && strcmp(tr, "food_rested")) return -1;
+
+	double target_c = want;   /* the tree is in Celsius */
+	double best = -1;
+	for (int i = 0; i < c->sensors.n; i++) {
+		const pf_probe_reading *p = &c->sensors.p[i];
+		if (p->role != PF_PROBE_FOOD || !p->enabled || !p->in_use || !p->valid) continue;
+		const pf_notify_probe *np = pf_notify_find(&c->notify, p->label);
+		if (!np) continue;
+		double lin[PF_ETA_SAMPLES];
+		int n = np->hist_len;
+		for (int k = 0; k < n; k++) lin[k] = np->hist[(np->hist_head - n + k + PF_ETA_SAMPLES) % PF_ETA_SAMPLES];
+		double e = pf_notify_estimate_eta(lin, n, target_c, 3.0);
+		if (e < 0) continue;
+		/* the coolest probe decides when all of them have to be there; otherwise the first one */
+		if (best < 0) best = e;
+		else best = !strcmp(tr, "food_min") ? fmax(best, e) : fmin(best, e);
+	}
+	return best;
 }
 
 static void recipe_begin_step(pf_control *c, double now)
@@ -786,20 +841,30 @@ static void recipe_begin_step(pf_control *c, double now)
 	c->recipe.triggered = false;
 	c->recipe.waiting = false;
 	c->recipe.lead_fired = false;
+	c->recipe.said = false;
 	c->recipe.eta_s = -1;
-	/* Arm the lid only for a step whose end involves it, and only from now: the lid that was
-	 * opened to put the food on must not answer the step that is waiting for it to come off. */
-	c->recipe.lid_armed = s->wait == PF_RSTEP_WAIT_LID || s->wait == PF_RSTEP_WAIT_LID_AND;
+	c->recipe.last_eval = 0;
+	/* The two signals only a person can give, cleared with the step: the lid that was opened to
+	 * put the food on must not answer the step that is waiting for it to come off. */
+	c->recipe.prompt_given = false;
 	c->recipe.lid_seen = false;
+	/* When this step ends, parsed once. Its clocks start from here, so a "for ten minutes" inside
+	 * it counts from the step beginning rather than from whenever the last one did. */
+	cJSON_Delete(c->recipe.ends);
+	c->recipe.ends = s->ends[0] ? cJSON_Parse(s->ends) : NULL;
+	memset(&c->recipe.clocks, 0, sizeof c->recipe.clocks);
+	c->recipe.wants_prompt = tree_mentions(c->recipe.ends, "prompt") || tree_mentions(c->recipe.ends, "lid");
 	if (s->setpoint_c > 0) c->setpoint_c = s->setpoint_c;
 	c->s_plus = s->s_plus;
 	LOGI(TAG, "recipe '%s' step %d/%d: %s", c->recipe.r.name, c->recipe.step + 1, c->recipe.r.nsteps, pf_mode_name(s->mode));
 	/* A step's message is an instruction, and it goes out when it is something to act on.
 	 * For a step that just gets on with it -- lighting, shutting down -- that is now, and the
-	 * message says what the grill is doing. For a step that will stop and ask, it is when it
-	 * stops and asks, which for a three hour smoke is three hours from here: announcing "take
-	 * the ribs off and wrap them" as the smoke BEGINS is how it read before. */
-	if (s->message[0] && !s->pause) pf_events_emit("Recipe_Step_Message", c->recipe.r.name, "%s", s->message);
+	 * message says what the grill is doing. For a step whose ending asks the cook for something,
+	 * it is when everything else about that ending is satisfied, which for a three hour smoke is
+	 * three hours from here: "take the ribs off and wrap them" said as the smoke BEGINS is how it
+	 * read before, and the step's own condition is what now decides. */
+	if (s->message[0] && !c->recipe.wants_prompt)
+		pf_events_emit("Recipe_Step_Message", c->recipe.r.name, "%s", s->message);
 	switch (s->mode) {
 	case PF_MODE_STARTUP:
 		c->next_mode = c->recipe.step + 1 < c->recipe.r.nsteps ? c->recipe.r.steps[c->recipe.step + 1].mode : c->cfg.after_startup_mode;
@@ -828,6 +893,8 @@ static void recipe_advance(pf_control *c, double now)
 	if (++c->recipe.step >= c->recipe.r.nsteps) {
 		pf_events_emit("Recipe_Complete", c->recipe.r.name, "Recipe finished.");
 		c->recipe.active = false;
+		cJSON_Delete(c->recipe.ends);
+		c->recipe.ends = NULL;
 		/* A recipe whose last step was Shutdown has put the grill out. One that ends any other way
 		 * has handed back a lit grill with nothing left to manage it, which the cook is told about
 		 * and asked what to do with, until they answer or the fire is out. */
@@ -863,55 +930,70 @@ static void run_recipe(pf_control *c, double now)
 	if (!c->recipe.active) return;
 	if (c->mode == PF_MODE_ERROR) { c->recipe.active = false; return; }
 	pf_recipe_step *s = &c->recipe.r.steps[c->recipe.step];
-	if (c->recipe.waiting) {
-		/* A step whose end involves the lid is still listening while it waits. On its own the lid
-		 * is the whole answer -- the message asked for the ribs to come off, and them coming off
-		 * says so whether or not anyone taps Next. Combined with the prompt it is half of it, and
-		 * the half that has to happen before a tap means anything. */
-		if (c->recipe.lid_armed && c->lid_open && !c->recipe.lid_seen) {
-			c->recipe.lid_seen = true;
-			LOGI(TAG, "recipe '%s' step %d: the lid was opened", c->recipe.r.name, c->recipe.step + 1);
-			if (s->wait == PF_RSTEP_WAIT_LID) recipe_advance(c, now);
-		}
+
+	/* The lid is a moment; a condition needs a fact. Latch it the instant it happens, whatever the
+	 * step is doing, so a tree that asks about it has something to read a second later. */
+	if (c->lid_open && !c->recipe.lid_seen && tree_mentions(c->recipe.ends, "lid")) {
+		c->recipe.lid_seen = true;
+		LOGI(TAG, "recipe '%s' step %d: the lid was opened", c->recipe.r.name, c->recipe.step + 1);
+	}
+
+	/* The steps that are about the grill's own mode end when the mode does, not on a condition:
+	 * "light it" is over when it is lit. Everything else is decided by the step's tree. */
+	bool mode_step = s->mode == PF_MODE_STARTUP || s->mode == PF_MODE_SHUTDOWN || s->mode == PF_MODE_STOP;
+	if (mode_step) {
+		bool trig = s->mode == PF_MODE_STARTUP
+			? (c->mode != PF_MODE_STARTUP && c->mode != PF_MODE_REIGNITE && c->mode != PF_MODE_PRIME)
+			: s->mode == PF_MODE_SHUTDOWN ? c->mode == PF_MODE_STOP : true;
+		if (trig) recipe_advance(c, now);
 		return;
 	}
-	c->recipe.eta_s = recipe_step_eta(c, s, now);
-	/* The warning before the step ends. Fired once, and only while there is enough time left for
-	 * it to be worth saying -- a warning that arrives a few seconds before the thing it warns
+	if (c->mode != s->mode) return;   /* still getting into the mode this step runs in */
+
+	/* A step that says nothing about its ending is a setting, and is done once it is applied. */
+	if (tree_empty(c->recipe.ends)) { recipe_advance(c, now); return; }
+
+	/* Once a second is often enough to ask a question whose answers are minutes and degrees, and
+	 * it keeps the tick free of building a facts object a hundred times over. */
+	if (now - c->recipe.last_eval < 1.0) return;
+	c->recipe.last_eval = now;
+
+	cJSON *facts = step_facts(c, now, false);
+	bool done = pf_rules_eval_tree(c->recipe.ends, facts, "step", &c->recipe.clocks, now);
+	cJSON_Delete(facts);
+
+	/* Everything except the cook. Asking the tree again with the prompt and the lid forced true
+	 * says whether the only thing still missing is the person -- which is the moment to tell them
+	 * so, and the moment the button becomes worth showing. It is also what stops "take the ribs
+	 * off and wrap them" going out at the start of the three hour smoke rather than at the end. */
+	bool ready = done;
+	if (!done && c->recipe.wants_prompt) {
+		cJSON *as_if = step_facts(c, now, true);
+		pf_rules_clocks spare = c->recipe.clocks;   /* asking must not advance the real clocks */
+		ready = pf_rules_eval_tree(c->recipe.ends, as_if, "step", &spare, now);
+		cJSON_Delete(as_if);
+	}
+	c->recipe.waiting = ready && !done;
+
+	if (c->recipe.waiting && !c->recipe.said) {
+		c->recipe.said = true;
+		pf_events_emit("Recipe_Step_Done", c->recipe.r.name, "%s",
+		               s->message[0] ? s->message : "This step is done - tap Next to continue.");
+	}
+
+	/* How long until it ends, and the warning before it does. Fired once, and only while there is
+	 * enough left for it to be worth saying: a warning a few seconds before the thing it warns
 	 * about is just the thing itself, twice. */
+	c->recipe.eta_s = c->recipe.waiting ? -1 : tree_eta(c, c->recipe.ends, now);
 	if (!c->recipe.lead_fired && s->lead_s > 0 && c->recipe.eta_s >= 0 && c->recipe.eta_s <= s->lead_s) {
 		c->recipe.lead_fired = true;
-		int mins = (int)lround(c->recipe.eta_s / 60.0);
 		pf_events_emit("Recipe_Step_Soon", c->recipe.r.name, "%s",
 		               s->lead_message[0] ? s->lead_message : "The next step is coming up.");
-		LOGI(TAG, "recipe '%s' step %d: %d min warning", c->recipe.r.name, c->recipe.step + 1, mins);
+		LOGI(TAG, "recipe '%s' step %d: %d min warning", c->recipe.r.name, c->recipe.step + 1,
+		     (int)lround(c->recipe.eta_s / 60.0));
 	}
-	if (!c->recipe.triggered) {
-		bool trig = false;
-		if (s->mode == PF_MODE_STARTUP) trig = c->mode != PF_MODE_STARTUP && c->mode != PF_MODE_REIGNITE && c->mode != PF_MODE_PRIME;
-		else if (s->mode == PF_MODE_SHUTDOWN) trig = c->mode == PF_MODE_STOP;
-		else if (s->mode == PF_MODE_STOP) trig = true;
-		else {
-			bool in_mode = c->mode == s->mode;
-			if (in_mode && s->timer_s > 0 && now - c->recipe.step_start >= s->timer_s) trig = true;
-			if (in_mode && s->probe_temp_c > 0) {
-				int hit = 0, found = recipe_probes(c, s, recipe_target_c(c, s), &hit);
-				if (found > 0 && (s->probe_all ? hit == found : hit > 0)) trig = true;
-			}
-			/* A step with nothing to wait for but the cook's word waits for it; one with nothing
-			 * at all is a setting, and is done as soon as it has been applied. */
-			if (in_mode && s->timer_s <= 0 && s->probe_temp_c <= 0) trig = true;
-		}
-		if (!trig) return;
-		c->recipe.triggered = true;
-		if (s->pause) {
-			c->recipe.waiting = true;
-			pf_events_emit("Recipe_Step_Done", c->recipe.r.name, "%s",
-			               s->message[0] ? s->message : "This step is done - tap Next to continue.");
-			return;
-		}
-	}
-	recipe_advance(c, now);
+
+	if (done) recipe_advance(c, now);
 }
 
 static void run_notify(pf_control *c, double now)
@@ -2144,6 +2226,8 @@ char *pf_control_resume_json(const pf_control *c, double now)
 		cJSON_AddBoolToObject(rc, "waiting", c->recipe.waiting);
 		cJSON_AddBoolToObject(rc, "lead_fired", c->recipe.lead_fired);
 		cJSON_AddBoolToObject(rc, "lid_seen", c->recipe.lid_seen);
+		cJSON_AddBoolToObject(rc, "prompt_given", c->recipe.prompt_given);
+		cJSON_AddBoolToObject(rc, "said", c->recipe.said);
 	}
 	cJSON *pr = cJSON_AddArrayToObject(o, "probes");
 	for (int i = 0; i < c->notify.n; i++) {
@@ -2211,8 +2295,18 @@ bool pf_control_resume(pf_control *c, const char *json, double now)
 				c->recipe.triggered = pf_json_bool(rc, "triggered", false);
 				c->recipe.waiting = pf_json_bool(rc, "waiting", false);
 				c->recipe.lead_fired = pf_json_bool(rc, "lead_fired", false);
-				c->recipe.lid_armed = c->recipe.r.steps[step].wait == PF_RSTEP_WAIT_LID || c->recipe.r.steps[step].wait == PF_RSTEP_WAIT_LID_AND;
+				c->recipe.said = pf_json_bool(rc, "said", false);
+				/* What the cook had already done before the restart. Losing these would ask them
+				 * to open the lid a second time for a step they had already answered. */
+				c->recipe.prompt_given = pf_json_bool(rc, "prompt_given", false);
 				c->recipe.lid_seen = pf_json_bool(rc, "lid_seen", false);
+				/* The step's condition comes back with the recipe, and its clocks start again:
+				 * a "for ten minutes" cannot be said to have been running while nothing was. */
+				cJSON_Delete(c->recipe.ends);
+				c->recipe.ends = c->recipe.r.steps[step].ends[0] ? cJSON_Parse(c->recipe.r.steps[step].ends) : NULL;
+				memset(&c->recipe.clocks, 0, sizeof c->recipe.clocks);
+				c->recipe.wants_prompt = tree_mentions(c->recipe.ends, "prompt") || tree_mentions(c->recipe.ends, "lid");
+				c->recipe.last_eval = 0;
 				c->recipe.eta_s = -1;
 				LOGI(TAG, "recipe '%s' resumed at step %d/%d", c->recipe.r.name, step + 1, c->recipe.r.nsteps);
 			}
@@ -2372,7 +2466,8 @@ static void publish(pf_control *c, double now)
 		pf_strlcpy(s.recipe.message, rs->message, sizeof s.recipe.message);
 		/* Waiting on both signals with the lid still shut: the app says which half is missing
 		 * rather than offering a button that does nothing. */
-		s.recipe.needs_lid = c->recipe.waiting && rs->wait == PF_RSTEP_WAIT_LID_AND && !c->recipe.lid_seen;
+		s.recipe.needs_lid = c->recipe.waiting && !c->recipe.lid_seen
+		                     && tree_mentions(c->recipe.ends, "lid") && tree_mentions(c->recipe.ends, "prompt");
 	}
 	pf_status_publish(&s);
 	pf_history_record(&s, now, c->cfg.history_sample_s);

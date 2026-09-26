@@ -1,5 +1,9 @@
 import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, dialog, pushScreen, numberDialog, toast, confirmDialog, segmented, actionBtn, itemRow, iconBtn, addRow, patchSettings, screenActions } from '../app.js';
 import { fmtEta } from './probes.js';
+/* The same condition cards, rows and picker the notification editor is made of. A step ending is
+   the same kind of question -- "when is this true" -- and has to be asked in the same shapes.
+   See web/conditions.js and docs/design-language.md. */
+import { catalogue, condNode, describeNode } from '../conditions.js';
 
 /* Doneness presets, in °F and converted for °C users.
  *
@@ -167,32 +171,26 @@ export async function timerDialog() {
 }
 
 const MODES = [['Startup', 'Startup'], ['Smoke', 'Smoke'], ['Hold', 'Hold'], ['Shutdown', 'Shutdown']];
-/* How a step ends once whatever it was counting or waiting for is done.
+/* A step's ending, as a condition tree of exactly the kind a notification is built from.
  *
- * Two signals joined the way a condition is: the prompt, and the lid. The prompt is always one of
- * them, because a lid switch that does not fire would otherwise strand a recipe with no way to
- * carry on -- so what the cook chooses is whether the lid counts too, and whether either signal
- * ends the step or both have to have happened. */
-const ENDS_WAIT = [['none', 'Straight on'], ['wait', 'Wait For Me']];
-const ENDS_JOIN = [['lid', 'OR'], ['lid_and', 'AND']];
-const waitOf = (s) => s.wait || (s.pause ? 'confirm' : 'none');
-const ENDS_SAID = { confirm: 'then prompt', lid: 'then lid or prompt', lid_and: 'then lid and prompt' };
-const ANY_FOOD = '@food';
-
-const fmtMin = (m) => (!m ? '' : m % 60 === 0 && m >= 60 ? `${m / 60} h` : m > 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`);
-const probeName = (label) => (label === ANY_FOOD ? 'any food'
-  : (PF.status?.probes || []).find((p) => p.label === label)?.name || label);
+ * The daemon publishes a "step" domain in the same catalogue -- time in the step, the hottest and
+ * the coolest food probe, the same probes rested, whether you confirmed, whether the lid was
+ * opened -- so the rows, the operators and the AND / OR / NOT are the ones already learned next
+ * door, and "for ten minutes" means there what it means here.
+ *
+ * This replaced a bespoke set of segmented controls that asked the same question in a different
+ * visual language, which is the one thing this interface is not allowed to do. */
+const blankEnds = () => ({ op: 'all', conditions: [] });
 
 /* One line saying what a step does, for the row in the list and for the header of the card when it
    is folded shut -- the same rule the notification editor follows: a card you cannot read without
-   opening it is a card that has to be opened. */
+   opening it is a card that has to be opened. The ending is described by the shared code, so a
+   step and a notification say the same condition in the same words. */
 function stepSummary(s) {
   const parts = [s.mode + (s.mode === 'Hold' && s.setpoint ? ` ${s.setpoint}${degUnit()}` : '')];
-  if (s.timer_min) parts.push(fmtMin(s.timer_min));
-  if (s.probe && s.probe_temp) parts.push(`${probeName(s.probe)} ≥ ${s.probe_temp}${degUnit()}${s.carryover ? ' rested' : ''}`);
-  const said = ENDS_SAID[waitOf(s)];
+  const said = s.ends ? describeNode(s.ends, 'step', true) : '';
   if (said) parts.push(said);
-  return parts.join(' · ');
+  return parts.join(' \u00b7 ');
 }
 
 /* What is wrong with the shape of a recipe, mirroring pf_recipe_shape_warnings in
@@ -215,7 +213,7 @@ function shapeIssues(steps) {
   return out;
 }
 
-const blankStep = () => ({ mode: 'Hold', setpoint: PF.units === 'C' ? 110 : 225, timer_min: 0, probe: '', probe_temp: 0, wait: 'none', message: '' });
+const blankStep = () => ({ mode: 'Hold', setpoint: PF.units === 'C' ? 110 : 225, ends: blankEnds(), message: '' });
 
 /* The editor is a pushed screen with a pinned action bar, and each step is a fold -- the same two
    shapes the notification editor uses. It was a dialog full of <fieldset>s with arrow buttons,
@@ -254,48 +252,17 @@ function recipeEditor(rec0, isNew) {
         inner.append(field('Mode', segmented(MODES, s.mode, (v) => { s.mode = v; changed(); draw(); })));
         if (s.mode === 'Hold') inner.append(field(`Set Point (${degUnit()})`, num(() => s.setpoint, (v) => (s.setpoint = v))));
         if (s.mode === 'Hold' || s.mode === 'Smoke') {
-          inner.append(field('Run For', el('div', { class: 'row', style: 'gap:var(--sp-2)' },
-            num(() => s.timer_min, (v) => (s.timer_min = v), { style: 'flex:1 1 auto; min-width:0', placeholder: '0' }),
-            el('span', { class: 'muted', style: 'align-self:center' }, 'min')), 'Blank runs until the probe gets there'));
-          inner.append(field('Until Probe', el('select', { onchange: (e) => { s.probe = e.target.value; changed(); draw(); } },
-            el('option', { value: '', selected: !s.probe }, '— none —'),
-            el('option', { value: ANY_FOOD, selected: s.probe === ANY_FOOD }, 'Any food probe'),
-            (PF.status?.probes || []).filter((p) => p.role !== 'Aux' && p.role !== 'Primary')
-              .map((p) => el('option', { value: p.label, selected: s.probe === p.label }, p.name)))));
-          if (s.probe) {
-            inner.append(field(`Reaches (${degUnit()})`, num(() => s.probe_temp, (v) => (s.probe_temp = v))));
-            /* The number in a recipe is where the meat ends up, not where it was when it came off.
-               Carryover pulls it early by as much as it will still climb while it rests. */
-            inner.append(el('label', { class: 'toggle' },
-              el('div', {}, el('div', {}, 'Allow For Carryover'), el('div', { class: 'help' }, 'Comes off early by what it will still climb while resting')),
-              el('span', { class: 'switch' }, el('input', { type: 'checkbox', checked: !!s.carryover,
-                onchange: (e) => { s.carryover = e.target.checked; changed(); } }), el('span'))));
-          }
           inner.append(el('label', { class: 'toggle' },
             el('div', {}, el('div', {}, 'Smoke+')),
             el('span', { class: 'switch' }, el('input', { type: 'checkbox', checked: !!s.s_plus,
               onchange: (e) => { s.s_plus = e.target.checked; changed(); } }), el('span'))));
-        }
-        /* Built the way a condition is: the signals, then how they join. The prompt is shown as
-           a fixed part of the answer rather than a box that could be unticked, because a step only
-           the lid can end has no way out of it if the lid switch never fires. */
-        const w = waitOf(s);
-        const setWait = (v) => { s.wait = v; s.pause = v !== 'none'; changed(); draw(); };
-        inner.append(field('Ends With', segmented(ENDS_WAIT, w === 'none' ? 'none' : 'wait',
-          (v) => setWait(v === 'none' ? 'none' : 'confirm'))));
-        if (w !== 'none') {
-          inner.append(el('div', { class: 'ends' },
-            el('div', { class: 'ends-fixed' }, 'Prompt', el('span', { class: 'help' }, 'always')),
-            el('label', { class: 'toggle' },
-              el('div', {}, el('div', {}, 'The Lid'), el('div', { class: 'help' }, 'Opening it counts as an answer')),
-              el('span', { class: 'switch' }, el('input', { type: 'checkbox', checked: w !== 'confirm',
-                onchange: (e) => setWait(e.target.checked ? 'lid' : 'confirm') }), el('span'))),
-            w !== 'confirm' ? el('div', { class: 'field' },
-              el('label', {}, 'Joined By'),
-              el('div', { class: 'help' }, w === 'lid_and'
-                ? 'Both have to happen: the lid, then your answer.'
-                : 'Either one ends the step.'),
-              segmented(ENDS_JOIN, w, (v) => setWait(v))) : null));
+          /* When the step ends, in the same cards the notification editor uses -- the fold with its
+             own summary, AND / OR / NOT as & \u2265 \u2260, one Add condition that asks what kind, and
+             a duration on any of them. "Three hours, or any food probe at 160, and then you
+             confirm" is one tree and reads as one sentence. */
+          s.ends ||= blankEnds();
+          inner.append(el('div', { class: 'field' }, el('label', {}, 'Ends When'),
+            condNode(s.ends, 'step', () => changed(), null, 0)));
         }
         inner.append(field('Message', el('input', { type: 'text', value: s.message || '', placeholder: 'e.g. Wrap the ribs',
           onchange: (e) => { s.message = e.target.value; changed(); } }), 'Sent when the step ends'));
@@ -385,6 +352,9 @@ export function renderCook(view) {
     loadRecipes();
   };
   const edit = async (r, isNew) => {
+    /* The condition rows are built from the daemon's catalogue, so it has to be in hand before the
+       editor draws rather than after. */
+    await catalogue();
     const out = await recipeEditor(r, isNew);
     if (out === 'delete') { await api(`/recipes/${r.id}/delete`, { body: {} }).catch(() => {}); loadRecipes(); }
     else if (out) await saveRecipe(out);

@@ -54,6 +54,30 @@ static int save(const char *json)
 	return id;
 }
 
+/* Every step's ending is a condition tree now, whether it was written as one or grew out of the
+ * older timer / probe / wait fields, so these ask questions of trees. */
+static cJSON *ends_of(const pf_recipe_step *st)
+{
+	cJSON *t = cJSON_Parse(st->ends);
+	TEST_ASSERT_NOT_NULL_MESSAGE(t, "step ending is not valid JSON");
+	return t;
+}
+
+/* Is there a node anywhere in here saying exactly this? */
+static bool has_term(const cJSON *n, const char *trait, const char *op, double value, bool check_value)
+{
+	if (!n) return false;
+	const cJSON *kids = cJSON_GetObjectItem((cJSON *)n, "conditions");
+	if (cJSON_IsArray(kids)) {
+		const cJSON *k;
+		cJSON_ArrayForEach(k, kids) if (has_term(k, trait, op, value, check_value)) return true;
+		return false;
+	}
+	if (strcmp(pf_json_str((cJSON *)n, "trait", ""), trait)) return false;
+	if (op && strcmp(pf_json_str((cJSON *)n, "op", ""), op)) return false;
+	return !check_value || fabs(pf_json_num((cJSON *)n, "value", 0) - value) < 0.6;
+}
+
 /* The one that ships. It is the recipe a cook will actually run, so it is the one that has to
  * survive being written down, stored, and read back as the runner will see it. */
 static void test_the_built_in_ribs_recipe_loads_as_it_was_written(void)
@@ -64,22 +88,26 @@ static void test_the_built_in_ribs_recipe_loads_as_it_was_written(void)
 	TEST_ASSERT_EQUAL_STRING("3-2-1 Ribs", r.name);
 	TEST_ASSERT_EQUAL_INT(7, r.nsteps);
 
-	/* three hours of smoke at 180 F, or 160 F in the meat, whichever comes first */
+	/* three hours of smoke at 180 F, or 160 F in the meat, whichever comes first, and then it
+	 * waits for the ribs to come off -- which the lid answers as well as a tap does */
 	TEST_ASSERT_EQUAL_INT(PF_MODE_HOLD, r.steps[2].mode);
 	TEST_ASSERT_DOUBLE_WITHIN(0.3, pf_f_to_c(180), r.steps[2].setpoint_c);
-	TEST_ASSERT_EQUAL_DOUBLE(180 * 60, r.steps[2].timer_s);
-	TEST_ASSERT_EQUAL_STRING(PF_RECIPE_ANY_FOOD, r.steps[2].probe);
-	TEST_ASSERT_DOUBLE_WITHIN(0.3, pf_f_to_c(160), r.steps[2].probe_temp_c);
-	/* it ends by the ribs coming off, which the lid answers as well as a tap does */
-	TEST_ASSERT_EQUAL_INT(PF_RSTEP_WAIT_LID, r.steps[2].wait);
-	TEST_ASSERT_TRUE(r.steps[2].pause);
+	cJSON *e = ends_of(&r.steps[2]);
+	TEST_ASSERT_TRUE(has_term(e, "elapsed", ">=", 180 * 60, true));
+	TEST_ASSERT_TRUE(has_term(e, "food_max", ">=", pf_f_to_c(160), true));
+	TEST_ASSERT_TRUE(has_term(e, "prompt", "is_on", 0, false));
+	TEST_ASSERT_TRUE(has_term(e, "lid", "is_on", 0, false));
+	cJSON_Delete(e);
 	TEST_ASSERT_EQUAL_DOUBLE(10 * 60, r.steps[2].lead_s);
 	TEST_ASSERT_TRUE(r.steps[2].lead_message[0] != 0);
 
 	/* two hours wrapped at 225, then one more to 205 in the meat, rested */
-	TEST_ASSERT_EQUAL_DOUBLE(120 * 60, r.steps[4].timer_s);
-	TEST_ASSERT_DOUBLE_WITHIN(0.3, pf_f_to_c(205), r.steps[5].probe_temp_c);
-	TEST_ASSERT_TRUE(r.steps[5].carryover);
+	e = ends_of(&r.steps[4]);
+	TEST_ASSERT_TRUE(has_term(e, "elapsed", ">=", 120 * 60, true));
+	cJSON_Delete(e);
+	e = ends_of(&r.steps[5]);
+	TEST_ASSERT_TRUE(has_term(e, "food_rested", ">=", pf_f_to_c(205), true));
+	cJSON_Delete(e);
 	TEST_ASSERT_EQUAL_DOUBLE(2 * 60, r.steps[5].lead_s);
 	TEST_ASSERT_EQUAL_INT(PF_MODE_SHUTDOWN, r.steps[6].mode);
 }
@@ -291,11 +319,71 @@ static void test_a_step_can_end_on_the_lid_the_prompt_or_both(void)
 	TEST_ASSERT_EQUAL_INT(PF_RSTEP_WAIT_NONE, r.steps[0].wait);
 }
 
+/* A step written before endings were conditions still runs, because it is turned into the tree
+ * that says the same thing: (the clock OR the meat) AND (you said so [or the lid did]). */
+static void test_an_older_step_becomes_the_condition_it_always_meant(void)
+{
+	int id = save("{\"name\":\"old\",\"units\":\"F\",\"steps\":[{\"mode\":\"Hold\",\"setpoint\":225,"
+	              "\"timer_min\":90,\"probe\":\"@food\",\"probe_temp\":203,\"wait\":\"lid\"}]}");
+	pf_recipe r;
+	TEST_ASSERT_EQUAL_INT(0, pf_recipe_load(id, &r));
+	cJSON *e = ends_of(&r.steps[0]);
+	TEST_ASSERT_TRUE(has_term(e, "elapsed", ">=", 90 * 60, true));
+	TEST_ASSERT_TRUE(has_term(e, "food_max", ">=", pf_f_to_c(203), true));
+	TEST_ASSERT_TRUE(has_term(e, "prompt", "is_on", 0, false));
+	TEST_ASSERT_TRUE(has_term(e, "lid", "is_on", 0, false));
+	cJSON_Delete(e);
+
+	/* every food probe rather than any one of them */
+	id = save("{\"name\":\"all\",\"units\":\"F\",\"steps\":[{\"mode\":\"Hold\",\"setpoint\":225,"
+	          "\"probe\":\"@food\",\"probe_temp\":205,\"probe_match\":\"all\"}]}");
+	TEST_ASSERT_EQUAL_INT(0, pf_recipe_load(id, &r));
+	e = ends_of(&r.steps[0]);
+	TEST_ASSERT_TRUE(has_term(e, "food_min", ">=", pf_f_to_c(205), true));
+	cJSON_Delete(e);
+
+	/* where the meat ends up rather than where it came off */
+	id = save("{\"name\":\"rested\",\"units\":\"F\",\"steps\":[{\"mode\":\"Hold\",\"setpoint\":225,"
+	          "\"probe\":\"@food\",\"probe_temp\":205,\"carryover\":true}]}");
+	TEST_ASSERT_EQUAL_INT(0, pf_recipe_load(id, &r));
+	e = ends_of(&r.steps[0]);
+	TEST_ASSERT_TRUE(has_term(e, "food_rested", ">=", pf_f_to_c(205), true));
+	cJSON_Delete(e);
+}
+
+/* A step's temperatures belong to the unit the recipe was written in, and end up in Celsius --
+ * which is what the control loop thinks in and what the facts they are compared against are built
+ * in. What the grill happens to be displaying never comes into it, so the same recipe means the
+ * same thing on a grill set to either. */
+static void test_a_condition_is_read_in_the_unit_it_was_written_in(void)
+{
+	int f = save("{\"name\":\"F\",\"units\":\"F\",\"steps\":[{\"mode\":\"Hold\",\"setpoint\":225,"
+	             "\"ends\":{\"trait\":\"food_max\",\"op\":\">=\",\"value\":203}}]}");
+	int cc = save("{\"name\":\"C\",\"units\":\"C\",\"steps\":[{\"mode\":\"Hold\",\"setpoint\":107,"
+	              "\"ends\":{\"trait\":\"food_max\",\"op\":\">=\",\"value\":95}}]}");
+	pf_recipe r;
+	for (int pass = 0; pass < 2; pass++) {
+		/* the grill switches units between the passes and neither recipe changes meaning */
+		pf_settings_patch("globals", pass ? "{\"units\":\"C\"}" : "{\"units\":\"F\"}", NULL, 0);
+		TEST_ASSERT_EQUAL_INT(0, pf_recipe_load(f, &r));
+		cJSON *e = ends_of(&r.steps[0]);
+		TEST_ASSERT_TRUE(has_term(e, "food_max", ">=", pf_f_to_c(203), true));
+		cJSON_Delete(e);
+		TEST_ASSERT_EQUAL_INT(0, pf_recipe_load(cc, &r));
+		e = ends_of(&r.steps[0]);
+		TEST_ASSERT_TRUE(has_term(e, "food_max", ">=", 95, true));
+		cJSON_Delete(e);
+	}
+	pf_settings_patch("globals", "{\"units\":\"F\"}", NULL, 0);
+}
+
 int main(void)
 {
 	pf_log_init(PF_LOG_ERROR);
 	UNITY_BEGIN();
 	RUN_TEST(test_the_built_in_ribs_recipe_loads_as_it_was_written);
+	RUN_TEST(test_an_older_step_becomes_the_condition_it_always_meant);
+	RUN_TEST(test_a_condition_is_read_in_the_unit_it_was_written_in);
 	RUN_TEST(test_the_built_in_recipe_is_added_once);
 	RUN_TEST(test_a_recipe_keeps_its_units_when_the_grill_changes_its_own);
 	RUN_TEST(test_an_older_recipe_still_waits_where_it_used_to);

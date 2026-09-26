@@ -4,6 +4,7 @@
 #include "core/cycle.h"
 #include "core/notify.h"
 #include "features/recipe.h"
+#include "features/rules.h"
 #include "pifire/common.h"
 #include "pifire/controller.h"
 #include "probes/probes.h"
@@ -109,8 +110,16 @@ typedef struct {
 	struct {
 		bool active, triggered, waiting;   /* waiting = paused for the user after a trigger */
 		bool lead_fired;      /* the "ten minutes until you wrap" warning went out for this step */
-		bool lid_armed;       /* this step's end involves the lid at all */
-		bool lid_seen;        /* the lid has been opened since this step began asking */
+		/* The two things only a person can do, latched for as long as the step lasts: a tap is a
+		 * moment and a condition needs a fact. Both are cleared when the step changes. */
+		bool prompt_given, lid_seen;
+		bool wants_prompt;    /* this step's ending mentions the cook at all */
+		bool said;            /* the step's message has gone out */
+		/* When the step ends, parsed once when it begins, and the clocks behind any "for N
+		 * minutes" inside it. */
+		cJSON *ends;
+		pf_rules_clocks clocks;
+		double last_eval;
 		/* The recipe finished and left a fire burning. A recipe that ends in Shutdown puts itself
 		 * out; one that does not has handed a lit grill back with nothing managing it, and the
 		 * cook has to be told and asked what to do about it. */

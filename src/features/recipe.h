@@ -11,6 +11,9 @@
 /* A step aimed at "@food" watches every Food probe in the cook rather than one named probe, which
  * is what lets a recipe be written once and used with however many probes go in the meat. */
 #define PF_RECIPE_ANY_FOOD "@food"
+/* Room for a step's condition tree as JSON. A step that needs more than this is a step that
+ * should have been two. */
+#define PF_RECIPE_ENDS_LEN 1024
 
 /* How a step ends when it is not a clock or a temperature that ends it.
  *
@@ -41,6 +44,14 @@ typedef struct {
 	pf_rstep_wait wait;
 	bool pause;              /* wait for the user after the trigger fires */
 	char message[128];
+	/* When the step ends, as a condition tree of exactly the kind the notification editor builds:
+	 * the same operators, the same AND / OR / NOT, the same "for N minutes". Held as JSON because
+	 * this struct is copied by value into the runner, and a cJSON pointer inside one would be two
+	 * owners of one tree. The runner parses it once when the step begins.
+	 *
+	 * An older step that said its ending in separate timer / probe / wait fields is turned into the
+	 * equivalent tree when it is loaded, so there is one thing to evaluate and one thing to read. */
+	char ends[PF_RECIPE_ENDS_LEN];
 	/* "Ten minutes until you wrap": a warning before the step is due to end, so the cook can be
 	 * at the grill when it does rather than being told at the moment it is already due. */
 	double lead_s;           /* 0 = no warning */

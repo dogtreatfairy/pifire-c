@@ -1,6 +1,7 @@
 #include "features/recipe.h"
 #include "core/db.h"
 #include "core/settings.h"
+#include "features/rules.h"
 #include "core/util.h"
 #include "core/log.h"
 #include <stdio.h>
@@ -120,6 +121,80 @@ int pf_recipe_delete(int id)
 	return rc;
 }
 
+/* An older step said when it ended in separate fields: a timer, a probe and a temperature, and a
+ * "wait" saying whether it then stopped to ask. This turns that into the condition tree that says
+ * the same thing, so the runner has one kind of thing to evaluate and the editor one kind of thing
+ * to show:
+ *
+ *     ( time in step >= T   OR   the food probes are there )   AND   ( you confirmed [and/or the
+ *     lid was opened] )
+ *
+ * Both halves are optional and a half with one term in it is written flat rather than as a group
+ * of one, so a migrated step reads the way somebody would have written it by hand. */
+static cJSON *ends_from_old_fields(const cJSON *st, pf_units u)
+{
+	cJSON *reached = cJSON_CreateArray();
+	double mins = pf_json_num((cJSON *)st, "timer_min", 0);
+	if (mins > 0) {
+		cJSON *n = cJSON_CreateObject();
+		cJSON_AddStringToObject(n, "trait", "elapsed");
+		cJSON_AddStringToObject(n, "op", ">=");
+		cJSON_AddNumberToObject(n, "value", mins * 60);
+		cJSON_AddItemToArray(reached, n);
+	}
+	double pt = pf_json_num((cJSON *)st, "probe_temp", 0);
+	if (pt > 0) {
+		/* "any of them is there" is the hottest one; "all of them are" is the coolest. A step
+		 * that allowed for carryover asked about where the meat ends up, not where it is. */
+		bool all = !strcmp(pf_json_str((cJSON *)st, "probe_match", "any"), "all");
+		bool carry = pf_json_bool((cJSON *)st, "carryover", false);
+		cJSON *n = cJSON_CreateObject();
+		cJSON_AddStringToObject(n, "trait", carry && !all ? "food_rested" : all ? "food_min" : "food_max");
+		cJSON_AddStringToObject(n, "op", ">=");
+		cJSON_AddNumberToObject(n, "value", pt);
+		cJSON_AddItemToArray(reached, n);
+	}
+	const char *w = pf_json_str((cJSON *)st, "wait", pf_json_bool((cJSON *)st, "pause", false) ? "confirm" : "none");
+	cJSON *asked = cJSON_CreateArray();
+	if (strcmp(w, "none")) {
+		cJSON *n = cJSON_CreateObject();
+		cJSON_AddStringToObject(n, "trait", "prompt");
+		cJSON_AddStringToObject(n, "op", "is_on");
+		cJSON_AddItemToArray(asked, n);
+		if (!strcmp(w, "lid") || !strcmp(w, "lid_and")) {
+			cJSON *l = cJSON_CreateObject();
+			cJSON_AddStringToObject(l, "trait", "lid");
+			cJSON_AddStringToObject(l, "op", "is_on");
+			cJSON_AddItemToArray(asked, l);
+		}
+	}
+	bool lid_or = !strcmp(w, "lid");
+
+	cJSON *parts = cJSON_CreateArray();
+	if (cJSON_GetArraySize(reached) == 1) cJSON_AddItemToArray(parts, cJSON_DetachItemFromArray(reached, 0));
+	else if (cJSON_GetArraySize(reached) > 1) {
+		cJSON *g = cJSON_CreateObject();
+		cJSON_AddStringToObject(g, "op", "any");
+		cJSON_AddItemToObject(g, "conditions", cJSON_Duplicate(reached, 1));
+		cJSON_AddItemToArray(parts, g);
+	}
+	cJSON_Delete(reached);
+	if (cJSON_GetArraySize(asked) == 1) cJSON_AddItemToArray(parts, cJSON_DetachItemFromArray(asked, 0));
+	else if (cJSON_GetArraySize(asked) > 1) {
+		cJSON *g = cJSON_CreateObject();
+		cJSON_AddStringToObject(g, "op", lid_or ? "any" : "all");
+		cJSON_AddItemToObject(g, "conditions", cJSON_Duplicate(asked, 1));
+		cJSON_AddItemToArray(parts, g);
+	}
+	cJSON_Delete(asked);
+
+	cJSON *root = cJSON_CreateObject();
+	cJSON_AddStringToObject(root, "op", "all");
+	cJSON_AddItemToObject(root, "conditions", parts);
+	(void)u;
+	return root;
+}
+
 int pf_recipe_load(int id, pf_recipe *out)
 {
 	memset(out, 0, sizeof *out);
@@ -160,6 +235,19 @@ int pf_recipe_load(int id, pf_recipe *out)
 		pf_strlcpy(rs->message, pf_json_str(s, "message", ""), sizeof rs->message);
 		rs->lead_s = pf_json_num(s, "lead_min", 0) * 60;
 		pf_strlcpy(rs->lead_message, pf_json_str(s, "lead_message", ""), sizeof rs->lead_message);
+
+		/* The step's own tree if it has one, otherwise the tree its older fields amount to. Either
+		 * way the numbers in it are in the unit the recipe was written in, and are converted to
+		 * the grill's so they can be compared against what the grill is reading. */
+		cJSON *ends = cJSON_GetObjectItem(s, "ends");
+		cJSON *tree = ends ? cJSON_Duplicate(ends, 1) : ends_from_old_fields(s, u);
+		/* Celsius, like every other temperature in this struct and in the control loop. The facts a
+		 * step is evaluated against are built in Celsius too, so the two sides agree whatever the
+		 * grill is displaying. */
+		pf_rules_convert_tree(tree, "step", u, PF_UNITS_C);
+		char *txt = cJSON_PrintUnformatted(tree);
+		if (txt) { pf_strlcpy(rs->ends, txt, sizeof rs->ends); free(txt); }
+		cJSON_Delete(tree);
 	}
 	cJSON_Delete(steps);
 	return out->nsteps ? 0 : -1;
@@ -181,25 +269,23 @@ int pf_recipe_load(int id, pf_recipe *out)
  *
  * Written in Fahrenheit and stamped as such, so it reads the same on a grill set to Celsius. */
 static const char *RIBS_321 =
-"{\"name\":\"3-2-1 Ribs\",\"units\":\"F\","
-"\"description\":\"Three hours of smoke, two wrapped, one sauced. Waits for you at each handover.\","
-"\"steps\":["
- "{\"mode\":\"Startup\",\"setpoint\":180,\"message\":\"Lighting, then holding at 180 F.\"},"
- "{\"mode\":\"Hold\",\"setpoint\":180,\"wait\":\"confirm\","
-  "\"message\":\"Put the ribs on and tap Next.\"},"
- "{\"mode\":\"Hold\",\"setpoint\":180,\"timer_min\":180,\"probe\":\"@food\",\"probe_temp\":160,"
-  "\"lead_min\":10,\"lead_message\":\"Ribs come off to wrap in about 10 minutes. Get the foil out.\","
-  "\"wait\":\"lid\",\"message\":\"Take the ribs off and wrap them in foil.\"},"
- "{\"mode\":\"Hold\",\"setpoint\":225,\"wait\":\"confirm\","
-  "\"message\":\"Grill is going to 225 F. Put the wrapped ribs back on and tap Next.\"},"
- "{\"mode\":\"Hold\",\"setpoint\":225,\"timer_min\":120,"
-  "\"lead_min\":10,\"lead_message\":\"Foil comes off in about 10 minutes. Get the sauce out.\","
-  "\"wait\":\"confirm\",\"message\":\"Take the foil off, baste with sauce, and tap Next.\"},"
- "{\"mode\":\"Hold\",\"setpoint\":225,\"timer_min\":60,\"probe\":\"@food\",\"probe_temp\":205,\"carryover\":true,"
-  "\"lead_min\":2,\"lead_message\":\"Ribs come off in about 2 minutes.\","
-  "\"wait\":\"confirm\",\"message\":\"Ribs are done. Take them off and rest them.\"},"
- "{\"mode\":\"Shutdown\",\"message\":\"Shutting down.\"}"
-"]}";
+"{\"name\":\"3-2-1 Ribs\",\"units\":\"F\",\"description\":\"Three hours of smoke, two wrapped,"
+" one sauced. Waits for you at each handover.\",\"steps\":[{\"mode\":\"Startup\",\"setpoint\":180,"
+"\"message\":\"Lighting, then holding at 180 F.\"},{\"mode\":\"Hold\",\"setpoint\":180,\"ends\":{\"trait\":\"prompt\","
+"\"op\":\"is_on\"},\"message\":\"Put the ribs on and tap Next.\"},{\"mode\":\"Hold\",\"setpoint\":180,"
+"\"ends\":{\"op\":\"all\",\"conditions\":[{\"op\":\"any\",\"conditions\":[{\"trait\":\"elapsed\","
+"\"op\":\">=\",\"value\":10800},{\"trait\":\"food_max\",\"op\":\">=\",\"value\":160}]},{\"op\":\"any\","
+"\"conditions\":[{\"trait\":\"prompt\",\"op\":\"is_on\"},{\"trait\":\"lid\",\"op\":\"is_on\"}]}]},"
+"\"lead_min\":10,\"lead_message\":\"Ribs come off to wrap in about 10 minutes. Get the foil out.\","
+"\"message\":\"Take the ribs off and wrap them in foil.\"},{\"mode\":\"Hold\",\"setpoint\":225,"
+"\"ends\":{\"trait\":\"prompt\",\"op\":\"is_on\"},\"message\":\"Grill is going to 225 F. Put the wrapped ribs back on and tap Next.\"},"
+"{\"mode\":\"Hold\",\"setpoint\":225,\"ends\":{\"op\":\"all\",\"conditions\":[{\"trait\":\"elapsed\","
+"\"op\":\">=\",\"value\":7200},{\"trait\":\"prompt\",\"op\":\"is_on\"}]},\"lead_min\":10,\"lead_message\":\"Foil comes off in about 10 minutes. Get the sauce out.\","
+"\"message\":\"Take the foil off, baste with sauce, and tap Next.\"},{\"mode\":\"Hold\",\"setpoint\":225,"
+"\"ends\":{\"op\":\"all\",\"conditions\":[{\"op\":\"any\",\"conditions\":[{\"trait\":\"elapsed\","
+"\"op\":\">=\",\"value\":3600},{\"trait\":\"food_rested\",\"op\":\">=\",\"value\":205}]},{\"trait\":\"prompt\","
+"\"op\":\"is_on\"}]},\"lead_min\":2,\"lead_message\":\"Ribs come off in about 2 minutes.\",\"message\":\"Ribs are done. Take them off and rest them.\"},"
+"{\"mode\":\"Shutdown\",\"message\":\"Shutting down.\"}]}";
 
 /* Seeded once, and only once: a built-in recipe the cook deleted stays deleted, and one they
  * edited keeps their edit. */

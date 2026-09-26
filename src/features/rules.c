@@ -122,6 +122,12 @@ static val trait_of(const cJSON *status, const inst *in, const char *entity, con
 		{ "weather", "humidity", "weather.humidity" },
 		{ "system", "wifi_signal", "net.signal" }, { "system", "tailscale_online", "net.tailscale.online" },
 		{ "timer", "remaining", "timer.remaining" }, { "timer", "running", "timer.running" },
+		/* A recipe step, asked about while it is running. These only exist inside the facts a step
+		 * is evaluated against, which is why they are not in the status the UI receives. */
+		{ "step", "elapsed", "step.elapsed" },
+		{ "step", "food_max", "step.food_max" }, { "step", "food_min", "step.food_min" },
+		{ "step", "food_rested", "step.food_rested" },
+		{ "step", "prompt", "step.prompt" }, { "step", "lid", "step.lid" },
 	};
 	if (!strcmp(domain, "grill") && (!strcmp(trait, "temp") || !strcmp(trait, "over"))) {
 		/* "over" is how far the pit sits from its set point: positive is hot, negative is cold.
@@ -297,8 +303,8 @@ static bool compare(const val *a, const char *op, const val *b, const val *b2, d
  * The node is identified by its position in the tree, hashed as we descend, which costs nothing in
  * the stored rule and needs no migration; editing the tree resets the timers, which is right,
  * because a condition that has been rewritten has not been true for any length of time. */
-#define MAX_NODE_TIMERS 12
-typedef struct { uint32_t path; double since; } node_timer;
+#define MAX_NODE_TIMERS PF_RULES_NODE_TIMERS
+typedef pf_rules_node_timer node_timer;
 
 typedef struct rstate_s {
 	bool used;
@@ -317,7 +323,7 @@ typedef struct {
 	const inst *in;
 	double db;
 	double now;
-	rstate *st;            /* where the per-condition timers live; NULL while previewing */
+	node_timer *timers;    /* where the per-condition clocks live; NULL while previewing */
 } evalctx;
 
 /* Has this node been true long enough? A node with no time of its own is answered at once.
@@ -327,11 +333,11 @@ typedef struct {
 static bool held_long_enough(evalctx *cx, uint32_t path, const cJSON *node, bool now_true)
 {
 	double need = pf_json_num((cJSON *)node, "for_s", 0);
-	if (need <= 0 || !cx->st) return now_true;
+	if (need <= 0 || !cx->timers) return now_true;
 	node_timer *t = NULL, *spare = NULL;
 	for (int i = 0; i < MAX_NODE_TIMERS; i++) {
-		if (cx->st->timers[i].path == path) { t = &cx->st->timers[i]; break; }
-		if (!spare && cx->st->timers[i].path == 0) spare = &cx->st->timers[i];
+		if (cx->timers[i].path == path) { t = &cx->timers[i]; break; }
+		if (!spare && cx->timers[i].path == 0) spare = &cx->timers[i];
 	}
 	if (!t) t = spare;
 	/* More timed conditions than there is room for. Refusing is the safe direction: a rule that
@@ -412,7 +418,7 @@ static bool eval_path(evalctx *cx, const cJSON *node, val *matched, uint32_t pat
 static bool eval_node_at(const cJSON *status, const inst *in, const cJSON *node, val *matched,
                          double db, rstate *st, double now)
 {
-	evalctx cx = { .status = status, .in = in, .db = db, .now = now, .st = st };
+	evalctx cx = { .status = status, .in = in, .db = db, .now = now, .timers = st ? st->timers : NULL };
 	return eval_path(&cx, node, matched, 1u);
 }
 
@@ -726,6 +732,16 @@ void pf_rules_preview(const cJSON *rule, const cJSON *status, char *title, size_
 	if (body && bn) render(body, bn, pf_json_str((cJSON *)rule, "body", ""), status, in, &matched);
 }
 
+bool pf_rules_eval_tree(const cJSON *node, const cJSON *facts, const char *domain,
+                        pf_rules_clocks *clocks, double now)
+{
+	if (!node || !facts) return false;
+	inst in = { .domain = domain && *domain ? domain : "grill", .name = "", .label = "", .obj = NULL };
+	val matched = v_none();
+	evalctx cx = { .status = facts, .in = &in, .db = 0, .now = now, .timers = clocks ? clocks->t : NULL };
+	return eval_path(&cx, node, &matched, 1u);
+}
+
 int pf_rules_test(const cJSON *rule, const cJSON *status, char *err, size_t n)
 {
 	if (!rule || !status) { snprintf(err, n, "no rule"); return -1; }
@@ -766,6 +782,17 @@ static const struct trait_def TRAIT_TABLE[] = {
 		{ "weather", "humidity", "percent", "%", "Humidity", false },
 		{ "system", "wifi_signal", "percent", "%", "Wi-Fi Signal", false }, { "system", "tailscale_online", "bool", "", "Tailscale Online", false },
 		{ "timer", "remaining", "duration", "s", "Time Remaining", false }, { "timer", "running", "bool", "", "Timer Running", false },
+		/* What a recipe step can be asked about. The food probes are given as the hottest and the
+		 * coolest of the ones in this cook, so "any of them has got there" and "all of them have"
+		 * are each one row rather than a group that has to know how many probes are in the meat.
+		 * "Rested" is the hottest one plus the climb it will still do off the heat, so a step that
+		 * ends at 205 rested ends where the meat finishes rather than where it came off. */
+		{ "step", "elapsed", "duration", "s", "Time In This Step", false },
+		{ "step", "food_max", "temperature", "deg", "Hottest Food Probe", false },
+		{ "step", "food_min", "temperature", "deg", "Coolest Food Probe", false },
+		{ "step", "food_rested", "temperature", "deg", "Hottest Food Probe, Rested", false },
+		{ "step", "prompt", "bool", "", "You Confirmed", false },
+		{ "step", "lid", "bool", "", "Lid Opened", false },
 	
 };
 #define N_TRAITS (sizeof TRAIT_TABLE / sizeof TRAIT_TABLE[0])
@@ -789,7 +816,7 @@ cJSON *pf_rules_catalogue_json(const cJSON *status)
 
 	cJSON *o = cJSON_CreateObject();
 	cJSON *domains = cJSON_AddArrayToObject(o, "domains");
-	static const char *const DOMS[] = { "probe", "grill", "output", "hopper", "controller", "weather", "system", "timer" };
+	static const char *const DOMS[] = { "step", "probe", "grill", "output", "hopper", "controller", "weather", "system", "timer" };
 	for (size_t d = 0; d < sizeof DOMS / sizeof DOMS[0]; d++) {
 		cJSON *dj = cJSON_CreateObject();
 		cJSON_AddStringToObject(dj, "id", DOMS[d]);
@@ -903,6 +930,12 @@ static void convert_node_units(cJSON *node, const char *domain, bool to_c)
 	cJSON *dbv = (cJSON *)jget(node, "deadband");
 	if (cJSON_IsNumber(dbv)) cJSON_SetNumberValue(dbv, CONV(dbv->valuedouble, true));
 	#undef CONV
+}
+
+void pf_rules_convert_tree(cJSON *node, const char *domain, pf_units from, pf_units to)
+{
+	if (!node || from == to) return;
+	convert_node_units(node, domain && *domain ? domain : "grill", to == PF_UNITS_C);
 }
 
 static void convert_rules_units(void)
