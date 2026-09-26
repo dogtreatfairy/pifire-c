@@ -83,10 +83,14 @@ static void sink(const pf_event *e, void *ctx)
 	(void)ctx;
 	if ((e->sinks & PF_SINK_PUSHOVER) && pf_push_wanted("pushover", e->code)) enqueue("pushover", e->code, e->title, e->body, e->crit, false);
 	if ((e->sinks & PF_SINK_NTFY) && pf_push_wanted("ntfy", e->code)) enqueue("ntfy", e->code, e->title, e->body, e->crit, false);
-	/* Sent straight rather than queued: the push service is the thing that queues, and it holds the
-	 * message until the phone next has a network, which is the whole point of it. */
+	/* Through the worker, never straight from the thread that raised the event. That thread is
+	 * the control thread for anything the grill says about itself, and a web push is one HTTPS
+	 * round trip per subscribed phone with a fifteen-second timeout on each: on 26 September the
+	 * relay's "Autotune running" went to four phones, the control thread was gone for 2.3 s, and
+	 * the watchdog did what it is for -- outputs off, abort, restart into cooldown -- and the tune
+	 * with it. The push service still queues for the phone; this queue is for the grill. */
 	if ((e->sinks & PF_SINK_WEBPUSH) && pf_webpush_available() && pf_push_wanted("webpush", e->code))
-		pf_webpush_send(e->title, e->body, e->code, e->crit);
+		enqueue("webpush", e->code, e->title, e->body, e->crit, false);
 }
 
 static size_t discard(char *p, size_t s, size_t n, void *ud) { (void)p; (void)ud; return s * n; }
@@ -219,6 +223,7 @@ static int deliver_webpush(const item_t *it, char *err, size_t errn)
 static int deliver(const item_t *it, char *err, size_t errn)
 {
 	if (!strcmp(it->sink, "webpush")) return deliver_webpush(it, err, errn);
+	if (!strcmp(it->sink, "webpush")) return pf_webpush_send_now(it->title, it->body, it->code, it->crit, err, errn);
 	return !strcmp(it->sink, "pushover") ? deliver_pushover(it, err, errn) : deliver_ntfy(it, err, errn);
 }
 

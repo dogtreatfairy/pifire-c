@@ -2,7 +2,7 @@ import { PF, el, api, patchSettings, addRow, toast, confirmDialog, dialog, pushS
 import { icon as lucide } from '../icons.js';
 /* The condition cards, rows and picker are shared: recipes ask the same kind of question about
    when a step ends, and must ask it in the same shapes. See web/conditions.js. */
-import { titleCase, describeNode, catalogue, condNode, cat, domainOf } from '../conditions.js';
+import { titleCase, describeNode, catalogue, condNode, cat, domainOf, hoistFor } from '../conditions.js';
 
 // Conditional Notifications: a table of rules, and an editor that builds them out of the entity
 // catalogue the daemon publishes. Nothing here hardcodes what the grill can be asked about, so a
@@ -45,7 +45,7 @@ const blankRule = () => ({
 
 // ---- editor -------------------------------------------------------------
 
-function ruleEditor(rule, isNew) {
+function ruleEditor(rule, isNew, allRules) {
   const r = structuredClone(rule);
   r.select ||= { domain: 'probe', role: 'any', link: 'any', match: 'any' };
   r.when ||= { op: 'all', conditions: [] };
@@ -54,6 +54,7 @@ function ruleEditor(rule, isNew) {
      one control shown is the one that runs. */
   if (r.for_s > 0 && !r.when.for_s) r.when.for_s = r.for_s;
   r.for_s = 0;
+  hoistFor(r.when);   /* a For belongs to a condition, not to the group round it */
 
   return pushScreen((close) => {
     const wrap = el('div', { class: 'rule-edit sheet' });
@@ -188,7 +189,18 @@ function ruleEditor(rule, isNew) {
           el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'Repeat Every'), el('div', { class: 'help' }, 'Seconds; 0 = send once until it goes false')),
             el('input', { type: 'text', inputmode: 'numeric', value: r.repeat_s ?? 0, onchange: (e) => (r.repeat_s = parseInt(e.target.value, 10) || 0) })),
           el('label', { class: 'toggle' }, el('div', {}, el('div', {}, 'Only While Cooking'), el('div', { class: 'help' }, 'Off means it can also fire while the grill is stopped')),
-            el('span', { class: 'switch' }, el('input', { type: 'checkbox', checked: r.only_while_cooking !== false, onchange: (e) => (r.only_while_cooking = e.target.checked) }), el('span')))));
+            el('span', { class: 'switch' }, el('input', { type: 'checkbox', checked: r.only_while_cooking !== false, onchange: (e) => (r.only_while_cooking = e.target.checked) }), el('span'))),
+          /* One situation, one alarm: while this one stands, the ones it names are silenced. It is
+             how "Hopper Critical" keeps "Hopper Low" from sounding beside it about the same hopper. */
+          el('div', { class: 'field' }, el('label', {}, 'Stands In For'),
+            el('div', { class: 'help' }, 'While this fires, these stay quiet'),
+            el('div', { class: 'chips' }, (allRules || []).filter((o) => o.id !== r.id).map((o) => {
+              const on = (r.supersedes || []).includes(o.id);
+              return el('button', { class: `chip ${on ? 'on' : ''}`, type: 'button', onclick: () => {
+                r.supersedes = on ? (r.supersedes || []).filter((x) => x !== o.id) : [...(r.supersedes || []), o.id];
+                touched(); draw();
+              } }, o.name || o.id);
+            })))));
 
       body.append(
         urgency,
@@ -241,7 +253,7 @@ export async function renderRules(view) {
     } catch (e) { toast(e.message, true); draw(); }
   };
   const edit = async (rule, isNew) => {
-    const r = await ruleEditor(rule, isNew);
+    const r = await ruleEditor(rule, isNew, rules);
     if (!r) return;
     if (r === 'delete') {
       if (!await confirmDialog('Delete notification?', rule.name, 'Delete', true)) return;

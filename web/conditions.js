@@ -373,14 +373,30 @@ function condNode(node, domain, onChange, onRemove, depth, opts = {}) {
     }
     /* "For ten minutes" on a time already measured in minutes, or on a yes-or-no, means nothing;
        on a temperature it is the difference between a blip and a stall. */
+    /* "For" is a property of a condition, as it is in Home Assistant: the hopper below 10% for
+       thirty seconds. A second For on the group -- "and all of that, for how long?" -- was a
+       second answer to the same question, and a rule read "for 0 minutes" in one place and "for
+       30 seconds" in another. A group carries none; an older rule that put one on its group has it
+       moved onto the conditions inside when the rule is opened. */
     const def = group ? null : traitDef(node.entity && node.entity !== 'this' ? node.entity : domain, node.trait);
-    if (group || (def && def.type !== 'duration' && def.type !== 'bool')) body.append(forField(node, () => { retitle(); onChange(); }));
+    if (!group && def && def.type !== 'duration' && def.type !== 'bool') body.append(forField(node, () => { retitle(); onChange(); }));
     retitle();
   };
   draw();
   return det;
 }
 
+/* An older rule's group-level For, moved onto the conditions it contains: each of them held for
+   that long says what the group held for that long said. */
+export function hoistFor(node) {
+  if (!Array.isArray(node?.conditions)) return;
+  const secs = node.for_s || 0;
+  delete node.for_s;
+  for (const k of node.conditions) {
+    if (Array.isArray(k.conditions)) { if (secs && !k.for_s) k.for_s = secs; hoistFor(k); }
+    else if (secs && !k.for_s) k.for_s = secs;
+  }
+}
 export { OP_LABEL, OP_SYM, fmtSecs, GROUP_OPS, titleCase, isGroup, listOp, forLabel, describeNode,
          catalogue, domainOf, traitsOf, traitDef, traitLabel, conditionRow, forField, addKind, condNode };
 /* The raw catalogue, for the few places that need more of it than the helpers expose. */

@@ -813,7 +813,10 @@
         "cooldown_s": 600,
         "repeat_s": 900,
         "only_while_cooking": true,
-        "deadband": 4
+        "deadband": 4,
+        "supersedes": [
+          "hopper-low"
+        ]
       },
       {
         "id": "grill-emergency",

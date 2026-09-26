@@ -1,5 +1,6 @@
 import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, dialog, pushScreen, numberDialog, toast, confirmDialog, segmented, actionBtn, itemRow, iconBtn, addRow, patchSettings, screenActions } from '../app.js';
 import { fmtEta } from './probes.js';
+import { icon as lucide, tileStyle } from '../icons.js';
 /* The same condition cards, rows and picker the notification editor is made of. A step ending is
    the same kind of question -- "when is this true" -- and has to be asked in the same shapes.
    See web/conditions.js and docs/design-language.md. */
@@ -442,7 +443,7 @@ function recipeEditor(rec0, isNew) {
 export function renderCook(view) {
   const timerCard = el('div', { class: 'card' });
   const runCard = el('div', { class: 'card run-card' });
-  const recipeList = el('div', { class: 'ios-list' });
+  const recipeList = el('div', { class: 'recipe-shelf' });
   const showRecipes = PF.settings?.globals?.show_recipes !== false;
   const recipeSection = el('div', { hidden: !showRecipes }, el('h2', {}, 'Recipes'), recipeList);
   view.append(runCard, el('h2', {}, 'Timer'), timerCard, recipeSection);
@@ -473,21 +474,46 @@ export function renderCook(view) {
     cmd({ cmd: 'recipe', op: 'start', id: r.id });
   };
 
+  /* A recipe is a card, not a row. A row in a settings list is one line of live state and a
+     chevron; a recipe is a plan you read before you commit six hours to it, so its card shows the
+     plan -- each stage as a chip, in order, with the temperature and what ends it -- and how long
+     the clock parts add up to. Three rows packed together at row height read as a settings list
+     someone had forgotten to give room to; a card each, with air between, reads as a shelf. */
+  const stageChips = (r) => {
+    const chips = [];
+    let mins = 0;
+    for (const s of r.steps || []) {
+      if (s.mode !== 'Hold' && s.mode !== 'Smoke') continue;
+      const e = splitEnding(s.ends);
+      const terms = e.when.conditions || [];
+      const clock = terms.find((n) => n.trait === 'elapsed');
+      if (clock) mins += (clock.value || 0) / 60;
+      chips.push(el('span', { class: 'chip stage' },
+        `${s.setpoint ? `${s.setpoint}${degUnit()}` : s.mode}${terms.length ? ` \u00b7 ${endingPhrase(e.when).replace(/^for /, '')}` : ''}`));
+    }
+    return { chips, mins };
+  };
   const loadRecipes = () => api('/recipes').then((list) => {
     recipeList.innerHTML = '';
-    /* The row shows what the recipe is and runs it; everything you set once -- the steps, the
-       temperatures, the messages -- is behind it. */
     for (const r of list) {
-      recipeList.append(itemRow({
-        icon: 'book-open',
-        title: r.name,
-        meta: r.description || (r.steps || []).map(stepSummary).join(' → '),
-        onclick: () => edit(r, false),
-        actions: [el('button', { class: 'btn sm primary', type: 'button', onclick: (e) => { e.stopPropagation(); run(r); } }, 'Run')],
-      }));
+      const { chips, mins } = stageChips(r);
+      const n = chips.length;
+      recipeList.append(el('div', { class: 'recipe-card' },
+        el('button', { class: 'recipe-main', type: 'button', onclick: () => edit(r, false) },
+          el('div', { class: 'recipe-head' },
+            el('span', { class: 'tile', style: tileStyle('#ff8a1f') }, lucide('book-open')),
+            el('div', { class: 'recipe-title' },
+              el('div', { class: 't' }, r.name),
+              el('div', { class: 's' }, [n ? `${n} stage${n === 1 ? '' : 's'}` : 'No stages',
+                mins ? `${fmtSecs(Math.round(mins) * 60)} on the clock` : null].filter(Boolean).join(' \u00b7 '))),
+            lucide('chevron-right', 'ic chev')),
+          r.description ? el('div', { class: 'recipe-desc' }, r.description) : null,
+          n ? el('div', { class: 'recipe-stages' }, chips) : null),
+        el('div', { class: 'recipe-acts' },
+          el('button', { class: 'btn primary', type: 'button', onclick: () => run(r) }, lucide('play', 'ic btn-ic'), el('span', {}, 'Run')))));
     }
     if (!list.length) recipeList.append(el('div', { class: 'muted', style: 'padding:10px 2px' },
-      'No recipes yet. A recipe is a list of steps the grill runs for you.'));
+      'No recipes yet. A recipe is a list of stages the grill runs for you.'));
     recipeList.append(addRow('Add Recipe', () => edit({ name: '', description: '', steps: [{ mode: 'Startup' }, blankStep(), { mode: 'Shutdown' }] }, true)));
   }).catch(() => {});
   if (showRecipes) loadRecipes();

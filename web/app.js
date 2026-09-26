@@ -376,7 +376,12 @@ export function openNotifications() {
   return pushScreen((close) => {
     const wrap = el('div', { class: 'ncenter' });
     const render = () => {
-      const list0 = PF.alarms.alarms || [];
+      /* Clearing one means it goes. An alarm whose condition still stands used to stay in the
+         list after being cleared, dimmed, on the industrial principle that a standing condition
+         is still standing -- and on a phone that read as a row that cannot be got rid of. It is
+         gone from here once it has been seen; if the condition ends and comes back, it is raised
+         again as news. */
+      const list0 = (PF.alarms.alarms || []).filter((a) => !(a.acked && a.active));
       /* Standing conditions first, worst first, then what is merely waiting to be read. */
       const items = list0.slice().sort((a, b) =>
         (b.active - a.active) || (b.crit - a.crit) || (b.ts - a.ts));

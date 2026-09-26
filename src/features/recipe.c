@@ -16,7 +16,16 @@ void pf_recipes_init(void)
 	 * had no unit of their own and silently took whichever one the grill happened to be in. Rows
 	 * written before this column existed are Fahrenheit or Celsius according to the grill's own
 	 * setting, which is what they were saved as. */
-	pf_db_exec("ALTER TABLE recipes ADD COLUMN units TEXT");   /* fails harmlessly once it is there */
+	{
+		bool have = false;
+		sqlite3_stmt *st;
+		if (sqlite3_prepare_v2(pf_db_handle(), "PRAGMA table_info(recipes)", -1, &st, NULL) == SQLITE_OK) {
+			while (sqlite3_step(st) == SQLITE_ROW)
+				if (!strcmp((const char *)sqlite3_column_text(st, 1), "units")) have = true;
+			sqlite3_finalize(st);
+		}
+		if (!have) pf_db_exec("ALTER TABLE recipes ADD COLUMN units TEXT");
+	}
 }
 
 cJSON *pf_recipes_list(void)

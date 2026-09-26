@@ -610,12 +610,32 @@ void pf_rules_tick(const cJSON *status, double now)
 	               !strcmp(mode, "Hold") || !strcmp(mode, "Shutdown");
 
 	pthread_mutex_lock(&g_mu);
+	/* One situation, one alarm. Two rules can describe the same thing at two severities -- the
+	 * hopper under 20% and the hopper under 10% -- and at 9% both are true, so the phone got two
+	 * notifications and the bell showed two rows about one empty hopper. A rule may name the rules
+	 * it supersedes; while it stands, those are retired and not raised. Decided from what stood
+	 * on the last tick, which is one second behind and simpler than ordering the rules. */
+	const char *superseded[64]; int nsup = 0;
 	const cJSON *rule;
+	cJSON_ArrayForEach(rule, rules) {
+		const cJSON *sup = jget(rule, "supersedes");
+		if (!cJSON_IsArray(sup) || !cJSON_IsTrue(jget(rule, "enabled"))) continue;
+		const char *id = pf_json_str((cJSON *)rule, "id", "");
+		bool standing = false;
+		for (int i = 0; i < MAX_STATE && !standing; i++)
+			if (g_state[i].used && !strcmp(g_state[i].rule, id) && g_state[i].raised) standing = true;
+		if (!standing) continue;
+		const cJSON *it;
+		cJSON_ArrayForEach(it, sup) if (cJSON_IsString(it) && nsup < 64) superseded[nsup++] = it->valuestring;
+	}
 	cJSON_ArrayForEach(rule, rules) {
 		const char *id = pf_json_str((cJSON *)rule, "id", "");
 		if (!id[0]) continue;
 		if (!cJSON_IsTrue(jget(rule, "enabled"))) { retire_rule(id); continue; }
 		if (pf_json_bool((cJSON *)rule, "only_while_cooking", true) && !cooking) { retire_rule(id); continue; }
+		bool covered = false;
+		for (int i = 0; i < nsup && !covered; i++) if (!strcmp(superseded[i], id)) covered = true;
+		if (covered) { retire_rule(id); continue; }
 
 		inst instances[MAX_INST];
 		int ni = select_instances(status, rule, instances, MAX_INST);
