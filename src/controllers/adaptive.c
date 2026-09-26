@@ -79,6 +79,7 @@ typedef struct {
 	/* effective */
 	double PB_c, Ti, Td, kp, ki, kd;
 	double inter, last_err, last_t, last_pit;
+	double derv_f;            /* the pit's rate, filtered: what the derivative term acts on */
 	double p, i, d, ff, u;
 	bool have_last;
 	double setpoint_c;
@@ -247,7 +248,7 @@ static void reset(void *self, const pf_ctrl_in *in)
 	s->setpoint_c = in->setpoint_c;
 	use_band(s, in->setpoint_c);      /* the correction learned around this temperature, not the last one */
 	s->last_t = in->now_s;
-	s->last_pit = in->pit_c;
+	s->last_pit = in->pit_c; s->derv_f = 0;
 	s->last_err = in->pit_c - in->setpoint_c;
 	s->have_last = true;
 	window_reset(s, in->now_s);
@@ -490,9 +491,34 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 	double lim = 0.5;
 	if (s->i > lim) { s->i = lim; s->inter = s->ki != 0 ? lim / s->ki : 0; }
 	if (s->i < -lim) { s->i = -lim; s->inter = s->ki != 0 ? -lim / s->ki : 0; }
+	/* The rate, filtered. One cycle's difference is a noisy thing to multiply by Kd: on this
+	 * grill's own log the derivative term bounced between -0.10 and -0.14 duty on successive cycles
+	 * of a steady climb and then read -0.235 on one sample five degrees short of the set point,
+	 * which cut the feed to the floor at the worst possible moment. A first-order filter of a
+	 * quarter of Td (never under thirty seconds, two auger cycles) keeps the brake and loses the
+	 * spikes. */
 	double derv = (in->pit_c - s->last_pit) / dt;
-	s->d = s->kd * derv;
+	if (!isfinite(s->derv_f)) s->derv_f = 0;
+	{
+		double tf = fmax(30.0, s->Td / 4.0);
+		if (isfinite(derv)) s->derv_f += (derv - s->derv_f) * dt / (tf + dt);
+	}
+	s->d = s->kd * s->derv_f;
 	s->u = s->ff + s->p + s->i + s->d;
+	/* On the way up to a set point it has not yet reached, the grill is never fed less than what
+	 * holds the pit where it is now. Below that the pit can only fall, and a pit that falls before
+	 * it has ever arrived is the ten-degree sag this grill showed at 250 F: the derivative braked
+	 * the climb to the feed floor five degrees short, the fire died back faster than it had
+	 * grown, and the pit went from 244 to 240 and took twelve minutes to get there. The feed that
+	 * holds the pit at its present temperature scales the learned load by how far above ambient
+	 * it is; the brake may bring the feed down to that and no further, so the climb can only
+	 * coast to a stop, never turn round. Once the set point has been reached the rule is off and
+	 * the loop may cut as deep as it likes. */
+	if (!in->target_reached && e_true < 0 && s->ff > 0 && isfinite(in->ambient_c) && in->setpoint_c > in->ambient_c + 5) {
+		double hold_now = s->ff * (in->pit_c - in->ambient_c) / (in->setpoint_c - in->ambient_c);
+		hold_now = clampd(hold_now, 0, s->ff);
+		if (s->u < hold_now) s->u = hold_now;
+	}
 	/* The coast look-ahead that used to sit here -- cut back to the feed-forward once the pit,
 	 * rising at its current rate, would reach the target within one dead time -- is gone. It was
 	 * this same idea taken from the slope instead of from a model, and it could only ever cut back

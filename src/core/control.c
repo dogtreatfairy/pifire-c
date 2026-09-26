@@ -742,6 +742,26 @@ static food_stats food_numbers(pf_control *c)
  *
  * `as_if_answered` forces the two signals only a person can give. Evaluating the tree that way says
  * whether everything except the cook is done, which is the moment to tell them so. */
+/* How long this step has been doing what it is for. A Hold step's clock starts when the pit
+ * reaches the set point, not when the step does: "hold 250 for an hour" is an hour at 250, and a
+ * grill that took twenty minutes to climb there has not held it yet. Smoke and the ends of the
+ * timeline count from the step's start, having no temperature to arrive at. */
+static double step_elapsed(const pf_control *c, double now)
+{
+	const pf_recipe_step *s = &c->recipe.r.steps[c->recipe.step];
+	if (s->mode == PF_MODE_HOLD) return c->recipe.at_temp_since > 0 ? now - c->recipe.at_temp_since : 0;
+	return now - c->recipe.step_start;
+}
+
+/* seconds until the pit reaches the set point at its current climb, or -1 when it is not climbing */
+static double arrival_eta(const pf_control *c)
+{
+	if (!c->pit_valid || c->recipe.at_temp_since > 0) return 0;
+	double gap = c->setpoint_c - c->pit_c;
+	if (gap <= 0) return 0;
+	return c->pit_rate_c_min > 0.1 ? gap / c->pit_rate_c_min * 60.0 : -1;
+}
+
 static cJSON *step_facts(pf_control *c, double now, bool as_if_answered)
 {
 	/* Celsius throughout, which is what the step's conditions were converted to when the recipe
@@ -765,7 +785,7 @@ static cJSON *step_facts(pf_control *c, double now, bool as_if_answered)
 	}
 	food_stats f = food_numbers(c);
 	cJSON *st = cJSON_AddObjectToObject(o, "step");
-	cJSON_AddNumberToObject(st, "elapsed", now - c->recipe.step_start);
+	cJSON_AddNumberToObject(st, "elapsed", step_elapsed(c, now));
 	if (!isnan(f.hi)) cJSON_AddNumberToObject(st, "food_max", f.hi);
 	if (!isnan(f.lo)) cJSON_AddNumberToObject(st, "food_min", f.lo);
 	if (!isnan(f.avg)) cJSON_AddNumberToObject(st, "food_avg", f.avg);
@@ -808,7 +828,13 @@ static bool tree_empty(const cJSON *node)
  * climbing towards a number -- and takes whichever decides. That is what the warning before a step
  * is timed against and what the header's timer shows. Anything else contributes no estimate, which
  * is honest: the grill cannot say when somebody will open the lid. */
-static double tree_eta(pf_control *c, const cJSON *node, double now)
+static double tree_eta_impl(pf_control *c, const cJSON *node, double now, bool clock_only);
+static double tree_eta(pf_control *c, const cJSON *node, double now) { return tree_eta_impl(c, node, now, false); }
+/* the step's own clock alone: what a countdown should show, because a probe's estimate wanders
+ * with every reading and a number that wanders is not a countdown */
+static double tree_clock(pf_control *c, const cJSON *node, double now) { return tree_eta_impl(c, node, now, true); }
+
+static double tree_eta_impl(pf_control *c, const cJSON *node, double now, bool clock_only)
 {
 	if (!node) return -1;
 	const cJSON *kids = cJSON_GetObjectItem((cJSON *)node, "conditions");
@@ -817,7 +843,7 @@ static double tree_eta(pf_control *c, const cJSON *node, double now)
 		double best = -1;
 		const cJSON *k;
 		cJSON_ArrayForEach(k, kids) {
-			double e = tree_eta(c, k, now);
+			double e = tree_eta_impl(c, k, now, clock_only);
 			if (e < 0) continue;
 			/* everything has to happen: the last one decides. any one will do: the first. */
 			if (best < 0) best = e;
@@ -829,7 +855,18 @@ static double tree_eta(pf_control *c, const cJSON *node, double now)
 	const char *op = pf_json_str((cJSON *)node, "op", "");
 	if (strcmp(op, ">=") && strcmp(op, ">")) return -1;
 	double want = pf_json_num((cJSON *)node, "value", 0);
-	if (!strcmp(tr, "elapsed")) return fmax(0, want - (now - c->recipe.step_start));
+	if (!strcmp(tr, "elapsed")) {
+		/* the clock, plus the climb still to make before it starts */
+		double left = fmax(0, want - step_elapsed(c, now));
+		const pf_recipe_step *st = &c->recipe.r.steps[c->recipe.step];
+		if (st->mode == PF_MODE_HOLD && c->recipe.at_temp_since <= 0) {
+			double climb = arrival_eta(c);
+			if (climb < 0) return -1;
+			left += climb;
+		}
+		return left;
+	}
+	if (clock_only) return -1;
 	if (strcmp(tr, "food_max") && strcmp(tr, "food_min") && strcmp(tr, "food_avg") && strcmp(tr, "food_rested")) return -1;
 
 	double target_c = want;   /* the tree is in Celsius */
@@ -855,6 +892,8 @@ static void recipe_begin_step(pf_control *c, double now)
 {
 	pf_recipe_step *s = &c->recipe.r.steps[c->recipe.step];
 	c->recipe.step_start = now;
+	c->recipe.at_temp_since = 0;
+	c->recipe.clock_s = -1;
 	c->recipe.triggered = false;
 	c->recipe.waiting = false;
 	c->recipe.lead_fired = false;
@@ -975,6 +1014,11 @@ static void run_recipe(pf_control *c, double now)
 	if (now - c->recipe.last_eval < 1.0) return;
 	c->recipe.last_eval = now;
 
+	/* the clock of a Hold step starts the moment the pit gets there */
+	if (s->mode == PF_MODE_HOLD && c->recipe.at_temp_since <= 0 && c->mode == PF_MODE_HOLD && c->target_reached) {
+		c->recipe.at_temp_since = now;
+		LOGI(TAG, "recipe '%s' step %d: at %.0f C, the clock starts", c->recipe.r.name, c->recipe.step + 1, c->setpoint_c);
+	}
 	cJSON *facts = step_facts(c, now, false);
 	bool done = pf_rules_eval_tree(c->recipe.ends, facts, "step", &c->recipe.clocks, now);
 	cJSON_Delete(facts);
@@ -1002,6 +1046,7 @@ static void run_recipe(pf_control *c, double now)
 	 * enough left for it to be worth saying: a warning a few seconds before the thing it warns
 	 * about is just the thing itself, twice. */
 	c->recipe.eta_s = c->recipe.waiting ? -1 : tree_eta(c, c->recipe.ends, now);
+	c->recipe.clock_s = c->recipe.waiting ? -1 : tree_clock(c, c->recipe.ends, now);
 	if (!c->recipe.lead_fired && s->lead_s > 0 && c->recipe.eta_s >= 0 && c->recipe.eta_s <= s->lead_s) {
 		c->recipe.lead_fired = true;
 		pf_events_emit("Recipe_Step_Soon", c->recipe.r.name, "%s",
@@ -2373,6 +2418,7 @@ char *pf_control_resume_json(const pf_control *c, double now)
 		cJSON_AddNumberToObject(rc, "id", c->recipe.r.id);
 		cJSON_AddNumberToObject(rc, "step", c->recipe.step);
 		cJSON_AddNumberToObject(rc, "step_elapsed", now - c->recipe.step_start);
+		cJSON_AddNumberToObject(rc, "at_temp_elapsed", c->recipe.at_temp_since > 0 ? now - c->recipe.at_temp_since : -1);
 		cJSON_AddBoolToObject(rc, "triggered", c->recipe.triggered);
 		cJSON_AddBoolToObject(rc, "waiting", c->recipe.waiting);
 		cJSON_AddBoolToObject(rc, "lead_fired", c->recipe.lead_fired);
@@ -2448,6 +2494,7 @@ bool pf_control_resume(pf_control *c, const char *json, double now)
 				c->recipe.active = true;
 				c->recipe.step = step;
 				c->recipe.step_start = now - pf_json_num(rc, "step_elapsed", 0);
+				{ double ate = pf_json_num(rc, "at_temp_elapsed", -1); c->recipe.at_temp_since = ate >= 0 ? now - ate : 0; }
 				c->recipe.triggered = pf_json_bool(rc, "triggered", false);
 				c->recipe.waiting = pf_json_bool(rc, "waiting", false);
 				c->recipe.lead_fired = pf_json_bool(rc, "lead_fired", false);
@@ -2628,6 +2675,9 @@ static void publish(pf_control *c, double now)
 		 * estimate of when the meat gets there. Either way it is "how long until something
 		 * happens", which is the only question the number is asked. */
 		s.recipe.remaining_s = c->recipe.waiting ? -1 : c->recipe.eta_s;
+		s.recipe.clock_s = c->recipe.waiting ? -1 : c->recipe.clock_s;
+		s.recipe.at_temp = rs->mode != PF_MODE_HOLD || c->recipe.at_temp_since > 0;
+		s.recipe.id = c->recipe.r.id;
 		pf_strlcpy(s.recipe.message, rs->message, sizeof s.recipe.message);
 		/* Waiting on both signals with the lid still shut: the app says which half is missing
 		 * rather than offering a button that does nothing. */

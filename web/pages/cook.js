@@ -517,7 +517,13 @@ export function renderCook(view) {
     }
     return nodes;
   };
+  /* the recipes by id, for the run card's rail; loaded with the list, or on demand when the
+     list is switched off */
+  const recipesById = new Map();
+  let fetching = null;
+  const fetchRecipes = () => fetching || (fetching = api('/recipes').then((list) => { recipesById.clear(); for (const r of list) recipesById.set(r.id, r); update(PF.status); }).catch(() => {}).finally(() => { fetching = null; }));
   const loadRecipes = () => api('/recipes').then((list) => {
+    recipesById.clear(); for (const r of list) recipesById.set(r.id, r);
     recipeList.innerHTML = '';
     for (const r of list) {
       recipeList.append(itemRow({
@@ -558,20 +564,46 @@ export function renderCook(view) {
          asking for something is the moment nothing else on the screen matters. */
       /* the DOM's replaceChildren() writes a null out as the word "null", unlike el(); nothing
          optional goes to it unfiltered */
+      /* The run card is the recipe's own timeline, live: every step on the rail with its mark,
+         the ones behind it ticked off, the one running it says what it is waiting for -- the
+         climb to the set point, the clock, the probe, or you -- and the ones ahead dimmed. A
+         thin grey bar said none of that and looked like nothing else on these screens. */
+      const rec = recipesById.get(rc.id);
+      if (!rec) { fetchRecipes(); }
+      const stepIx = rc.step ?? 0;
+      const rail = el('div', { class: 'run-rail' });
+      for (const [i, st] of (rec?.steps || []).entries()) {
+        const state = i < stepIx ? 'rr-done' : i === stepIx ? 'rr-now' : 'rr-todo';
+        const line = el('div', { class: `rr-step ${state}` },
+          el('span', { class: 'rr-glyph' }, lucide(state === 'rr-done' ? 'check' : (MODE_ICON[st.mode] || 'crosshair'))),
+          el('div', { class: 'rr-body' }, el('div', { class: 'rr-title' }, ...stepTitleNodes(st))));
+        if (state === 'rr-now') {
+          const u = degUnit();
+          let said;
+          if (rc.waiting) said = rc.needs_lid ? 'Open the lid, then continue' : 'Continue?';
+          else if (st.mode === 'Hold' && rc.at_temp === false) said = `Heating to ${st.setpoint}${u}${rc.remaining_s >= 0 ? ` \u00b7 about ${fmtDur(rc.remaining_s)} in all` : ''}`;
+          else {
+            const parts = [];
+            if (rc.clock_s >= 0) parts.push(`${fmtDur(rc.clock_s)} left`);
+            if (rc.remaining_s >= 0 && (rc.clock_s < 0 || rc.remaining_s < rc.clock_s - 30)) parts.push(`~${fmtDur(rc.remaining_s)} by probe`);
+            said = parts.join(' \u00b7 ');
+          }
+          if (said) line.querySelector('.rr-body').append(el('div', { class: 'rr-state' }, said));
+          if (rc.message) line.querySelector('.rr-body').append(el('div', { class: 'rr-msg' }, rc.message));
+        }
+        rail.append(line);
+      }
       runCard.replaceChildren(...[
         el('div', { class: 'row between' },
           el('div', { style: 'min-width:0' },
             el('div', { class: 'run-name' }, rc.name),
-            el('div', { class: 'help' }, `Step ${(rc.step ?? 0) + 1} of ${rc.nsteps} \u00b7 ${rc.step_mode}`)),
-          rc.waiting ? null : el('div', { class: 'run-left' }, rc.remaining_s >= 0 ? fmtDur(rc.remaining_s) : '')),
-        el('div', { class: 'progress' }, el('div', { style: `width:${rc.nsteps ? ((rc.step ?? 0) / rc.nsteps) * 100 : 0}%` })),
-        rc.message ? el('div', { class: rc.waiting ? 'notice warn' : 'run-msg' }, rc.message) : null,
-        /* A step that wants the lid AND the answer says which half is still missing, rather than
-           showing a button that quietly does nothing when it is tapped. */
+            el('div', { class: 'help' }, `Step ${stepIx + 1} of ${rc.nsteps}`)),
+          rc.waiting || !(rc.clock_s >= 0) ? null : el('div', { class: 'run-left' }, fmtDur(rc.clock_s))),
+        rail,
         rc.waiting && rc.needs_lid
           ? el('div', { class: 'help' }, 'Open the lid, then confirm.')
           : rc.waiting
-            ? el('button', { class: 'btn primary block', type: 'button', onclick: () => cmd({ cmd: 'recipe', op: 'next' }) }, 'Done, carry on')
+            ? el('button', { class: 'btn primary block', type: 'button', onclick: () => cmd({ cmd: 'recipe', op: 'next' }) }, 'Continue')
             : null,
         el('div', { class: 'form-actions' },
           el('button', { class: 'btn sm ghost', type: 'button', onclick: async () => {

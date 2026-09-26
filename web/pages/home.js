@@ -289,7 +289,8 @@ export function renderHome(view) {
     detail.textContent = bits.join(' · ') || '\u00a0';
     const rc = s.recipe;
     recipeLine.hidden = !rc?.active;
-    if (rc?.active) recipeLine.textContent = `Recipe: ${rc.name} \u00b7 Step ${(rc.step ?? 0) + 1} of ${rc.nsteps}${rc.waiting ? ' \u00b7 Your turn' : ''}`;
+    if (rc?.active) recipeLine.replaceChildren(lucide('book-open', 'ic inl'), el('span', { class: 'rl-name' }, rc.name),
+      el('span', { class: 'rl-step' }, `Step ${(rc.step ?? 0) + 1} of ${rc.nsteps}${rc.waiting ? ' \u00b7 Continue?' : ''}`));
     hopper.hidden = !(s.hopper_pct >= 0);
     if (s.hopper_pct >= 0) {
       const low = s.hopper_pct <= (PF.settings?.pelletlevel?.warning_level ?? 25);

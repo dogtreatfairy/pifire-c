@@ -1043,12 +1043,19 @@ onStatus((s) => {
      counting every step including lighting and shutting down, which is how the recipe's own
      screen counts them. The mode word stays the mode; "Your turn" takes its place while the
      recipe is waiting on the cook. */
-  const modeName = tuning ? 'Auto Tuning' : rc?.active && rc.waiting ? 'Your turn' : s.mode;
+  const modeName = tuning ? 'Auto Tuning' : rc?.active && rc.waiting ? 'Continue?' : s.mode;
   const nameEl = document.getElementById('rd-name');
   nameEl.textContent = modeName;
   nameEl.title = rc?.active ? `${rc.name}: step ${(rc.step ?? 0) + 1} of ${rc.nsteps}` : '';
   const stepEl = document.getElementById('rd-step');
   if (stepEl) { stepEl.textContent = rc?.active ? String((rc.step ?? 0) + 1) : ''; stepEl.hidden = !rc?.active; }
+  /* The plate is the one thing on every screen, so while the recipe waits on the cook the plate
+     is where "Continue?" is answered: a tap asks, in the step's own words, and carries on. */
+  readout.classList.toggle('tappable', !!(rc?.active && rc.waiting));
+  readout.onclick = rc?.active && rc.waiting ? async () => {
+    if (rc.needs_lid) { toast('Open the lid first, then continue'); return; }
+    if (await confirmDialog('Continue to the next step?', rc.message || 'This step is done.', 'Continue')) cmd({ cmd: 'recipe', op: 'next' });
+  } : null;
   /* The same mark the mode carries everywhere else, so the plate reads as part of the interface
      rather than as a label that happens to be near it. */
   const ico = document.getElementById('rd-ico');

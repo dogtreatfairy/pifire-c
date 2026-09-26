@@ -533,6 +533,27 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .tb-ind svg { width: 19px; height: 19px; }
 .tb-ind .sig.wifi { color: var(--text); }
 /* ---- the recipe that is running ---- */
+/* the run card's rail: the recipe's steps in order, the mark of each, done / now / to come */
+.run-rail { position: relative; display: flex; flex-direction: column; gap: 2px; margin: 10px 0 4px; }
+.run-rail::before { content: ''; position: absolute; left: 13px; top: 14px; bottom: 14px; width: 2px; background: var(--line); }
+.rr-step { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; position: relative; }
+.rr-glyph { flex: none; width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--surface2); color: var(--muted); border: 2px solid var(--surface); z-index: 1; }
+.rr-glyph .ic { width: 15px; height: 15px; stroke-width: 2.4; }
+.rr-step.rr-done .rr-glyph { background: var(--ok); color: var(--on-ok); }
+.rr-step.rr-now .rr-glyph { background: var(--accent); color: var(--on-accent); }
+.rr-body { min-width: 0; flex: 1; padding-top: 4px; }
+.rr-title { font-size: var(--fs-md); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr-step.rr-now .rr-title { color: var(--text); font-weight: var(--fw-medium); }
+.rr-step.rr-done .rr-title { text-decoration: line-through; opacity: .7; }
+.rr-state { font-size: var(--fs-sm); color: var(--accent-ink); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.rr-msg { font-size: var(--fs-sm); color: var(--muted); margin-top: 2px; }
+/* Home: which recipe has the grill -- readable across the kitchen, not a footnote */
+.recipe-line { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: var(--fs-md); color: var(--text); margin-top: 4px; }
+.recipe-line .ic.inl { width: 15px; height: 15px; color: var(--accent-ink); margin: 0; }
+.recipe-line .rl-name { font-weight: 600; }
+.recipe-line .rl-step { color: var(--muted); }
+.recipe-line .rl-step::before { content: '\00b7'; margin-right: 6px; }
+
 /* While a recipe runs this card is the page. It sits above everything else on Cook, and when the
    recipe is waiting on the cook it says so in a line you cannot skim past, with one button under
    it the width of the card. */
@@ -597,6 +618,7 @@ legend { font-weight: 600; margin-bottom: 6px; }
    says the grill is on a recipe and where in it without a word */
 .readout .rd-step { display: flex; align-items: center; padding: 0 8px; font-size: var(--fs-sm); font-weight: 800; background: var(--text); color: var(--bg); font-variant-numeric: tabular-nums; }
 .readout .rd-step[hidden] { display: none; }
+.readout.tappable { cursor: pointer; }
 .readout .rd-mode { display: flex; align-items: center; gap: 5px; padding: 0 8px; font-size: var(--fs-3xs); font-weight: 800; letter-spacing: .07em; text-transform: uppercase; background: var(--surface2); color: var(--muted); }
 .readout .rd-ico { display: inline-flex; align-items: center; }
 .readout .rd-ico svg { width: 13px; height: 13px; stroke-width: 2.4; }

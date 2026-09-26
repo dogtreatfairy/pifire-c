@@ -126,7 +126,9 @@ typedef struct {
 		bool left_running;
 		int step;
 		double step_start;
+		double at_temp_since; /* when a Hold step's pit first reached its set point: its clock starts here, not at the step */
 		double eta_s;         /* seconds until this step is due to end, -1 unknown; published */
+		double clock_s;       /* seconds left on the step's own clock term alone, -1 when it has none; published */
 		pf_recipe r;
 	} recipe;
 	/* learning: steady-state observation window and startup-rise identification */

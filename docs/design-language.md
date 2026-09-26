@@ -835,6 +835,16 @@ and the run card count them; the mode word stays the mode, and reads "Your turn"
 recipe waits on the cook. Home carries a line under what the grill is doing: `Recipe: 3-2-1 Ribs
 · Step 2 of 5`. Without these, a grill in Hold at 180 looked like a grill somebody had set to 180.
 
+**A Hold step's clock starts when the pit arrives.** "Hold 250 for an hour" is an hour at 250,
+so the step's elapsed time is zero until the pit reaches the set point, and the run card says
+"Heating to 250°F" until then. The countdown shown is the step's own clock (`clock_s`), never the
+probe's estimate, which wanders with every reading: the probe's figure is a second, softer line
+("~40 min by probe"). The run card is the recipe's rail, live -- each step with its mark, the
+ones behind ticked and struck through, the one running with what it waits for, the rest dimmed;
+a thin progress bar said none of that. While the recipe waits on the cook the plate reads
+"Continue?", a tap on it asks in the step's own words and carries on, and the run card's button is
+Continue.
+
 ## A cook starts by saying which probes are in the food
 
 Which probes are in the meat is a fact only the cook has. A probe on the counter reads perfectly

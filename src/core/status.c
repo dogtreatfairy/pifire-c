@@ -172,6 +172,9 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 		cJSON_AddBoolToObject(rc, "needs_lid", s->recipe.needs_lid);
 		cJSON_AddStringToObject(rc, "step_mode", pf_mode_name(s->recipe.step_mode));
 		cJSON_AddNumberToObject(rc, "remaining_s", s->recipe.remaining_s);
+		cJSON_AddNumberToObject(rc, "clock_s", s->recipe.clock_s);
+		cJSON_AddBoolToObject(rc, "at_temp", s->recipe.at_temp);
+		cJSON_AddNumberToObject(rc, "id", s->recipe.id);
 		cJSON_AddStringToObject(rc, "message", s->recipe.message);
 	}
 
