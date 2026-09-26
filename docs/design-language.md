@@ -854,6 +854,16 @@ Continue. Home's control bar grows a group for the recipe's steps -- back, the s
 accent -- with forward flashing while the recipe waits; moving by hand in either direction always asks first. A
 step's message is said when the step ENDS, which is where the rail draws it.
 
+## The tuning profile is a cook the grill runs on itself, and looks like one
+
+Under Auto Tuning the profile is the same rail a recipe has -- Startup, a hold at each set
+point (settle, measure, verify), Shutdown -- with Edit and Run Profile under it, and a live rail
+while it runs: the finished holds ticked, the one in hand saying in a word what it is doing
+(Settling, Measuring, Verifying) and for how long. Edit is a recipe-style screen: one row per
+set point, tap to change it, a mark to remove it, Add at the foot, Reset to standard. Running
+asks once, with "erase the library first" as a switch inside the question rather than a third
+red button on the page; tuning one temperature stays as a single row beneath.
+
 ## A cook starts by saying which probes are in the food
 
 Which probes are in the meat is a fact only the cook has. A probe on the counter reads perfectly

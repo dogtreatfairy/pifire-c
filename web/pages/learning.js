@@ -1,4 +1,5 @@
-import { PF, el, api, patchSettings, toast, onStatus, confirmDialog, numberDialog, dialog, degUnit, fmtDur, actionBtn, dataTable, transferRow } from '../app.js';
+import { PF, el, api, patchSettings, toast, onStatus, confirmDialog, numberDialog, dialog, degUnit, fmtDur, actionBtn, dataTable, transferRow, pushScreen, itemRow, iconBtn, addRow, screenActions } from '../app.js';
+import { icon as lucide, MODE_ICON } from '../icons.js';
 
 const PHASE_TEXT = {
   starting: 'Starting the grill',
@@ -81,79 +82,128 @@ export function renderLearning(view, slots = {}) {
     el('div', { class: 'form-actions' },
       actionBtn('cancel', 'Close', { size: '', onclick: () => close() }))));
 
+  /* The profile's set points, edited like a recipe's steps: one row each, tap to change the
+     temperature, remove with the mark, add another at the foot, back to the standard two in one
+     tap. Saved in order, lowest first, which is the order the run walks them. */
+  const STANDARD_F = [250, 350], STANDARD_C = [120, 175];
+  function editProfile() {
+    const units = PF.units === 'C' ? PRESETS_C : PRESETS_F;
+    let pts = [...(tune?.profile || [])];
+    return pushScreen((close) => {
+      const wrap = el('div', { class: 'sheet' });
+      const body = el('div');
+      let ready = false;
+      const touched = () => { if (ready) wrap.dispatchEvent(new CustomEvent('pf-dirty', { bubbles: true })); };
+      const draw = () => {
+        body.innerHTML = '';
+        const list = el('div', { class: 'ios-list' });
+        pts.forEach((v, i) => list.append(itemRow({
+          icon: MODE_ICON.Hold, color: '#30d158', title: `Hold ${v}${degUnit()}`, meta: 'Settle, measure, verify',
+          onclick: async () => { const nv = await numberDialog('Hold at', v, { min: units[0], max: units[8], step: 5, presets: units }); if (nv != null) { pts[i] = nv; touched(); draw(); } },
+          actions: [iconBtn('trash-2', 'Remove', { class: 'danger', onclick: (e) => { e.stopPropagation(); pts.splice(i, 1); touched(); draw(); } })],
+        })));
+        if (!pts.length) list.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No set points. Add at least one.'));
+        list.append(addRow('Add set point', async () => {
+          const nv = await numberDialog('Hold at', pts.length ? Math.min(units[8], pts[pts.length - 1] + (PF.units === 'C' ? 50 : 100)) : units[3], { min: units[0], max: units[8], step: 5, presets: units });
+          if (nv != null) { pts.push(nv); touched(); draw(); }
+        }));
+        body.append(el('p', { class: 'help', style: 'padding:6px 0' }, 'Two holds a hundred degrees apart measure the grill\u2019s gain directly; more holds cover more of the range, at about an hour each.'),
+          list,
+          el('button', { class: 'btn ghost block', type: 'button', style: 'margin-top:var(--sp-3)', onclick: () => { pts = [...(PF.units === 'C' ? STANDARD_C : STANDARD_F)]; touched(); draw(); } }, 'Reset to standard'));
+      };
+      draw();
+      wrap.append(el('div', { class: 'sheet-body' }, body),
+        screenActions({
+          onCancel: () => close(undefined),
+          onSave: async () => {
+            const clean = [...new Set(pts.map((v) => Math.round(v)))].filter((v) => v > 0).sort((a, b) => a - b);
+            if (!clean.length) { toast('Add at least one set point', true); return; }
+            try { await patchSettings('learning', { tune_setpoints: clean }); toast('Saved'); close(clean); loadTune(); }
+            catch (e) { toast(e.message, true); }
+          },
+          dirty: false,
+        }));
+      setTimeout(() => { ready = true; }, 0);
+      return wrap;
+    }, { title: 'Tuning Profile', back: 'Back' });
+  }
+
   function renderTune() {
     if (!tune) return;
     const s = PF.status;
     tuneCard.innerHTML = '';
-    tuneCard.append(el('p', { class: 'help' }, 'Runs the grill empty. About an hour per temperature.'));
+    /* The profile is a cook the grill runs on itself, and it looks like one: the same rail a
+       recipe has -- lighting, a hold at each set point (settle, measure, verify), shutting down --
+       with Edit and Run under it. While it runs the rail is live, the finished holds ticked and the
+       one in hand saying what it is doing. */
+    const running = !!tune.running;
+    const pts = running ? (tune.setpoints || []) : (tune.profile || []);
+    const rows = [{ ic: MODE_ICON.Startup, text: 'Startup', short: 'Startup' },
+      ...pts.map((v) => ({ ic: MODE_ICON.Hold, text: `Hold ${v}${degUnit()} \u00b7 settle, measure, verify`, short: `Hold ${v}${degUnit()}` })),
+      { ic: MODE_ICON.Shutdown, text: 'Shutdown', short: 'Shutdown' }];
+    /* the row in hand says what it is doing now, in a word, in place of the plan's three */
+    const DOING = { starting: 'Lighting', settling: 'Settling', testing: 'Measuring', verifying: 'Verifying', next: 'Moving on', finishing: 'Shutting down' };
+    let cur = -1;
+    if (running) cur = tune.phase === 'starting' ? 0 : (tune.phase === 'finishing' ? rows.length - 1 : Math.min(rows.length - 2, Math.max(1, tune.step || 1)));
+    const rail = el('div', { class: 'run-rail' });
+    rows.forEach((r, i) => {
+      const state = !running ? 'rr-plan' : i < cur ? 'rr-done' : i === cur ? 'rr-now' : 'rr-todo';
+      const title = el('span', { class: 'rr-title' }, state === 'rr-now' ? r.short : r.text);
+      if (state === 'rr-now') title.append(el('span', { class: 'rr-state' }, ` \u00b7 ${DOING[tune.phase] || PHASE_TEXT[tune.phase] || tune.message}${tune.elapsed_s > 0 ? ` \u00b7 ${fmtDur(tune.elapsed_s)}` : ''}`));
+      rail.append(el('div', { class: `rr-step ${state}` }, el('span', { class: 'rr-glyph' }, lucide(state === 'rr-done' ? 'check' : r.ic)), title));
+    });
+    tuneCard.append(rail);
 
-    if (tune.running) {
-      const phase = PHASE_TEXT[tune.phase] || tune.message;
-      tuneCard.append(
-        el('div', { class: 'notice warn' }, `${phase} — ${tune.setpoint}${degUnit()}, ${tune.step}/${tune.steps}`),
-        el('div', { class: 'kv' },
-          el('div', {}, 'Set points'), el('div', {}, (tune.setpoints || []).map((v) => `${v}${degUnit()}`).join(' · ')),
-          el('div', {}, 'Measured'), el('div', {}, `${tune.measured}/${tune.steps}`),
-          el('div', {}, 'Elapsed'), el('div', {}, fmtDur(tune.elapsed_s))),
-        el('div', { class: 'form-actions' }, el('button', {
-          class: 'btn sm ghost',
-          onclick: async () => { if (await confirmDialog('Stop tuning?', 'Grill shuts down. Measurements already taken are kept.', 'Stop', true)) { await api('/tune/stop', { body: {} }); loadTune(); } },
-        }, 'Stop')));
+    if (running) {
+      tuneCard.append(el('div', { class: 'form-actions' }, el('button', {
+        class: 'btn sm ghost',
+        onclick: async () => { if (await confirmDialog('Stop tuning?', 'Grill shuts down. Measurements already taken are kept.', 'Stop', true)) { await api('/tune/stop', { body: {} }); loadTune(); } },
+      }, 'Stop')));
     } else {
       if (tune.phase === 'done' || tune.phase === 'failed') {
         tuneCard.append(el('p', { class: 'help' }, tune.phase === 'done'
           ? `Last run: ${tune.measured} measured.`
           : `Last run stopped. ${tune.message}`));
       }
-
       // the daemon refuses to start on a grill that is already cooking, so say so rather than fail
       const busy = s && s.mode !== 'Stop' && s.mode !== 'Monitor';
       const units = PF.units === 'C' ? PRESETS_C : PRESETS_F;
-      const p = tune.profile || [];
       const have = (tune.anchors || []).length > 0;
-      const list = p.map((v) => `${v}${degUnit()}`).join(' · ');
+      const list = pts.map((v) => `${v}${degUnit()}`).join(' \u00b7 ');
 
-      /* Two actions, two buttons. This was a segmented switcher that changed which single button
-         you were looking at, which hid one of the two things you might want and needed a paragraph
-         to explain which mode you were in. A choice between two actions is one button each. */
-      tuneCard.append(
-        el('button', {
-          class: 'btn primary block', disabled: busy,
-          onclick: () => start({ full_profile: true }, {
-            title: have ? 'Refine baseline?' : 'Tune baseline?',
-            text: `${list || 'Baseline'}. Grill starts itself and shuts down when done.`,
-          }),
-        }, busy ? 'Stop the grill first' : have ? 'Refine Baseline' : 'Tune Baseline'),
-        el('p', { class: 'help' }, have ? `Refines ${list}. Each run moves the numbers less than the last.` : `Baseline: ${list}`),
+      /* Run asks once, with the one option that cannot be undone as a switch inside the question
+         rather than a third red button on the page. */
+      const runProfile = () => dialog((close) => {
+        let scratch = false;
+        const sw = el('label', { class: 'toggle' },
+          el('div', {}, el('div', {}, 'Erase the library first'), el('div', { class: 'help' }, 'For a grill that has genuinely changed. No undo.')),
+          el('span', { class: 'switch' }, el('input', { type: 'checkbox', onchange: (e) => { scratch = e.target.checked; } }), el('span')));
+        return el('div', {},
+          el('h3', {}, have ? 'Run the tuning profile?' : 'Tune the grill?'),
+          el('p', { class: 'muted' }, `${list}. The grill starts itself, holds each temperature to settle, measure and verify, and shuts down when done. About an hour per temperature. Keep it empty.`),
+          have ? sw : null,
+          el('div', { class: 'btnrow' },
+            el('button', { class: 'btn ghost', type: 'button', onclick: () => close() }, 'Cancel'),
+            el('button', { class: `btn ${scratch ? 'danger' : 'primary'}`, type: 'button', onclick: async () => {
+              close();
+              try { await api('/tune/start', { body: { full_profile: true, from_scratch: scratch } }); toast('Tuning started'); } catch (e) { toast(e.message, true); }
+              loadTune();
+            } }, 'Run')));
+      });
+      tuneCard.append(el('div', { class: 'form-actions' },
+        el('button', { class: 'btn ghost', type: 'button', onclick: editProfile }, lucide('pencil', 'ic btn-ic'), el('span', {}, 'Edit')),
+        el('button', { class: 'btn primary', type: 'button', disabled: busy, onclick: runProfile }, lucide('play', 'ic btn-ic'), el('span', {}, busy ? 'Stop the grill first' : 'Run Profile'))));
 
-        el('div', { class: 'kv' }, el('div', {}, 'Temperature'), el('div', {},
-          el('button', {
-            class: 'btn sm',
-            onclick: async () => {
-              const v = await numberDialog('Tune at', pick, { min: units[0], max: units[8], step: 5, presets: units });
-              if (v != null) { pick = v; renderTune(); }
-            },
-          }, `${pick}${degUnit()}`))),
-        el('button', {
-          class: 'btn block', disabled: busy, style: 'margin-top:8px',
-          onclick: () => start({ setpoints: [pick], full_profile: false }, {
-            title: `Tune at ${pick}${degUnit()}?`,
-            text: 'Grill starts itself and shuts down when done.',
-          }),
-        }, busy ? 'Stop the grill first' : `Tune at ${pick}${degUnit()}`));
-
-      /* Erasing is for a grill that has genuinely changed -- re-gasketed, rebuilt, moved -- and is
-         asked for by name rather than being the side effect of running a tune. */
-      if (have) {
-        tuneCard.append(el('button', {
-          class: 'btn danger block', disabled: busy, style: 'margin-top:8px',
-          onclick: () => start({ full_profile: true, from_scratch: true }, {
-            title: 'Erase and start over?',
-            text: 'Deletes every measurement, then runs the baseline. No undo.',
-            danger: true,
-          }),
-        }, 'Start From Scratch'));
-      }
+      /* One temperature on its own: added to the library, never replacing it. */
+      tuneCard.append(el('div', { class: 'field inline' },
+        el('div', {}, el('label', {}, 'Tune one temperature'), el('div', { class: 'help' }, 'Adds to the library')),
+        el('div', { class: 'btnrow' },
+          el('button', { class: 'btn sm', type: 'button', onclick: async () => {
+            const v = await numberDialog('Tune at', pick, { min: units[0], max: units[8], step: 5, presets: units });
+            if (v != null) { pick = v; renderTune(); }
+          } }, `${pick}${degUnit()}`),
+          el('button', { class: 'btn sm primary', type: 'button', disabled: busy, onclick: () => start({ setpoints: [pick], full_profile: false }, {
+            title: `Tune at ${pick}${degUnit()}?`, text: 'Grill starts itself and shuts down when done.' }) }, lucide('play', 'ic btn-ic')))));
     }
 
     const anchors = tune.anchors || [];

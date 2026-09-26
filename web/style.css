@@ -541,6 +541,8 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .rr-acts .btn.icon { width: 34px; min-height: 34px; color: var(--muted); }
 .rr-acts .btn.icon.on { color: var(--accent-ink); background: color-mix(in oklab, var(--accent) 22%, transparent); border-radius: var(--r-sm); }
 .rr-step.rr-skip .rr-title { text-decoration: line-through; opacity: .7; }
+/* a rail that is a plan, not a run: every row in the text colour */
+.rr-step.rr-plan .rr-title { color: var(--text); }
 .rr-step.rr-hold .rr-glyph { background: var(--warn); color: var(--on-warn); }
 .cbar.mini { flex: none; }
 .cbar.mini .cgroup { padding: 2px; }
