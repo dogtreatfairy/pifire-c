@@ -742,8 +742,10 @@ export function sectionBar(title, ...actions) {
   return el('div', { class: 'row between' }, el('h2', {}, title), ...actions.filter(Boolean));
 }
 
-export function segmented(options, value, onchange) {
-  const wrap = el('div', { class: 'segmented' });
+/* `hug` is for a control that shares a row with something else; by default the options divide the
+   width of whatever holds them. */
+export function segmented(options, value, onchange, { hug = false } = {}) {
+  const wrap = el('div', { class: `segmented${hug ? ' hug' : ''}` });
   for (const [v, label] of options) {
     wrap.append(el('button', { type: 'button', class: v === value ? 'active' : '', onclick: (e) => { wrap.querySelectorAll('button').forEach((b) => b.classList.remove('active')); e.currentTarget.classList.add('active'); onchange(v); } }, label));
   }

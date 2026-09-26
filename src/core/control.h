@@ -109,7 +109,8 @@ typedef struct {
 	struct {
 		bool active, triggered, waiting;   /* waiting = paused for the user after a trigger */
 		bool lead_fired;      /* the "ten minutes until you wrap" warning went out for this step */
-		bool lid_armed;       /* the step ends on the lid, and the lid has not been opened yet */
+		bool lid_armed;       /* this step's end involves the lid at all */
+		bool lid_seen;        /* the lid has been opened since this step began asking */
 		/* The recipe finished and left a fire burning. A recipe that ends in Shutdown puts itself
 		 * out; one that does not has handed a lit grill back with nothing managing it, and the
 		 * cook has to be told and asked what to do about it. */

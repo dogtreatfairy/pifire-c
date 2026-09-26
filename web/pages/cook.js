@@ -167,10 +167,16 @@ export async function timerDialog() {
 }
 
 const MODES = [['Startup', 'Startup'], ['Smoke', 'Smoke'], ['Hold', 'Hold'], ['Shutdown', 'Shutdown']];
-/* How a step ends once whatever it was counting or waiting for is done. "Lid or ask" is for the
-   steps where the cook has to handle the meat: opening the lid to take the ribs off answers the
-   question as well as tapping does, and it is the answer someone with both hands full can give. */
-const ENDS = [['none', 'Straight on'], ['confirm', 'Ask me'], ['lid', 'Lid or ask']];
+/* How a step ends once whatever it was counting or waiting for is done.
+ *
+ * Two signals joined the way a condition is: the prompt, and the lid. The prompt is always one of
+ * them, because a lid switch that does not fire would otherwise strand a recipe with no way to
+ * carry on -- so what the cook chooses is whether the lid counts too, and whether either signal
+ * ends the step or both have to have happened. */
+const ENDS_WAIT = [['none', 'Straight on'], ['wait', 'Wait For Me']];
+const ENDS_JOIN = [['lid', 'OR'], ['lid_and', 'AND']];
+const waitOf = (s) => s.wait || (s.pause ? 'confirm' : 'none');
+const ENDS_SAID = { confirm: 'then prompt', lid: 'then lid or prompt', lid_and: 'then lid and prompt' };
 const ANY_FOOD = '@food';
 
 const fmtMin = (m) => (!m ? '' : m % 60 === 0 && m >= 60 ? `${m / 60} h` : m > 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`);
@@ -184,9 +190,8 @@ function stepSummary(s) {
   const parts = [s.mode + (s.mode === 'Hold' && s.setpoint ? ` ${s.setpoint}${degUnit()}` : '')];
   if (s.timer_min) parts.push(fmtMin(s.timer_min));
   if (s.probe && s.probe_temp) parts.push(`${probeName(s.probe)} ≥ ${s.probe_temp}${degUnit()}${s.carryover ? ' rested' : ''}`);
-  const w = s.wait || (s.pause ? 'confirm' : 'none');
-  if (w === 'confirm') parts.push('then ask');
-  else if (w === 'lid') parts.push('then lid or ask');
+  const said = ENDS_SAID[waitOf(s)];
+  if (said) parts.push(said);
   return parts.join(' · ');
 }
 
@@ -271,7 +276,27 @@ function recipeEditor(rec0, isNew) {
             el('span', { class: 'switch' }, el('input', { type: 'checkbox', checked: !!s.s_plus,
               onchange: (e) => { s.s_plus = e.target.checked; changed(); } }), el('span'))));
         }
-        inner.append(field('Ends With', segmented(ENDS, s.wait || (s.pause ? 'confirm' : 'none'), (v) => { s.wait = v; s.pause = v !== 'none'; changed(); })));
+        /* Built the way a condition is: the signals, then how they join. The prompt is shown as
+           a fixed part of the answer rather than a box that could be unticked, because a step only
+           the lid can end has no way out of it if the lid switch never fires. */
+        const w = waitOf(s);
+        const setWait = (v) => { s.wait = v; s.pause = v !== 'none'; changed(); draw(); };
+        inner.append(field('Ends With', segmented(ENDS_WAIT, w === 'none' ? 'none' : 'wait',
+          (v) => setWait(v === 'none' ? 'none' : 'confirm'))));
+        if (w !== 'none') {
+          inner.append(el('div', { class: 'ends' },
+            el('div', { class: 'ends-fixed' }, 'Prompt', el('span', { class: 'help' }, 'always')),
+            el('label', { class: 'toggle' },
+              el('div', {}, el('div', {}, 'The Lid'), el('div', { class: 'help' }, 'Opening it counts as an answer')),
+              el('span', { class: 'switch' }, el('input', { type: 'checkbox', checked: w !== 'confirm',
+                onchange: (e) => setWait(e.target.checked ? 'lid' : 'confirm') }), el('span'))),
+            w !== 'confirm' ? el('div', { class: 'field' },
+              el('label', {}, 'Joined By'),
+              el('div', { class: 'help' }, w === 'lid_and'
+                ? 'Both have to happen: the lid, then your answer.'
+                : 'Either one ends the step.'),
+              segmented(ENDS_JOIN, w, (v) => setWait(v))) : null));
+        }
         inner.append(field('Message', el('input', { type: 'text', value: s.message || '', placeholder: 'e.g. Wrap the ribs',
           onchange: (e) => { s.message = e.target.value; changed(); } }), 'Sent when the step ends'));
         /* Being told to fetch foil at the moment the ribs need wrapping means opening the lid to go
@@ -411,9 +436,13 @@ export function renderCook(view) {
           rc.waiting ? null : el('div', { class: 'run-left' }, rc.remaining_s >= 0 ? fmtDur(rc.remaining_s) : '')),
         el('div', { class: 'progress' }, el('div', { style: `width:${((rc.step + (rc.waiting ? 1 : 0)) / rc.nsteps) * 100}%` })),
         rc.message ? el('div', { class: rc.waiting ? 'notice warn' : 'run-msg' }, rc.message) : null,
-        rc.waiting
-          ? el('button', { class: 'btn primary block', type: 'button', onclick: () => cmd({ cmd: 'recipe', op: 'next' }) }, 'Done, carry on')
-          : null,
+        /* A step that wants the lid AND the answer says which half is still missing, rather than
+           showing a button that quietly does nothing when it is tapped. */
+        rc.waiting && rc.needs_lid
+          ? el('div', { class: 'help' }, 'Open the lid, then confirm.')
+          : rc.waiting
+            ? el('button', { class: 'btn primary block', type: 'button', onclick: () => cmd({ cmd: 'recipe', op: 'next' }) }, 'Done, carry on')
+            : null,
         el('div', { class: 'form-actions' },
           el('button', { class: 'btn sm ghost', type: 'button', onclick: async () => {
             if (await confirmDialog('Stop the recipe?', 'The grill keeps running in whatever mode the current step set.', 'Stop recipe', true)) cmd({ cmd: 'recipe', op: 'stop' });

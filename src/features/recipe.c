@@ -151,7 +151,9 @@ int pf_recipe_load(int id, pf_recipe *out)
 		rs->probe_all = !strcmp(pf_json_str(s, "probe_match", "any"), "all");
 		rs->carryover = pf_json_bool(s, "carryover", false);
 		const char *w = pf_json_str(s, "wait", "none");
-		rs->wait = !strcmp(w, "lid") ? PF_RSTEP_WAIT_LID : !strcmp(w, "confirm") ? PF_RSTEP_WAIT_CONFIRM : PF_RSTEP_WAIT_NONE;
+		rs->wait = !strcmp(w, "lid_and") ? PF_RSTEP_WAIT_LID_AND
+		         : !strcmp(w, "lid") ? PF_RSTEP_WAIT_LID
+		         : !strcmp(w, "confirm") ? PF_RSTEP_WAIT_CONFIRM : PF_RSTEP_WAIT_NONE;
 		/* "wait" says how the step ends and subsumes the older "pause" flag, which said only that
 		 * it ended by asking. A recipe written before wait existed still reads correctly. */
 		rs->pause = pf_json_bool(s, "pause", false) || rs->wait != PF_RSTEP_WAIT_NONE;

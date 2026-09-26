@@ -2,7 +2,7 @@
 /* Recipes: multi-step programs. Storage/CRUD here; the runner lives in control.c.
  * Step JSON: {"mode":"Startup|Smoke|Hold|Shutdown","setpoint":225,"s_plus":false,
  *             "timer_min":0,"probe":"Probe1","probe_temp":0,"probe_match":"any|all",
- *             "carryover":false,"wait":"none|confirm|lid","pause":false,"message":"",
+ *             "carryover":false,"wait":"none|confirm|lid|lid_and","pause":false,"message":"",
  *             "lead_min":0,"lead_message":""} */
 #include "pifire/common.h"
 #include <cJSON.h>
@@ -14,10 +14,18 @@
 
 /* How a step ends when it is not a clock or a temperature that ends it.
  *
- * CONFIRM waits for the cook to say they have done the thing the message asked for. LID also
- * accepts the lid being opened: taking the ribs off to wrap them is a lid event, and asking
- * someone with both hands full to find their phone first is asking them to do it later. */
-typedef enum { PF_RSTEP_WAIT_NONE = 0, PF_RSTEP_WAIT_CONFIRM, PF_RSTEP_WAIT_LID } pf_rstep_wait;
+ * Two signals -- the cook saying so, and the lid being opened -- combined the way a condition is.
+ *
+ *   CONFIRM   the prompt alone.
+ *   LID       the lid OR the prompt: either ends it. Taking the ribs off to wrap them is a lid
+ *             event, and asking someone with both hands full to find their phone first is asking
+ *             them to do it later.
+ *   LID_AND   the lid AND the prompt: both have to have happened. For a step where the meat has to
+ *             physically come off before the answer means anything.
+ *
+ * There is no lid-only: the prompt is always one of the signals, because a lid switch that does
+ * not fire would otherwise strand a recipe with no way to carry on. */
+typedef enum { PF_RSTEP_WAIT_NONE = 0, PF_RSTEP_WAIT_CONFIRM, PF_RSTEP_WAIT_LID, PF_RSTEP_WAIT_LID_AND } pf_rstep_wait;
 
 typedef struct {
 	pf_mode mode;

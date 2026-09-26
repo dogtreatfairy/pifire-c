@@ -264,6 +264,33 @@ static void test_the_built_in_ribs_recipe_has_nothing_wrong_with_its_shape(void)
 	cJSON_Delete(w); cJSON_Delete(l);
 }
 
+/* The two signals that can end a step, and how they join -- the shape a condition has. There is
+ * deliberately no lid-only: the prompt is always one of them, because a lid switch that does not
+ * fire would otherwise strand a recipe with no way to carry on. */
+static void test_a_step_can_end_on_the_lid_the_prompt_or_both(void)
+{
+	int id = save("{\"name\":\"ends\",\"units\":\"F\",\"steps\":["
+	              "{\"mode\":\"Hold\",\"setpoint\":225,\"wait\":\"confirm\"},"
+	              "{\"mode\":\"Hold\",\"setpoint\":225,\"wait\":\"lid\"},"
+	              "{\"mode\":\"Hold\",\"setpoint\":225,\"wait\":\"lid_and\"},"
+	              "{\"mode\":\"Hold\",\"setpoint\":225}]}");
+	pf_recipe r;
+	TEST_ASSERT_EQUAL_INT(0, pf_recipe_load(id, &r));
+	TEST_ASSERT_EQUAL_INT(PF_RSTEP_WAIT_CONFIRM, r.steps[0].wait);
+	TEST_ASSERT_EQUAL_INT(PF_RSTEP_WAIT_LID, r.steps[1].wait);
+	TEST_ASSERT_EQUAL_INT(PF_RSTEP_WAIT_LID_AND, r.steps[2].wait);
+	TEST_ASSERT_EQUAL_INT(PF_RSTEP_WAIT_NONE, r.steps[3].wait);
+	/* every one of them that waits also pauses, whichever signal ends it */
+	TEST_ASSERT_TRUE(r.steps[0].pause);
+	TEST_ASSERT_TRUE(r.steps[1].pause);
+	TEST_ASSERT_TRUE(r.steps[2].pause);
+	TEST_ASSERT_FALSE(r.steps[3].pause);
+	/* anything unrecognised waits for nothing rather than silently waiting for something */
+	id = save("{\"name\":\"odd\",\"units\":\"F\",\"steps\":[{\"mode\":\"Hold\",\"wait\":\"whenever\"}]}");
+	TEST_ASSERT_EQUAL_INT(0, pf_recipe_load(id, &r));
+	TEST_ASSERT_EQUAL_INT(PF_RSTEP_WAIT_NONE, r.steps[0].wait);
+}
+
 int main(void)
 {
 	pf_log_init(PF_LOG_ERROR);
@@ -276,6 +303,7 @@ int main(void)
 	RUN_TEST(test_a_step_can_be_aimed_at_any_food_probe);
 	RUN_TEST(test_a_step_with_a_mode_the_grill_does_not_have_is_refused);
 	RUN_TEST(test_which_modes_count_as_a_grill_that_is_already_lit);
+	RUN_TEST(test_a_step_can_end_on_the_lid_the_prompt_or_both);
 	RUN_TEST(test_a_recipe_is_told_when_it_does_not_light_the_grill_first);
 	RUN_TEST(test_a_recipe_is_told_when_it_leaves_the_grill_running);
 	RUN_TEST(test_the_built_in_ribs_recipe_has_nothing_wrong_with_its_shape);

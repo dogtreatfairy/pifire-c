@@ -242,7 +242,7 @@ const forField = (node, onChange) => {
         node._for_unit = u;
         node.for_s = Math.round((parseFloat(input.value) || 0) * (u === 'min' ? 60 : 1));
         onChange();
-      })));
+      }, { hug: true })));
 };
 
 /* What can be added, as a list of kinds -- the shape Home Assistant uses. A comparison first,

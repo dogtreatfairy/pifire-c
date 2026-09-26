@@ -402,6 +402,12 @@ to see what the options are (NN/g: a dropdown for two or three options hides the
 The destructive action is a row of its own, in red, above the footer — never in the row that
 commits.
 
+**A segmented control's options divide the width between them.** It is a choice between equals and
+has to look like one: options sized by their own padding leave the control shrunk against the left
+edge of its field with dead space beside it, which reads as a row of buttons nobody laid out. The
+exception is a control sharing a row with something else -- a number and its unit -- which takes
+only what it needs (`.segmented.hug`).
+
 ## A page scrolls; nothing inside it scrolls on its own
 
 A capped, inner-scrolling region — `max-height: 60vh; overflow-y: auto` — is a **dialog's** answer
@@ -723,6 +729,19 @@ several seconds first, because a reconnect takes under a second and must not fla
 What reaches a phone is decided by the rule that fired, not by a second layer of filtering. A rule
 names its own services and its own urgency; the category switches exist for the daemon's own
 chatter and must not silently swallow anything a person wrote.
+
+## More than one way for something to finish is a condition
+
+When two different things can end the same wait -- a prompt and a lid switch, a timer and a
+temperature -- do not enumerate the combinations as a list of modes. "Straight on / Ask me / Lid or
+ask" grows a fourth option the moment anybody wants both, and a fifth after that. Build it the way
+a condition is built: name the signals, then how they join, with AND and OR rather than words like
+"both of these". The reader already knows that shape from the notification editor.
+
+One of the signals should be one a person can always give. A step that only a lid switch can end
+has no way out of it if the switch never fires, so the prompt is shown as a fixed part of the
+answer rather than a box that can be unticked, and what the cook chooses is whether the lid counts
+as well.
 
 ## Say what is wrong where it is wrong, with the remedy beside it
 

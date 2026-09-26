@@ -656,7 +656,13 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 		recipe_begin_step(c, now);
 		break;
 	case PF_CMD_RECIPE_NEXT:
-		if (c->recipe.active && c->recipe.waiting) recipe_advance(c, now);
+		if (c->recipe.active && c->recipe.waiting) {
+			/* Both signals, and only one of them has happened. Tapping Next cannot stand in for
+			 * the lid: the point of asking for both is that the meat has actually come off. */
+			if (c->recipe.r.steps[c->recipe.step].wait == PF_RSTEP_WAIT_LID_AND && !c->recipe.lid_seen)
+				LOGI(TAG, "recipe '%s' step %d: still waiting for the lid", c->recipe.r.name, c->recipe.step + 1);
+			else recipe_advance(c, now);
+		}
 		break;
 	case PF_CMD_RECIPE_STOP:
 		if (c->recipe.active) { c->recipe.active = false; LOGI(TAG, "recipe stopped by user"); }
@@ -781,9 +787,10 @@ static void recipe_begin_step(pf_control *c, double now)
 	c->recipe.waiting = false;
 	c->recipe.lead_fired = false;
 	c->recipe.eta_s = -1;
-	/* Arm the lid only for a step that ends on it, and only from now: the lid that was opened to
-	 * put the food on must not end the step that was waiting for it to be taken off. */
-	c->recipe.lid_armed = s->wait == PF_RSTEP_WAIT_LID;
+	/* Arm the lid only for a step whose end involves it, and only from now: the lid that was
+	 * opened to put the food on must not answer the step that is waiting for it to come off. */
+	c->recipe.lid_armed = s->wait == PF_RSTEP_WAIT_LID || s->wait == PF_RSTEP_WAIT_LID_AND;
+	c->recipe.lid_seen = false;
 	if (s->setpoint_c > 0) c->setpoint_c = s->setpoint_c;
 	c->s_plus = s->s_plus;
 	LOGI(TAG, "recipe '%s' step %d/%d: %s", c->recipe.r.name, c->recipe.step + 1, c->recipe.r.nsteps, pf_mode_name(s->mode));
@@ -857,11 +864,14 @@ static void run_recipe(pf_control *c, double now)
 	if (c->mode == PF_MODE_ERROR) { c->recipe.active = false; return; }
 	pf_recipe_step *s = &c->recipe.r.steps[c->recipe.step];
 	if (c->recipe.waiting) {
-		/* A step that ends on the lid is still listening while it waits: the message asked for the
-		 * ribs to come off, and them coming off is the answer, whether or not anyone taps Next. */
-		if (c->recipe.lid_armed && c->lid_open) {
-			LOGI(TAG, "recipe '%s' step %d: lid opened, taking that as done", c->recipe.r.name, c->recipe.step + 1);
-			recipe_advance(c, now);
+		/* A step whose end involves the lid is still listening while it waits. On its own the lid
+		 * is the whole answer -- the message asked for the ribs to come off, and them coming off
+		 * says so whether or not anyone taps Next. Combined with the prompt it is half of it, and
+		 * the half that has to happen before a tap means anything. */
+		if (c->recipe.lid_armed && c->lid_open && !c->recipe.lid_seen) {
+			c->recipe.lid_seen = true;
+			LOGI(TAG, "recipe '%s' step %d: the lid was opened", c->recipe.r.name, c->recipe.step + 1);
+			if (s->wait == PF_RSTEP_WAIT_LID) recipe_advance(c, now);
 		}
 		return;
 	}
@@ -2133,6 +2143,7 @@ char *pf_control_resume_json(const pf_control *c, double now)
 		cJSON_AddBoolToObject(rc, "triggered", c->recipe.triggered);
 		cJSON_AddBoolToObject(rc, "waiting", c->recipe.waiting);
 		cJSON_AddBoolToObject(rc, "lead_fired", c->recipe.lead_fired);
+		cJSON_AddBoolToObject(rc, "lid_seen", c->recipe.lid_seen);
 	}
 	cJSON *pr = cJSON_AddArrayToObject(o, "probes");
 	for (int i = 0; i < c->notify.n; i++) {
@@ -2200,7 +2211,8 @@ bool pf_control_resume(pf_control *c, const char *json, double now)
 				c->recipe.triggered = pf_json_bool(rc, "triggered", false);
 				c->recipe.waiting = pf_json_bool(rc, "waiting", false);
 				c->recipe.lead_fired = pf_json_bool(rc, "lead_fired", false);
-				c->recipe.lid_armed = c->recipe.r.steps[step].wait == PF_RSTEP_WAIT_LID;
+				c->recipe.lid_armed = c->recipe.r.steps[step].wait == PF_RSTEP_WAIT_LID || c->recipe.r.steps[step].wait == PF_RSTEP_WAIT_LID_AND;
+				c->recipe.lid_seen = pf_json_bool(rc, "lid_seen", false);
 				c->recipe.eta_s = -1;
 				LOGI(TAG, "recipe '%s' resumed at step %d/%d", c->recipe.r.name, step + 1, c->recipe.r.nsteps);
 			}
@@ -2358,6 +2370,9 @@ static void publish(pf_control *c, double now)
 		 * happens", which is the only question the number is asked. */
 		s.recipe.remaining_s = c->recipe.waiting ? -1 : c->recipe.eta_s;
 		pf_strlcpy(s.recipe.message, rs->message, sizeof s.recipe.message);
+		/* Waiting on both signals with the lid still shut: the app says which half is missing
+		 * rather than offering a button that does nothing. */
+		s.recipe.needs_lid = c->recipe.waiting && rs->wait == PF_RSTEP_WAIT_LID_AND && !c->recipe.lid_seen;
 	}
 	pf_status_publish(&s);
 	pf_history_record(&s, now, c->cfg.history_sample_s);

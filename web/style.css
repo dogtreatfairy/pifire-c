@@ -414,8 +414,15 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .menu { display: grid; gap: 10px; }
 .menu .btn { justify-content: space-between; display: flex; align-items: center; text-align: left; }
 .menu .btn::after { content: "›"; color: var(--muted); font-size: var(--fs-xl); }
-.segmented { display: inline-flex; background: var(--surface2); border-radius: var(--r-pill); padding: 3px; gap: 2px; }
-.segmented button { border: 0; background: transparent; padding: 6px 12px; border-radius: var(--r-pill); font-size: var(--fs-sm); color: var(--muted); }
+/* The options divide the width between them. This was inline-flex with buttons sized by their own
+   padding, so the control shrank against the left edge of whatever held it and the choices sat
+   bunched in a corner with dead space beside them -- which reads as a row of buttons nobody laid
+   out rather than as a choice between equals. */
+.segmented { display: flex; width: 100%; background: var(--surface2); border-radius: var(--r-pill); padding: 3px; gap: 2px; }
+.segmented button { flex: 1 1 0; min-width: 0; border: 0; background: transparent; padding: 6px 8px; border-radius: var(--r-pill); font-size: var(--fs-sm); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Beside something else on a row -- a number and its unit -- it takes only what it needs. */
+.segmented.hug { display: inline-flex; width: auto; flex: none; }
+.segmented.hug button { flex: 0 0 auto; padding-inline: 12px; }
 .segmented button.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,.3); }
 .chart { width: 100%; min-height: 260px; }
 .toast { position: fixed; left: 50%; bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 14px); transform: translateX(-50%); background: var(--surface2); border: 1px solid var(--line); padding: 10px 16px; border-radius: var(--r-pill); z-index: 20; box-shadow: 0 6px 20px rgba(0,0,0,.35); }
@@ -532,6 +539,11 @@ legend { font-weight: 600; margin-bottom: 6px; }
    about the screen it is on, in danger colours by default and .notice.warn for a warning. Its
    button floats to the end on its own. */
 .notice .grow { flex: 1 1 auto; min-width: 0; }
+
+/* How a step ends: the signals that can end it, then how they join -- the shape a condition has. */
+.ends { display: grid; gap: var(--sp-2); margin-top: var(--sp-2); padding-left: 10px; border-left: 2px solid var(--line); }
+.ends-fixed { display: flex; align-items: baseline; gap: var(--sp-2); font-weight: var(--fw-medium); }
+.ends .toggle { padding: 0; border: 0; }
 .run-card .form-actions { justify-content: flex-start; }
 
 /* ---- the header's timer chip and its drop-down ---- */
