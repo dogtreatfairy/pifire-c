@@ -1,9 +1,10 @@
 import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, dialog, pushScreen, numberDialog, toast, confirmDialog, segmented, actionBtn, itemRow, iconBtn, addRow, patchSettings, screenActions } from '../app.js';
 import { fmtEta } from './probes.js';
+import { icon as lucide, MODE_ICON } from '../icons.js';
 /* The same condition cards, rows and picker the notification editor is made of. A step ending is
    the same kind of question -- "when is this true" -- and has to be asked in the same shapes.
    See web/conditions.js and docs/design-language.md. */
-import { catalogue, condNode, describeNode, OP_SYM, fmtSecs } from '../conditions.js';
+import { catalogue, condNode, describeNode, condIcon, OP_SYM, fmtSecs } from '../conditions.js';
 import { pickFoodProbes } from './probes.js';
 
 /* Doneness presets, in °F and converted for °C users.
@@ -236,35 +237,56 @@ function joinEnding(when, carry) {
 /* A term of an ending in the words a cook uses -- "for 3 h", "160°F probe", "205°F probe,
    rested" -- rather than the generic "Hottest Food Probe is at or above 160". The generic form is
    right for a notification about anything; a recipe is about the meat and the clock. */
+/* Each thing that can end a stage, as a mark and a few words: a stopwatch for time on the clock,
+   a thermometer for a probe, an hourglass for time still to run, a battery. The mark is the one
+   every condition of that kind wears, from conditions.js, so the rail and the rule editor agree. */
 function endingTerm(n) {
   const u = degUnit();
   const v = n.value;
-  if (n.trait === 'elapsed') return `for ${fmtSecs(v)}`;
-  if (n.trait === 'food_max') return `${v}${u} probe`;
-  if (n.trait === 'food_min') return `all probes ${v}${u}`;
-  if (n.trait === 'food_avg') return `probes average ${v}${u}`;
-  if (n.trait === 'food_rested') return `${v}${u} probe, rested`;
-  if (n.trait === 'food_eta') return `probe within ${fmtSecs(v)} of target`;
-  if (n.trait === 'food_battery') return `probe battery ${OP_SYM[n.op] || n.op} ${v}%`;
-  return describeNode(n, 'step', false);
+  if (n.trait === 'elapsed') return ['timer', fmtSecs(v)];
+  if (n.trait === 'food_max') return ['thermometer', `${v}${u} probe`];
+  if (n.trait === 'food_min') return ['thermometer', `all probes ${v}${u}`];
+  if (n.trait === 'food_avg') return ['thermometer', `probes average ${v}${u}`];
+  if (n.trait === 'food_rested') return ['thermometer', `${v}${u} probe, rested`];
+  if (n.trait === 'food_eta') return ['hourglass', `probe within ${fmtSecs(v)} of target`];
+  if (n.trait === 'food_battery') return ['battery', `probe battery ${OP_SYM[n.op] || n.op} ${v}%`];
+  return [condIcon(n, 'step'), describeNode(n, 'step', false)];
 }
-function endingPhrase(when) {
-  const terms = (when?.conditions || []).map(endingTerm).filter(Boolean);
-  return terms.join(when?.op === 'any' ? ' or ' : ' and ');
+const inl = (name) => lucide(name, 'ic inl');
+/* the terms joined by "or" / "and", as nodes for a title or a row */
+function endingNodes(when) {
+  const out = [];
+  const terms = (when?.conditions || []).map(endingTerm);
+  terms.forEach(([ic, text], i) => {
+    if (i) out.push(when?.op === 'any' ? ' or ' : ' and ');
+    out.push(inl(ic), text);
+  });
+  return out;
 }
 const CARRY_SAID = { prompt: 'waits for you', lid_or: 'waits for you or the lid', lid_and: 'waits for the lid, then you' };
-function stepSummary(s) {
+function stepHead(s) {
   if (s.mode === 'Startup') return 'Startup' + (s.setpoint ? ` to ${s.setpoint}${degUnit()}` : '');
   if (s.mode === 'Shutdown' || s.mode === 'Stop') return s.mode;
-  const head = `${s.mode}${s.setpoint ? ` ${s.setpoint}${degUnit()}` : ''}`;
-  const phrase = endingPhrase(splitEnding(s.ends).when);
-  return phrase ? `${head} ${phrase}` : head;
+  return `${s.mode}${s.setpoint ? ` ${s.setpoint}${degUnit()}` : ''}`;
 }
-/* What happens at the end of a stage, for the line between it and the next: the message, and
-   who it waits for. */
-function handoverText(s) {
+/* the card's title on the rail: the mode and set point, then what ends it, with the marks */
+function stepTitleNodes(s) {
+  const head = stepHead(s);
+  if (s.mode !== 'Hold' && s.mode !== 'Smoke') return [head];
+  const nodes = endingNodes(splitEnding(s.ends).when);
+  return nodes.length ? [head, ' ', ...nodes] : [head];
+}
+/* What happens at the end of a stage, for the lines between it and the next: the message, and who
+   it waits for. Each is an event on the rail with its own mark -- what is said, the cook's hand,
+   the lid. */
+function handoverEvents(s) {
   const c = splitEnding(s.ends).carry;
-  return [s.message, CARRY_SAID[c]].filter(Boolean).join(' \u00b7 ');
+  const out = [];
+  if (s.message) out.push({ icons: ['message-square'], text: s.message, cls: 'msg' });
+  if (c === 'prompt') out.push({ icons: ['hand'], text: 'Waits for you', cls: 'wait' });
+  if (c === 'lid_or') out.push({ icons: ['hand'], text: 'Waits for you or the lid', cls: 'wait' });
+  if (c === 'lid_and') out.push({ icons: ['door-open'], text: 'Waits for the lid, then you', cls: 'wait' });
+  return out;
 }
 
 /* What is wrong with the shape of a recipe, mirroring pf_recipe_shape_warnings in
@@ -303,16 +325,16 @@ function recipeEditor(rec0, isNew) {
     const touched = () => { if (ready) wrap.dispatchEvent(new CustomEvent('pf-dirty', { bubbles: true })); };
     const body = el('div');
 
-    const stepCard = (s, i, redraw, glyphText) => {
+    const stepCard = (s, i, redraw, glyphNode) => {
       const det = el('details', { class: 'fold cond-card', open: false });
       const title = el('span', { class: 'cc-title' });
       const head = el('summary', { class: 'cc-head' },
-        el('span', { class: 'cc-glyph' }, glyphText), title,
+        el('span', { class: 'cc-glyph' }, glyphNode), title,
         iconBtn('trash-2', 'Remove this step', { class: 'danger cc-del',
           onclick: (e) => { e.preventDefault(); e.stopPropagation(); rec.steps.splice(i, 1); touched(); redraw(); } }));
       const inner = el('div', { class: 'cc-body' });
       det.append(head, inner);
-      const retitle = () => { title.textContent = stepSummary(s) || 'New step'; };
+      const retitle = () => { title.replaceChildren(...stepTitleNodes(s)); if (!title.childNodes.length) title.textContent = 'New step'; };
       const changed = () => { touched(); retitle(); };
 
       const field = (label, node, help) => el('div', { class: 'field' },
@@ -383,13 +405,15 @@ function recipeEditor(rec0, isNew) {
          next, because that is where it happens. It used to be a flat list of seven "Hold" rows,
          two of them waits for the cook, and the flow made no sense. */
       const tl = el('div', { class: 'tl' });
-      let stage = 0;
       rec.steps.forEach((s, i) => {
         const cooks = s.mode === 'Hold' || s.mode === 'Smoke';
-        const glyph = cooks ? String(++stage) : '\u25cf';
-        tl.append(el('div', { class: `tl-item${cooks ? '' : ' tl-end'}` }, stepCard(s, i, draw, glyph)));
-        const hand = cooks ? handoverText(s) : '';
-        if (hand) tl.append(el('div', { class: 'tl-hand' }, el('span', { class: 'tl-flag' }, '\u2691'), el('span', {}, hand)));
+        /* The rail is a line of events, each wearing its mark: a flame lights it, crosshairs hold
+           it, a cloud smokes it, a power mark puts it out; between the stages, what is said and who
+           is waited for. A number on the rail said which stage this was and nothing else. */
+        tl.append(el('div', { class: `tl-item${cooks ? '' : ' tl-end'}` }, stepCard(s, i, draw, lucide(MODE_ICON[s.mode] || 'crosshair'))));
+        if (cooks) for (const ev of handoverEvents(s)) {
+          tl.append(el('div', { class: 'tl-hand' }, el('span', { class: `tl-flag ${ev.cls}` }, ev.icons.map((n) => lucide(n))), el('span', {}, ev.text)));
+        }
       });
       steps.append(tl);
       if (!rec.steps.length) steps.append(el('div', { class: 'muted', style: 'padding:6px 2px' }, 'No stages yet.'));
@@ -405,8 +429,7 @@ function recipeEditor(rec0, isNew) {
     draw();
 
     const dismiss = async () => {
-      const clean = structuredClone(rec); for (const st of clean.steps) delete st._e;
-      if (JSON.stringify(clean) !== JSON.stringify({ ...rec0, units: PF.units }) &&
+      if (snapshot() !== base &&
           !await confirmDialog('Discard changes?', rec.name || '', 'Discard', true)) return;
       close(undefined);
     };
@@ -436,7 +459,11 @@ function recipeEditor(rec0, isNew) {
         },
         dirty: isNew,
       }));
-    setTimeout(() => { ready = true; }, 0);
+    /* Against what the first draw settled on: a step opened for editing gains its split ending and
+       a blank one its defaults, and none of that is a change the person made. */
+    const snapshot = () => { const c = structuredClone(rec); for (const st of c.steps) delete st._e; return JSON.stringify(c); };
+    let base = snapshot();
+    setTimeout(() => { ready = true; base = snapshot(); }, 0);
     return wrap;
   }, { title: isNew ? 'New Recipe' : rec0.name, back: 'Cook' });
 }
@@ -480,14 +507,15 @@ export function renderCook(view) {
      done to it are on the right of the row as marks, Play and a pencil; deleting one is done from
      its own screen, behind a confirmation, where the name of what is about to go is in the title. */
   const plan = (r) => {
-    const parts = [];
+    const nodes = [];
     for (const s of r.steps || []) {
       if (s.mode !== 'Hold' && s.mode !== 'Smoke') continue;
-      const e = splitEnding(s.ends);
-      const terms = e.when.conditions || [];
-      parts.push(`${s.setpoint ? `${s.setpoint}${degUnit()}` : s.mode}${terms.length ? ` ${endingPhrase(e.when).replace(/^for /, '')}` : ''}`);
+      if (nodes.length) nodes.push(' \u00b7 ');
+      nodes.push(inl(MODE_ICON[s.mode]), s.setpoint ? `${s.setpoint}${degUnit()}` : s.mode);
+      const ends = endingNodes(splitEnding(s.ends).when);
+      if (ends.length) nodes.push(' ', ...ends);
     }
-    return parts.join(' \u00b7 ');
+    return nodes;
   };
   const loadRecipes = () => api('/recipes').then((list) => {
     recipeList.innerHTML = '';
@@ -495,12 +523,14 @@ export function renderCook(view) {
       recipeList.append(itemRow({
         icon: 'book-open', color: '#ff8a1f',
         title: r.name,
-        meta: plan(r) || 'No stages',
+        meta: (() => { const n = plan(r); return n.length ? el('span', {}, ...n) : 'No stages'; })(),
         chevron: false,
         onclick: () => edit(r, false),
+        /* the pencil, then Play at the far right: the committing action ends the row, as it ends
+           every button row */
         actions: [
-          iconBtn('play', `Run ${r.name}`, { onclick: (e) => { e.stopPropagation(); run(r); } }),
           iconBtn('pencil', `Edit ${r.name}`, { onclick: (e) => { e.stopPropagation(); edit(r, false); } }),
+          iconBtn('play', `Run ${r.name}`, { onclick: (e) => { e.stopPropagation(); run(r); } }),
         ],
       }));
     }

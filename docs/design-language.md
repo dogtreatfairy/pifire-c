@@ -786,6 +786,16 @@ asks about the **hottest**, the **coolest** and the **average** food probe in th
 **rested**, the lowest **battery** and the **soonest to its target**, so "any of them is there" and
 "all of them are" are each a single comparison.
 
+## Every kind of condition has a mark
+
+A thermometer is a temperature, a stopwatch is time on the clock, an hourglass is time still to
+run, a battery is a battery, a hand is the cook, an open door is the lid, a gauge is the grill's
+mode. The mark is chosen by *what is read* before by what type of number it is (`traitIcon` in
+`conditions.js`), and it is the same mark everywhere that kind appears: on the condition's card in
+the editor, in the Add condition list, on a recipe's rail, in a step's title and in a recipe row's
+one-line summary -- `[crosshairs] 180°F [stopwatch] 3 h or [thermometer] 160°F probe`. A list of
+words says what a rule tests; the marks let it be read without reading.
+
 ## More than one way for something to finish is a condition
 
 When two different things can end the same wait -- a prompt and a lid switch, a timer and a
@@ -802,9 +812,12 @@ as well.
 ## A recipe is a timeline
 
 Read top to bottom: lighting at the top, shutting down at the bottom, and between them the
-**stages** of the cook, numbered as a cook counts them -- Startup and Shutdown are the ends of the
-rail, not stages of it, and the status, the header plate and the run card count stages the same
-way (`Hold \u00b7 2/3`). A stage's header says what it does in the cook's words: `Hold 180\u00b0F for 3 h
+**stages** of the cook. Every event on the rail wears its mark: the flame lights it, crosshairs
+hold it, a cloud smokes it, the power mark puts it out; between stages, a speech bubble for what
+is said, a hand for the cook it waits on, an open door for the lid. The rail carries no numbers --
+a number said which stage this was and nothing else -- though the status, the header plate and the
+run card still count stages as a cook does (`Hold \u00b7 2/3`), with Startup and Shutdown as the
+ends of the rail rather than stages of it. A stage's header says what it does in the cook's words: `Hold 180\u00b0F for 3 h
 or 160\u00b0F probe`, `Hold 225\u00b0F for 1 h or 205\u00b0F probe, rested`. What happens at the end of a
 stage -- the message, and who it waits for -- is written on the rail *between* it and the next,
 because that is where it happens. A wait for the cook is never a stage of its own: seven "Hold"

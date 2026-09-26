@@ -11,6 +11,7 @@
  * Nothing here hardcodes what can be asked about: the daemon publishes the entity catalogue and
  * these dropdowns are built from it, so a trait added in C shows up on the next load. */
 import { el, api, degUnit, dialog, actionBtn, iconBtn, segmented } from './app.js';
+import { icon } from './icons.js';
 
 /* How an operator reads in a card's header, where there is one line and the rest of the row is
    folded away: a symbol, so "Hottest Food Probe \u2265 160\u00b0F" fits where "is at or above" did not. */
@@ -75,6 +76,29 @@ function describeNode(node, domain, top) {
   /* "Lid Opened" rather than "Lid Opened is on": a yes-or-no thing said once */
   if (isOn && !top) return `${node.op === 'is_off' ? 'not ' : ''}${lhs}${forLabel(node.for_s)}`;
   return `${lhs} ${OP_SYM[node.op] || node.op}${vs}${node.value2 !== undefined ? ` ${node.op === 'within' ? '' : 'and '}${num(node.value2)}` : ''}${forLabel(node.for_s)}`;
+}
+
+/* Every kind of condition has a mark, and it is the same mark wherever that kind appears: on the
+   condition's card, in the Add condition list, on a recipe's rail and in a recipe row's summary.
+   A thermometer is a temperature, a stopwatch is time on the clock, an hourglass is time still to
+   run, a hand is the cook, an open door is the lid. Chosen by what is being read before by what
+   type of number it is, so a probe's battery is a battery and not a gauge. */
+const TRAIT_ICON = {
+  elapsed: 'timer', cook_elapsed: 'timer', mode_remaining: 'timer', aiming_s: 'timer', remaining: 'timer', running: 'timer',
+  eta: 'hourglass', food_eta: 'hourglass', battery: 'battery', food_battery: 'battery',
+  prompt: 'hand', lid: 'door-open', lid_open: 'door-open',
+  mode: 'circle-gauge', error: 'triangle-alert', level: 'package',
+  signal: 'wifi', rssi: 'wifi', wifi_signal: 'wifi', connected: 'bluetooth', wireless: 'bluetooth', tailscale_online: 'network',
+  state: 'zap', percent: 'zap', duty: 'sliders-horizontal', feedforward: 'sliders-horizontal',
+};
+const TYPE_ICON = { temperature: 'thermometer', duration: 'timer', percent: 'gauge', bool: 'circle-check', enum: 'list' };
+function traitIcon(domain, t) {
+  if (domain === 'weather') return 'cloud-sun';
+  return TRAIT_ICON[t?.id] || TYPE_ICON[t?.type] || 'activity';
+}
+function condIcon(node, domain) {
+  const from = node.entity && node.entity !== 'this' ? node.entity : domain;
+  return traitIcon(from, traitDef(from, node.trait));
 }
 
 function conditionRow(cond, domain, onChange) {
@@ -275,6 +299,7 @@ function addKind(node, domain, depth, done, opts = {}) {
   const sections = [];
   const push = (heading, entries) => { if (entries.length) sections.push({ heading, entries }); };
   const rowFor = (entity, t) => ({
+    icon: traitIcon(entity || domain, t),
     name: t.label || titleCase(t.id),
     sub: t.type === 'temperature' ? `Temperature, ${degUnit()}` : t.type === 'duration' ? 'Time'
        : t.type === 'percent' ? 'Percent' : t.type === 'bool' ? 'Yes or no' : t.type === 'enum' ? 'One of a list' : '',
@@ -303,7 +328,7 @@ function addKind(node, domain, depth, done, opts = {}) {
         el('h2', {}, sec.heading),
         el('div', { class: 'ios-list' }, sec.entries.map((k) => el('button', { class: 'irow kind-row', type: 'button',
           onclick: () => { node.conditions.push(k.make()); close(); done(); } },
-          k.glyph ? el('span', { class: 'cc-glyph' }, k.glyph) : null,
+          el('span', { class: 'cc-glyph' }, k.glyph || icon(k.icon)),
           el('span', { class: 'body' }, el('span', { class: 't' }, k.name), k.sub ? el('span', { class: 's' }, k.sub) : null))))))),
     el('div', { class: 'form-actions' }, actionBtn('cancel', 'Cancel', { size: '', onclick: () => close() }))));
 }
@@ -349,7 +374,8 @@ function condNode(node, domain, onChange, onRemove, depth, opts = {}) {
 
   const retitle = () => {
     const g = GROUP_OPS.find(([v]) => v === (node.op || 'all'));
-    glyph.textContent = group ? (g?.[2] || '&') : (opts.flat && opts.ix != null ? String(opts.ix + 1) : '123');
+    if (group) glyph.textContent = g?.[2] || '&';
+    else glyph.replaceChildren(icon(condIcon(node, domain)));
     const said = describeNode(node, domain, false);
     title.textContent = group ? `${g?.[1] || 'AND'}${node.conditions?.length ? ` \u00b7 ${node.conditions.length}` : ''}`
                               : (said || 'New condition');
@@ -397,7 +423,7 @@ export function hoistFor(node) {
     else if (secs && !k.for_s) k.for_s = secs;
   }
 }
-export { OP_LABEL, OP_SYM, fmtSecs, GROUP_OPS, titleCase, isGroup, listOp, forLabel, describeNode,
+export { traitIcon, condIcon, OP_LABEL, OP_SYM, fmtSecs, GROUP_OPS, titleCase, isGroup, listOp, forLabel, describeNode,
          catalogue, domainOf, traitsOf, traitDef, traitLabel, conditionRow, forField, addKind, condNode };
 /* The raw catalogue, for the few places that need more of it than the helpers expose. */
 export const cat = () => CAT;

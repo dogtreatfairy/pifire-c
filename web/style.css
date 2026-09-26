@@ -637,7 +637,14 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .tl-item.tl-end .cc-glyph { color: var(--accent); }
 .tl-item .cc-glyph { position: relative; z-index: 1; background: var(--surface); border-radius: 50%; }
 .tl-hand { display: flex; gap: var(--sp-2); align-items: flex-start; padding: 6px 12px 10px 50px; font-size: var(--fs-xs); color: var(--muted); position: relative; }
-.tl-flag { position: absolute; left: 17px; top: 4px; color: var(--warn); background: var(--surface); padding: 0 2px; }
+.tl-flag { position: absolute; left: 16px; top: 4px; display: flex; gap: 2px; color: var(--muted); background: var(--surface); padding: 0 2px; }
+.tl-flag .ic { width: 14px; height: 14px; }
+.tl-flag.wait { color: var(--warn); }
+/* the marks on the rail: the mode's own, in the slot the glyph had */
+.tl-item .cc-glyph { color: var(--text); }
+.tl-item .cc-glyph .ic, .cond-card > .cc-head > .cc-glyph .ic, .kind-row .cc-glyph .ic { width: 16px; height: 16px; vertical-align: -3px; }
+/* a mark inside a line of text: a condition's kind in a title or a row's summary */
+.ic.inl { width: 13px; height: 13px; vertical-align: -2px; margin-right: 2px; color: var(--muted); }
 /* a flat list of conditions: the rows and the join, with no card of its own round them */
 .cond-flat { display: flex; flex-direction: column; gap: var(--sp-2); }
 .cond-flat > .cond-card { margin: 0; }

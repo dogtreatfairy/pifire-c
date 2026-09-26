@@ -216,7 +216,10 @@ function ruleEditor(rule, isNew, allRules) {
        taller than the screen, Save and Cancel were below the fold, and there was nothing to scroll
        -- the editor simply sat there with no way out of it. */
     const dismiss = async () => {
-      if (JSON.stringify(r) !== JSON.stringify(rule) && !await confirmDialog('Discard changes?', r.name || '', 'Discard', true)) return;
+      /* Against what the first draw settled on, not the stored rule: opening one moves its hold
+         time, fills its defaults and drops a redundant entity, and none of that is a change the
+         person made -- yet Cancel used to ask whether to discard it. */
+      if (JSON.stringify(r) !== base && !await confirmDialog('Discard changes?', r.name || '', 'Discard', true)) return;
       close(undefined);
     };
     wrap.append(
@@ -230,7 +233,8 @@ function ruleEditor(rule, isNew, allRules) {
            something has actually moved. */
         dirty: isNew,
       }));
-    setTimeout(() => { ready = true; }, 0);
+    let base = JSON.stringify(r);
+    setTimeout(() => { ready = true; base = JSON.stringify(r); }, 0);
     return wrap;
   }, { title: isNew ? 'New Notification' : rule.name, back: 'Notifications' });
 }
