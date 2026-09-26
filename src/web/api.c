@@ -169,6 +169,8 @@ int pf_api_command_json(const char *json, char *err, size_t errn)
 		if (!strcmp(op, "start")) { c.type = PF_CMD_RECIPE_START; c.num = pf_json_num(j, "id", 0); if (c.num <= 0) { snprintf(err, errn, "id required"); rc = -1; } }
 		else if (!strcmp(op, "next")) c.type = PF_CMD_RECIPE_NEXT;
 		else if (!strcmp(op, "stop")) c.type = PF_CMD_RECIPE_STOP;
+		else if (!strcmp(op, "skip")) c.type = PF_CMD_RECIPE_SKIP;
+		else if (!strcmp(op, "back")) c.type = PF_CMD_RECIPE_BACK;
 		else { snprintf(err, errn, "unknown recipe op"); rc = -1; }
 	} else {
 		snprintf(err, errn, "unknown command '%s'", cmd);

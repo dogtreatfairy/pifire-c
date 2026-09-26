@@ -665,6 +665,14 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 		 * been opened too, because the point of asking for both is that the meat has come off. */
 		if (c->recipe.active) { c->recipe.prompt_given = true; c->recipe.last_eval = 0; }
 		break;
+	/* Stepping by hand, forwards or back. The step is ended or begun again exactly as the recipe
+	 * would have done it; the app asks before sending either. */
+	case PF_CMD_RECIPE_SKIP:
+		if (c->recipe.active) { LOGI(TAG, "recipe '%s' step %d skipped by user", c->recipe.r.name, c->recipe.step + 1); recipe_advance(c, now); }
+		break;
+	case PF_CMD_RECIPE_BACK:
+		if (c->recipe.active && c->recipe.step > 0) { c->recipe.step--; LOGI(TAG, "recipe '%s' back to step %d by user", c->recipe.r.name, c->recipe.step + 1); recipe_begin_step(c, now); }
+		break;
 	case PF_CMD_RECIPE_STOP:
 		if (c->recipe.active) {
 			c->recipe.active = false;
@@ -913,14 +921,12 @@ static void recipe_begin_step(pf_control *c, double now)
 	if (s->setpoint_c > 0) c->setpoint_c = s->setpoint_c;
 	c->s_plus = s->s_plus;
 	LOGI(TAG, "recipe '%s' step %d/%d: %s", c->recipe.r.name, c->recipe.step + 1, c->recipe.r.nsteps, pf_mode_name(s->mode));
-	/* A step's message is an instruction, and it goes out when it is something to act on.
-	 * For a step that just gets on with it -- lighting, shutting down -- that is now, and the
-	 * message says what the grill is doing. For a step whose ending asks the cook for something,
-	 * it is when everything else about that ending is satisfied, which for a three hour smoke is
-	 * three hours from here: "take the ribs off and wrap them" said as the smoke BEGINS is how it
-	 * read before, and the step's own condition is what now decides. */
-	if (s->message[0] && !c->recipe.wants_prompt)
-		pf_events_emit("Recipe_Step_Message", c->recipe.r.name, "%s", s->message);
+	/* A step's message is what is said when the step ENDS -- the editor labels it so, and the
+	 * timeline draws it on the rail between this step and the next. It used to go out as a step
+	 * that asks nothing of the cook BEGAN, so a hold whose message was "Shutting down" announced
+	 * that as the hold started, an hour before it meant it. For a step that waits on the cook it
+	 * goes out when the step is ready for them (Recipe_Step_Done); for every other step,
+	 * recipe_advance says it as the step gives way to the next. */
 	switch (s->mode) {
 	case PF_MODE_STARTUP:
 		c->next_mode = c->recipe.step + 1 < c->recipe.r.nsteps ? c->recipe.r.steps[c->recipe.step + 1].mode : c->cfg.after_startup_mode;
@@ -946,6 +952,10 @@ static void recipe_begin_step(pf_control *c, double now)
 
 static void recipe_advance(pf_control *c, double now)
 {
+	{
+		const pf_recipe_step *done = &c->recipe.r.steps[c->recipe.step];
+		if (done->message[0] && !c->recipe.said) pf_events_emit("Recipe_Step_Message", c->recipe.r.name, "%s", done->message);
+	}
 	if (++c->recipe.step >= c->recipe.r.nsteps) {
 		pf_events_emit("Recipe_Complete", c->recipe.r.name, "Recipe finished.");
 		c->recipe.active = false;

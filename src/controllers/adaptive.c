@@ -35,6 +35,12 @@
  * evidence; learning is a correction to it, not a licence to replace it. */
 #define LEARN_MIN     0.7
 #define LEARN_MAX     1.6
+/* An approach floor -- never feed less than what holds the pit where it is while climbing to a
+ * set point not yet reached -- was tried against the sag this grill showed at 250 F. On the
+ * simulator, whose fire dies back no faster than it grows, it turned the sag into three degrees
+ * more overshoot and cost the tuner its settled hold, so it is off; the filtered derivative
+ * below is what addresses the sag. Kept, because the real grill's asymmetry may yet want it. */
+#define APPROACH_FLOOR 0
 #define IBAND_C       8.5     /* +/- 15 F: entering this band trims the integrator (approach wind-up) */
 #define THETA_MIN     40.0
 #define THETA_MAX     240.0
@@ -500,7 +506,7 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 	double derv = (in->pit_c - s->last_pit) / dt;
 	if (!isfinite(s->derv_f)) s->derv_f = 0;
 	{
-		double tf = fmax(30.0, s->Td / 4.0);
+		double tf = fmax(20.0, s->Td / 4.0);
 		if (isfinite(derv)) s->derv_f += (derv - s->derv_f) * dt / (tf + dt);
 	}
 	s->d = s->kd * s->derv_f;
@@ -514,7 +520,7 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 	 * it is; the brake may bring the feed down to that and no further, so the climb can only
 	 * coast to a stop, never turn round. Once the set point has been reached the rule is off and
 	 * the loop may cut as deep as it likes. */
-	if (!in->target_reached && e_true < 0 && s->ff > 0 && isfinite(in->ambient_c) && in->setpoint_c > in->ambient_c + 5) {
+	if (APPROACH_FLOOR && !in->target_reached && e_true < 0 && s->ff > 0 && isfinite(in->ambient_c) && in->setpoint_c > in->ambient_c + 5) {
 		double hold_now = s->ff * (in->pit_c - in->ambient_c) / (in->setpoint_c - in->ambient_c);
 		hold_now = clampd(hold_now, 0, s->ff);
 		if (s->u < hold_now) s->u = hold_now;

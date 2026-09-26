@@ -1,4 +1,4 @@
-import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, dialog, pushScreen, numberDialog, toast, confirmDialog, segmented, actionBtn, itemRow, iconBtn, addRow, transferRow, patchSettings, screenActions } from '../app.js';
+import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, dialog, pushScreen, numberDialog, toast, confirmDialog, segmented, actionBtn, itemRow, iconBtn, actionBar, patchSettings, screenActions } from '../app.js';
 import { fmtEta } from './probes.js';
 import { icon as lucide, MODE_ICON } from '../icons.js';
 /* The same condition cards, rows and picker the notification editor is made of. A step ending is
@@ -535,6 +535,7 @@ export function renderCook(view) {
         /* the pencil, then Play at the far right: the committing action ends the row, as it ends
            every button row */
         actions: [
+          iconBtn('share', `Share ${r.name}`, { onclick: (e) => { e.stopPropagation(); shareRecipe(r); } }),
           iconBtn('pencil', `Edit ${r.name}`, { onclick: (e) => { e.stopPropagation(); edit(r, false); } }),
           iconBtn('play', `Run ${r.name}`, { onclick: (e) => { e.stopPropagation(); run(r); } }),
         ],
@@ -542,14 +543,42 @@ export function renderCook(view) {
     }
     if (!list.length) recipeList.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' },
       'No recipes yet. A recipe is a list of stages the grill runs for you.'));
-    recipeList.append(addRow('Add Recipe', () => edit({ name: '', description: '', steps: [{ mode: 'Startup' }, blankStep(), { mode: 'Shutdown' }] }, true)));
-    recipeList.append(transferRow({
-      what: 'recipes', filename: 'pifire-recipes',
-      fetchDoc: () => api('/recipes/export'),
-      confirmText: 'A recipe with the same name as one on the grill replaces it; the rest are added.',
-      importDoc: async (doc) => { const r = await api('/recipes/import', { body: doc }); toast(`Imported ${r.imported} recipe${r.imported === 1 ? '' : 's'}${r.replaced ? `, ${r.replaced} replaced` : ''}`); loadRecipes(); },
-    }));
   }).catch(() => {});
+  /* One recipe as a file, handed to the phone's share sheet where there is one -- to a friend,
+     to Files, to a message -- and downloaded where there is not. The same file Import reads. */
+  const shareRecipe = async (r) => {
+    const doc = { app: 'pifire-c', kind: 'recipes', format: 1, created: Date.now() / 1000, recipes: [{ ...r, id: undefined }] };
+    const name = `${(r.name || 'recipe').replace(/[^\w-]+/g, '-').toLowerCase()}.pifire-recipe.json`;
+    const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' });
+    try {
+      const file = new File([blob], name, { type: 'application/json' });
+      if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: r.name }); return; }
+    } catch (e) { if (e?.name === 'AbortError') return; }
+    const url = URL.createObjectURL(blob);
+    const a = el('a', { href: url, download: name });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    toast('Saved the recipe file');
+  };
+  const importRecipes = () => {
+    const f = el('input', { type: 'file', accept: 'application/json,.json' });
+    f.onchange = async () => {
+      const file = f.files?.[0];
+      if (!file) return;
+      let doc;
+      try { doc = JSON.parse(await file.text()); } catch { toast(`${file.name} is not a recipe file`, true); return; }
+      const n = Array.isArray(doc) ? doc.length : (doc.recipes || []).length;
+      if (!await confirmDialog(`Import ${n === 1 ? 'this recipe' : `${n} recipes`}?`, 'A recipe with the same name as one on the grill replaces it; the rest are added.', 'Import')) return;
+      try { const r = await api('/recipes/import', { body: doc }); toast(`Imported ${r.imported} recipe${r.imported === 1 ? '' : 's'}${r.replaced ? `, ${r.replaced} replaced` : ''}`); loadRecipes(); }
+      catch (e) { toast(e.message || 'That file does not hold recipes', true); }
+    };
+    f.click();
+  };
+  /* The two things this page does with recipes, on the bar the probes page uses: bring one in on
+     the left, add one on the right in the primary colour, the Home button riding over the gap. */
+  if (showRecipes) view.append(actionBar(
+    [actionBtn('upload', 'Import', { size: '', onclick: importRecipes })],
+    [actionBtn('add', 'Add Recipe', { size: '', class: 'primary', onclick: () => edit({ name: '', description: '', steps: [{ mode: 'Startup' }, blankStep(), { mode: 'Shutdown' }] }, true) })]));
   if (showRecipes) loadRecipes();
 
   /* What happened is behind the bell, which keeps it across devices and clears it on all of them
@@ -589,7 +618,7 @@ export function renderCook(view) {
             said = parts.join(' \u00b7 ');
           }
           if (said) line.querySelector('.rr-body').append(el('div', { class: 'rr-state' }, said));
-          if (rc.message) line.querySelector('.rr-body').append(el('div', { class: 'rr-msg' }, rc.message));
+          if (rc.waiting && rc.message) line.querySelector('.rr-body').append(el('div', { class: 'rr-msg' }, rc.message));
         }
         rail.append(line);
       }

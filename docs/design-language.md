@@ -716,6 +716,10 @@ until somebody goes outside.
 
 ## One drop-down, hung under the header
 
+It is in front, and looks it: the raised surface with the accent for an edge, a real shadow, and
+a solid dark scrim over the page. A panel the colour of the cards beneath it read as one more
+card, and the timer's was lost against Home.
+
 The bell opens a pushed screen: its list is long and worth reading. The timers open the app's one
 **drop-down** — a panel that comes down from under the indicator that opened it, over a scrim,
 closing on Escape, on a tap outside, or on a second tap of its own button. Use it only for what is
@@ -843,7 +847,9 @@ probe's estimate, which wanders with every reading: the probe's figure is a seco
 ones behind ticked and struck through, the one running with what it waits for, the rest dimmed;
 a thin progress bar said none of that. While the recipe waits on the cook the plate reads
 "Continue?", a tap on it asks in the step's own words and carries on, and the run card's button is
-Continue.
+Continue. Home's control bar grows a group for the recipe's steps -- back and forward -- with
+forward flashing while the recipe waits; moving by hand in either direction always asks first. A
+step's message is said when the step ENDS, which is where the rail draws it.
 
 ## A cook starts by saying which probes are in the food
 
@@ -903,11 +909,14 @@ the way back. Restore lives on the row of the thing being restored, behind a con
 says what it replaces. A location that needs a program the grill lacks says so where its fields
 are, with the command, rather than failing at three in the morning.
 
-**Export and Import are one pair, in one place, on every list of saved things.** Recipes, the
-conditional notifications, the tuning library: under the Add row, `transferRow()` from `app.js`,
-Export on the left (it takes nothing away) and Import on the right (it changes the list, so it
-confirms and says what an import does to a duplicate). A file names what it holds (`kind`) and the
-unit its temperatures are in, and an import converts. No page gets its own wording for this.
+**Export and Import are one pair, in one place, on every list of saved things.** The conditional
+notifications and the tuning library: under the Add row, `transferRow()` from `app.js`, Export on
+the left (it takes nothing away) and Import on the right (it changes the list, so it confirms and
+says what an import does to a duplicate). A file names what it holds (`kind`) and the unit its
+temperatures are in, and an import converts. No page gets its own wording for this. Recipes are
+the exception that proves the shape: a recipe is a thing you hand to someone, so each row carries
+Share (the phone's share sheet, or a file) beside Edit and Play, and the list's own verbs sit on
+the pinned bar the probes page uses -- Import on the left, Add Recipe on the right.
 
 ## Where a control goes
 

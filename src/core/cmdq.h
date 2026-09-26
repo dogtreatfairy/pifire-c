@@ -28,6 +28,8 @@ typedef enum {
 	PF_CMD_RECIPE_START,   /* num = recipe id */
 	PF_CMD_RECIPE_NEXT,    /* continue past a paused step */
 	PF_CMD_RECIPE_STOP,    /* abandon the program (grill keeps its current mode) */
+	PF_CMD_RECIPE_SKIP,    /* end the current step now and begin the next */
+	PF_CMD_RECIPE_BACK,    /* begin the previous step again */
 	PF_CMD_AUTOTUNE_START,
 	PF_CMD_AUTOTUNE_STOP,
 	PF_CMD_TUNING_APPLY,   /* push the stored autotune / plant fit into the active controller */

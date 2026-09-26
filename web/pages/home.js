@@ -161,7 +161,24 @@ function controlBar(s) {
       right.push(b('stop', 'Clear & Stop', { cls: 'danger', onclick: () => stopGrill(s) }));
       break;
   }
-  return el('div', { class: 'cbar' }, left.length ? el('div', { class: 'cgroup' }, ...left) : null, el('div', { class: 'cgroup' }, ...right));
+  /* While a recipe has the grill, its steps are the thing being driven, so the bar gets a group
+     for them: back and forward. Forward flashes while the recipe is waiting on the cook, and
+     asks in the step's own words; either way round, moving by hand always asks first. */
+  const rc = s.recipe;
+  const steps = [];
+  if (rc?.active) {
+    const stepIx = rc.step ?? 0;
+    steps.push(b('chevron-left', '', { disabled: stepIx === 0, aria: 'Previous step', onclick: async () => {
+      if (await confirmDialog('Go back a step?', `Starts step ${stepIx} again.`, 'Go back')) cmd({ cmd: 'recipe', op: 'back' });
+    } }));
+    steps.push(b('chevron-right', '', { cls: rc.waiting ? 'flash ok' : '', aria: rc.waiting ? 'Continue' : 'Skip to the next step', onclick: async () => {
+      if (rc.waiting) {
+        if (rc.needs_lid) { toast('Open the lid first, then continue'); return; }
+        if (await confirmDialog('Continue to the next step?', rc.message || 'This step is done.', 'Continue')) cmd({ cmd: 'recipe', op: 'next' });
+      } else if (await confirmDialog('Skip this step?', `Ends step ${stepIx + 1} now and starts step ${stepIx + 2}${stepIx + 2 > rc.nsteps ? '' : ''}.`, 'Skip')) cmd({ cmd: 'recipe', op: 'skip' });
+    } }));
+  }
+  return el('div', { class: 'cbar' }, steps.length ? el('div', { class: 'cgroup steps' }, ...steps) : null, left.length ? el('div', { class: 'cgroup' }, ...left) : null, el('div', { class: 'cgroup' }, ...right));
 }
 
 // Probe popup: live reading, target (tap to set, doneness presets), high/low alerts (alerts only)
@@ -302,7 +319,7 @@ export function renderHome(view) {
       hopper.classList.toggle('crit', crit);
     }
 
-    const key = `${s.mode}|${s.s_plus}|${s.setpoint}|${pm}`;
+    const key = `${s.mode}|${s.s_plus}|${s.setpoint}|${pm}` + `|${s.recipe?.active ? `${s.recipe.step}/${s.recipe.waiting ? 'w' : ''}` : ''}`;
     if (key !== lastBar) { lastBar = key; bar.innerHTML = ''; bar.append(controlBar(s)); }
 
     // manual output switches while monitoring (auger cap and the other interlocks still apply)
