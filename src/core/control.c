@@ -1468,7 +1468,8 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 	Pu = 2.0 * M_PI / w_u;
 	LOGI(TAG, "autotune: relay found |1/G| %.4f at %.0f s with %.0f deg of hysteresis phase; ultimate point %.4f at %.0f s (%s)",
 	     Ku_m, Pu_m, phi * 180 / M_PI, Ku, Pu, how);
-	pf_autotune_result r = { .Ku = Ku, .Pu = Pu, .amplitude_c = A };
+	pf_autotune_result r = { .Ku = Ku, .Pu = Pu, .amplitude_c = A,
+	                         .load = c->autotune.last_load > 0 ? c->autotune.last_load : c->autotune.u_center };
 
 	/* The tuning comes out of what the relay measured, and nothing else.
 	 *
@@ -1547,22 +1548,41 @@ static double recent_pit_noise(double now, double window_s)
 	return var > 0 ? sqrt(var) : 0;
 }
 
-static double recent_hold_duty(const pf_control *c, double now, double window_s)
+
+/* How long the pit has been within the band around the set point, from the history: the time
+ * since it was last outside it. A grill that arrived a minute ago is still carrying the controller's
+ * arrival transient in its feed, and a relay centred on that transient starts a long way off. */
+static double hold_in_band_s(const pf_control *c, double now)
+{
+	const pf_history *h = pf_history_ctrl_view();
+	if (!h) return 0;
+	/* The same band the profile runner calls "close", and the same one the relay is allowed to
+	 * start inside: a grill can be holding steadily a few degrees off its set point -- the
+	 * simulator's plain PID sits nine degrees hot at 225 with the auger on its minimum -- and
+	 * that is a settled hold whose feed is the load, not a transient. */
+	double band = pf_delta_to_c(15, PF_UNITS_F), since = now;
+	for (int i = h->len - 1; i >= 0; i--) {
+		const pf_hist_pt *pt = pf_history_at(h, i);
+		if (!pt) break;
+		if (isnan(pt->pit_c) || pt->setpoint_c <= 0 || fabs(pt->pit_c - pt->setpoint_c) > band) break;
+		since = pt->t;
+	}
+	(void)c;
+	return now - since;
+}
+
+/* The feed a settled hold has been delivering: the plain mean over the last `window_s`, every
+ * sample counted, because by the time this is asked the whole window is inside the band. */
+static double settled_hold_duty(const pf_control *c, double now, double window_s)
 {
 	const pf_history *h = pf_history_ctrl_view();
 	if (!h) return NAN;
-	/* Wide enough to admit a grill that is holding but still swinging -- which is every grill this
-	 * test has not run on yet -- and narrow enough to exclude the climb that precedes it. */
-	double band = pf_delta_to_c(10, PF_UNITS_F);
 	double sum = 0; int n = 0;
 	for (int i = h->len - 1; i >= 0; i--) {
 		const pf_hist_pt *pt = pf_history_at(h, i);
 		if (!pt || now - pt->t > window_s) break;
 		if (isnan(pt->u_applied) || pt->u_applied <= 0) continue;
-		if (isnan(pt->pit_c) || pt->setpoint_c <= 0) continue;
-		if (fabs(pt->pit_c - pt->setpoint_c) > band) continue;
-		sum += pt->u_applied;
-		n++;
+		sum += pt->u_applied; n++;
 	}
 	(void)c;
 	return n >= 30 ? sum / n : NAN;
@@ -1587,9 +1607,29 @@ static void autotune_start(pf_control *c, double now)
 	 * nothing: that is exactly what an unlearned feed-forward did on a real grill at 225 F. */
 	/* Half an hour, because only the samples taken at the set point count and a grill that has
 	 * just arrived there has not yet produced many. */
-	double measured = recent_hold_duty(c, now, 1800);
-	c->autotune.u_center = pf_clamp(!isnan(measured) ? measured : c->learn.u_ff > 0 ? c->learn.u_ff : c->u_applied,
-	                                c->cfg.u_min + 0.05, c->cfg.u_max - 0.05);
+	/* Where the swing starts decides how the first cycles go, and the first cycles are what a
+	 * cook watches. On this grill a run centred on 90 s of the controller's arrival -- feed going
+	 * 0.14, 0.48 as it caught the set point -- began at 0.328 against a real load near 0.22, put
+	 * the pit 9 F over on its first swing and well under on its second, and spent two centrings
+	 * finding its way back. What the grill needs to hold a set point does not depend on how it
+	 * arrived there today, so the first choice is the load the last run at this set point
+	 * measured; failing that, the feed of a hold that has genuinely settled -- five minutes inside
+	 * the band, not ninety seconds; and failing that the run does not start. */
+	double known = pf_learning_anchor_load(c->setpoint_c);
+	double settled_s = hold_in_band_s(c, now);
+	double measured = settled_s >= 300 ? settled_hold_duty(c, now, fmin(settled_s, 1800)) : NAN;
+	const char *from;
+	double centre;
+	if (known > 0) { centre = known; from = "the last run at this set point"; }
+	else if (!isnan(measured)) { centre = measured; from = "the settled hold"; }
+	else {
+		c->autotune.active = false;
+		pf_events_emit("Autotune_Failed", "Autotune not started",
+		               "Hold at the set point for five minutes first, so the swing can start from what the grill actually needs there.");
+		return;
+	}
+	c->autotune.u_center = pf_clamp(centre, c->cfg.u_min + 0.05, c->cfg.u_max - 0.05);
+	LOGI(TAG, "autotune: centring on %.3f feed from %s (hold settled %.0f s)", c->autotune.u_center, from, settled_s);
 
 	/* Size the swing to fit between the minimum and maximum feed. The relay's maths assumes a
 	 * symmetric square wave about the centre, and a grill that holds a low set point on very
@@ -1677,7 +1717,12 @@ static double autotune_output(const pf_control *c)
  * where biased is not. */
 void pf_control_autotune_size(pf_control *c)
 {
-	double h = fmin(0.15, fmin(c->autotune.u_center - c->cfg.u_min, c->cfg.u_max - c->autotune.u_center));
+	/* No wider than the load can bear. A swing of +/-0.15 on a grill holding 250 F on 0.22 duty
+	 * nearly doubles the fire on the high half and starves it on the low, which is the 9 F
+	 * excursion this grill's own runs showed; the describing function wants a swing the plant
+	 * answers linearly. Half the load either way is plenty to measure and stays inside that, and
+	 * the widening below still grows it if the pit's answer turns out too small to read. */
+	double h = fmin(0.15, fmin(0.55 * c->autotune.u_center, fmin(c->autotune.u_center - c->cfg.u_min, c->cfg.u_max - c->autotune.u_center)));
 	if (h < 0.03) h = 0.03;
 	if (c->autotune.h_cap > 0 && h > c->autotune.h_cap) h = c->autotune.h_cap;
 	/* A swing grown on purpose is kept, as far as the room allows. Re-centring used to undo it

@@ -3,12 +3,19 @@
 const VERSION = 'pifire-@PF_VERSION@';
 /* Without these the app is not an app: it is a page of unstyled links, which is exactly what a
    half-filled cache produced. They are cached with a retry and their failure fails the install. */
-const CORE = ['/', '/index.html', '/app.js', '/style.css', '/icons.js'];
+/* The core is the whole module graph app.js pulls in at start -- every page, and everything a
+   page imports. A module in that graph that is not cached is not "survivable without": the browser
+   evaluates app.js only once every import has arrived, so one missing file means no app at all.
+   That is what happened over Tailscale when web/conditions.js was added and not listed here: on
+   the LAN it fetched in 20 ms and nobody noticed, and over a tunnel still waking up on the phone
+   the request never answered and the app sat on a blank page. Anything added to app.js's imports,
+   or to a page's, goes in this list; tests/check_sw_cache.sh fails the build if it does not. */
+const CORE = ['/', '/index.html', '/app.js', '/style.css', '/icons.js', '/conditions.js',
+  '/pages/home.js', '/pages/history.js', '/pages/cook.js', '/pages/settings.js', '/pages/more.js', '/pages/network.js',
+  '/pages/probes.js', '/pages/rules.js', '/pages/pellets.js', '/pages/learning.js'];
 /* Everything else is worth having and survivable without: a missing chart library costs the
    history page, not the whole shell. */
-const EXTRA = ['/uPlot.iife.min.js', '/uPlot.min.css', '/manifest.webmanifest', '/icon.svg', '/icon-dark.svg', '/icon-180.png', '/icon-180-dark.png', '/icon-192.png',
-  '/pages/home.js', '/pages/history.js', '/pages/cook.js', '/pages/settings.js', '/pages/more.js', '/pages/network.js',
-  '/pages/pellets.js', '/pages/learning.js', '/pages/probes.js', '/pages/rules.js'];
+const EXTRA = ['/uPlot.iife.min.js', '/uPlot.min.css', '/manifest.webmanifest', '/icon.svg', '/icon-dark.svg', '/icon-180.png', '/icon-180-dark.png', '/icon-192.png'];
 
 /* addAll is all-or-nothing, so one file that 404s used to reject the whole install and the phone
    kept the previous shell for ever. Caching each file separately and swallowing every failure

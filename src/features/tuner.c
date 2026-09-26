@@ -31,7 +31,8 @@
 #define T_START_S   1800.0
 #define T_SETTLE_S  3600.0
 #define T_TEST_S    9000.0   /* seven crossings on a slow grill, plus the cycles spent conditioning the relay */
-#define STABLE_S      90.0   /* inside the band this long before the test begins */
+#define STABLE_S     300.0   /* inside the band this long before the test begins: the controller's
+                                 arrival transient lasts minutes, and a relay centred on it starts wrong */
 
 typedef enum { PH_IDLE = 0, PH_STARTING, PH_SETTLING, PH_TESTING, PH_NEXT, PH_FINISHING, PH_DONE, PH_FAILED } phase;
 

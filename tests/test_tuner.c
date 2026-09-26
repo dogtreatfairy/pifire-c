@@ -361,7 +361,9 @@ static void test_the_relay_centres_on_holding_not_climbing(void)
 	pf_cmdq_push(&c);
 	/* long enough to climb from cold and settle, which is the state a profile run starts in */
 	for (int i = 0; i < 90 * 60 && !ctrl.target_reached; i += 10) tick(10);
-	tick(5 * 60);
+	/* the relay will not start until the hold has been settled for five minutes -- a relay centred
+	 * on the arrival transient starts wrong -- so give it a genuine hold to centre on */
+	tick(10 * 60);
 	TEST_ASSERT_TRUE_MESSAGE(ctrl.target_reached, "the grill should have reached 180 F");
 	double holding = ctrl.u_applied;
 
@@ -855,6 +857,7 @@ static void test_the_relay_starts_against_the_pit(void)
 	pf_cmdq_push(&c);
 	for (int i = 0; i < 90 * 60 && !ctrl.target_reached; i += 10) tick(10);
 	TEST_ASSERT_TRUE(ctrl.target_reached);
+	tick(6 * 60);   /* settled, so the relay is allowed to start at all */
 
 	/* put the pit exactly on the set point and plainly climbing, as an arrival leaves it */
 	pf_sim_model()->pit_c = ctrl.setpoint_c;
@@ -881,6 +884,7 @@ static void test_a_widened_swing_survives_a_recentring(void)
 	pf_cmd c = { .type = PF_CMD_MODE, .mode = PF_MODE_HOLD, .num = 250 };
 	pf_cmdq_push(&c);
 	for (int i = 0; i < 90 * 60 && !ctrl.target_reached; i += 10) tick(10);
+	tick(6 * 60);   /* settled, so the relay is allowed to start at all */
 	pf_cmd a = { .type = PF_CMD_AUTOTUNE_START };
 	pf_cmdq_push(&a);
 	tick(30);

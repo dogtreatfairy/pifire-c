@@ -14,7 +14,7 @@ typedef struct { double a, b; int n; double rms; } pf_ff_fit;
  * method -- see pf_learning_store_fopdt. */
 #define PF_FOPDT_METHOD 2
 typedef struct { double K, tau, theta; double ts; int method; bool valid; } pf_fopdt;
-typedef struct { double Ku, Pu, PB_c, Ti, Td, amplitude_c; double ts; bool valid; } pf_autotune_result;
+typedef struct { double Ku, Pu, PB_c, Ti, Td, amplitude_c; double load; double ts; bool valid; } pf_autotune_result;   /* load: the average feed the settled cycles delivered, i.e. what holding this set point takes */
 
 void pf_learning_init(void);
 bool pf_learning_enabled(void);
@@ -47,6 +47,10 @@ unsigned pf_learning_autotune_gen(void);
  * model for the whole range mis-states how much fuel is already on its way at the far end of it. */
 typedef struct {
 	double setpoint_c, Ku, Pu, PB_c, Ti, Td, K, tau, theta, ts, ambient_c, wind;
+	/* The feed that held this set point when it was last measured. It is where the next relay run
+	 * centres its swing, so a tune starts from what the grill needs rather than from whatever the
+	 * controller happened to be doing on the way in. */
+	double load;
 	int runs;
 	/* Where this entry's plant came from: 1 the passive fit of a capture, 2 the relay. A relay is a
 	 * designed experiment and a capture is a guess made from whatever the cook happened to do, so
@@ -79,6 +83,8 @@ bool pf_learning_plant(double setpoint_c, double *K, double *tau, double *theta)
  * started, which is the point: the question is asked the moment the set point changes. */
 double pf_learning_time_to(double from_c, double to_c, double ambient_c, double u_max);
 int  pf_learning_anchor_list(pf_tune_anchor *out, int max);
+/* The load measured at this set point (within 5 C), or 0 when it has never been measured. */
+double pf_learning_anchor_load(double setpoint_c);
 void pf_learning_clear_anchors(void);
 /* Two clearings, because two different things can be wrong.
  *

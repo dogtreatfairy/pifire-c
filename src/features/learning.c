@@ -55,6 +55,7 @@ static void load_kv(void)
 			g_anchors[i].PB_c = pf_json_num(it, "PB", 0);
 			g_anchors[i].Ti = pf_json_num(it, "Ti", 0);
 			g_anchors[i].Td = pf_json_num(it, "Td", 0);
+			g_anchors[i].load = pf_json_num(it, "load", 0);
 			g_anchors[i].K = pf_json_num(it, "K", 0);
 			g_anchors[i].tau = pf_json_num(it, "tau", 0);
 			g_anchors[i].theta = pf_json_num(it, "theta", 0);
@@ -245,6 +246,7 @@ static void anchors_save(void)
 		cJSON_AddNumberToObject(o, "PB", g_anchors[i].PB_c);
 		cJSON_AddNumberToObject(o, "Ti", g_anchors[i].Ti);
 		cJSON_AddNumberToObject(o, "Td", g_anchors[i].Td);
+		if (g_anchors[i].load > 0) cJSON_AddNumberToObject(o, "load", g_anchors[i].load);
 		if (g_anchors[i].K > 0) {
 			cJSON_AddNumberToObject(o, "K", g_anchors[i].K);
 			cJSON_AddNumberToObject(o, "tau", g_anchors[i].tau);
@@ -360,6 +362,7 @@ void pf_learning_store_anchor(double setpoint_c, const pf_autotune_result *r, do
 	double w = a->valid && fabs(a->setpoint_c - setpoint_c) < 5 ? fmax(1.0 / (a->runs + 1), 0.25) : 1.0;
 	if (w >= 1.0) {
 		a->Ku = r->Ku; a->Pu = r->Pu; a->PB_c = r->PB_c; a->Ti = r->Ti; a->Td = r->Td;
+		a->load = r->load;
 		a->runs = 1;
 	} else {
 		a->Ku += (r->Ku - a->Ku) * w;
@@ -367,6 +370,7 @@ void pf_learning_store_anchor(double setpoint_c, const pf_autotune_result *r, do
 		a->PB_c += (r->PB_c - a->PB_c) * w;
 		a->Ti += (r->Ti - a->Ti) * w;
 		a->Td += (r->Td - a->Td) * w;
+		if (r->load > 0) a->load = a->load > 0 ? a->load + (r->load - a->load) * w : r->load;
 		a->runs++;
 		LOGI(TAG, "refined %.0f C with run %d (weight %.2f): PB %.1f C, Ti %.0f s, Td %.0f s",
 		     setpoint_c, a->runs, w, a->PB_c, a->Ti, a->Td);
@@ -414,6 +418,16 @@ void pf_learning_store_anchor(double setpoint_c, const pf_autotune_result *r, do
 	}
 	anchors_save();
 	pthread_mutex_unlock(&g_mu);
+}
+
+double pf_learning_anchor_load(double setpoint_c)
+{
+	double load = 0;
+	pthread_mutex_lock(&g_mu);
+	for (int i = 0; i < PF_TUNE_ANCHORS; i++)
+		if (g_anchors[i].valid && fabs(g_anchors[i].setpoint_c - setpoint_c) < 5) { load = g_anchors[i].load; break; }
+	pthread_mutex_unlock(&g_mu);
+	return load;
 }
 
 void pf_learning_put_anchor(const pf_tune_anchor *in)
