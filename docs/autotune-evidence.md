@@ -46,3 +46,22 @@ gained by leaving it; `pf_tuning_rule_selected` exists so this can be checked ag
 - **Every tune is verified before it is kept.** A 25-minute hold under the new tune; worse than
   8 F peak or 3 F rms and it is taken back, library and all, and the finishing message says so.
   In the tests it refused exactly one hold: the one built on an impossible fixture.
+
+## The first run that finished cleanly on the real grill (26 September 2026, 250 F)
+
+Baseline tune, hopper at 11%, ambient 53 F, wind 8 km/h. The typed tuning (PB 80, Ti 400, Td 30)
+hunted about 9 F either side of the set point, so the relay could not start until the hold had
+settled five minutes: 22 minutes after Startup, centred on the hold's own feed, 0.263.
+
+Ten crossings in 34 minutes. Halves 90, 166, 196, 196, 376, 151, 211, 256, 226, 196 s; pit
+117-127 C about 121.1. Centre 0.263 -> 0.306 -> 0.242 -> 0.255. The step to 0.306 was the
+truncated-first-half defect (fixed in alpha.121): the run began with the pit 4.7 C over and
+falling, so the first low half was the 90 s left of that descent, and 90 s low + 166 s high read
+as a cycle said 0.306. The 376 s half was the grill: the same low feed as the half before but half
+the cooling rate, in the ten minutes the hopper went from 11% to 19%.
+
+Filed: relay |1/G| 0.048 at 457 s with 21 deg of hysteresis phase, ultimate point Ku 0.062 at
+Pu 357 s along the FOPDT curve (tau 1700 s); Tyreus-Luyben PB 64 F, Ti 786 s, Td 57 s; load
+0.255. Verification hold: after the 8-minute skip, max +2.7 / -2.1 F, rms 1.1 F, mean +0.5 F,
+mean feed 0.252 -- kept. The feed-forward the controller then ran on was 0.25, against the 0.38
+it had been running on before, which is the number that had been holding this grill high.
