@@ -29,6 +29,7 @@ void setUp(void)
 void tearDown(void)
 {
 	pf_db_close();
+	pf_settings_shutdown();
 	char rm[300]; snprintf(rm, sizeof rm, "rm -rf %s", dir); if (system(rm)) { }
 }
 
@@ -118,6 +119,7 @@ static void test_a_staged_restore_lands_before_the_database_opens(void)
 
 	/* the next start: apply before opening */
 	pf_db_close();
+	pf_settings_shutdown();
 	TEST_ASSERT_EQUAL_INT(1, pf_backup_apply_staged(dir, cfg));
 	TEST_ASSERT_FALSE(pf_file_exists(pending));
 	pf_settings_init(cfg);

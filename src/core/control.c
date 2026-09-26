@@ -2428,6 +2428,10 @@ void pf_control_shutdown(pf_control *c)
 {
 	pf_outputs_all_off();
 	controller_destroy(c);
+	/* a recipe still running at shutdown leaves its parsed ending behind otherwise -- harmless in
+	 * the daemon, which is exiting, and a leak the sanitised tests rightly refuse */
+	cJSON_Delete(c->recipe.ends);
+	c->recipe.ends = NULL;
 }
 
 void pf_control_boot_check(pf_control *c, bool unclean_restart, double now)
