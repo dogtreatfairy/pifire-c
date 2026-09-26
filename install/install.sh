@@ -32,6 +32,13 @@ if [ $UPGRADE -eq 0 ]; then
 	fi
 fi
 
+# Backups to a network share go through smbclient, which older installs did not have. Before the
+# service restarts, so the daemon finds it on its first look rather than its next.
+if [ $UPGRADE -eq 1 ] && ! command -v smbclient >/dev/null 2>&1; then
+	echo "+ smbclient (for backups to a network share)"
+	apt-get install -y --no-install-recommends smbclient >/dev/null 2>&1 || echo "  could not install smbclient now; backups to a share need it (sudo apt install smbclient)"
+fi
+
 echo "+ files"
 install -m 755 "$BIN" /usr/local/bin/pifired.new && mv -f /usr/local/bin/pifired.new /usr/local/bin/pifired
 install -m 755 install/pifire-boardcfg /usr/local/bin/pifire-boardcfg
@@ -69,11 +76,6 @@ systemctl --no-pager --lines=3 status pifired || true
 
 echo
 if [ $UPGRADE -eq 1 ]; then
-	# backups to a network share go through smbclient, which older installs did not have
-	if ! command -v smbclient >/dev/null 2>&1; then
-		echo "+ smbclient (for backups to a network share)"
-		apt-get install -y --no-install-recommends smbclient >/dev/null 2>&1 || echo "  could not install smbclient now; backups to a share need it (sudo apt install smbclient)"
-	fi
 	echo "PiFire upgraded to $(cat VERSION 2>/dev/null || echo '?')."
 else
 	echo "PiFire installed. Open http://pifire.local/ (or this Pi's IP address)."

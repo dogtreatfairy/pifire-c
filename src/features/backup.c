@@ -60,7 +60,8 @@ static struct {
 	double last_ts; char last_name[128]; long last_size; bool last_ok; char last_msg[200]; char last_where[16];
 	double last_good_ts;       /* the last one that got there: what the schedule counts from */
 	int fail_streak;           /* failures since the last success; the first of a streak is announced, the rest logged */
-	bool have_smb;             /* smbclient is installed (checked at start and on a test) */
+	bool have_smb;             /* smbclient is installed (checked at start, on a test, and again while missing) */
+	double last_smb_check;
 	double last_check;         /* schedule tick throttle */
 	/* Google's device sign-in, while it is going on */
 	struct { bool pending; char user_code[32], url[128], device_code[256]; double expires, interval; } dev;
@@ -1161,6 +1162,10 @@ cJSON *pf_backup_status_json(void)
 	double last_good_ts = g.last_good_ts;
 	pthread_mutex_unlock(&g.mu);
 	cJSON_AddNumberToObject(o, "next_ts", next_due(last_good_ts));
+	/* Found once at start and remembered -- except that "not there" is worth a second look now and
+	 * then: an upgrade used to restart the daemon before it installed smbclient, and the page said
+	 * it was missing until the next restart. */
+	if (!g.have_smb && !g.sim && pf_now() - g.last_smb_check > 30) { g.last_smb_check = pf_now(); g.have_smb = smb_have(); }
 	cJSON_AddBoolToObject(o, "smbclient", g.have_smb);
 	return o;
 }
