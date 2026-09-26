@@ -444,6 +444,46 @@ void pf_learning_store_anchor(double setpoint_c, const pf_autotune_result *r, do
 	 * bracket -- which is a far better failure than a grid search sliding to the end of its range. */
 	double tau_src = g_pending_plant.valid && fabs(g_pending_plant.setpoint_c - setpoint_c) < 5
 	               ? g_pending_plant.tau : a->tau > 0 ? a->tau : g_fopdt.valid ? g_fopdt.tau : 0;
+	/* The static gain, measured rather than inferred. Two settled holds are a step test of the
+	 * one thing a relay cannot see: the pit sat at 121 C on 0.255 duty and at 177 C on 0.36, so
+	 * the grill gives (177-121)/(0.36-0.255) degrees per unit of feed, full stop. One hold gives
+	 * the same through ambient, less exactly, because the loss curve is not quite a line. With K
+	 * known the relay's point on the frequency response fixes the time constant and the dead time
+	 * outright, and the step capture's own time constant becomes what it should be -- a check.
+	 * Working the other way round, from the capture's tau to a K, made the model's gain depend on
+	 * the least certain number in the room. */
+	double K_static = 0;
+	const char *k_how = "";
+	{
+		const pf_tune_anchor *best = NULL;
+		for (int i = 0; i < PF_TUNE_ANCHORS; i++) {
+			const pf_tune_anchor *o = &g_anchors[i];
+			if (!o->valid || o == a || o->load <= 0 || fabs(o->setpoint_c - setpoint_c) < 30) continue;
+			if (!best || fabs(o->setpoint_c - setpoint_c) < fabs(best->setpoint_c - setpoint_c)) best = o;
+		}
+		if (best && r->load > 0 && fabs(r->load - best->load) > 0.03) {
+			K_static = (setpoint_c - best->setpoint_c) / (r->load - best->load);
+			k_how = "the two settled holds";
+		} else if (r->load > 0 && !isnan(ambient_c) && setpoint_c - ambient_c > 40) {
+			K_static = (setpoint_c - ambient_c) / r->load;
+			k_how = "the settled hold through ambient";
+		}
+		if (!(K_static > 80 && K_static < 3000)) K_static = 0;
+	}
+	if (r->Ku > 0 && r->Pu > 0 && K_static > 0) {
+		double tau = 0, theta = 0;
+		if (pf_plant_from_relay(r->Ku, r->Pu, K_static, &tau, &theta) && tau > 30 && tau < 7200) {
+			LOGI(TAG, "%.0f C: plant from the holds and the relay -- K %.0f C per unit feed (%s), time constant %.0f s, dead time %.0f s%s",
+			     setpoint_c, K_static, k_how, tau, theta,
+			     tau_src > 0 ? "" : "");
+			if (tau_src > 0) LOGI(TAG, "%.0f C: the step capture's time constant was %.0f s against the relay's %.0f", setpoint_c, tau_src, tau);
+			anchor_take_plant(a, K_static, tau, theta, PF_PLANT_FROM_RELAY);
+			g_pending_plant.valid = false;
+			goto filed;
+		}
+		LOGW(TAG, "%.0f C: K %.0f and Ku %.4f do not describe a first-order plant (K*Ku %.2f); falling back to the capture's time constant",
+		     setpoint_c, K_static, r->Ku, K_static * r->Ku);
+	}
 	if (r->Ku > 0 && r->Pu > 0 && tau_src > 0) {
 		double theta = 0, K = 0;
 		plant_from_relay(r->Ku, r->Pu, tau_src, &K, &theta);
@@ -456,6 +496,7 @@ void pf_learning_store_anchor(double setpoint_c, const pf_autotune_result *r, do
 		anchor_take_plant(a, g_pending_plant.K, g_pending_plant.tau, g_pending_plant.theta, PF_PLANT_FROM_CAPTURE);
 		g_pending_plant.valid = false;
 	}
+filed:
 	anchors_save();
 	pthread_mutex_unlock(&g_mu);
 }

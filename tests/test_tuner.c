@@ -211,6 +211,27 @@ static void test_guided_tune_improves_holding(void)
 	printf("  %d of %d anchors carry a grill model\n", with_plant, anchors);
 	TEST_ASSERT_TRUE_MESSAGE(with_plant >= 2, "a profile run should fit the grill at the set points it walks through");
 	TEST_ASSERT_TRUE(anchors >= 3);
+	/* The static gain each anchor carries is measured from the settled holds -- two of them where
+	 * the run has two, through ambient where it has one -- so it has to agree with the simulator's
+	 * own gain at that operating point. The secant across two holds sits within the curvature of
+	 * the loss curve of the tangent at either end, which is what the tolerance allows. */
+	{
+		cJSON *res2 = pf_tuner_json();
+		cJSON *arr2 = cJSON_GetObjectItem(res2, "anchors"), *a2;
+		int checked = 0;
+		cJSON_ArrayForEach(a2, arr2) {
+			double sp_c = pf_to_c(pf_json_num(a2, "setpoint", 0), pf_settings_units());
+			double K_c = pf_json_num(a2, "K", 0) / (pf_settings_units() == PF_UNITS_C ? 1.0 : 1.8);
+			double load = pf_learning_anchor_load(sp_c);
+			if (!(K_c > 0) || !(load > 0)) continue;
+			double want = pf_sim_small_signal_gain(18.0, load);
+			printf("  %4.0f C: anchor K %.0f C/duty against the simulator's %.0f at %.3f duty\n", sp_c, K_c, want, load);
+			TEST_ASSERT_TRUE_MESSAGE(K_c > want * 0.55 && K_c < want * 1.6, "an anchor's static gain should be the grill's, not a guess");
+			checked++;
+		}
+		cJSON_Delete(res2);
+		TEST_ASSERT_TRUE_MESSAGE(checked >= 2, "the anchors should carry a measured static gain");
+	}
 
 	stop_and_cool();
 	char notes[4][80];
@@ -332,12 +353,16 @@ static void test_single_adds_and_full_profile_replaces(void)
 	for (int i = 0; i < n; i++)
 		TEST_ASSERT_TRUE_MESSAGE(fabs(pf_from_c(a[i].setpoint_c, PF_UNITS_F) - 300) > 5, "the 300 F entry should have been replaced");
 
-	/* And what ships: one honest anchor at the baseline, because a four point profile is most of a
-	   day of the grill's time and most of that is spent walking between temperatures rather than
-	   measuring. The schedule clamps outside its anchors, so one governs the whole range. */
+	/* And what ships: two holds with a step up between them -- 250 F, then 350 F. Two settled
+	   holds measure the static gain directly, the one number a relay cannot see, and the step
+	   between them is a step test of the grill; one hold gives only a relay and a guess at the
+	   gain through ambient. Four points was most of a day of the grill's time, most of it spent
+	   walking between temperatures; the schedule clamps outside its anchors, so two govern the
+	   range a cook uses. */
 	cJSON *prof = pf_set_dup("learning.tune_setpoints");
-	TEST_ASSERT_EQUAL_INT_MESSAGE(1, cJSON_GetArraySize(prof), "a normal autotune is the baseline alone");
+	TEST_ASSERT_EQUAL_INT_MESSAGE(2, cJSON_GetArraySize(prof), "a normal autotune is the baseline and one step up");
 	TEST_ASSERT_EQUAL_DOUBLE(250, cJSON_GetArrayItem(prof, 0)->valuedouble);
+	TEST_ASSERT_EQUAL_DOUBLE(350, cJSON_GetArrayItem(prof, 1)->valuedouble);
 	cJSON_Delete(prof);
 	stop_and_cool();
 }

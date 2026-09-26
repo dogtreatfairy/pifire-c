@@ -1022,7 +1022,8 @@
     "half_life_obs": 60,
     "use_library": true,
     "tune_setpoints": [
-      250
+      250,
+      350
     ],
     "tune_baseline": 250
   },

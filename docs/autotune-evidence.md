@@ -65,3 +65,18 @@ Pu 357 s along the FOPDT curve (tau 1700 s); Tyreus-Luyben PB 64 F, Ti 786 s, Td
 0.255. Verification hold: after the 8-minute skip, max +2.7 / -2.1 F, rms 1.1 F, mean +0.5 F,
 mean feed 0.252 -- kept. The feed-forward the controller then ran on was 0.25, against the 0.38
 it had been running on before, which is the number that had been holding this grill high.
+
+## The static gain is measured, not inferred (alpha.128)
+
+Ryan asked for the profile to include a set-point change -- heat to 250, stabilise, heat to 350,
+stabilise -- and for the tuning to be calculated from all of it. The default profile is now
+250 F then 350 F, a step up between two settled holds, and the static gain K comes from those
+holds: (T2 - T1)/(load2 - load1), the one thing a relay cannot see, measured directly; with one
+hold, (T - ambient)/load. With K known, the relay's point on the frequency response fixes the
+time constant and the dead time outright (`pf_plant_from_relay` given K), and the step capture's
+own time constant is logged beside it as a check rather than being the source of the gain. The
+run before this one filed K = 512 C per unit at 250 F, derived from a captured tau of 1800 s;
+the settled hold said 430 (121 C on 0.255 duty, ambient 11.5 C) and the startup fit 495. The
+tuning rule itself is unchanged: Tyreus-Luyben from the relay, which the verification hold has
+now passed on the real grill.
+

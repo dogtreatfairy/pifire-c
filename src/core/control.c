@@ -1553,7 +1553,12 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 	 * gain can describe one together. It no longer decides the tuning. */
 	pf_ff_fit ff = pf_learning_fit();
 	pf_fopdt plant = pf_learning_fopdt();
-	double K = ff.n >= 3 && ff.b > 1e-5 ? 1.0 / ff.b : plant.valid ? plant.K : 0;
+	/* the static gain this hold just measured -- degrees above ambient per unit of the feed that
+	 * held them -- ahead of the feed-forward fit's slope, which with few cooks behind it leans
+	 * on its prior */
+	double K = 0;
+	if (r.load > 0 && !isnan(c->ambient_c) && c->setpoint_c - c->ambient_c > 40) K = (c->setpoint_c - c->ambient_c) / r.load;
+	if (!(K > 80 && K < 3000)) K = ff.n >= 3 && ff.b > 1e-5 ? 1.0 / ff.b : plant.valid ? plant.K : 0;
 	double tau = 0, theta = 0;
 	if (K > 0 && pf_plant_from_relay(Ku, Pu, K, &tau, &theta)) {
 		pf_learning_store_fopdt(K, tau, theta);
