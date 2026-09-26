@@ -1006,6 +1006,7 @@ h2 { font-size: var(--fs-xs); letter-spacing: var(--track-label); margin: var(--
 .irow-main .t { font-weight: var(--fw-medium); font-size: var(--fs-md); display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
 .irow-main .s { font-size: var(--fs-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .irow-main .chev { width: 16px; height: 16px; color: var(--muted); flex: none; }
+.irow-main .v { flex: none; color: var(--muted); font-size: var(--fs-md); font-variant-numeric: tabular-nums; margin-left: auto; padding-left: 8px; }
 .irow-acts { display: flex; align-items: center; gap: var(--sp-1); flex: none; }
 /* the one in use says so, the way a saved card says Default */
 .badge-pill { font-size: var(--fs-3xs); font-weight: var(--fw-bold); letter-spacing: var(--track-label);

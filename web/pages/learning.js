@@ -80,6 +80,10 @@ export function renderLearning(view, slots = {}) {
         el('div', {}, 'Dead Time'), el('div', {}, `${a.theta} s`)) : null,
       a.K ? el('div', { class: 'help' }, 'Used to predict heat already on its way.') : null),
     el('div', { class: 'form-actions' },
+      el('button', { class: 'btn ghost', type: 'button', onclick: async () => {
+        const line = `${a.setpoint}${degUnit()}: PB ${a.PB}${degUnit()}, Ti ${a.Ti} s, Td ${a.Td} s`;
+        try { await navigator.clipboard.writeText(line); toast('Copied'); } catch { toast(line); }
+      } }, 'Copy'),
       actionBtn('cancel', 'Close', { size: '', onclick: () => close() }))));
 
   /* The profile's set points, edited like a recipe's steps: one row each, tap to change the
@@ -145,6 +149,7 @@ export function renderLearning(view, slots = {}) {
     const DOING = { starting: 'Lighting', settling: 'Settling', testing: 'Measuring', verifying: 'Verifying', next: 'Moving on', finishing: 'Shutting down' };
     let cur = -1;
     if (running) cur = tune.phase === 'starting' ? 0 : (tune.phase === 'finishing' ? rows.length - 1 : Math.min(rows.length - 2, Math.max(1, tune.step || 1)));
+    tuneCard.append(el('h3', { class: 'subhead' }, 'Profile'));
     const rail = el('div', { class: 'run-rail' });
     rows.forEach((r, i) => {
       const state = !running ? 'rr-plan' : i < cur ? 'rr-done' : i === cur ? 'rr-now' : 'rr-todo';
@@ -194,91 +199,84 @@ export function renderLearning(view, slots = {}) {
         el('button', { class: 'btn ghost', type: 'button', onclick: editProfile }, lucide('pencil', 'ic btn-ic'), el('span', {}, 'Edit')),
         el('button', { class: 'btn primary', type: 'button', disabled: busy, onclick: runProfile }, lucide('play', 'ic btn-ic'), el('span', {}, busy ? 'Stop the grill first' : 'Run Profile'))));
 
-      /* One temperature on its own: added to the library, never replacing it. */
-      tuneCard.append(el('div', { class: 'field inline' },
-        el('div', {}, el('label', {}, 'Tune one temperature'), el('div', { class: 'help' }, 'Adds to the library')),
-        el('div', { class: 'btnrow' },
-          el('button', { class: 'btn sm', type: 'button', onclick: async () => {
-            const v = await numberDialog('Tune at', pick, { min: units[0], max: units[8], step: 5, presets: units });
-            if (v != null) { pick = v; renderTune(); }
-          } }, `${pick}${degUnit()}`),
-          el('button', { class: 'btn sm primary', type: 'button', disabled: busy, onclick: () => start({ setpoints: [pick], full_profile: false }, {
-            title: `Tune at ${pick}${degUnit()}?`, text: 'Grill starts itself and shuts down when done.' }) }, lucide('play', 'ic btn-ic')))));
     }
 
+    /* Below the profile, the same three shapes every settings page is made of: a section of
+       data rows for the library, a list of settings rows for the two things you set or look at
+       once, and one quiet action at the foot. It was a rail, two oversized buttons, a table with
+       paragraphs under it and a key-value block, each in its own idiom. */
     const anchors = tune.anchors || [];
-    tuneCard.append(el('h3', { class: 'subhead' }, 'Tuning Library'));
+    const busy = s && s.mode !== 'Stop' && s.mode !== 'Monitor';
+    const units = PF.units === 'C' ? PRESETS_C : PRESETS_F;
+    tuneCard.append(el('h3', { class: 'subhead' }, 'Library'));
     if (anchors.length) {
-      /* These are the numbers to keep. They go straight into the controller's own Proportional
-         Band, Integral Time and Derivative Time boxes, so a tune never has to be repeated just to
-         get back to a known-good setting. */
-      /* The run count is what makes refinement visible: a number three runs agree on is worth more
-         than one measured on a single windy afternoon, and they look identical otherwise. */
-      const tbl = dataTable(
-        /* Which temperatures are measured and how well, not the numbers themselves. The three
-           numbers matter when you want to write them down or type them into another grill, which is
-           occasionally; what you look at is whether 250 is measured and how many runs agree.
-           Tapping a row opens the numbers and the weather they were measured in. */
+      /* Which temperatures are measured and how well, not the numbers themselves; a row opens
+         them, with the weather they were measured in and a Copy. The run count is what makes
+         refinement visible. */
+      tuneCard.append(dataTable(
         [{ key: 'sp', label: 'Set point' }, { key: 'runs', label: 'Runs' }, { key: 'amb', label: 'Measured at' }],
         anchors.map((a) => ({
           sp: `${a.setpoint}${degUnit()}`,
           runs: String(a.runs || 1),
           amb: a.ambient != null ? `${a.ambient}${degUnit()}${a.wind_kmh ? ` \u00b7 ${a.wind_kmh} km/h` : ''}` : '\u2014',
           _onclick: () => anchorSheet(a),
-        })));
-      const lines = anchors.map((a) => `${a.setpoint}${degUnit()}: PB ${a.PB}${degUnit()}, Ti ${a.Ti} s, Td ${a.Td} s`
-        + (a.ambient != null ? ` (measured at ${a.ambient}${degUnit()} out${a.wind_kmh ? `, ${a.wind_kmh} km/h` : ''})` : ''));
-      /* The library is a model of the grill across its range, not a list of separate answers, and
-         saying so is the difference between "four tunes" and "a tuned grill". It also answers the
-         question the table itself raises: what happens at a temperature that is not in it. */
+        }))));
       const lo = anchors[0].setpoint, hi = anchors[anchors.length - 1].setpoint;
-      const model = anchors.length > 1
-        ? `Covers ${lo}–${hi}${degUnit()}. In between is interpolated, outside is held flat. A run changes only its own temperature.`
-        : `One measurement, used at every temperature. Tune a second, further away, to build a range.`;
-      tuneCard.append(tbl,
-        el('p', { class: 'help' }, model),
-        el('p', { class: 'help' },
-          `${anchors[0].ambient != null ? `Measured at ${anchors[0].ambient}${degUnit()} ambient. ` : ''}These override the values typed above.`),
-        el('div', { class: 'form-actions' },
-          el('button', { class: 'btn sm ghost', onclick: async () => {
-            try { await navigator.clipboard.writeText(lines.join('\n')); toast('Copied'); }
-            catch { toast(lines.join(' | '), false); }
-          } }, 'Copy values'),
-          /* A tuning library is hours of the grill's own time and a hopper of pellets, and it
-             lives on an SD card. The file is canonical Celsius and carries the controller and
-             the plant model with it, because the numbers mean nothing detached from those. */
-          ),
-        transferRow({
-          what: 'the tuning library', filename: 'pifire-tuning',
-          fetchDoc: () => api('/tune/export'),
-          confirmText: 'Replaces every measurement on the grill with the file\u2019s.',
-          importDoc: async (doc) => { const r = await api('/tune/import', { body: doc }); toast(`Imported ${r.restored} set point${r.restored === 1 ? '' : 's'}`); renderTune(); },
-        }));
-
+      tuneCard.append(el('p', { class: 'help' }, anchors.length > 1
+        ? `Covers ${lo}\u2013${hi}${degUnit()}; between is interpolated, outside held flat. Overrides the typed values.`
+        : `One measurement, used at every temperature. Overrides the typed values.`));
+      tuneCard.append(transferRow({
+        what: 'the tuning library', filename: 'pifire-tuning',
+        fetchDoc: () => api('/tune/export'),
+        confirmText: 'Replaces every measurement on the grill with the file\u2019s.',
+        importDoc: async (doc) => { const r = await api('/tune/import', { body: doc }); toast(`Imported ${r.restored} set point${r.restored === 1 ? '' : 's'}`); renderTune(); },
+      }));
     } else {
-      tuneCard.append(el('p', { class: 'help' }, 'Nothing measured. Running on the startup fit, or the values typed above.'));
+      tuneCard.append(el('p', { class: 'help' }, 'Nothing measured yet. The controller runs on the startup fit, or the values typed above.'));
     }
 
-    /* The grill model is measured whether or not a tune was ever run -- every startup rise fits one
-       -- so it is shown, and can be cleared, on its own. */
+    const list = el('div', { class: 'ios-list', style: 'margin-top:var(--sp-3)' });
+    /* One temperature on its own, added to the library: a settings row whose answer is the
+       temperature, and whose tap asks for it and then to run. */
+    list.append(itemRow({
+      icon: MODE_ICON.Hold, color: '#30d158', title: 'Tune one temperature', meta: busy ? 'Stop the grill first' : 'Adds to the library',
+      value: `${pick}${degUnit()}`,
+      onclick: async () => {
+        if (busy) { toast('Stop the grill first', true); return; }
+        const v = await numberDialog('Tune at', pick, { min: units[0], max: units[8], step: 5, presets: units });
+        if (v == null) return;
+        pick = v; renderTune();
+        start({ setpoints: [pick], full_profile: false }, { title: `Tune at ${pick}${degUnit()}?`, text: 'Grill starts itself and shuts down when done. Keep it empty.' });
+      },
+    }));
+    /* The grill model is measured whether or not a tune was ever run -- every startup rise fits
+       one -- so it is a row of its own, its three numbers behind it. */
     if (tune.plant) {
-      tuneCard.append(el('h3', { class: 'subhead' }, 'Measured Grill'),
-        el('div', { class: 'kv' },
-          el('div', {}, 'Gain'), el('div', {}, `${tune.plant.K}${degUnit()} per unit of feed`),
-          el('div', {}, 'Time constant'), el('div', {}, `${tune.plant.tau} s`),
-          el('div', {}, 'Dead time'), el('div', {}, `${tune.plant.theta} s`)),
-        el('p', { class: 'help' }, 'Fitted from each startup rise. The tuning above derives from these.'));
+      list.append(itemRow({
+        icon: 'activity', color: '#0a84ff', title: 'Grill model', meta: 'Gain, time constant, dead time',
+        value: `\u03b8 ${tune.plant.theta} s`,
+        onclick: () => dialog((close) => el('div', { class: 'sheet' },
+          el('div', { class: 'sheet-head' }, el('h3', {}, 'Grill Model')),
+          el('div', { class: 'sheet-body' },
+            el('div', { class: 'kv' },
+              el('div', {}, 'Gain'), el('div', {}, `${tune.plant.K}${degUnit()} per unit of feed`),
+              el('div', {}, 'Time constant'), el('div', {}, `${tune.plant.tau} s`),
+              el('div', {}, 'Dead time'), el('div', {}, `${tune.plant.theta} s`)),
+            el('p', { class: 'help' }, 'Fitted from each startup rise; the prediction of heat already on its way runs on it.')),
+          el('div', { class: 'form-actions' }, actionBtn('cancel', 'Close', { size: '', onclick: () => close() })))),
+      }));
     }
+    tuneCard.append(list);
 
-    /* The way back to the values you typed. It is a row of its own, in the section whose contents
-       it removes, rather than a second clearing button next to the one under Learning. */
+    /* The way back to the values you typed: one quiet action at the foot of the section whose
+       contents it removes. */
     if (anchors.length || tune.plant) {
       tuneCard.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn sm ghost', onclick: async () => {
         if (!await confirmDialog('Clear the measured tuning?',
           'Deletes the library, the last autotune and the grill model. Reverts to the values typed above. No undo.', 'Clear', true)) return;
         try { await api('/tune/clear', { body: {} }); toast('Back to the typed values'); setTimeout(() => load().catch(() => {}), 400); }
         catch (e) { toast(e.message, true); }
-      } }, 'Clear Autotune')));
+      } }, 'Clear measured tuning')));
     }
   }
 
