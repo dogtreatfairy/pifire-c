@@ -2537,6 +2537,13 @@ static void publish(pf_control *c, double now)
 		const pf_recipe_step *rs = &c->recipe.r.steps[c->recipe.step];
 		pf_strlcpy(s.recipe.name, c->recipe.r.name, sizeof s.recipe.name);
 		s.recipe.step = c->recipe.step;
+		s.recipe.stage = 0; s.recipe.stages = 0;
+		for (int i = 0; i < c->recipe.r.nsteps; i++) {
+			pf_mode m = c->recipe.r.steps[i].mode;
+			if (m != PF_MODE_HOLD && m != PF_MODE_SMOKE) continue;
+			s.recipe.stages++;
+			if (i == c->recipe.step) s.recipe.stage = s.recipe.stages;
+		}
 		s.recipe.nsteps = c->recipe.r.nsteps;
 		s.recipe.waiting = c->recipe.waiting;
 		s.recipe.step_mode = rs->mode;

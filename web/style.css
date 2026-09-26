@@ -627,6 +627,17 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .cond .c-dur > input { flex: 1 1 4rem; min-width: 0; text-align: center; }
 .cond .c-operand.wide { grid-column: 1 / span 2; grid-template-columns: 1fr 5.5rem auto; }
 .cond .c-alt { grid-column: 1 / span 2; justify-self: start; }
+/* The recipe as a timeline: a rail down the left, a dot at each end for lighting and shutting
+   down, a number at each stage, and the handover written on the rail between stages. */
+.tl { position: relative; display: flex; flex-direction: column; }
+.tl::before { content: ''; position: absolute; left: 24px; top: 16px; bottom: 16px; width: 2px; background: var(--line); }
+.tl-item { position: relative; }
+.tl-item > .cond-card { margin: 0; }
+.tl-item.tl-end > .cond-card { background: transparent; border-color: transparent; }
+.tl-item.tl-end .cc-glyph { color: var(--accent); }
+.tl-item .cc-glyph { position: relative; z-index: 1; background: var(--surface); border-radius: 50%; }
+.tl-hand { display: flex; gap: var(--sp-2); align-items: flex-start; padding: 6px 12px 10px 50px; font-size: var(--fs-xs); color: var(--muted); position: relative; }
+.tl-flag { position: absolute; left: 17px; top: 4px; color: var(--warn); background: var(--surface); padding: 0 2px; }
 /* a flat list of conditions: the rows and the join, with no card of its own round them */
 .cond-flat { display: flex; flex-direction: column; gap: var(--sp-2); }
 .cond-flat > .cond-card { margin: 0; }

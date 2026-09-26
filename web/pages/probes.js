@@ -5,12 +5,12 @@ import { PF, el, api, cmd, fmtTemp, patchSettings, toast, confirmDialog, dialog,
    recipe takes from "the food" -- hottest, coolest, average, soonest to its target -- is wrong if
    it counts. Only enabled Food probes are offered; the pit probe is never in the meat. Resolves to
    the labels chosen, [] for none, or undefined if the person backed out. */
-export function pickFoodProbes(title = 'Which probes are in the food?') {
+export function pickFoodProbes(title = 'Which probes are in the food?', sub = '') {
   const food = (PF.status?.probes || []).filter((p) => p.role === 'Food' && p.enabled && !p.companion);
   if (!food.length) return Promise.resolve([]);
   const chosen = new Set(food.filter((p) => p.in_use).map((p) => p.label));
   return dialog((close) => el('div', {},
-    el('h3', {}, title),
+    el('h3', {}, title), sub ? el('p', { class: 'help' }, sub) : null,
     el('div', { class: 'ios-list', style: 'margin-top:var(--sp-2)' }, food.map((p) => {
       const box = el('input', { type: 'checkbox', checked: chosen.has(p.label),
         onchange: (e) => { if (e.target.checked) chosen.add(p.label); else chosen.delete(p.label); } });

@@ -947,7 +947,7 @@ function timerPanel() {
   if (r.active && r.remaining_s > 0) {
     rows.push(el('button', { class: 'tp-row tp-link', type: 'button', onclick: () => { closePanel(); location.hash = '#/cook'; } },
       el('div', { class: 'tp-head' },
-        el('div', { class: 'tp-name' }, `${r.name} \u00b7 step ${(r.step || 0) + 1} of ${r.nsteps}`),
+        el('div', { class: 'tp-name' }, `${r.name} \u00b7 stage ${r.stage || 0} of ${r.stages || 0}`),
         el('div', { class: 'tp-time' }, fmtDur(r.remaining_s)))));
   }
   if (!rows.length) rows.push(el('div', { class: 'muted', style: 'padding:6px 2px' }, 'Nothing is counting.'));
@@ -1002,11 +1002,11 @@ onStatus((s) => {
      running and whether it is waiting on you. */
   const rc = s.recipe;
   const modeName = tuning ? 'Auto Tuning'
-    : rc?.active ? (rc.waiting ? `${rc.step + 1}/${rc.nsteps} \u00b7 Your turn` : `${s.mode} \u00b7 ${rc.step + 1}/${rc.nsteps}`)
+    : rc?.active ? (rc.waiting ? `${rc.stage}/${rc.stages} \u00b7 Your turn` : rc.stage ? `${s.mode} \u00b7 ${rc.stage}/${rc.stages}` : s.mode)
     : s.mode;
   const nameEl = document.getElementById('rd-name');
   nameEl.textContent = modeName;
-  nameEl.title = rc?.active ? `${rc.name}: step ${rc.step + 1} of ${rc.nsteps}` : '';
+  nameEl.title = rc?.active ? `${rc.name}: stage ${rc.stage} of ${rc.stages}` : '';
   /* The same mark the mode carries everywhere else, so the plate reads as part of the interface
      rather than as a label that happens to be near it. */
   const ico = document.getElementById('rd-ico');

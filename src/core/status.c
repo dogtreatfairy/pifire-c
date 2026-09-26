@@ -164,6 +164,10 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 		cJSON_AddStringToObject(rc, "name", s->recipe.name);
 		cJSON_AddNumberToObject(rc, "step", s->recipe.step);
 		cJSON_AddNumberToObject(rc, "nsteps", s->recipe.nsteps);
+		/* the step as the cook counts them: lighting and shutting down are the ends of the
+		 * timeline, not stages of it */
+		cJSON_AddNumberToObject(rc, "stage", s->recipe.stage);
+		cJSON_AddNumberToObject(rc, "stages", s->recipe.stages);
 		cJSON_AddBoolToObject(rc, "waiting", s->recipe.waiting);
 		cJSON_AddBoolToObject(rc, "needs_lid", s->recipe.needs_lid);
 		cJSON_AddStringToObject(rc, "step_mode", pf_mode_name(s->recipe.step_mode));

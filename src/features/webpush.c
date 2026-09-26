@@ -12,6 +12,7 @@
  * and a VAPID JWT, signed with this grill's long-lived key, goes in the Authorization header so
  * the push service knows the message came from whoever the subscription was issued to. */
 #include "features/webpush.h"
+#include "core/events.h"
 #include "core/db.h"
 #include "core/log.h"
 #include "core/settings.h"
@@ -608,7 +609,7 @@ static size_t sink_keep(void *p, size_t sz, size_t n, void *u)
 }
 
 /* Returns the HTTP status, or 0 if it could not be sent at all. */
-static long post_one(const sub_t *s, const unsigned char *body, size_t len, char *why, size_t whyn)
+static long post_one(const sub_t *s, int crit, const unsigned char *body, size_t len, char *why, size_t whyn)
 {
 	char jwt[1200];
 	if (vapid_jwt(s->endpoint, jwt, sizeof jwt) != 0) return 0;
@@ -621,8 +622,12 @@ static long post_one(const sub_t *s, const unsigned char *body, size_t len, char
 	h = curl_slist_append(h, auth);
 	h = curl_slist_append(h, "Content-Encoding: aes128gcm");
 	h = curl_slist_append(h, "Content-Type: application/octet-stream");
-	h = curl_slist_append(h, "TTL: 3600");
-	h = curl_slist_append(h, "Urgency: normal");
+	/* How the push service should treat it (RFC 8030). High urgency is delivered at once even
+	 * on a phone that is saving power; a critical one is also kept for a day, so a phone that was
+	 * out of range gets it when it comes back rather than never. Anything below normal can wait
+	 * for the phone's next wake. */
+	h = curl_slist_append(h, crit >= PF_CRIT_CRITICAL ? "TTL: 86400" : "TTL: 3600");
+	h = curl_slist_append(h, crit >= PF_CRIT_HIGH ? "Urgency: high" : crit <= PF_CRIT_INFO ? "Urgency: low" : "Urgency: normal");
 	curl_easy_setopt(c, CURLOPT_URL, s->endpoint);
 	curl_easy_setopt(c, CURLOPT_POST, 1L);
 	curl_easy_setopt(c, CURLOPT_POSTFIELDS, body);
@@ -683,7 +688,7 @@ static int send_all(const char *title, const char *body, const char *code, int c
 			continue;
 		}
 		char why[240] = "";
-		long st = post_one(&snap[i], out, len, why, sizeof why);
+		long st = post_one(&snap[i], crit, out, len, why, sizeof why);
 		/* 404 and 410 are the push service saying the subscription is finished -- the app was
 		 * deleted, or the browser threw it away. Keeping it means failing for ever. */
 		if (st == 404 || st == 410) {

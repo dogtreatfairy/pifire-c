@@ -86,30 +86,30 @@ static void test_the_built_in_ribs_recipe_loads_as_it_was_written(void)
 	pf_recipe r;
 	TEST_ASSERT_EQUAL_INT(0, pf_recipe_load(1, &r));
 	TEST_ASSERT_EQUAL_STRING("3-2-1 Ribs", r.name);
-	TEST_ASSERT_EQUAL_INT(7, r.nsteps);
+	TEST_ASSERT_EQUAL_INT(5, r.nsteps);
 
 	/* three hours of smoke at 180 F, or 160 F in the meat, whichever comes first, and then it
 	 * waits for the ribs to come off -- which the lid answers as well as a tap does */
-	TEST_ASSERT_EQUAL_INT(PF_MODE_HOLD, r.steps[2].mode);
-	TEST_ASSERT_DOUBLE_WITHIN(0.3, pf_f_to_c(180), r.steps[2].setpoint_c);
-	cJSON *e = ends_of(&r.steps[2]);
+	TEST_ASSERT_EQUAL_INT(PF_MODE_HOLD, r.steps[1].mode);
+	TEST_ASSERT_DOUBLE_WITHIN(0.3, pf_f_to_c(180), r.steps[1].setpoint_c);
+	cJSON *e = ends_of(&r.steps[1]);
 	TEST_ASSERT_TRUE(has_term(e, "elapsed", ">=", 180 * 60, true));
 	TEST_ASSERT_TRUE(has_term(e, "food_max", ">=", pf_f_to_c(160), true));
 	TEST_ASSERT_TRUE(has_term(e, "prompt", "is_on", 0, false));
 	TEST_ASSERT_TRUE(has_term(e, "lid", "is_on", 0, false));
 	cJSON_Delete(e);
-	TEST_ASSERT_EQUAL_DOUBLE(10 * 60, r.steps[2].lead_s);
-	TEST_ASSERT_TRUE(r.steps[2].lead_message[0] != 0);
+	TEST_ASSERT_EQUAL_DOUBLE(10 * 60, r.steps[1].lead_s);
+	TEST_ASSERT_TRUE(r.steps[1].lead_message[0] != 0);
 
 	/* two hours wrapped at 225, then one more to 205 in the meat, rested */
-	e = ends_of(&r.steps[4]);
+	e = ends_of(&r.steps[2]);
 	TEST_ASSERT_TRUE(has_term(e, "elapsed", ">=", 120 * 60, true));
 	cJSON_Delete(e);
-	e = ends_of(&r.steps[5]);
+	e = ends_of(&r.steps[3]);
 	TEST_ASSERT_TRUE(has_term(e, "food_rested", ">=", pf_f_to_c(205), true));
 	cJSON_Delete(e);
-	TEST_ASSERT_EQUAL_DOUBLE(2 * 60, r.steps[5].lead_s);
-	TEST_ASSERT_EQUAL_INT(PF_MODE_SHUTDOWN, r.steps[6].mode);
+	TEST_ASSERT_EQUAL_DOUBLE(2 * 60, r.steps[3].lead_s);
+	TEST_ASSERT_EQUAL_INT(PF_MODE_SHUTDOWN, r.steps[4].mode);
 }
 
 /* Seeding twice must not leave two of them: a cook who restarts the daemon does not want a second

@@ -128,6 +128,12 @@ self.addEventListener('fetch', (e) => {
 self.addEventListener('push', (e) => {
   let d = { title: 'PiFire', body: '', code: '' };
   try { if (e.data) d = { ...d, ...e.data.json() }; } catch { try { d.body = e.data ? e.data.text() : ''; } catch { /* nothing usable */ } }
+  /* How hard to knock. The daemon sends its criticality with the payload (0 info .. 3 critical).
+     A high or critical one stays on screen until it is dealt with and buzzes hard; an ordinary
+     one behaves like any other notification. What a web app cannot do on a phone is break through
+     silent mode or a Focus the way a native app with the critical-alert entitlement can -- that is
+     what the Pushover Emergency sink is for -- so this is everything the platform allows. */
+  const crit = Number(d.crit) || 0;
   e.waitUntil(self.registration.showNotification(d.title || 'PiFire', {
     body: d.body || '',
     /* one notification per kind, so a condition that keeps reporting replaces itself rather than
@@ -136,7 +142,10 @@ self.addEventListener('push', (e) => {
     renotify: true,
     icon: '/icon-192.png',
     badge: '/icon-192.png',
-    data: { code: d.code || '' },
+    requireInteraction: crit >= 2,
+    silent: false,
+    vibrate: crit >= 3 ? [300, 100, 300, 100, 300, 100, 600] : crit === 2 ? [200, 80, 200] : [120],
+    data: { code: d.code || '', crit },
   }));
 });
 

@@ -720,6 +720,15 @@ A running timer puts **the time itself** in the header, not a bare glyph — ans
 left" without a tap is the whole reason it is there — and the chip is absent when nothing is
 counting, so a cook that needs no timer gets a quiet header.
 
+## How hard a notification knocks
+
+A push carries the alarm's criticality, and the service worker and the push service both act on it:
+high and critical are sent with `Urgency: high` (delivered at once, even to a phone saving power),
+critical is kept for a day so a phone that was out of range still gets it, and on screen a high or
+critical notification stays until it is dealt with and vibrates hard. That is everything a web
+app is allowed. It cannot break through silent mode or a Focus -- that takes a native app with the
+critical-alert entitlement -- which is what the Pushover Emergency sink is for on a critical rule.
+
 ## Telling the user something
 
 In-app alerts are iOS-style banners under the header, backed by a notification centre behind the
@@ -778,6 +787,21 @@ One of the signals should be one a person can always give. A step that only a li
 has no way out of it if the switch never fires, so the prompt is shown as a fixed part of the
 answer rather than a box that can be unticked, and what the cook chooses is whether the lid counts
 as well.
+
+## A recipe is a timeline
+
+Read top to bottom: lighting at the top, shutting down at the bottom, and between them the
+**stages** of the cook, numbered as a cook counts them -- Startup and Shutdown are the ends of the
+rail, not stages of it, and the status, the header plate and the run card count stages the same
+way (`Hold \u00b7 2/3`). A stage's header says what it does in the cook's words: `Hold 180\u00b0F for 3 h
+or 160\u00b0F probe`, `Hold 225\u00b0F for 1 h or 205\u00b0F probe, rested`. What happens at the end of a
+stage -- the message, and who it waits for -- is written on the rail *between* it and the next,
+because that is where it happens. A wait for the cook is never a stage of its own: seven "Hold"
+rows, two of them waits, is a list whose flow makes no sense.
+
+**Run asks one question and offers one button.** The only thing a recipe needs before it starts is
+which probes are in the food, so that is the dialog, and its button is Start. A "Run this?" in
+front of it was a second tap for nothing.
 
 ## A cook starts by saying which probes are in the food
 

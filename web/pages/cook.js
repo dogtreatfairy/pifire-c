@@ -3,7 +3,7 @@ import { fmtEta } from './probes.js';
 /* The same condition cards, rows and picker the notification editor is made of. A step ending is
    the same kind of question -- "when is this true" -- and has to be asked in the same shapes.
    See web/conditions.js and docs/design-language.md. */
-import { catalogue, condNode, describeNode } from '../conditions.js';
+import { catalogue, condNode, describeNode, OP_SYM, fmtSecs } from '../conditions.js';
 import { pickFoodProbes } from './probes.js';
 
 /* Doneness presets, in °F and converted for °C users.
@@ -233,14 +233,38 @@ function joinEnding(when, carry) {
    is folded shut -- the same rule the notification editor follows: a card you cannot read without
    opening it is a card that has to be opened. The ending is described by the shared code, so a
    step and a notification say the same condition in the same words. */
+/* A term of an ending in the words a cook uses -- "for 3 h", "160°F probe", "205°F probe,
+   rested" -- rather than the generic "Hottest Food Probe is at or above 160". The generic form is
+   right for a notification about anything; a recipe is about the meat and the clock. */
+function endingTerm(n) {
+  const u = degUnit();
+  const v = n.value;
+  if (n.trait === 'elapsed') return `for ${fmtSecs(v)}`;
+  if (n.trait === 'food_max') return `${v}${u} probe`;
+  if (n.trait === 'food_min') return `all probes ${v}${u}`;
+  if (n.trait === 'food_avg') return `probes average ${v}${u}`;
+  if (n.trait === 'food_rested') return `${v}${u} probe, rested`;
+  if (n.trait === 'food_eta') return `probe within ${fmtSecs(v)} of target`;
+  if (n.trait === 'food_battery') return `probe battery ${OP_SYM[n.op] || n.op} ${v}%`;
+  return describeNode(n, 'step', false);
+}
+function endingPhrase(when) {
+  const terms = (when?.conditions || []).map(endingTerm).filter(Boolean);
+  return terms.join(when?.op === 'any' ? ' or ' : ' and ');
+}
+const CARRY_SAID = { prompt: 'waits for you', lid_or: 'waits for you or the lid', lid_and: 'waits for the lid, then you' };
 function stepSummary(s) {
-  const parts = [s.mode + (s.mode === 'Hold' && s.setpoint ? ` ${s.setpoint}${degUnit()}` : '')];
-  const e = splitEnding(s.ends);
-  const said = describeNode(e.when, 'step', true);
-  if (said) parts.push(said);
-  const c = CARRY.find(([v]) => v === e.carry)?.[1];
-  if (e.carry !== 'auto' && c) parts.push(c.toLowerCase());
-  return parts.join(' \u00b7 ');
+  if (s.mode === 'Startup') return 'Startup' + (s.setpoint ? ` to ${s.setpoint}${degUnit()}` : '');
+  if (s.mode === 'Shutdown' || s.mode === 'Stop') return s.mode;
+  const head = `${s.mode}${s.setpoint ? ` ${s.setpoint}${degUnit()}` : ''}`;
+  const phrase = endingPhrase(splitEnding(s.ends).when);
+  return phrase ? `${head} ${phrase}` : head;
+}
+/* What happens at the end of a stage, for the line between it and the next: the message, and
+   who it waits for. */
+function handoverText(s) {
+  const c = splitEnding(s.ends).carry;
+  return [s.message, CARRY_SAID[c]].filter(Boolean).join(' \u00b7 ');
 }
 
 /* What is wrong with the shape of a recipe, mirroring pf_recipe_shape_warnings in
@@ -279,11 +303,11 @@ function recipeEditor(rec0, isNew) {
     const touched = () => { if (ready) wrap.dispatchEvent(new CustomEvent('pf-dirty', { bubbles: true })); };
     const body = el('div');
 
-    const stepCard = (s, i, redraw) => {
+    const stepCard = (s, i, redraw, glyphText) => {
       const det = el('details', { class: 'fold cond-card', open: false });
       const title = el('span', { class: 'cc-title' });
       const head = el('summary', { class: 'cc-head' },
-        el('span', { class: 'cc-glyph' }, String(i + 1)), title,
+        el('span', { class: 'cc-glyph' }, glyphText), title,
         iconBtn('trash-2', 'Remove this step', { class: 'danger cc-del',
           onclick: (e) => { e.preventDefault(); e.stopPropagation(); rec.steps.splice(i, 1); touched(); redraw(); } }));
       const inner = el('div', { class: 'cc-body' });
@@ -353,10 +377,29 @@ function recipeEditor(rec0, isNew) {
           el('button', { class: 'btn xs ghost', type: 'button',
             onclick: () => { iss.apply(); touched(); draw(); } }, iss.fix)));
       }
-      rec.steps.forEach((s, i) => steps.append(stepCard(s, i, draw)));
-      if (!rec.steps.length) steps.append(el('div', { class: 'muted', style: 'padding:6px 2px' }, 'No steps yet.'));
-      steps.append(el('div', { class: 'cc-add' }, actionBtn('add', 'Add step', {
-        onclick: () => { rec.steps.push(blankStep()); touched(); draw(); } })));
+      /* A timeline, read top to bottom: lighting at the top, shutting down at the bottom, and
+         between them the stages of the cook, numbered as a cook counts them. What happens at the
+         end of a stage -- the message, and who it waits for -- is the line between it and the
+         next, because that is where it happens. It used to be a flat list of seven "Hold" rows,
+         two of them waits for the cook, and the flow made no sense. */
+      const tl = el('div', { class: 'tl' });
+      let stage = 0;
+      rec.steps.forEach((s, i) => {
+        const cooks = s.mode === 'Hold' || s.mode === 'Smoke';
+        const glyph = cooks ? String(++stage) : '\u25cf';
+        tl.append(el('div', { class: `tl-item${cooks ? '' : ' tl-end'}` }, stepCard(s, i, draw, glyph)));
+        const hand = cooks ? handoverText(s) : '';
+        if (hand) tl.append(el('div', { class: 'tl-hand' }, el('span', { class: 'tl-flag' }, '\u2691'), el('span', {}, hand)));
+      });
+      steps.append(tl);
+      if (!rec.steps.length) steps.append(el('div', { class: 'muted', style: 'padding:6px 2px' }, 'No stages yet.'));
+      steps.append(el('div', { class: 'cc-add' }, actionBtn('add', 'Add stage', {
+        onclick: () => {
+          /* a new stage goes before the shutdown, not after it */
+          const last = rec.steps[rec.steps.length - 1];
+          const at = last && (last.mode === 'Shutdown' || last.mode === 'Stop') ? rec.steps.length - 1 : rec.steps.length;
+          rec.steps.splice(at, 0, blankStep()); touched(); draw();
+        } })));
       body.append(steps);
     };
     draw();
@@ -421,11 +464,10 @@ export function renderCook(view) {
      abstract, because "the recipe takes over the grill" is true of every recipe and tells nobody
      anything they did not already intend. */
   const run = async (r) => {
-    const first = r.steps?.[0];
-    if (!await confirmDialog(`Run ${r.name}?`, first ? `Starts with ${stepSummary(first)}.` : '', 'Run')) return;
-    /* Which probes are in the food is a fact only the cook has, and every reading a step takes
-       from "the food" is wrong without it. Asked once, here, when it is known. */
-    const labels = await pickFoodProbes();
+    /* One question and one button. Which probes are in the food is the only thing a recipe
+       needs to know before it starts, so that is what Run asks, and the answer's button is Start;
+       a "Run this?" in front of it was a second tap for nothing. */
+    const labels = await pickFoodProbes(`Run ${r.name}`, 'Which probes are in the food?');
     if (labels === undefined) return;
     await cmd({ cmd: 'probes_in_use', labels });
     cmd({ cmd: 'recipe', op: 'start', id: r.id });
@@ -464,9 +506,9 @@ export function renderCook(view) {
         el('div', { class: 'row between' },
           el('div', { style: 'min-width:0' },
             el('div', { class: 'run-name' }, rc.name),
-            el('div', { class: 'help' }, `Step ${rc.step + 1} of ${rc.nsteps} · ${rc.step_mode}`)),
+            el('div', { class: 'help' }, rc.stage ? `Stage ${rc.stage} of ${rc.stages} · ${rc.step_mode}` : rc.step_mode)),
           rc.waiting ? null : el('div', { class: 'run-left' }, rc.remaining_s >= 0 ? fmtDur(rc.remaining_s) : '')),
-        el('div', { class: 'progress' }, el('div', { style: `width:${((rc.step + (rc.waiting ? 1 : 0)) / rc.nsteps) * 100}%` })),
+        el('div', { class: 'progress' }, el('div', { style: `width:${rc.stages ? (Math.max(0, rc.stage - (rc.waiting ? 0 : 1)) / rc.stages) * 100 : 0}%` })),
         rc.message ? el('div', { class: rc.waiting ? 'notice warn' : 'run-msg' }, rc.message) : null,
         /* A step that wants the lid AND the answer says which half is still missing, rather than
            showing a button that quietly does nothing when it is tapped. */

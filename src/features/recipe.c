@@ -271,16 +271,13 @@ int pf_recipe_load(int id, pf_recipe *out)
 static const char *RIBS_321 =
 "{\"name\":\"3-2-1 Ribs\",\"units\":\"F\",\"description\":\"Three hours of smoke, two wrapped,"
 " one sauced. Waits for you at each handover.\",\"steps\":[{\"mode\":\"Startup\",\"setpoint\":180,"
-"\"message\":\"Lighting, then holding at 180 F.\"},{\"mode\":\"Hold\",\"setpoint\":180,\"ends\":{\"trait\":\"prompt\","
-"\"op\":\"is_on\"},\"message\":\"Put the ribs on and tap Next.\"},{\"mode\":\"Hold\",\"setpoint\":180,"
-"\"ends\":{\"op\":\"all\",\"conditions\":[{\"op\":\"any\",\"conditions\":[{\"trait\":\"elapsed\","
-"\"op\":\">=\",\"value\":10800},{\"trait\":\"food_max\",\"op\":\">=\",\"value\":160}]},{\"op\":\"any\","
-"\"conditions\":[{\"trait\":\"prompt\",\"op\":\"is_on\"},{\"trait\":\"lid\",\"op\":\"is_on\"}]}]},"
-"\"lead_min\":10,\"lead_message\":\"Ribs come off to wrap in about 10 minutes. Get the foil out.\","
-"\"message\":\"Take the ribs off and wrap them in foil.\"},{\"mode\":\"Hold\",\"setpoint\":225,"
-"\"ends\":{\"trait\":\"prompt\",\"op\":\"is_on\"},\"message\":\"Grill is going to 225 F. Put the wrapped ribs back on and tap Next.\"},"
-"{\"mode\":\"Hold\",\"setpoint\":225,\"ends\":{\"op\":\"all\",\"conditions\":[{\"trait\":\"elapsed\","
-"\"op\":\">=\",\"value\":7200},{\"trait\":\"prompt\",\"op\":\"is_on\"}]},\"lead_min\":10,\"lead_message\":\"Foil comes off in about 10 minutes. Get the sauce out.\","
+"\"message\":\"Lighting, then holding at 180 F.\"},{\"mode\":\"Hold\",\"setpoint\":180,\"ends\":{\"op\":\"all\","
+"\"conditions\":[{\"op\":\"any\",\"conditions\":[{\"trait\":\"elapsed\",\"op\":\">=\",\"value\":10800},"
+"{\"trait\":\"food_max\",\"op\":\">=\",\"value\":160}]},{\"op\":\"any\",\"conditions\":[{\"trait\":\"prompt\","
+"\"op\":\"is_on\"},{\"trait\":\"lid\",\"op\":\"is_on\"}]}]},\"lead_min\":10,\"lead_message\":\"Ribs come off to wrap in about 10 minutes. Get the foil out.\","
+"\"message\":\"Take the ribs off and wrap them in foil. Tap Next once they are back on.\"},{\"mode\":\"Hold\","
+"\"setpoint\":225,\"ends\":{\"op\":\"all\",\"conditions\":[{\"trait\":\"elapsed\",\"op\":\">=\","
+"\"value\":7200},{\"trait\":\"prompt\",\"op\":\"is_on\"}]},\"lead_min\":10,\"lead_message\":\"Foil comes off in about 10 minutes. Get the sauce out.\","
 "\"message\":\"Take the foil off, baste with sauce, and tap Next.\"},{\"mode\":\"Hold\",\"setpoint\":225,"
 "\"ends\":{\"op\":\"all\",\"conditions\":[{\"op\":\"any\",\"conditions\":[{\"trait\":\"elapsed\","
 "\"op\":\">=\",\"value\":3600},{\"trait\":\"food_rested\",\"op\":\">=\",\"value\":205}]},{\"trait\":\"prompt\","
@@ -292,9 +289,17 @@ static const char *RIBS_321 =
 void pf_recipes_seed(void)
 {
 	char buf[16];
-	if (pf_db_kv_get("recipes", "seeded_v1", buf, sizeof buf) == 0) return;
+	if (pf_db_kv_get("recipes", "seeded_v2", buf, sizeof buf) == 0) return;
+	/* The first shape of this recipe had seven steps, two of them a wait for the cook that read as
+	 * a stage of the cook. A copy nobody has edited -- same name, same description -- is replaced;
+	 * one that has been changed is theirs and is left beside the new one. */
+	sqlite3_stmt *st;
+	if (sqlite3_prepare_v2(pf_db_handle(), "DELETE FROM recipes WHERE name='3-2-1 Ribs' AND description LIKE 'Three hours of smoke, two wrapped%'", -1, &st, NULL) == SQLITE_OK) {
+		sqlite3_step(st);
+		sqlite3_finalize(st);
+	}
 	char err[128];
 	if (pf_recipe_save(RIBS_321, err, sizeof err) < 0) { LOGW("recipe", "built-in 3-2-1 ribs: %s", err); return; }
-	pf_db_kv_put("recipes", "seeded_v1", "true");
+	pf_db_kv_put("recipes", "seeded_v2", "true");
 	LOGI("recipe", "added the built-in 3-2-1 Ribs recipe");
 }
