@@ -170,11 +170,51 @@ pf_ff_fit pf_learning_fit(void)
 	return f;
 }
 
+/* The feed a tuning run measured at a set point, carried to the set point being asked about.
+ *
+ * A relay run's settled cycles average to the feed that holds that set point, and that is the one
+ * number a feed-forward exists to supply. It is a designed measurement of this grill, so it
+ * outranks a line fitted through whatever earlier cooks happened to do, and it outranks by miles
+ * the built-in prior -- which on this grill said 0.37 at 250 F where the relay measured 0.25, so
+ * every arrival over-fed by two fifths and the integrator spent a quarter of an hour taking it
+ * back. Between two measured set points the load is interpolated; beyond the last one it is
+ * carried along the fitted slope. Ambient is allowed for with the same slope, because a colder
+ * day needs more feed for the same pit and the library was measured on one particular day. */
+static bool anchor_uff(double setpoint_c, double ambient_c, double slope_per_c, double *u_out)
+{
+	const pf_tune_anchor *lo = NULL, *hi = NULL;
+	for (int i = 0; i < PF_TUNE_ANCHORS; i++) {
+		const pf_tune_anchor *a = &g_anchors[i];
+		if (!a->valid || !(a->load > 0)) continue;
+		if (a->setpoint_c <= setpoint_c && (!lo || a->setpoint_c > lo->setpoint_c)) lo = a;
+		if (a->setpoint_c >= setpoint_c && (!hi || a->setpoint_c < hi->setpoint_c)) hi = a;
+	}
+	if (!lo && !hi) return false;
+	double u, amb_ref;
+	if (lo && hi && hi != lo) {
+		double f = (setpoint_c - lo->setpoint_c) / (hi->setpoint_c - lo->setpoint_c);
+		u = lo->load + f * (hi->load - lo->load);
+		amb_ref = lo->ambient_c + f * (hi->ambient_c - lo->ambient_c);
+	} else {
+		const pf_tune_anchor *a = lo ? lo : hi;
+		u = a->load + slope_per_c * (setpoint_c - a->setpoint_c);
+		amb_ref = a->ambient_c;
+	}
+	if (isnan(amb_ref) || amb_ref < -30 || amb_ref > 60) amb_ref = 20;
+	*u_out = u + slope_per_c * (amb_ref - ambient_c);
+	return true;
+}
+
 double pf_learning_uff(double setpoint_c, double ambient_c, double u_min, double u_max, int *n_out)
 {
 	pf_ff_fit f = pf_learning_fit();
 	if (n_out) *n_out = f.n;
 	if (isnan(ambient_c)) ambient_c = 20;
+	double measured;
+	pthread_mutex_lock(&g_mu);
+	bool have = anchor_uff(setpoint_c, ambient_c, f.b > 0 ? f.b : PRIOR_B, &measured);
+	pthread_mutex_unlock(&g_mu);
+	if (have) return pf_clamp(measured, u_min, fmax(u_min, u_max - 0.15));
 	double u = f.a + f.b * (setpoint_c - ambient_c);
 
 	/* Until the fit has seen this grill, that number is the built-in prior: a guess about pellet
@@ -428,6 +468,15 @@ double pf_learning_anchor_load(double setpoint_c)
 		if (g_anchors[i].valid && fabs(g_anchors[i].setpoint_c - setpoint_c) < 5) { load = g_anchors[i].load; break; }
 	pthread_mutex_unlock(&g_mu);
 	return load;
+}
+
+void pf_learning_remove_anchor(double setpoint_c)
+{
+	pthread_mutex_lock(&g_mu);
+	for (int i = 0; i < PF_TUNE_ANCHORS; i++)
+		if (g_anchors[i].valid && fabs(g_anchors[i].setpoint_c - setpoint_c) < 5) { memset(&g_anchors[i], 0, sizeof g_anchors[i]); break; }
+	anchors_save();
+	pthread_mutex_unlock(&g_mu);
 }
 
 void pf_learning_put_anchor(const pf_tune_anchor *in)

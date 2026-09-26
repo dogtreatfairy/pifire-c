@@ -574,7 +574,7 @@ static void apply_tuning(void *self, double Ku, double Pu, double K, double tau,
 	/* the model the prediction runs on: whatever the grill last measured about itself */
 	if (K > 0) s->K = clampd(K, K_MIN, K_MAX);
 	if (tau > 0) s->tau = clampd(tau, TAU_MIN, TAU_MAX);
-	if (relay) pf_tuning_from_relay(Ku, Pu, &PB, &Ti, &Td);
+	if (relay) pf_tuning_from_relay_plant(Ku, Pu, s->K, s->tau, s->theta, &PB, &Ti, &Td);
 	else if (K > 0 && tau > 0 && theta > 0) pf_tuning_from_plant(K, tau, theta, &PB, &Ti, &Td);
 	else return;
 	if (!(PB > 0) || !(Ti > 0)) return;

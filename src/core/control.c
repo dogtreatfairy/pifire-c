@@ -1292,6 +1292,15 @@ static void learn_rise_track(pf_control *c, double now)
 static void autotune_finish(pf_control *c, bool ok, const char *why)
 {
 	c->autotune.active = false;
+	/* The controller comes back with a bumpless reset seeded from the last feed applied -- and the
+	 * last feed the relay applied was one half of its swing, not a steady state. Ending on the low
+	 * half seeded a negative integral, and with Ti near fifteen minutes the pit then sagged five
+	 * degrees for the whole of the next quarter hour: on the simulator the tune that had just been
+	 * measured failed its own verification hold for that reason alone, and on the real grill it is
+	 * why a fresh tune felt worse than the one before it. What the reset should inherit is the
+	 * feed that holds the set point, which is what the run has just measured. */
+	double steady = c->autotune.last_load > 0 ? c->autotune.last_load : c->autotune.u_center;
+	if (steady > 0) c->u_raw = c->u_applied = pf_clamp(steady, c->cfg.u_min, c->cfg.u_max);
 	if (!ok) { pf_events_emit("Autotune_Failed", "Autotune stopped", "%s", why); return; }
 	int n = c->autotune.crossings < PF_AT_MAX ? c->autotune.crossings : PF_AT_MAX;
 	/* Average the last few complete oscillations. The early ones are the transient on the way into
@@ -1497,6 +1506,12 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 		     ff.n >= 3 && ff.b > 1e-5 ? "feed-forward" : "startup rise", tau, theta);
 	}
 	pf_learning_store_autotune(&r);
+	/* The cycles' average feed is the load at this set point, measured by design. It is also the
+	 * best feed-forward observation this grill will ever produce -- the passive window needs a calm
+	 * quarter hour that a tuning run never gives it, which is how a grill could be tuned four times
+	 * and still be running the built-in prior. */
+	if (r.load > 0) pf_learning_observe(c->cops ? c->cops->id : "", c->setpoint_c,
+	                                    isnan(c->ambient_c) ? 20 : c->ambient_c, r.load, A, NULL);
 	bool applied = false;
 	if (pf_learning_enabled() && c->cinst && c->cops->apply_tuning) {
 		/* the oscillation itself, so the controller designs from the measurement rather than from

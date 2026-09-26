@@ -194,3 +194,7 @@ void pf_system_power(bool reboot)
 		_exit(1);
 	}
 }
+
+/* See pf_tuning_rule in pifire/common.h. Chosen on the simulator set to this grill's own plant;
+ * tests/eval_rules.c is how it was chosen and how to check it again. */
+int pf_tuning_rule_selected = PF_RULE_TYREUS_LUYBEN;

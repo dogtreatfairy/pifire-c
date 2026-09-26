@@ -16,8 +16,14 @@
 #define POT_TAU_S        60.0    /* pellets in the pot burn down with this time constant */
 #define GAIN_C_PER_GPS   900.0   /* convective ΔT above ambient per g/s burned, still air */
 #define RAD_COEFF        2.5     /* weight of the radiative term against the convective one */
-#define PIT_TAU_S        240.0   /* first-order pit response (thermal mass of the barrel) */
-#define DEAD_TIME_S      45.0
+#define PIT_TAU_S_DEFAULT  240.0   /* first-order pit response (thermal mass of the barrel) */
+#define DEAD_TIME_S_DEFAULT 45.0
+/* Overridable, so a test can set the plant to a particular grill's -- the real one here fits a
+ * time constant of about 1470 s and a dead time near 90 s, six times slower than the default --
+ * and ask what a tuning rule does on THAT rather than on the quick default. */
+static double g_pit_tau_s = PIT_TAU_S_DEFAULT, g_dead_time_s = DEAD_TIME_S_DEFAULT;
+#define PIT_TAU_S   g_pit_tau_s
+#define DEAD_TIME_S g_dead_time_s
 #define IGNITE_AFTER_S   60.0    /* igniter needs this long with pellets to light */
 #define STARVE_OUT_S     45.0    /* empty pot this long -> fire out */
 #define IGNITER_HEAT_C   6.0
@@ -186,4 +192,10 @@ double pf_sim_small_signal_gain(double amb_c, double duty)
 	double per_duty = GAIN_C_PER_GPS * AUGER_GPS;
 	double p = per_duty * duty, dp = per_duty * 0.01;
 	return (equilibrium_rise(p + dp, amb_c) - equilibrium_rise(p - dp, amb_c)) / (2 * dp) * per_duty;
+}
+
+void pf_sim_set_plant(double tau_s, double theta_s)
+{
+	if (tau_s > 0) g_pit_tau_s = tau_s;
+	if (theta_s > 0) g_dead_time_s = theta_s;
 }

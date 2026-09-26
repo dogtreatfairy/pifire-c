@@ -295,7 +295,7 @@ static void test_single_adds_and_full_profile_replaces(void)
 	pf_learning_clear_anchors();
 
 	/* an anchor from an earlier day, at a temperature no profile covers */
-	pf_autotune_result old = { .Ku = 1, .Pu = 300, .PB_c = 30, .Ti = 300, .Td = 45, .valid = true };
+	pf_autotune_result old = { .Ku = 0.02, .Pu = 400, .PB_c = 110, .Ti = 880, .Td = 63, .load = 0.42, .valid = true };   /* a plausible earlier measurement: an impossible one (Ku = 1) makes the interpolated schedule absurd and the verification rightly refuses the hold */
 	pf_learning_store_anchor(pf_f_to_c(300), &old, 10.0, 12.0);
 
 	char err[160];

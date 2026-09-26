@@ -33,3 +33,5 @@ void pf_sim_reset(double ambient_c);
 void pf_sim_plant(double *tau_s, double *theta_s, double *pot_tau_s);
 /* Degrees of settled pit per unit duty at this ambient and duty; see the implementation. */
 double pf_sim_small_signal_gain(double amb_c, double duty);
+/* Set the pit's time constant and dead time (seconds) for the runs that follow; 0 keeps a value. */
+void pf_sim_set_plant(double tau_s, double theta_s);

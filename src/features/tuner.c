@@ -31,10 +31,18 @@
 #define T_START_S   1800.0
 #define T_SETTLE_S  3600.0
 #define T_TEST_S    9000.0   /* seven crossings on a slow grill, plus the cycles spent conditioning the relay */
+/* After a measurement is applied the grill holds the same set point under the new tune, and the
+ * hold is judged: a tune that cannot hold the temperature it was measured at is not kept. The
+ * first part is left out, because the relay leaves the pit swinging and the new tune needs a
+ * few minutes to bring it in. */
+#define VERIFY_S      1500.0
+#define VERIFY_SKIP_S  480.0
+#define VERIFY_MAX_C     4.4   /* 8 F: past this the hold is not a hold */
+#define VERIFY_RMS_C     1.7   /* 3 F rms over the judged part */
 #define STABLE_S     300.0   /* inside the band this long before the test begins: the controller's
                                  arrival transient lasts minutes, and a relay centred on it starts wrong */
 
-typedef enum { PH_IDLE = 0, PH_STARTING, PH_SETTLING, PH_TESTING, PH_NEXT, PH_FINISHING, PH_DONE, PH_FAILED } phase;
+typedef enum { PH_IDLE = 0, PH_STARTING, PH_SETTLING, PH_TESTING, PH_VERIFYING, PH_NEXT, PH_FINISHING, PH_DONE, PH_FAILED } phase;
 
 static const char *PHASE_NAME[] = { "idle", "starting", "settling", "testing", "next", "finishing", "done", "failed" };
 
@@ -54,6 +62,13 @@ static struct {
 	double run_start_wall;     /* wall clock, to tell this run's anchors from older ones */
 	double settle_from_c;      /* where the pit was when this set point's settle began */
 	char skipped[64];          /* set points that gave nothing usable, for the finishing message */
+	char reverted[64];         /* set points whose new tune held worse than the old and was taken back */
+	/* what was in force before this set point's measurement, so a failed verification can put
+	 * it back exactly */
+	pf_autotune_result prev_result;
+	pf_tune_anchor prev_anchor;
+	bool had_anchor;
+	double v_max_c, v_sq_c, v_sum_c; int v_n;
 	char message[120];
 } g;
 
@@ -117,9 +132,10 @@ static void finish(bool ok, const char *why, double now)
 	}
 	if (ok && g.full)
 		pf_events_emit("Tune_Done", "Baseline tune finished",
-		               "%d of %d set point%s measured%s%s. This is the grill's baseline.%s%s",
+		               "%d of %d set point%s measured%s%s%s%s. This is the grill's baseline.%s%s",
 		               g.measured, g.n, g.n == 1 ? "" : "s",
 		               g.skipped[0] ? ", nothing usable at " : "", g.skipped[0] ? g.skipped : "",
+		               g.reverted[0] ? "; the new tune held worse than the old and was taken back at " : "", g.reverted[0] ? g.reverted : "",
 		               nv ? " " : "", nv ? vals : "");
 	else if (ok)
 		pf_events_emit("Tune_Done", "Tuning finished", "Added to the tuning library. %s",
@@ -331,6 +347,7 @@ void pf_tuner_tick(const cJSON *status, double now)
 		if (g.stable_since > 0 && now - g.stable_since >= STABLE_S) {
 			set_phase(PH_TESTING, now, "Measuring the loop");
 			g.at_gen = pf_learning_autotune_gen();
+			g.prev_result = pf_learning_autotune();
 			pthread_mutex_unlock(&g_mu);
 			pf_cmd c = { .type = PF_CMD_AUTOTUNE_START };
 			pf_cmdq_push(&c);
@@ -373,6 +390,14 @@ void pf_tuner_tick(const cJSON *status, double now)
 		if (elapsed < 5) break;                 /* give the command a moment to be picked up */
 		unsigned gen = pf_learning_autotune_gen();
 		if (gen != g.at_gen && r.PB_c > 0) {
+			/* what this set point had before, in case the new tune has to be taken back */
+			g.had_anchor = false;
+			{
+				pf_tune_anchor all[PF_TUNE_ANCHORS];
+				int na = pf_learning_anchor_list(all, PF_TUNE_ANCHORS);
+				for (int i = 0; i < na; i++)
+					if (fabs(all[i].setpoint_c - g.points_c[g.step]) < 5) { g.prev_anchor = all[i]; g.had_anchor = true; break; }
+			}
 			pf_learning_store_anchor(g.points_c[g.step], &r, g.amb_c, g.wind_kmh);
 			g.measured++;
 			g.at_gen = gen;
@@ -385,7 +410,8 @@ void pf_tuner_tick(const cJSON *status, double now)
 			 * without writing a single measurement into the saved settings, where a bad one would
 			 * outlive the run that produced it. The finishing message reports the numbers instead,
 			 * so adopting them permanently stays a decision rather than a side effect. */
-			set_phase(PH_NEXT, now, "Moving to the next set point");
+			g.v_max_c = 0; g.v_sq_c = 0; g.v_sum_c = 0; g.v_n = 0;
+			set_phase(PH_VERIFYING, now, "Holding under the new tuning to check it");
 		} else if (elapsed < 60 && g.tries < 2) {
 			/* The test never got going, which means the grill had drifted off the set point by
 			 * the time the command was picked up. Settle again and have one more go. */
@@ -401,6 +427,42 @@ void pf_tuner_tick(const cJSON *status, double now)
 			         g.skipped[0] ? ", " : "", at_sp, tdeg);
 			set_phase(PH_NEXT, now, "That set point gave nothing usable; moving on");
 		}
+		break;
+	}
+
+	case PH_VERIFYING: {
+		/* The tune it just applied, judged on the one thing it was measured for: holding this set
+		 * point. Passing means it is kept. Failing means it was worse than what the grill had,
+		 * and what the grill had goes back -- a run that ends with the grill holding worse than
+		 * it started is the one outcome a tuning run must not have. */
+		double pit = pf_json_num((cJSON *)status, "probes.0.temp", NAN);
+		{
+			const cJSON *pr = cJSON_GetObjectItem((cJSON *)status, "probes"), *pp;
+			cJSON_ArrayForEach(pp, pr) if (!strcmp(pf_json_str((cJSON *)pp, "role", ""), "Primary")) { pit = pf_json_num((cJSON *)pp, "temp", NAN); break; }
+		}
+		if (elapsed >= VERIFY_SKIP_S && !isnan(pit) && sp > 0) {
+			double e = fabs(pf_to_c(pit, pf_settings_units()) - pf_to_c(sp, pf_settings_units()));
+			if (e > g.v_max_c) g.v_max_c = e;
+			g.v_sq_c += e * e; g.v_n++;
+			g.v_sum_c += pf_to_c(pit, pf_settings_units()) - pf_to_c(sp, pf_settings_units());
+		}
+		if (elapsed < VERIFY_S) break;
+		double rms = g.v_n ? sqrt(g.v_sq_c / g.v_n) : 0;
+		bool ok = g.v_n >= 30 && g.v_max_c <= VERIFY_MAX_C && rms <= VERIFY_RMS_C;
+		LOGI(TAG, "verification at %.0f C: max %.1f C, rms %.1f C, mean %+.1f C over %d samples -> %s",
+		     g.points_c[g.step], g.v_max_c, rms, g.v_n ? g.v_sum_c / g.v_n : 0, g.v_n, ok ? "kept" : "reverted");
+		if (!ok) {
+			if (g.had_anchor) pf_learning_put_anchor(&g.prev_anchor);
+			else pf_learning_remove_anchor(g.points_c[g.step]);
+			if (g.prev_result.valid) pf_learning_store_autotune(&g.prev_result);
+			snprintf(g.reverted + strlen(g.reverted), sizeof g.reverted - strlen(g.reverted), "%s%.0f%s",
+			         g.reverted[0] ? ", " : "", at_sp, tdeg);
+			pthread_mutex_unlock(&g_mu);
+			pf_cmd c = { .type = PF_CMD_TUNING_APPLY };
+			pf_cmdq_push(&c);
+			pthread_mutex_lock(&g_mu);
+		}
+		set_phase(PH_NEXT, now, "Moving to the next set point");
 		break;
 	}
 
