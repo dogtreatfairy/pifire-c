@@ -17,6 +17,9 @@ int    pf_backup_restore_named(const char *name, const char *loc_id, char *err, 
 int    pf_backup_restore_bytes(const void *data, size_t len, char *err, size_t n); /* from an upload */
 int    pf_backup_connect(const char *loc_id, char *err, size_t n);   /* begin a cloud sign-in (device code) */
 void   pf_backup_disconnect(const char *loc_id);
+/* What is at a path: the folders of a directory on the grill, or of a share (or the shares of a
+ * host, when no share is named). req: {type, path, host, share, user, password}. */
+cJSON *pf_backup_browse(cJSON *req, char *err, size_t n);
 
 /* Called by main() before the database is opened: if a restore was staged, put it in place. */
 int    pf_backup_apply_staged(const char *data_dir, const char *config_path);

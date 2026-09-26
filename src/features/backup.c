@@ -19,6 +19,7 @@
  * has to be stopped, and the daemon restarts itself the way an update does. */
 #include "features/backup.h"
 #include "core/db.h"
+#include "core/embedded.h"
 #include "core/events.h"
 #include "core/log.h"
 #include "core/settings.h"
@@ -198,6 +199,7 @@ static void loc_from_json(cJSON *j, loc_t *L)
 	}
 }
 
+static void resolve_client(loc_t *L);
 static int locations(loc_t *out, int max)
 {
 	cJSON *arr = pf_set_dup("backup.locations");
@@ -206,6 +208,7 @@ static int locations(loc_t *out, int max)
 	cJSON_ArrayForEach(j, arr) {
 		if (k >= max) break;
 		loc_from_json(j, &out[k]);
+		resolve_client(&out[k]);
 		if (out[k].id[0] && out[k].type[0]) k++;
 	}
 	cJSON_Delete(arr);
@@ -221,6 +224,30 @@ static bool find_loc(const char *id, loc_t *out)
 }
 
 static bool is_cloud(const loc_t *L) { return !strcmp(L->type, "gdrive") || !strcmp(L->type, "onedrive"); }
+
+/* The project's own clients, shipped with the daemon, so connecting a cloud is one tap and a
+ * code -- nobody should have to open a developer console to back up a grill. A location that
+ * carries its own client (an advanced choice) uses that instead. */
+static bool builtin_client(const char *type, char *id, size_t in, char *secret, size_t sn)
+{
+	id[0] = 0; if (secret) secret[0] = 0;
+	const pf_embedded_file *f = pf_embedded_share("oauth-clients.json");
+	if (!f) return false;
+	cJSON *j = cJSON_ParseWithLength((const char *)f->data, f->len);
+	if (!j) return false;
+	cJSON *c = cJSON_GetObjectItem(j, type);
+	pf_strlcpy(id, pf_json_str(c, "client_id", ""), in);
+	if (secret) pf_strlcpy(secret, pf_json_str(c, "client_secret", ""), sn);
+	cJSON_Delete(j);
+	return id[0] != 0;
+}
+
+/* fills in the client a location will actually use */
+static void resolve_client(loc_t *L)
+{
+	if (!is_cloud(L) || L->client_id[0]) return;
+	builtin_client(L->type, L->client_id, sizeof L->client_id, L->client_secret, sizeof L->client_secret);
+}
 
 /* cloud tokens live in the database, keyed by the location, so a restored backup brings its
  * connections with it */
@@ -535,6 +562,163 @@ static cJSON *smb_list(const loc_t *L, char *err, size_t n)
 
 static int smb_del(const loc_t *L, const char *name) { char cmd[300], out[2048], err[200]; snprintf(cmd, sizeof cmd, "del \"%s\"", name); return smb_cmd(L, cmd, out, sizeof out, err, sizeof err); }
 static int smb_get(const loc_t *L, const char *name, const char *local) { char cmd[1000], out[2048], err[200]; snprintf(cmd, sizeof cmd, "get \"%s\" \"%s\"", name, local); return smb_cmd(L, cmd, out, sizeof out, err, sizeof err); }
+
+/* ---- browsing: what is at a path, so a location can be picked rather than typed ---------- */
+
+static int by_str(const void *a, const void *b) { return strcasecmp(*(const char *const *)a, *(const char *const *)b); }
+
+static cJSON *sorted_names(char **names, int k)
+{
+	qsort(names, (size_t)k, sizeof *names, by_str);
+	cJSON *arr = cJSON_CreateArray();
+	for (int i = 0; i < k; i++) { cJSON_AddItemToArray(arr, cJSON_CreateString(names[i])); free(names[i]); }
+	return arr;
+}
+
+static cJSON *browse_folder(const char *path, char *err, size_t n)
+{
+	char here[512];
+	pf_strlcpy(here, path && path[0] ? path : "/", sizeof here);
+	size_t l = strlen(here);
+	while (l > 1 && here[l - 1] == '/') here[--l] = 0;
+	DIR *d = opendir(here);
+	if (!d) { snprintf(err, n, "cannot open %.150s: %s", here, strerror(errno)); return NULL; }
+	char *names[512]; int k = 0;
+	struct dirent *e;
+	while ((e = readdir(d)) && k < 512) {
+		if (e->d_name[0] == '.') continue;
+		char p[900]; snprintf(p, sizeof p, "%s/%s", here, e->d_name);
+		struct stat st;
+		if (stat(p, &st) || !S_ISDIR(st.st_mode)) continue;
+		names[k++] = strdup(e->d_name);
+	}
+	closedir(d);
+	cJSON *o = cJSON_CreateObject();
+	cJSON_AddStringToObject(o, "path", here);
+	cJSON_AddItemToObject(o, "dirs", sorted_names(names, k));
+	if (strcmp(here, "/")) {
+		char *slash = strrchr(here, '/');
+		if (slash) { *slash = 0; cJSON_AddStringToObject(o, "parent", here[0] ? here : "/"); }
+	}
+	return o;
+}
+
+/* the shares a host offers, from smbclient -L: "\tSharename  Type  Comment" rows, Disk ones only */
+static cJSON *browse_shares(const loc_t *L, char *err, size_t n)
+{
+	if (!L->host[0]) { snprintf(err, n, "enter the host first"); return NULL; }
+	if (!g.have_smb && !(g.have_smb = smb_have())) { snprintf(err, n, "smbclient is not installed on the grill (sudo apt install smbclient)"); return NULL; }
+	char auth[600];
+	snprintf(auth, sizeof auth, "%s/.smbauth-browse", g.work);
+	char body[300];
+	snprintf(body, sizeof body, "username=%s\npassword=%s\n", L->user, L->pass);
+	pf_write_file_atomic(auth, body, strlen(body));
+	chmod(auth, 0600);
+	char svc[160];
+	snprintf(svc, sizeof svc, "//%s", L->host);
+	const char *argv[] = { "smbclient", "-L", svc, "-A", auth, "-g", NULL };
+	char *out = malloc(65536);
+	if (!out) { snprintf(err, n, "out of memory"); return NULL; }
+	int rc = run(argv, out, 65536, 60);
+	/* -g gives "Disk|name|comment" lines, one per share; the exit code is unreliable when the
+	 * host also refuses the browse list, so what matters is whether any came back */
+	char *names[256]; int k = 0;
+	char *save = NULL;
+	for (char *line = strtok_r(out, "\n", &save); line && k < 256; line = strtok_r(NULL, "\n", &save)) {
+		if (strncmp(line, "Disk|", 5)) continue;
+		char *name = line + 5, *bar = strchr(name, '|');
+		if (bar) *bar = 0;
+		size_t nl = strlen(name);
+		if (!nl || name[nl - 1] == '$') continue;   /* administrative shares are not for backups */
+		names[k++] = strdup(name);
+	}
+	if (!k && rc != 0) {
+		char *nl = strchr(out, '\n'); if (nl) *nl = 0;
+		snprintf(err, n, "%s", out[0] ? out : "could not reach the host");
+		free(out);
+		return NULL;
+	}
+	free(out);
+	cJSON *o = cJSON_CreateObject();
+	cJSON_AddItemToObject(o, "shares", sorted_names(names, k));
+	return o;
+}
+
+static cJSON *browse_share(const loc_t *L, const char *path, char *err, size_t n)
+{
+	loc_t at = *L;
+	pf_strlcpy(at.path, path && path[0] ? path : "", sizeof at.path);
+	/* smb_cmd cd's into L->path; a blank one means the root of the share, which smb_prep would
+	 * otherwise turn into the PiFire default */
+	char svc[300], auth[600], dir[256];
+	if (smb_prep(&at, svc, sizeof svc, auth, sizeof auth, dir, sizeof dir, err, n)) return NULL;
+	char full[600];
+	if (at.path[0]) snprintf(full, sizeof full, "cd \"%s\"; ls", dir); else snprintf(full, sizeof full, "ls");
+	const char *argv[] = { "smbclient", svc, "-A", auth, "-c", full, NULL };
+	char *out = malloc(65536);
+	if (!out) { snprintf(err, n, "out of memory"); return NULL; }
+	int rc = run(argv, out, 65536, 60);
+	if (rc != 0 && !strstr(out, "blocks")) {
+		char *nl = strchr(out, '\n'); if (nl) *nl = 0;
+		snprintf(err, n, "%s", out[0] ? out : "smbclient failed");
+		free(out);
+		return NULL;
+	}
+	/* "  name   D   0  Fri Sep 26 ..." -- the attribute column says D for a directory */
+	char *names[512]; int k = 0;
+	char *save = NULL;
+	for (char *line = strtok_r(out, "\n", &save); line && k < 512; line = strtok_r(NULL, "\n", &save)) {
+		if (line[0] != ' ') continue;
+		/* the name may hold spaces: it ends where the attribute column begins, which is the
+		 * last run of spaces before a short token of attribute letters */
+		char name[256] = "", attr[16] = "";
+		long size = -1;
+		/* scan from the right: "<size> <weekday> ..." after the attribute */
+		int i = (int)strlen(line);
+		while (i > 0 && line[i - 1] == ' ') i--;
+		/* walk back over the date (5 tokens) and size */
+		int tokens = 0; int j = i;
+		while (j > 0 && tokens < 6) { while (j > 0 && line[j - 1] != ' ') j--; tokens++; if (tokens < 6) while (j > 0 && line[j - 1] == ' ') j--; }
+		if (tokens < 6) continue;
+		if (sscanf(line + j, "%15s %ld", attr, &size) != 2) continue;
+		int e = j; while (e > 0 && line[e - 1] == ' ') e--;
+		int b = 0; while (line[b] == ' ') b++;
+		if (e <= b) continue;
+		int nl2 = e - b; if (nl2 > 255) nl2 = 255;
+		memcpy(name, line + b, (size_t)nl2); name[nl2] = 0;
+		if (!strchr(attr, 'D') || !strcmp(name, ".") || !strcmp(name, "..")) continue;
+		names[k++] = strdup(name);
+	}
+	free(out);
+	cJSON *o = cJSON_CreateObject();
+	cJSON_AddStringToObject(o, "path", at.path);
+	cJSON_AddItemToObject(o, "dirs", sorted_names(names, k));
+	if (at.path[0]) {
+		char parent[256]; pf_strlcpy(parent, at.path, sizeof parent);
+		char *slash = strrchr(parent, '/');
+		if (slash) *slash = 0; else parent[0] = 0;
+		cJSON_AddStringToObject(o, "parent", parent);
+	}
+	return o;
+}
+
+cJSON *pf_backup_browse(cJSON *req, char *err, size_t n)
+{
+	const char *type = pf_json_str(req, "type", "folder");
+	const char *path = pf_json_str(req, "path", "");
+	if (!strcmp(type, "folder")) return browse_folder(path, err, n);
+	if (!strcmp(type, "smb")) {
+		loc_t L; memset(&L, 0, sizeof L);
+		pf_strlcpy(L.id, "browse", sizeof L.id); pf_strlcpy(L.type, "smb", sizeof L.type);
+		pf_strlcpy(L.host, pf_json_str(req, "host", ""), sizeof L.host);
+		pf_strlcpy(L.share, pf_json_str(req, "share", ""), sizeof L.share);
+		pf_strlcpy(L.user, pf_json_str(req, "user", ""), sizeof L.user);
+		pf_strlcpy(L.pass, pf_json_str(req, "password", ""), sizeof L.pass);
+		return L.share[0] ? browse_share(&L, path, err, n) : browse_shares(&L, err, n);
+	}
+	snprintf(err, n, "nothing to browse for a %s location", type);
+	return NULL;
+}
 
 /* ---- the clouds ---------------------------------------------------------------------------- */
 #if PF_WITH_CURL
@@ -1408,6 +1592,12 @@ cJSON *pf_backup_status_json(void)
 		cJSON_AddBoolToObject(L, "enabled", all[i].enabled);
 		if (is_cloud(&all[i])) cJSON_AddBoolToObject(L, "connected", connected(&all[i]));
 		cJSON_AddItemToArray(locs, L);
+	}
+	{
+		char id[256];
+		cJSON *cl = cJSON_AddObjectToObject(o, "clients");
+		cJSON_AddBoolToObject(cl, "gdrive", builtin_client("gdrive", id, sizeof id, NULL, 0));
+		cJSON_AddBoolToObject(cl, "onedrive", builtin_client("onedrive", id, sizeof id, NULL, 0));
 	}
 	cJSON_AddNumberToObject(o, "next_ts", next_due(last_good_ts));
 	/* Found once at start and remembered -- except that "not there" is worth a second look now and

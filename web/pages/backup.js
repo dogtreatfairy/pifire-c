@@ -11,8 +11,8 @@ import { icon as lucide } from '../icons.js';
  * which locations hold it and offering the way back. */
 
 const KINDS = [
-  { type: 'gdrive', name: 'Google Drive', sub: 'Your own Google API client, connected from the phone', icon: 'cloud', color: '#34a853' },
-  { type: 'onedrive', name: 'OneDrive', sub: 'Your own Microsoft app registration, connected from the phone', icon: 'cloud', color: '#0a84ff' },
+  { type: 'gdrive', name: 'Google Drive', sub: 'Sign in with Google from your phone', icon: 'cloud', color: '#34a853' },
+  { type: 'onedrive', name: 'OneDrive', sub: 'Sign in with Microsoft from your phone', icon: 'cloud', color: '#0a84ff' },
   { type: 'smb', name: 'Network share', sub: 'A NAS or a computer on the network (SMB)', icon: 'network', color: '#bf5af2' },
   { type: 'folder', name: 'Folder on the grill', sub: 'A USB stick, or a share already mounted', icon: 'folder', color: '#ffd60a' },
 ];
@@ -113,15 +113,27 @@ export function renderBackup(view) {
       const touched = () => { if (ready) wrap.dispatchEvent(new CustomEvent('pf-dirty', { bubbles: true })); };
       form.oninput = touched; form.onchange = touched;
       const fields = [{ path: 'name', label: 'Name', help: 'How this location is listed', type: 'text' }];
-      if (loc.type === 'gdrive') {
-        body.append(el('p', { class: 'help', style: 'padding:6px 0' },
-          'Needs your own Google API client (5 minutes, once): at console.cloud.google.com create a project, turn on the Google Drive API, and under Credentials add an OAuth client of type "TVs and Limited Input devices". PiFire only ever sees the files it made.'));
-        fields.push({ path: 'client_id', label: 'Client ID', type: 'text' }, { path: 'client_secret', label: 'Client secret', type: 'password' },
-          { path: 'cloud_folder', label: 'Folder in Drive', help: 'Made if it is not there', type: 'text' });
-      } else if (loc.type === 'onedrive') {
-        body.append(el('p', { class: 'help', style: 'padding:6px 0' },
-          'Needs your own Microsoft app registration (5 minutes, once): at portal.azure.com register an application for "personal Microsoft accounts", allow public client flows, and copy its Application (client) ID. PiFire gets its own folder under Apps and sees nothing else.'));
-        fields.push({ path: 'client_id', label: 'Application (client) ID', type: 'text' });
+      if (loc.type === 'gdrive' || loc.type === 'onedrive') {
+        /* With the project's own client shipped, connecting is one tap and a code. The fields
+           for a client of your own are there for the few who want them, behind a fold, and
+           are the only way when a build ships without one. */
+        const builtin = !!st?.clients?.[loc.type];
+        const own = [];
+        if (loc.type === 'gdrive') own.push({ path: 'client_id', label: 'Client ID', type: 'text' }, { path: 'client_secret', label: 'Client secret', type: 'password' });
+        else own.push({ path: 'client_id', label: 'Application (client) ID', type: 'text' });
+        if (loc.type === 'gdrive') own.push({ path: 'cloud_folder', label: 'Folder in Drive', help: 'Made if it is not there', type: 'text' });
+        if (builtin) {
+          const adv = el('div', { class: 'fold-body' });
+          for (const f of own) adv.append(fieldInput(f, loc[f.path] ?? (f.path === 'cloud_folder' ? 'PiFire Backups' : '')));
+          adv.prepend(el('p', { class: 'help', style: 'padding:6px 0' }, 'Leave the client blank to use PiFire\u2019s own. Only fill this in if you have registered a client of your own.'));
+          form.append(el('details', { class: 'fold', open: !!loc.client_id }, el('summary', {}, el('span', {}, 'Advanced')), adv));
+          fields.push(...own);
+        } else {
+          body.append(el('p', { class: 'help', style: 'padding:6px 0' }, loc.type === 'gdrive'
+            ? 'This build ships without a Google client, so one of your own is needed: at console.cloud.google.com create a project, turn on the Google Drive API, and under Credentials add an OAuth client of type "TVs and Limited Input devices".'
+            : 'This build ships without a Microsoft client, so one of your own is needed: at portal.azure.com register an application for personal Microsoft accounts, allow public client flows, and copy its Application (client) ID.'));
+          fields.push(...own);
+        }
       } else if (loc.type === 'smb') {
         if (st && st.smbclient === false) body.append(el('div', { class: 'notice warn' }, el('span', {}, 'smbclient is not installed on the grill. Run: sudo apt install smbclient')));
         fields.push({ path: 'host', label: 'Host', help: 'Name or address of the NAS or computer', type: 'text' },
@@ -132,7 +144,12 @@ export function renderBackup(view) {
       } else {
         fields.push({ path: 'folder', label: 'Folder', help: 'A path on the grill: a USB stick, or a share already mounted there', type: 'text' });
       }
-      for (const f of fields) form.append(fieldInput(f, loc[f.path] ?? (f.path === 'cloud_folder' ? 'PiFire Backups' : f.path === 'path' ? 'PiFire' : '')));
+      for (const f of fields) {
+        if (form.querySelector(`[name="${f.path}"]`)) continue;   /* already placed, under Advanced */
+        const node = fieldInput(f, loc[f.path] ?? (f.path === 'cloud_folder' ? 'PiFire Backups' : f.path === 'path' ? 'PiFire' : ''));
+        const fold = form.querySelector('details.fold');
+        if (fold) form.insertBefore(node, fold); else form.append(node);
+      }
       body.append(form);
       const read = () => { const out = { ...loc }; for (const f of fields) out[f.path] = readField(f, form); return out; };
       const persist = async (next) => {
@@ -144,7 +161,7 @@ export function renderBackup(view) {
       if (loc.type === 'gdrive' || loc.type === 'onedrive') {
         const ls = locState(loc.id);
         body.append(el('div', { class: 'field inline' },
-          el('div', {}, el('label', {}, 'Account'), el('div', { class: 'help' }, ls.connected ? 'Connected' : st?.pending?.loc === loc.id ? 'Waiting for the code to be entered' : 'Not connected')),
+          el('div', {}, el('label', {}, loc.type === 'gdrive' ? 'Google account' : 'Microsoft account'), el('div', { class: 'help' }, ls.connected ? 'Connected' : st?.pending?.loc === loc.id ? 'Waiting for the code to be entered' : 'Not connected')),
           ls.connected
             ? el('button', { class: 'btn sm ghost', type: 'button', onclick: async () => {
                 if (!await confirmDialog(`Disconnect ${loc.name || k.name}?`, 'Backups stop going there until it is connected again. Nothing there is removed.', 'Disconnect', true)) return;
@@ -154,8 +171,19 @@ export function renderBackup(view) {
                 if (!await persist(next)) return;
                 await connectCloud(next);
                 close(undefined); drawAll();
-              } }, st?.pending?.loc === loc.id ? 'Show code' : 'Connect')));
+              } }, st?.pending?.loc === loc.id ? 'Show code' : loc.type === 'gdrive' ? 'Sign in with Google' : 'Sign in with Microsoft')));
       } else {
+        body.append(el('div', { class: 'field inline' },
+          el('div', {}, el('label', {}, 'Browse'), el('div', { class: 'help' }, loc.type === 'smb' ? 'Pick the share and folder from the host' : 'Pick the folder on the grill')),
+          el('button', { class: 'btn sm', type: 'button', onclick: async () => {
+            let cur; try { cur = read(); } catch (e) { toast(e.message, true); return; }
+            if (loc.type === 'smb' && !cur.host) { toast('Enter the host first', true); return; }
+            const picked = await browse(loc.type, loc.type === 'smb' ? { host: cur.host, share: cur.share, user: cur.user, password: cur.password } : {}, loc.type === 'smb' ? cur.path : (cur.folder || '/'));
+            if (!picked) return;
+            if (loc.type === 'smb') { form.querySelector('[name="share"]').value = picked.share; form.querySelector('[name="path"]').value = picked.path; }
+            else form.querySelector('[name="folder"]').value = picked.path;
+            touched();
+          } }, 'Browse\u2026')));
         body.append(el('div', { class: 'field inline' },
           el('div', {}, el('label', {}, 'Connection'), el('div', { class: 'help' }, 'Saves, then checks the grill can reach it')),
           el('button', { class: 'btn sm', type: 'button', onclick: async (e) => {
@@ -286,6 +314,52 @@ export function renderBackup(view) {
     };
     inp.click();
   };
+
+  /* Pick a folder rather than type it: a list of what is there, a row up, and one button that
+     takes the folder you are in. For a share with no share named yet, the shares of the host
+     come first. Credentials travel with the request; nothing is saved until Save. */
+  const browse = (kind, creds, start) => dialog((close) => {
+    const head = el('div', { class: 'browse-path' });
+    const list = el('div', { class: 'ios-list' });
+    const sub = el('input', { type: 'text', placeholder: 'New subfolder (optional)' });
+    let path = start || '';
+    let share = creds.share || '';
+    let atShares = kind === 'smb' && !share;
+    const load = async () => {
+      list.innerHTML = '';
+      list.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'Looking\u2026'));
+      try {
+        const r = await api('/backup/browse', { body: { type: kind, path, ...creds, share } });
+        list.innerHTML = '';
+        if (atShares) {
+          head.textContent = `//${creds.host}`;
+          for (const sname of r.shares || []) list.append(row('network', sname, () => { share = sname; atShares = false; path = ''; load(); }));
+          if (!(r.shares || []).length) list.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No shares listed. The host may not publish them; type the share name instead.'));
+          return;
+        }
+        path = r.path || '';
+        head.textContent = kind === 'smb' ? `//${creds.host}/${share}/${path}` : path;
+        if (r.parent !== undefined) list.append(row('chevron-left', 'Up', () => { path = r.parent; load(); }));
+        else if (kind === 'smb') list.append(row('chevron-left', 'Shares', () => { atShares = true; share = ''; load(); }));
+        for (const d of r.dirs || []) list.append(row('folder', d, () => { path = kind === 'smb' ? (path ? `${path}/${d}` : d) : (path === '/' ? `/${d}` : `${path}/${d}`); load(); }));
+        if (!(r.dirs || []).length) list.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No folders here.'));
+      } catch (e) { list.innerHTML = ''; list.append(el('p', { class: 'help warn-ink', style: 'padding:var(--sp-3)' }, e.message)); }
+    };
+    const row = (ic, text, onclick) => el('button', { class: 'irow kind-row', type: 'button', onclick },
+      el('span', { class: 'cc-glyph' }, lucide(ic)), el('span', { class: 'body' }, el('span', { class: 't' }, text)));
+    load();
+    return el('div', { class: 'sheet' },
+      el('div', { class: 'sheet-head' }, el('h3', {}, kind === 'smb' ? 'Browse the share' : 'Browse the grill')),
+      el('div', { class: 'sheet-body pick-list' }, head, list, el('div', { class: 'field' }, sub)),
+      el('div', { class: 'form-actions' },
+        el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'),
+        el('button', { class: 'btn primary', type: 'button', disabled: false, onclick: () => {
+          if (atShares) { toast('Pick a share first', true); return; }
+          const extra = sub.value.trim().replace(/^\/+|\/+$/g, '');
+          const full = extra ? (path && path !== '/' ? `${path}/${extra}` : (kind === 'smb' ? extra : `/${extra}`)) : path;
+          close({ share, path: full });
+        } }, 'Use this folder')));
+  });
 
   const save = async (patch) => {
     try { await patchSettings('backup', patch); toast('Saved'); }

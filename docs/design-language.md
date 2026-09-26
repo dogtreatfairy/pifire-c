@@ -548,8 +548,8 @@ heading, not a small button beside it and not at the foot. At the foot it sits b
 its actions, which on a phone is a screen and a half of scrolling to reach the one thing you came to
 the page to do when you have a new probe in your hand.
 
-**`view.append()` is the DOM's, not `el()`'s.** `el()` drops null children; `append` writes them out
-as the word "null", which is how a bare `null` appeared under the probe list. Filter before
+**`view.append()` and `replaceChildren()` are the DOM's, not `el()`'s.** `el()` drops null children; `append` writes them out
+as the word "null", which is how a bare `null` appeared under the probe list and, later, under a running recipe's message. Filter before
 appending: `view.append(...[a, cond ? b : null].filter(Boolean))`.
 
 **An input may carry its own mark**, inside it and ahead of the text, so the field says what it is
@@ -826,6 +826,14 @@ rows, two of them waits, is a list whose flow makes no sense.
 **Run asks one question and offers one button.** The only thing a recipe needs before it starts is
 which probes are in the food, so that is the dialog, and its button is Start. A "Run this?" in
 front of it was a second tap for nothing.
+
+## A running recipe says so everywhere the grill's state is read
+
+The header plate grows a segment on its front with the step number -- `[1][STARTUP][109°F]` --
+counting every step, lighting and shutting down included, exactly as the recipe's own screen
+and the run card count them; the mode word stays the mode, and reads "Your turn" while the
+recipe waits on the cook. Home carries a line under what the grill is doing: `Recipe: 3-2-1 Ribs
+· Step 2 of 5`. Without these, a grill in Hold at 180 looked like a grill somebody had set to 180.
 
 ## A cook starts by saying which probes are in the food
 

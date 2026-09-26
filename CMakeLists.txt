@@ -79,6 +79,7 @@ add_executable(bin2c tools/bin2c.c)
 set(PF_EMBED_INPUTS
   ${CMAKE_SOURCE_DIR}/share/settings.default.json
   ${CMAKE_SOURCE_DIR}/share/manifest.json
+  ${CMAKE_SOURCE_DIR}/share/oauth-clients.json
   ${CMAKE_SOURCE_DIR}/share/fonts/Inter-Regular.ttf
   ${CMAKE_SOURCE_DIR}/share/fonts/Inter-SemiBold.ttf)
 set(PF_EMBED_OUT ${CMAKE_BINARY_DIR}/gen/embedded_share.c)

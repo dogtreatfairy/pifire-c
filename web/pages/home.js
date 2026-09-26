@@ -237,6 +237,9 @@ export function renderHome(view) {
   const gauge = buildGauge();
   const target = el('div', { class: 'line1' });
   const detail = el('div', { class: 'line2' });
+  /* which recipe has the grill, when one does: on the Home screen, under what the grill is
+     doing, because that is where the question "why is it holding 180?" gets asked */
+  const recipeLine = el('div', { class: 'line2 recipe-line', hidden: true });
   const bar = el('div');
   const hopBrand = el('span', { class: 'muted' }), hopPct = el('span', { class: 'pct' }), hopFill = el('div');
   const hopper = el('div', { class: 'card tight hopper', hidden: true }, el('div', { class: 'row between' }, el('div', {}, el('strong', {}, 'Hopper'), ' ', hopBrand), hopPct), el('div', { class: 'progress' }, hopFill));
@@ -244,7 +247,7 @@ export function renderHome(view) {
   const probes = el('div', { class: 'pgrid' });
   const ctrl = el('div', { class: 'kv' });
   view.append(
-    el('div', { class: 'card hero' }, header, gauge, target, detail, bar),
+    el('div', { class: 'card hero' }, header, gauge, target, detail, recipeLine, bar),
     hopper, manual, probes,
     el('details', { class: 'card tight' }, el('summary', { class: 'muted' }, 'Controller'), ctrl),
   );
@@ -284,6 +287,9 @@ export function renderHome(view) {
     if ((s.mode === 'Startup' || s.mode === 'Reignite') && s.coldstart.active && !s.coldstart.reached) bits.push('Cold start · waiting for rise');
     else if ((s.mode === 'Startup' || s.mode === 'Reignite') && s.timers.startup_exit_temp > 0) bits.push(`Exits at ${fmtTemp(s.timers.startup_exit_temp)}${u}`);
     detail.textContent = bits.join(' · ') || '\u00a0';
+    const rc = s.recipe;
+    recipeLine.hidden = !rc?.active;
+    if (rc?.active) recipeLine.textContent = `Recipe: ${rc.name} \u00b7 Step ${(rc.step ?? 0) + 1} of ${rc.nsteps}${rc.waiting ? ' \u00b7 Your turn' : ''}`;
     hopper.hidden = !(s.hopper_pct >= 0);
     if (s.hopper_pct >= 0) {
       const low = s.hopper_pct <= (PF.settings?.pelletlevel?.warning_level ?? 25);

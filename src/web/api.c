@@ -707,6 +707,13 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		if (rc) { reply_err(resp, 409, e); return; }
 		reply_ok(resp); return;
 	}
+	if (post && !strcmp(p, "/backup/browse")) {
+		cJSON *b = req->body_len ? cJSON_Parse(req->body) : NULL;
+		char e[240]; cJSON *o = pf_backup_browse(b, e, sizeof e);
+		cJSON_Delete(b);
+		if (!o) { reply_err(resp, 400, e); return; }
+		reply(resp, 200, o); return;
+	}
 	if (post && !strcmp(p, "/backup/connect")) {
 		cJSON *b = req->body_len ? cJSON_Parse(req->body) : NULL;
 		char e[240]; int rc = pf_backup_connect(pf_json_str(b, "id", ""), e, sizeof e);

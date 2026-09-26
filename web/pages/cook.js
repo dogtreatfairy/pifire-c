@@ -556,13 +556,15 @@ export function renderCook(view) {
       /* While a recipe runs, this card is the page: what it is doing, how long until it needs you,
          and -- when it needs you now -- one button the width of the card, because the moment it is
          asking for something is the moment nothing else on the screen matters. */
-      runCard.replaceChildren(
+      /* the DOM's replaceChildren() writes a null out as the word "null", unlike el(); nothing
+         optional goes to it unfiltered */
+      runCard.replaceChildren(...[
         el('div', { class: 'row between' },
           el('div', { style: 'min-width:0' },
             el('div', { class: 'run-name' }, rc.name),
-            el('div', { class: 'help' }, rc.stage ? `Stage ${rc.stage} of ${rc.stages} · ${rc.step_mode}` : rc.step_mode)),
+            el('div', { class: 'help' }, `Step ${(rc.step ?? 0) + 1} of ${rc.nsteps} \u00b7 ${rc.step_mode}`)),
           rc.waiting ? null : el('div', { class: 'run-left' }, rc.remaining_s >= 0 ? fmtDur(rc.remaining_s) : '')),
-        el('div', { class: 'progress' }, el('div', { style: `width:${rc.stages ? (Math.max(0, rc.stage - (rc.waiting ? 0 : 1)) / rc.stages) * 100 : 0}%` })),
+        el('div', { class: 'progress' }, el('div', { style: `width:${rc.nsteps ? ((rc.step ?? 0) / rc.nsteps) * 100 : 0}%` })),
         rc.message ? el('div', { class: rc.waiting ? 'notice warn' : 'run-msg' }, rc.message) : null,
         /* A step that wants the lid AND the answer says which half is still missing, rather than
            showing a button that quietly does nothing when it is tapped. */
@@ -574,7 +576,7 @@ export function renderCook(view) {
         el('div', { class: 'form-actions' },
           el('button', { class: 'btn sm ghost', type: 'button', onclick: async () => {
             if (await confirmDialog('Stop the recipe?', 'The grill keeps running in whatever mode the current step set.', 'Stop recipe', true)) cmd({ cmd: 'recipe', op: 'stop' });
-          } }, 'Stop recipe')));
+          } }, 'Stop recipe'))].filter(Boolean));
     }
     const t = s.timer;
     timerCard.innerHTML = '';

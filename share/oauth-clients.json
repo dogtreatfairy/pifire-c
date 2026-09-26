@@ -1,0 +1,10 @@
+{
+  "_": "PiFire's own OAuth clients, so a grill can connect to a cloud with one tap. Installed-app clients are not secret (Google's words); the user's tokens never leave their grill. See docs/oauth-clients.md for how these were made.",
+  "gdrive": {
+    "client_id": "",
+    "client_secret": ""
+  },
+  "onedrive": {
+    "client_id": ""
+  }
+}
