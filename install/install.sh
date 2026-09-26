@@ -16,7 +16,7 @@ for c in build/pifired ./pifired; do [ -x "$c" ] && { BIN="$c"; break; }; done
 if [ $UPGRADE -eq 0 ]; then
 	echo "+ packages"
 	apt-get install -y --no-install-recommends libsqlite3-0 libmosquitto1 libcurl4 libsystemd0 \
-		network-manager dnsmasq-base avahi-daemon bluez rfkill
+		network-manager dnsmasq-base avahi-daemon bluez rfkill smbclient
 
 	echo "+ service user"
 	getent group pifire >/dev/null || groupadd --system pifire
@@ -69,6 +69,11 @@ systemctl --no-pager --lines=3 status pifired || true
 
 echo
 if [ $UPGRADE -eq 1 ]; then
+	# backups to a network share go through smbclient, which older installs did not have
+	if ! command -v smbclient >/dev/null 2>&1; then
+		echo "+ smbclient (for backups to a network share)"
+		apt-get install -y --no-install-recommends smbclient >/dev/null 2>&1 || echo "  could not install smbclient now; backups to a share need it (sudo apt install smbclient)"
+	fi
 	echo "PiFire upgraded to $(cat VERSION 2>/dev/null || echo '?')."
 else
 	echo "PiFire installed. Open http://pifire.local/ (or this Pi's IP address)."

@@ -872,6 +872,17 @@ is a condition, so shutting the grill down twenty minutes into an hour's snooze 
 and there is nothing left to come back. Never build a reminder that survives the thing it was
 reminding you about.
 
+## A backup is one file, and the page reads top to bottom
+
+The whole grill goes in one `.tar.gz` -- settings, the database minus the rolling chart, every cook
+file -- because a backup that is several files is several things to lose. The page is three
+answers in the order they are wanted: what the last one was and one button to make another; where
+they go, with only the chosen destination's fields showing, since a grill backs up to one place;
+when. Under those, what is at the destination, each row the way back. Restore lives on the row of
+the thing being restored, behind a confirmation that says what it replaces, and never on a page
+that has not yet said what is there. A destination that needs a program the grill lacks says so
+where its fields are, with the command, rather than failing at three in the morning.
+
 ## Where a control goes
 
 **A control belongs to the thing it acts on**, in the section that owns that subject, not in

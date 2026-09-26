@@ -248,6 +248,9 @@ small, .muted { color: var(--muted); }
 .btn.danger { color: var(--danger-ink); }
 .btn.ghost { background: transparent; border: 1px solid var(--line); }
 .btn.block { width: 100%; }
+/* Google's device code: big enough to read off one phone and type into another */
+.gcode { font-size: 2rem; letter-spacing: .18em; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; margin: 12px 0; }
+.warn-ink { color: var(--warn-ink); }
 .btn.sm { padding: 8px 12px; min-height: 36px; font-size: var(--fs-md); }
 .btn:disabled { opacity: .45; cursor: default; }
 /* A disabled primary loses its fill as well as its opacity. Orange at 45 % is still orange, and a

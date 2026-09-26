@@ -264,15 +264,17 @@ static int api_handler(struct mg_connection *conn, void *cbdata)
 	int blen = 0;
 	if (!strcmp(ri->request_method, "POST") || !strcmp(ri->request_method, "PUT") || !strcmp(ri->request_method, "PATCH")) {
 		long long cl = ri->content_length;
-		if (cl > (long long)BODY_MAX) { send_json(conn, 413, "{\"error\":\"request too large\"}"); return 413; }
+		/* a backup being restored is a few megabytes of tar.gz; everything else is a few hundred bytes of JSON */
+		size_t body_max = strstr(ri->local_uri, "/backup/restore") ? (64u << 20) : BODY_MAX;
+		if (cl > (long long)body_max) { send_json(conn, 413, "{\"error\":\"request too large\"}"); return 413; }
 		cap = cl > 0 ? (size_t)cl + 1 : 4096;
 		if (!(body = malloc(cap))) { send_json(conn, 503, "{\"error\":\"out of memory\"}"); return 503; }
 		int r;
 		while ((r = mg_read(conn, body + blen, cap - 1 - (size_t)blen)) > 0) {
 			blen += r;
 			if ((size_t)blen + 1 < cap) continue;
-			if (cap >= BODY_MAX) { free(body); send_json(conn, 413, "{\"error\":\"request too large\"}"); return 413; }
-			cap = cap > BODY_MAX / 2 ? BODY_MAX : cap * 2;
+			if (cap >= body_max) { free(body); send_json(conn, 413, "{\"error\":\"request too large\"}"); return 413; }
+			cap = cap > body_max / 2 ? body_max : cap * 2;
 			char *nb = realloc(body, cap);
 			if (!nb) { free(body); send_json(conn, 503, "{\"error\":\"out of memory\"}"); return 503; }
 			body = nb;

@@ -9,6 +9,7 @@
 #include "core/status.h"
 #include "core/util.h"
 #include "controllers/registry.h"
+#include "features/backup.h"
 #include "features/cookfile.h"
 #include "features/cooklog.h"
 #include "features/learning.h"
@@ -620,6 +621,29 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		reply_ok(resp);
 		return;
 	}
+	/* One file with the whole grill in it, and the way back from it. */
+	if (get && !strcmp(p, "/backup")) { reply(resp, 200, pf_backup_status_json()); return; }
+	if (post && !strcmp(p, "/backup/run")) { char e[200]; if (pf_backup_run(e, sizeof e)) { reply_err(resp, 409, e); return; } reply_ok(resp); return; }
+	if (post && !strcmp(p, "/backup/test")) {
+		char tmsg[240]; int rc = pf_backup_test(tmsg, sizeof tmsg);
+		cJSON *o = cJSON_CreateObject(); cJSON_AddBoolToObject(o, "ok", rc == 0); cJSON_AddStringToObject(o, "message", tmsg);
+		reply(resp, rc == 0 ? 200 : 400, o); return;
+	}
+	if (get && !strcmp(p, "/backup/list")) {
+		char e[240]; cJSON *l = pf_backup_list(e, sizeof e);
+		if (!l) { reply_err(resp, 400, e); return; }
+		cJSON *o = cJSON_CreateObject(); cJSON_AddItemToObject(o, "files", l); reply(resp, 200, o); return;
+	}
+	if (post && !strcmp(p, "/backup/restore")) {
+		char e[240]; int rc;
+		/* the archive itself, or the name of one at the destination */
+		if (req->body_len > 2 && (unsigned char)req->body[0] == 0x1f && (unsigned char)req->body[1] == 0x8b) rc = pf_backup_restore_bytes(req->body, req->body_len, e, sizeof e);
+		else { cJSON *b = req->body_len ? cJSON_Parse(req->body) : NULL; rc = pf_backup_restore_named(pf_json_str(b, "name", ""), e, sizeof e); cJSON_Delete(b); }
+		if (rc) { reply_err(resp, 409, e); return; }
+		reply_ok(resp); return;
+	}
+	if (post && !strcmp(p, "/backup/gdrive/connect")) { char e[240]; if (pf_backup_gdrive_connect(e, sizeof e)) { reply_err(resp, 400, e); return; } reply(resp, 200, pf_backup_status_json()); return; }
+	if (post && !strcmp(p, "/backup/gdrive/disconnect")) { pf_backup_gdrive_disconnect(); reply(resp, 200, pf_backup_status_json()); return; }
 	if (get && !strcmp(p, "/update")) { reply(resp, 200, pf_update_status_json()); return; }
 	if (post && !strcmp(p, "/update/check")) { if (pf_update_check()) { reply_err(resp, 409, "an update operation is already running"); return; } reply_ok(resp); return; }
 	if (post && !strcmp(p, "/update/install")) {

@@ -167,6 +167,7 @@ const PAGES = [
     S('theme', 'Theme', '', [['dark', 'Dark'], ['light', 'Light'], ['auto', 'Follow system']]),
     B('show_recipes', 'Show recipes', 'Recipe programs on the Cook page'),
   ] }] },
+  { key: 'backup', title: 'Backup', sub: 'Settings, tuning, recipes and cooks, off the grill', section: 'System', icon: 'archive', color: '#30d158', custom: (v) => import('./backup.js').then((m) => m.renderBackup(v)) },
   { key: 'updates', title: 'Software Updates', sub: 'Releases and update source', section: 'System', icon: 'refresh-cw', color: '#0a84ff', before: (v) => import('./more.js').then((m) => m.softwareUpdates(v)), sections: [{ id: 'update', title: 'Update Source', fields: [
     X('repo', 'GitHub repository', 'owner/name whose releases the updater installs'),
     B('auto_check', 'Check automatically', 'After boot, then periodically. Logs a notice when a release is newer'),

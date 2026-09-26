@@ -8,6 +8,7 @@
 #include "features/webpush.h"
 #include "core/history.h"
 #include "display/registry.h"
+#include "features/backup.h"
 #include "features/cookfile.h"
 #include "features/update.h"
 #include "features/learning.h"
@@ -109,6 +110,8 @@ int main(int argc, char **argv)
 	signal(SIGPIPE, SIG_IGN);
 
 	if (pf_mkdir_p(data_dir)) { LOGE(TAG, "cannot create data dir %s", data_dir); return 1; }
+	/* a restore staged by the last run goes in before anything reads settings or opens the database */
+	pf_backup_apply_staged(data_dir, config);
 	if (pf_settings_init(config)) return 1;
 	if (pf_set_bool("globals.debug_mode", false) && level > PF_LOG_DEBUG) pf_log_set_level(PF_LOG_DEBUG);
 	if (sim) pf_settings_force_sim();
@@ -152,6 +155,7 @@ int main(int argc, char **argv)
 	pf_webpush_init();
 	pf_history_init();
 	pf_cookfile_init(data_dir);
+	pf_backup_init(data_dir, config, sim);
 	pf_update_init(data_dir, sim);
 	pf_pellets_init(sim);
 	pf_recipes_init();

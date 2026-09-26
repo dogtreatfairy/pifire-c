@@ -14,6 +14,7 @@
 #include "features/cookfile.h"
 #include "features/rules.h"
 #include "features/tuner.h"
+#include "features/backup.h"
 #include "features/update.h"
 #include "platform/sim.h"
 #include "probes/probes.h"
@@ -97,6 +98,7 @@ static void *services_thread(void *arg)
 		pf_pellets_tick(now, g_ctrl->auger_total_on_s, cooking);
 		pf_mqtt_tick(now);
 		pf_update_tick(now);
+		pf_backup_tick(now);
 		{
 			cJSON *j = pf_status_to_json(&st, pf_settings_units());
 			pf_rules_tick(j, now);
