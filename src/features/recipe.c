@@ -4,6 +4,7 @@
 #include "features/rules.h"
 #include "core/util.h"
 #include "core/log.h"
+#define TAG "recipe"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -118,6 +119,50 @@ cJSON *pf_recipe_shape_warnings(const cJSON *steps)
 		cJSON_AddItemToArray(out, w);
 	}
 	return out;
+}
+
+cJSON *pf_recipes_export(void)
+{
+	cJSON *doc = cJSON_CreateObject();
+	cJSON_AddStringToObject(doc, "app", "pifire-c");
+	cJSON_AddStringToObject(doc, "kind", "recipes");
+	cJSON_AddNumberToObject(doc, "format", 1);
+	cJSON_AddNumberToObject(doc, "created", pf_wall());
+	cJSON *list = pf_recipes_list();
+	cJSON *r;
+	cJSON_ArrayForEach(r, list) cJSON_DeleteItemFromObject(r, "id");   /* ids are this grill's, not the recipe's */
+	cJSON_AddItemToObject(doc, "recipes", list);
+	return doc;
+}
+
+int pf_recipes_import(cJSON *doc, int *replaced, char *err, size_t errn)
+{
+	/* the file this grill writes, or a bare list of recipes */
+	cJSON *list = cJSON_IsArray(doc) ? doc : cJSON_GetObjectItem(doc, "recipes");
+	if (!cJSON_IsArray(list)) { snprintf(err, errn, "not a recipes file"); return -1; }
+	if (!cJSON_IsArray(doc) && strcmp(pf_json_str(doc, "kind", "recipes"), "recipes")) { snprintf(err, errn, "that file holds %s, not recipes", pf_json_str(doc, "kind", "")); return -1; }
+	cJSON *have = pf_recipes_list();
+	int n = 0, rep = 0;
+	cJSON *r;
+	cJSON_ArrayForEach(r, list) {
+		cJSON *copy = cJSON_Duplicate(r, 1);
+		cJSON_DeleteItemFromObject(copy, "id");
+		/* one with the same name is the same recipe, brought back */
+		const char *name = pf_json_str(copy, "name", "");
+		cJSON *h;
+		cJSON_ArrayForEach(h, have) if (!strcmp(pf_json_str(h, "name", ""), name)) { cJSON_AddNumberToObject(copy, "id", pf_json_num(h, "id", 0)); rep++; break; }
+		char *txt = cJSON_PrintUnformatted(copy);
+		cJSON_Delete(copy);
+		char e[128];
+		int id = txt ? pf_recipe_save(txt, e, sizeof e) : -1;
+		free(txt);
+		if (id < 0) { LOGW(TAG, "import skipped '%s': %s", name, txt ? e : "?"); continue; }
+		n++;
+	}
+	cJSON_Delete(have);
+	if (replaced) *replaced = rep;
+	if (n == 0) { snprintf(err, errn, "no recipe in the file could be read"); return -1; }
+	return n;
 }
 
 int pf_recipe_delete(int id)

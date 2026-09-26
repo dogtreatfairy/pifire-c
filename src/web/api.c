@@ -459,6 +459,18 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		reply(resp, 200, o);
 		return;
 	}
+	/* Recipes as a file, and back. */
+	if (get && !strcmp(p, "/recipes/export")) { reply(resp, 200, pf_recipes_export()); return; }
+	if (post && !strcmp(p, "/recipes/import")) {
+		cJSON *doc = req->body_len ? cJSON_Parse(req->body) : NULL;
+		if (!doc) { reply_err(resp, 400, "expected a recipes file"); return; }
+		char e[160]; int rep = 0;
+		int n = pf_recipes_import(doc, &rep, e, sizeof e);
+		cJSON_Delete(doc);
+		if (n < 0) { reply_err(resp, 400, e); return; }
+		cJSON *o = cJSON_CreateObject(); cJSON_AddNumberToObject(o, "imported", n); cJSON_AddNumberToObject(o, "replaced", rep);
+		reply(resp, 200, o); return;
+	}
 	if (post && !strncmp(p, "/recipes/", 9) && strstr(p, "/delete")) {
 		if (pf_recipe_delete(atoi(p + 9))) reply_err(resp, 400, "delete failed"); else reply_ok(resp);
 		return;
@@ -546,6 +558,55 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		reply(resp, 200, o);
 		return;
 	}
+	/* The conditional notifications as a file, with the unit their temperatures are in; and back,
+	 * converted to the grill's unit, one with the same id replaced and the rest added. */
+	if (get && !strcmp(p, "/rules/export")) {
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddStringToObject(o, "app", "pifire-c");
+		cJSON_AddStringToObject(o, "kind", "notifications");
+		cJSON_AddNumberToObject(o, "format", 1);
+		cJSON_AddNumberToObject(o, "created", pf_wall());
+		cJSON_AddStringToObject(o, "units", pf_settings_units() == PF_UNITS_C ? "C" : "F");
+		cJSON_AddItemToObject(o, "rules", pf_set_dup("notify.rules"));
+		reply(resp, 200, o); return;
+	}
+	if (post && !strcmp(p, "/rules/import")) {
+		cJSON *doc = req->body_len ? cJSON_Parse(req->body) : NULL;
+		cJSON *in = cJSON_IsArray(doc) ? doc : cJSON_GetObjectItem(doc, "rules");
+		if (!cJSON_IsArray(in) || (!cJSON_IsArray(doc) && strcmp(pf_json_str(doc, "kind", "notifications"), "notifications"))) { cJSON_Delete(doc); reply_err(resp, 400, "not a notifications file"); return; }
+		pf_units from = pf_json_str(doc, "units", "F")[0] == 'C' ? PF_UNITS_C : PF_UNITS_F, to = pf_settings_units();
+		cJSON *rules = pf_set_dup("notify.rules");
+		if (!cJSON_IsArray(rules)) { cJSON_Delete(rules); rules = cJSON_CreateArray(); }
+		int n = 0, rep = 0;
+		cJSON *r;
+		cJSON_ArrayForEach(r, in) {
+			const char *id = pf_json_str(r, "id", "");
+			if (!id[0] || !pf_json_str(r, "name", "")[0]) continue;
+			cJSON *copy = cJSON_Duplicate(r, 1);
+			if (from != to) {
+				cJSON *when = cJSON_GetObjectItem(copy, "when");
+				if (when) pf_rules_convert_tree(when, pf_json_str(copy, "select.domain", "grill"), from, to);
+			}
+			int k = 0; bool done = false;
+			cJSON *h;
+			cJSON_ArrayForEach(h, rules) { if (!strcmp(pf_json_str(h, "id", ""), id)) { cJSON_ReplaceItemInArray(rules, k, copy); rep++; done = true; break; } k++; }
+			if (!done) cJSON_AddItemToArray(rules, copy);
+			n++;
+		}
+		cJSON_Delete(doc);
+		if (!n) { cJSON_Delete(rules); reply_err(resp, 400, "no notification in the file could be read"); return; }
+		/* through the same door the editor uses, so it is validated, saved and picked up alike */
+		cJSON *patch = cJSON_CreateObject();
+		cJSON_AddItemToObject(patch, "rules", rules);
+		char *ptxt = cJSON_PrintUnformatted(patch);
+		cJSON_Delete(patch);
+		char perr[160] = "";
+		int prc = ptxt ? pf_settings_patch("notify", ptxt, perr, sizeof perr) : -1;
+		free(ptxt);
+		if (prc) { reply_err(resp, 400, perr[0] ? perr : "could not save the notifications"); return; }
+		cJSON *o = cJSON_CreateObject(); cJSON_AddNumberToObject(o, "imported", n); cJSON_AddNumberToObject(o, "replaced", rep);
+		reply(resp, 200, o); return;
+	}
 	if (post && !strcmp(p, "/rules/preview")) {
 		cJSON *body = req->body ? cJSON_Parse(req->body) : NULL;
 		if (!body) { reply_err(resp, 400, "expected a rule"); return; }
@@ -621,29 +682,44 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		reply_ok(resp);
 		return;
 	}
-	/* One file with the whole grill in it, and the way back from it. */
+	/* One file with the whole grill in it, sent to every backup location, and the way back. */
 	if (get && !strcmp(p, "/backup")) { reply(resp, 200, pf_backup_status_json()); return; }
 	if (post && !strcmp(p, "/backup/run")) { char e[200]; if (pf_backup_run(e, sizeof e)) { reply_err(resp, 409, e); return; } reply_ok(resp); return; }
 	if (post && !strcmp(p, "/backup/test")) {
-		char tmsg[240]; int rc = pf_backup_test(tmsg, sizeof tmsg);
+		cJSON *b = req->body_len ? cJSON_Parse(req->body) : NULL;
+		char tmsg[240]; int rc = pf_backup_test(pf_json_str(b, "id", ""), tmsg, sizeof tmsg);
+		cJSON_Delete(b);
 		cJSON *o = cJSON_CreateObject(); cJSON_AddBoolToObject(o, "ok", rc == 0); cJSON_AddStringToObject(o, "message", tmsg);
 		reply(resp, rc == 0 ? 200 : 400, o); return;
 	}
 	if (get && !strcmp(p, "/backup/list")) {
 		char e[240]; cJSON *l = pf_backup_list(e, sizeof e);
 		if (!l) { reply_err(resp, 400, e); return; }
-		cJSON *o = cJSON_CreateObject(); cJSON_AddItemToObject(o, "files", l); reply(resp, 200, o); return;
+		cJSON *o = cJSON_CreateObject(); cJSON_AddItemToObject(o, "files", l);
+		if (e[0]) cJSON_AddStringToObject(o, "warning", e);   /* a location that could not be reached, with the rest listed */
+		reply(resp, 200, o); return;
 	}
 	if (post && !strcmp(p, "/backup/restore")) {
 		char e[240]; int rc;
-		/* the archive itself, or the name of one at the destination */
+		/* the archive itself, or the name of one at a location */
 		if (req->body_len > 2 && (unsigned char)req->body[0] == 0x1f && (unsigned char)req->body[1] == 0x8b) rc = pf_backup_restore_bytes(req->body, req->body_len, e, sizeof e);
-		else { cJSON *b = req->body_len ? cJSON_Parse(req->body) : NULL; rc = pf_backup_restore_named(pf_json_str(b, "name", ""), e, sizeof e); cJSON_Delete(b); }
+		else { cJSON *b = req->body_len ? cJSON_Parse(req->body) : NULL; rc = pf_backup_restore_named(pf_json_str(b, "name", ""), pf_json_str(b, "loc", ""), e, sizeof e); cJSON_Delete(b); }
 		if (rc) { reply_err(resp, 409, e); return; }
 		reply_ok(resp); return;
 	}
-	if (post && !strcmp(p, "/backup/gdrive/connect")) { char e[240]; if (pf_backup_gdrive_connect(e, sizeof e)) { reply_err(resp, 400, e); return; } reply(resp, 200, pf_backup_status_json()); return; }
-	if (post && !strcmp(p, "/backup/gdrive/disconnect")) { pf_backup_gdrive_disconnect(); reply(resp, 200, pf_backup_status_json()); return; }
+	if (post && !strcmp(p, "/backup/connect")) {
+		cJSON *b = req->body_len ? cJSON_Parse(req->body) : NULL;
+		char e[240]; int rc = pf_backup_connect(pf_json_str(b, "id", ""), e, sizeof e);
+		cJSON_Delete(b);
+		if (rc) { reply_err(resp, 400, e); return; }
+		reply(resp, 200, pf_backup_status_json()); return;
+	}
+	if (post && !strcmp(p, "/backup/disconnect")) {
+		cJSON *b = req->body_len ? cJSON_Parse(req->body) : NULL;
+		pf_backup_disconnect(pf_json_str(b, "id", ""));
+		cJSON_Delete(b);
+		reply(resp, 200, pf_backup_status_json()); return;
+	}
 	if (get && !strcmp(p, "/update")) { reply(resp, 200, pf_update_status_json()); return; }
 	if (post && !strcmp(p, "/update/check")) { if (pf_update_check()) { reply_err(resp, 409, "an update operation is already running"); return; } reply_ok(resp); return; }
 	if (post && !strcmp(p, "/update/install")) {

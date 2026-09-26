@@ -1,4 +1,4 @@
-import { PF, el, api, patchSettings, toast, onStatus, confirmDialog, numberDialog, dialog, degUnit, fmtDur, actionBtn, dataTable } from '../app.js';
+import { PF, el, api, patchSettings, toast, onStatus, confirmDialog, numberDialog, dialog, degUnit, fmtDur, actionBtn, dataTable, transferRow } from '../app.js';
 
 const PHASE_TEXT = {
   starting: 'Starting the grill',
@@ -195,35 +195,15 @@ export function renderLearning(view, slots = {}) {
             catch { toast(lines.join(' | '), false); }
           } }, 'Copy values'),
           /* A tuning library is hours of the grill's own time and a hopper of pellets, and it
-             lives on an SD card. The backup is canonical Celsius and carries the controller and
+             lives on an SD card. The file is canonical Celsius and carries the controller and
              the plant model with it, because the numbers mean nothing detached from those. */
-          el('button', { class: 'btn sm ghost', onclick: async () => {
-            try {
-              const doc = await api('/tune/export');
-              const name = `pifire-tuning-${new Date().toISOString().slice(0, 10)}.json`;
-              const url = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }));
-              const a = el('a', { href: url, download: name });
-              document.body.append(a); a.click(); a.remove();
-              setTimeout(() => URL.revokeObjectURL(url), 10000);
-              toast('Backed up');
-            } catch (e) { toast(e.message, true); }
-          } }, 'Back Up'),
-          el('button', { class: 'btn sm ghost', onclick: () => {
-            const f = el('input', { type: 'file', accept: 'application/json,.json' });
-            f.onchange = async () => {
-              const file = f.files?.[0];
-              if (!file) return;
-              try {
-                const doc = JSON.parse(await file.text());
-                if (!await confirmDialog('Restore this tuning library?',
-                  'Replaces every measurement with the file.', 'Restore', true)) return;
-                const r = await api('/tune/import', { body: doc });
-                toast(`Restored ${r.restored} set point${r.restored === 1 ? '' : 's'}`);
-                renderTune();
-              } catch (e) { toast(e.message || 'That file is not a tuning backup', true); }
-            };
-            f.click();
-          } }, 'Restore')));
+          ),
+        transferRow({
+          what: 'the tuning library', filename: 'pifire-tuning',
+          fetchDoc: () => api('/tune/export'),
+          confirmText: 'Replaces every measurement on the grill with the file\u2019s.',
+          importDoc: async (doc) => { const r = await api('/tune/import', { body: doc }); toast(`Imported ${r.restored} set point${r.restored === 1 ? '' : 's'}`); renderTune(); },
+        }));
 
     } else {
       tuneCard.append(el('p', { class: 'help' }, 'Nothing measured. Running on the startup fit, or the values typed above.'));

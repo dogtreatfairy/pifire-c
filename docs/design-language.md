@@ -872,16 +872,24 @@ is a condition, so shutting the grill down twenty minutes into an hour's snooze 
 and there is nothing left to come back. Never build a reminder that survives the thing it was
 reminding you about.
 
-## A backup is one file, and the page reads top to bottom
+## A backup is one file, to every location, and every collection travels as a file
 
 The whole grill goes in one `.tar.gz` -- settings, the database minus the rolling chart, every cook
-file -- because a backup that is several files is several things to lose. The page is three
-answers in the order they are wanted: what the last one was and one button to make another; where
-they go, with only the chosen destination's fields showing, since a grill backs up to one place;
-when. Under those, what is at the destination, each row the way back. Restore lives on the row of
-the thing being restored, behind a confirmation that says what it replaces, and never on a page
-that has not yet said what is there. A destination that needs a program the grill lacks says so
-where its fields are, with the command, rather than failing at three in the morning.
+file -- because a backup that is several files is several things to lose. It goes to every backup
+LOCATION switched on, as Home Assistant sends one backup to each of its agents: locations are a
+manager list (add several; each has its kind, its fields, its switch), never a single destination
+with a selector, because a copy in the house and a copy in the cloud is the point. The page is
+four answers in the order they are wanted: what the last one was and one button to make another;
+the locations; when; and what is out there, each row saying which locations hold it and offering
+the way back. Restore lives on the row of the thing being restored, behind a confirmation that
+says what it replaces. A location that needs a program the grill lacks says so where its fields
+are, with the command, rather than failing at three in the morning.
+
+**Export and Import are one pair, in one place, on every list of saved things.** Recipes, the
+conditional notifications, the tuning library: under the Add row, `transferRow()` from `app.js`,
+Export on the left (it takes nothing away) and Import on the right (it changes the list, so it
+confirms and says what an import does to a duplicate). A file names what it holds (`kind`) and the
+unit its temperatures are in, and an import converts. No page gets its own wording for this.
 
 ## Where a control goes
 

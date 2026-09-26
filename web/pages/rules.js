@@ -1,4 +1,4 @@
-import { PF, el, api, patchSettings, addRow, toast, confirmDialog, dialog, pushScreen, degUnit, actionBtn, screenActions, iconBtn, segmented } from '../app.js';
+import { PF, el, api, patchSettings, addRow, transferRow, toast, confirmDialog, dialog, pushScreen, degUnit, actionBtn, screenActions, iconBtn, segmented } from '../app.js';
 import { icon as lucide } from '../icons.js';
 /* The condition cards, rows and picker are shared: recipes ask the same kind of question about
    when a step ends, and must ask it in the same shapes. See web/conditions.js. */
@@ -286,6 +286,12 @@ export async function renderRules(view) {
     }
     if (!rules.length) list.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No conditional notifications yet.'));
     list.append(addRow('Add Notification', () => edit(blankRule(), true)));
+    list.append(transferRow({
+      what: 'notifications', filename: 'pifire-notifications',
+      fetchDoc: () => api('/rules/export'),
+      confirmText: 'A notification with the same id as one on the grill replaces it; the rest are added. Temperatures are converted to this grill\u2019s unit.',
+      importDoc: async (doc) => { const r = await api('/rules/import', { body: doc }); toast(`Imported ${r.imported} notification${r.imported === 1 ? '' : 's'}${r.replaced ? `, ${r.replaced} replaced` : ''}`); rules = (await api('/rules')).rules || []; draw(); },
+    }));
   };
   draw();
 

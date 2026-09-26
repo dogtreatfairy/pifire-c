@@ -1044,26 +1044,11 @@
     "bind": "0.0.0.0"
   },
   "backup": {
-    "destination": "off",
     "schedule": "weekly",
     "hour": 3,
     "weekday": 0,
     "monthday": 1,
     "keep": 8,
-    "gdrive": {
-      "client_id": "",
-      "client_secret": "",
-      "folder": "PiFire Backups"
-    },
-    "smb": {
-      "host": "",
-      "share": "",
-      "path": "PiFire",
-      "user": "",
-      "password": ""
-    },
-    "folder": {
-      "path": ""
-    }
+    "locations": []
   }
 }

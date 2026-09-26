@@ -1,10 +1,12 @@
-/* One file, the whole picture.
+/* One file, the whole picture, to every place it is wanted.
  *
  * A grill accumulates things worth keeping: the settings that make it this grill, the tuning
  * library and the feed-forward it has learned over months of cooks, the recipes, the pellet
  * profiles, the notification rules, every saved cook. All of it lives on an SD card in the weather.
- * This module puts the lot in one tar.gz and sends it somewhere else -- Google Drive, a share on
- * the network, or a folder such as a USB stick -- on a schedule, and can bring it back.
+ * This module puts the lot in one tar.gz and sends it to each backup LOCATION the user has set up
+ * -- Google Drive, OneDrive, a share on the network, a folder such as a USB stick -- on a
+ * schedule, and can bring it back from any of them. Several locations, as Home Assistant has its
+ * backup agents: a copy in the house and a copy in the cloud is the point of a backup.
  *
  * What goes in: settings.json; a snapshot of the database with the rolling chart history left
  * out (it is the last two days of the live chart, regenerated as the grill runs, and it is most
@@ -33,6 +35,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -41,13 +44,31 @@
 #endif
 
 #define TAG "backup"
+#define MAX_LOC 8
+
 #define GDRIVE_SCOPE "https://www.googleapis.com/auth/drive.file"
 #define GDRIVE_DEVICE_URL "https://oauth2.googleapis.com/device/code"
 #define GDRIVE_TOKEN_URL "https://oauth2.googleapis.com/token"
 #define GDRIVE_API "https://www.googleapis.com/drive/v3/files"
 #define GDRIVE_UPLOAD "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable"
 
-typedef enum { DEST_OFF = 0, DEST_GDRIVE, DEST_SMB, DEST_FOLDER } dest_t;
+/* OneDrive through Microsoft Graph, in the app's own folder (Apps/<app name>): the equivalent of
+ * Google's drive.file -- PiFire sees what it made and nothing else. A public client: device
+ * sign-in needs no secret. */
+#define MS_SCOPE "Files.ReadWrite.AppFolder offline_access"
+#define MS_DEVICE_URL "https://login.microsoftonline.com/common/oauth2/v2.0/devicecode"
+#define MS_TOKEN_URL "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+#define MS_GRAPH "https://graph.microsoft.com/v1.0"
+
+/* A location: where a copy goes. Read from settings each time it is needed, so an edit on the
+ * page is what the next run uses. */
+typedef struct {
+	char id[24], type[12], name[48];
+	bool enabled;
+	char host[128], share[128], path[256], user[96], pass[128];   /* smb */
+	char folder[256];                                             /* folder */
+	char client_id[256], client_secret[256], cloud_folder[96];    /* gdrive, onedrive */
+} loc_t;
 
 static struct {
 	char data_dir[512], config[512], work[560];
@@ -57,15 +78,14 @@ static struct {
 	char message[240];         /* what the worker is doing or last said */
 	bool msg_err;
 	/* the last backup, as filed in the database */
-	double last_ts; char last_name[128]; long last_size; bool last_ok; char last_msg[200]; char last_where[16];
-	double last_good_ts;       /* the last one that got there: what the schedule counts from */
+	double last_ts; char last_name[128]; long last_size; bool last_ok; char last_results[1024];
+	double last_good_ts;       /* the last one that got everywhere: what the schedule counts from */
 	int fail_streak;           /* failures since the last success; the first of a streak is announced, the rest logged */
 	bool have_smb;             /* smbclient is installed (checked at start, on a test, and again while missing) */
 	double last_smb_check;
 	double last_check;         /* schedule tick throttle */
-	/* Google's device sign-in, while it is going on */
-	struct { bool pending; char user_code[32], url[128], device_code[256]; double expires, interval; } dev;
-	bool gdrive_connected;
+	/* a cloud sign-in, while it is going on */
+	struct { bool pending; char loc[24], type[12], user_code[32], url[160], device_code[1200]; double expires, interval; } dev;
 } g = { .mu = PTHREAD_MUTEX_INITIALIZER };
 
 /* ---- small helpers ------------------------------------------------------------------------ */
@@ -80,16 +100,6 @@ static void say(bool err, const char *fmt, ...)
 	va_end(ap);
 	if (err) LOGW(TAG, "%s", g.message); else LOGI(TAG, "%s", g.message);
 }
-
-static dest_t dest_from(const char *s)
-{
-	if (!strcmp(s, "gdrive")) return DEST_GDRIVE;
-	if (!strcmp(s, "smb")) return DEST_SMB;
-	if (!strcmp(s, "folder")) return DEST_FOLDER;
-	return DEST_OFF;
-}
-static dest_t dest_now(void) { char b[16]; pf_set_str("backup.destination", b, sizeof b, "off"); return dest_from(b); }
-static const char *dest_name(dest_t d) { return d == DEST_GDRIVE ? "Google Drive" : d == DEST_SMB ? "the network share" : d == DEST_FOLDER ? "the folder" : "nowhere"; }
 
 static int run(const char *const argv[], char *out, size_t n, int timeout_s)
 {
@@ -117,6 +127,7 @@ static int copy_file(const char *from, const char *to)
 }
 
 static long file_size(const char *path) { struct stat st; return stat(path, &st) == 0 ? (long)st.st_size : -1; }
+
 /* "1.8 MB" or "640 KB": a size a person reads, not a fraction of a megabyte */
 static const char *fmt_size(long b, char *out, size_t n)
 {
@@ -148,8 +159,101 @@ static void archive_name(char *out, size_t n, double wall)
 static bool is_ours(const char *name)
 {
 	size_t l = strlen(name);
-	return l > 14 && !strncmp(name, "pifire-", 7) && !strcmp(name + l - 7, ".tar.gz") && !strchr(name, '/');
+	return l > 14 && !strncmp(name, "pifire-", 7) && !strcmp(name + l - 7, ".tar.gz") && !strchr(name, '/') && !strchr(name, '"');
 }
+
+/* the moment in the name, for listings that give none or give it in a locale */
+static double ts_from_name(const char *name)
+{
+	const char *stamp = strrchr(name, '-');   /* -HHMM.tar.gz */
+	const char *date = stamp ? stamp - 8 : NULL;   /* YYYYMMDD */
+	struct tm tm = { 0 };
+	if (!date || date <= name) return 0;
+	if (sscanf(date, "%4d%2d%2d-%2d%2d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min) != 5) return 0;
+	tm.tm_year -= 1900; tm.tm_mon -= 1; tm.tm_isdst = -1;
+	return (double)mktime(&tm);
+}
+
+/* ---- locations ----------------------------------------------------------------------------- */
+
+static void loc_from_json(cJSON *j, loc_t *L)
+{
+	memset(L, 0, sizeof *L);
+	pf_strlcpy(L->id, pf_json_str(j, "id", ""), sizeof L->id);
+	pf_strlcpy(L->type, pf_json_str(j, "type", ""), sizeof L->type);
+	pf_strlcpy(L->name, pf_json_str(j, "name", ""), sizeof L->name);
+	L->enabled = pf_json_bool(j, "enabled", true);
+	pf_strlcpy(L->host, pf_json_str(j, "host", ""), sizeof L->host);
+	pf_strlcpy(L->share, pf_json_str(j, "share", ""), sizeof L->share);
+	pf_strlcpy(L->path, pf_json_str(j, "path", ""), sizeof L->path);
+	pf_strlcpy(L->user, pf_json_str(j, "user", ""), sizeof L->user);
+	pf_strlcpy(L->pass, pf_json_str(j, "password", ""), sizeof L->pass);
+	pf_strlcpy(L->folder, pf_json_str(j, "folder", ""), sizeof L->folder);
+	pf_strlcpy(L->client_id, pf_json_str(j, "client_id", ""), sizeof L->client_id);
+	pf_strlcpy(L->client_secret, pf_json_str(j, "client_secret", ""), sizeof L->client_secret);
+	pf_strlcpy(L->cloud_folder, pf_json_str(j, "cloud_folder", ""), sizeof L->cloud_folder);
+	if (!L->name[0]) {
+		pf_strlcpy(L->name, !strcmp(L->type, "gdrive") ? "Google Drive" : !strcmp(L->type, "onedrive") ? "OneDrive"
+		           : !strcmp(L->type, "smb") ? "Network share" : "Folder", sizeof L->name);
+	}
+}
+
+static int locations(loc_t *out, int max)
+{
+	cJSON *arr = pf_set_dup("backup.locations");
+	int k = 0;
+	cJSON *j;
+	cJSON_ArrayForEach(j, arr) {
+		if (k >= max) break;
+		loc_from_json(j, &out[k]);
+		if (out[k].id[0] && out[k].type[0]) k++;
+	}
+	cJSON_Delete(arr);
+	return k;
+}
+
+static bool find_loc(const char *id, loc_t *out)
+{
+	loc_t all[MAX_LOC];
+	int n = locations(all, MAX_LOC);
+	for (int i = 0; i < n; i++) if (!strcmp(all[i].id, id)) { *out = all[i]; return true; }
+	return false;
+}
+
+static bool is_cloud(const loc_t *L) { return !strcmp(L->type, "gdrive") || !strcmp(L->type, "onedrive"); }
+
+/* cloud tokens live in the database, keyed by the location, so a restored backup brings its
+ * connections with it */
+static bool token_get(const loc_t *L, char *out, size_t n)
+{
+	char key[40], buf[3000];
+	snprintf(key, sizeof key, "token:%.23s", L->id);
+	out[0] = 0;
+	if (pf_db_kv_get("backup", key, buf, sizeof buf) != 0) return false;
+	cJSON *j = cJSON_Parse(buf);
+	if (!j) return false;
+	pf_strlcpy(out, pf_json_str(j, "refresh_token", ""), n);
+	cJSON_Delete(j);
+	return out[0] != 0;
+}
+static void token_put(const loc_t *L, const char *refresh)
+{
+	char key[40];
+	snprintf(key, sizeof key, "token:%.23s", L->id);
+	cJSON *j = cJSON_CreateObject();
+	cJSON_AddStringToObject(j, "refresh_token", refresh);
+	cJSON_AddNumberToObject(j, "connected", pf_wall());
+	char *txt = cJSON_PrintUnformatted(j); cJSON_Delete(j);
+	if (txt && pf_db_handle()) pf_db_kv_put("backup", key, txt);
+	free(txt);
+}
+static void token_drop(const char *id)
+{
+	char key[40];
+	snprintf(key, sizeof key, "token:%.23s", id);
+	if (pf_db_handle()) pf_db_kv_delete("backup", key);
+}
+static bool connected(const loc_t *L) { char t[2000]; return is_cloud(L) && token_get(L, t, sizeof t); }
 
 /* ---- the archive --------------------------------------------------------------------------- */
 
@@ -158,7 +262,7 @@ int pf_backup_make(const char *out_path, char *err, size_t n)
 	char stage[600];
 	snprintf(stage, sizeof stage, "%s/stage-%d", g.work, (int)getpid());
 	rm_rf(stage);
-	if (pf_mkdir_p(stage)) { snprintf(err, n, "cannot create %s", stage); return -1; }
+	if (pf_mkdir_p(stage)) { snprintf(err, n, "cannot create %.150s", stage); return -1; }
 	char path[700];
 
 	/* settings, as written */
@@ -237,7 +341,7 @@ int pf_backup_make(const char *out_path, char *err, size_t n)
 int pf_backup_stage(const char *archive, const char *stage_dir, char *err, size_t n)
 {
 	rm_rf(stage_dir);
-	if (pf_mkdir_p(stage_dir)) { snprintf(err, n, "cannot create %s", stage_dir); return -1; }
+	if (pf_mkdir_p(stage_dir)) { snprintf(err, n, "cannot create %.150s", stage_dir); return -1; }
 	const char *tar[] = { "tar", "-C", stage_dir, "-xzf", archive, NULL };
 	char out[256];
 	if (run(tar, out, sizeof out, 300) != 0) { snprintf(err, n, "not a readable archive: %.150s", out); rm_rf(stage_dir); return -1; }
@@ -276,7 +380,7 @@ int pf_backup_stage(const char *archive, const char *stage_dir, char *err, size_
 
 static void load_last(void)
 {
-	char buf[1024];
+	char buf[2048];
 	if (pf_db_kv_get("backup", "last", buf, sizeof buf) != 0) return;
 	cJSON *j = cJSON_Parse(buf);
 	if (!j) return;
@@ -284,27 +388,29 @@ static void load_last(void)
 	pf_strlcpy(g.last_name, pf_json_str(j, "name", ""), sizeof g.last_name);
 	g.last_size = (long)pf_json_num(j, "size", 0);
 	g.last_ok = pf_json_bool(j, "ok", false);
-	pf_strlcpy(g.last_msg, pf_json_str(j, "message", ""), sizeof g.last_msg);
-	pf_strlcpy(g.last_where, pf_json_str(j, "where", ""), sizeof g.last_where);
+	cJSON *r = cJSON_GetObjectItem(j, "results");
+	char *txt = r ? cJSON_PrintUnformatted(r) : NULL;
+	pf_strlcpy(g.last_results, txt ? txt : "{}", sizeof g.last_results);
+	free(txt);
 	g.last_good_ts = pf_json_num(j, "good_ts", g.last_ok ? g.last_ts : 0);
 	cJSON_Delete(j);
 }
 
-static void file_last(bool ok, const char *name, long size, const char *where, const char *msg)
+static void file_last(bool ok, const char *name, long size, cJSON *results_owned)
 {
 	pthread_mutex_lock(&g.mu);
 	g.last_ts = pf_wall(); g.last_ok = ok; g.last_size = size;
 	if (ok) { g.last_good_ts = g.last_ts; g.fail_streak = 0; }
 	pf_strlcpy(g.last_name, name ? name : "", sizeof g.last_name);
-	pf_strlcpy(g.last_msg, msg ? msg : "", sizeof g.last_msg);
-	pf_strlcpy(g.last_where, where ? where : "", sizeof g.last_where);
+	char *rt = results_owned ? cJSON_PrintUnformatted(results_owned) : NULL;
+	pf_strlcpy(g.last_results, rt ? rt : "{}", sizeof g.last_results);
+	free(rt);
 	cJSON *j = cJSON_CreateObject();
 	cJSON_AddNumberToObject(j, "ts", g.last_ts);
 	cJSON_AddStringToObject(j, "name", g.last_name);
 	cJSON_AddNumberToObject(j, "size", (double)size);
 	cJSON_AddBoolToObject(j, "ok", ok);
-	cJSON_AddStringToObject(j, "message", g.last_msg);
-	cJSON_AddStringToObject(j, "where", g.last_where);
+	cJSON_AddItemToObject(j, "results", results_owned ? results_owned : cJSON_CreateObject());
 	cJSON_AddNumberToObject(j, "good_ts", g.last_good_ts);
 	pthread_mutex_unlock(&g.mu);
 	char *txt = cJSON_PrintUnformatted(j);
@@ -315,29 +421,26 @@ static void file_last(bool ok, const char *name, long size, const char *where, c
 
 /* ---- a folder ------------------------------------------------------------------------------ */
 
-static bool folder_path(char *out, size_t n) { pf_set_str("backup.folder.path", out, n, ""); return out[0] != 0; }
-
-static int folder_put(const char *local, const char *name, char *err, size_t n)
+static int folder_put(const loc_t *L, const char *local, const char *name, char *err, size_t n)
 {
-	char dir[512], to[800];
-	if (!folder_path(dir, sizeof dir)) { snprintf(err, n, "no folder is set"); return -1; }
-	if (pf_mkdir_p(dir)) { snprintf(err, n, "cannot create %.150s", dir); return -1; }
-	snprintf(to, sizeof to, "%s/%s", dir, name);
-	if (copy_file(local, to)) { snprintf(err, n, "cannot write to %.150s: %s", dir, strerror(errno)); return -1; }
+	char to[800];
+	if (!L->folder[0]) { snprintf(err, n, "no folder is set"); return -1; }
+	if (pf_mkdir_p(L->folder)) { snprintf(err, n, "cannot create %.150s", L->folder); return -1; }
+	snprintf(to, sizeof to, "%s/%s", L->folder, name);
+	if (copy_file(local, to)) { snprintf(err, n, "cannot write to %.150s: %s", L->folder, strerror(errno)); return -1; }
 	return 0;
 }
 
-static cJSON *folder_list(char *err, size_t n)
+static cJSON *folder_list(const loc_t *L, char *err, size_t n)
 {
-	char dir[512];
-	if (!folder_path(dir, sizeof dir)) { snprintf(err, n, "no folder is set"); return NULL; }
-	DIR *d = opendir(dir);
-	if (!d) { snprintf(err, n, "cannot open %.150s: %s", dir, strerror(errno)); return NULL; }
+	if (!L->folder[0]) { snprintf(err, n, "no folder is set"); return NULL; }
+	DIR *d = opendir(L->folder);
+	if (!d) { snprintf(err, n, "cannot open %.150s: %s", L->folder, strerror(errno)); return NULL; }
 	cJSON *arr = cJSON_CreateArray();
 	struct dirent *e;
 	while ((e = readdir(d))) {
 		if (!is_ours(e->d_name)) continue;
-		char p[800]; snprintf(p, sizeof p, "%s/%s", dir, e->d_name);
+		char p[800]; snprintf(p, sizeof p, "%s/%s", L->folder, e->d_name);
 		struct stat st; if (stat(p, &st)) continue;
 		cJSON *f = cJSON_CreateObject();
 		cJSON_AddStringToObject(f, "name", e->d_name);
@@ -349,8 +452,8 @@ static cJSON *folder_list(char *err, size_t n)
 	return arr;
 }
 
-static int folder_del(const char *name) { char dir[512], p[800]; if (!folder_path(dir, sizeof dir)) return -1; snprintf(p, sizeof p, "%s/%s", dir, name); return unlink(p); }
-static int folder_get(const char *name, const char *local) { char dir[512], p[800]; if (!folder_path(dir, sizeof dir)) return -1; snprintf(p, sizeof p, "%s/%s", dir, name); return copy_file(p, local); }
+static int folder_del(const loc_t *L, const char *name) { char p[800]; snprintf(p, sizeof p, "%s/%s", L->folder, name); return unlink(p); }
+static int folder_get(const loc_t *L, const char *name, const char *local) { char p[800]; snprintf(p, sizeof p, "%s/%s", L->folder, name); return copy_file(p, local); }
 
 /* ---- a network share, through smbclient --------------------------------------------------- */
 
@@ -358,22 +461,17 @@ static bool smb_have(void) { const char *argv[] = { "smbclient", "-V", NULL }; r
 
 /* //host/share, a credentials file the way smbclient wants it (never the password on a command
  * line, where ps would show it), and the folder within the share */
-static int smb_prep(char *svc, size_t sn, char *auth, size_t an, char *dir, size_t dn, char *err, size_t en)
+static int smb_prep(const loc_t *L, char *svc, size_t sn, char *auth, size_t an, char *dir, size_t dn, char *err, size_t en)
 {
-	char host[128], share[128], user[96], pass[128];
-	pf_set_str("backup.smb.host", host, sizeof host, "");
-	pf_set_str("backup.smb.share", share, sizeof share, "");
-	pf_set_str("backup.smb.user", user, sizeof user, "");
-	pf_set_str("backup.smb.password", pass, sizeof pass, "");
-	pf_set_str("backup.smb.path", dir, dn, "PiFire");
-	if (!host[0] || !share[0]) { snprintf(err, en, "the share needs a host and a share name"); return -1; }
+	if (!L->host[0] || !L->share[0]) { snprintf(err, en, "the share needs a host and a share name"); return -1; }
 	if (!g.have_smb && !(g.have_smb = smb_have())) { snprintf(err, en, "smbclient is not installed on the grill (sudo apt install smbclient)"); return -1; }
-	snprintf(svc, sn, "//%s/%s", host, share);
-	snprintf(auth, an, "%s/.smbauth", g.work);
+	snprintf(svc, sn, "//%s/%s", L->host, L->share);
+	snprintf(auth, an, "%s/.smbauth-%.23s", g.work, L->id);
 	char body[300];
-	snprintf(body, sizeof body, "username=%s\npassword=%s\n", user, pass);
+	snprintf(body, sizeof body, "username=%s\npassword=%s\n", L->user, L->pass);
 	if (pf_write_file_atomic(auth, body, strlen(body))) { snprintf(err, en, "cannot write the credentials file"); return -1; }
 	chmod(auth, 0600);
+	pf_strlcpy(dir, L->path[0] ? L->path : "PiFire", dn);
 	/* a leading slash and a trailing one both confuse smbclient's cd */
 	size_t l = strlen(dir);
 	while (l && dir[l - 1] == '/') dir[--l] = 0;
@@ -381,10 +479,10 @@ static int smb_prep(char *svc, size_t sn, char *auth, size_t an, char *dir, size
 	return 0;
 }
 
-static int smb_cmd(const char *cmd, char *out, size_t n, char *err, size_t en)
+static int smb_cmd(const loc_t *L, const char *cmd, char *out, size_t n, char *err, size_t en)
 {
 	char svc[300], auth[600], dir[256];
-	if (smb_prep(svc, sizeof svc, auth, sizeof auth, dir, sizeof dir, err, en)) return -1;
+	if (smb_prep(L, svc, sizeof svc, auth, sizeof auth, dir, sizeof dir, err, en)) return -1;
 	char full[1200];
 	if (dir[0]) snprintf(full, sizeof full, "cd \"%s\"; %s", dir, cmd); else snprintf(full, sizeof full, "%s", cmd);
 	const char *argv[] = { "smbclient", svc, "-A", auth, "-c", full, NULL };
@@ -397,12 +495,12 @@ static int smb_cmd(const char *cmd, char *out, size_t n, char *err, size_t en)
 	return rc;
 }
 
-static int smb_put(const char *local, const char *name, char *err, size_t n)
+static int smb_put(const loc_t *L, const char *local, const char *name, char *err, size_t n)
 {
 	/* make the folder if it is not there; smbclient says so and fails when it already exists,
 	 * which is not a failure */
 	char svc[300], auth[600], dir[256], out[4096];
-	if (smb_prep(svc, sizeof svc, auth, sizeof auth, dir, sizeof dir, err, n)) return -1;
+	if (smb_prep(L, svc, sizeof svc, auth, sizeof auth, dir, sizeof dir, err, n)) return -1;
 	if (dir[0]) {
 		char mk[400]; snprintf(mk, sizeof mk, "mkdir \"%s\"", dir);
 		const char *argv[] = { "smbclient", svc, "-A", auth, "-c", mk, NULL };
@@ -410,15 +508,15 @@ static int smb_put(const char *local, const char *name, char *err, size_t n)
 	}
 	char cmd[1400];
 	snprintf(cmd, sizeof cmd, "put \"%s\" \"%s\"", local, name);
-	return smb_cmd(cmd, out, sizeof out, err, n);
+	return smb_cmd(L, cmd, out, sizeof out, err, n);
 }
 
-static cJSON *smb_list(char *err, size_t n)
+static cJSON *smb_list(const loc_t *L, char *err, size_t n)
 {
 	size_t cap = 65536;
 	char *out = malloc(cap);
 	if (!out) { snprintf(err, n, "out of memory"); return NULL; }
-	if (smb_cmd("ls pifire-*.tar.gz", out, cap, err, n) != 0 && !strstr(out, "blocks")) { free(out); return NULL; }
+	if (smb_cmd(L, "ls pifire-*.tar.gz", out, cap, err, n) != 0 && !strstr(out, "blocks")) { free(out); return NULL; }
 	cJSON *arr = cJSON_CreateArray();
 	/* smbclient's listing:  "  pifire-x-20260926-0300.tar.gz   A   1843201  Fri Sep 26 03:00:12 2026" */
 	char *save = NULL;
@@ -428,26 +526,17 @@ static cJSON *smb_list(char *err, size_t n)
 		cJSON *f = cJSON_CreateObject();
 		cJSON_AddStringToObject(f, "name", name);
 		cJSON_AddNumberToObject(f, "size", (double)size);
-		/* the time is in the name, which is more reliable than parsing a locale date */
-		struct tm tm = { 0 };
-		const char *stamp = strrchr(name, '-');   /* -HHMM.tar.gz */
-		const char *date = stamp ? stamp - 8 : NULL;   /* YYYYMMDD */
-		double ts = 0;
-		if (date && date > name && sscanf(date, "%4d%2d%2d-%2d%2d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min) == 5) {
-			tm.tm_year -= 1900; tm.tm_mon -= 1; tm.tm_isdst = -1;
-			ts = (double)mktime(&tm);
-		}
-		cJSON_AddNumberToObject(f, "ts", ts);
+		cJSON_AddNumberToObject(f, "ts", ts_from_name(name));
 		cJSON_AddItemToArray(arr, f);
 	}
 	free(out);
 	return arr;
 }
 
-static int smb_del(const char *name) { char cmd[300], out[2048], err[200]; snprintf(cmd, sizeof cmd, "del \"%s\"", name); return smb_cmd(cmd, out, sizeof out, err, sizeof err); }
-static int smb_get(const char *name, const char *local) { char cmd[1000], out[2048], err[200]; snprintf(cmd, sizeof cmd, "get \"%s\" \"%s\"", name, local); return smb_cmd(cmd, out, sizeof out, err, sizeof err); }
+static int smb_del(const loc_t *L, const char *name) { char cmd[300], out[2048], err[200]; snprintf(cmd, sizeof cmd, "del \"%s\"", name); return smb_cmd(L, cmd, out, sizeof out, err, sizeof err); }
+static int smb_get(const loc_t *L, const char *name, const char *local) { char cmd[1000], out[2048], err[200]; snprintf(cmd, sizeof cmd, "get \"%s\" \"%s\"", name, local); return smb_cmd(L, cmd, out, sizeof out, err, sizeof err); }
 
-/* ---- Google Drive -------------------------------------------------------------------------- */
+/* ---- the clouds ---------------------------------------------------------------------------- */
 #if PF_WITH_CURL
 
 typedef struct { char *buf; size_t len, cap; } membuf;
@@ -465,55 +554,68 @@ static size_t mem_cb(char *p, size_t sz, size_t n, void *ud)
 	return add;
 }
 
-/* One request. method GET/POST/PUT/DELETE/PATCH; body sent as given with its content type; the
- * bearer token when there is one; the reply body handed back, the status returned. -1 on a
- * transport failure with err filled. */
-static long http(const char *method, const char *url, const char *bearer, const char *ctype, const char *body, size_t blen,
-                 const char *upload_path, char *hdr_out, size_t hdr_n, membuf *reply, char *err, size_t en)
+typedef struct {
+	const char *method, *url, *bearer, *ctype, *body, *upload_path, *extra_hdr;
+	size_t blen;
+	bool follow;
+	char *hdr_out; size_t hdr_n;
+} req_t;
+
+/* One request. The reply body is handed back and the status returned; -1 on a transport failure
+ * with err filled. */
+static long http(const req_t *r, membuf *reply, char *err, size_t en)
 {
 	CURL *c = curl_easy_init();
 	if (!c) { snprintf(err, en, "curl init failed"); return -1; }
 	struct curl_slist *h = NULL;
-	char auth[2400];
-	if (bearer) { snprintf(auth, sizeof auth, "Authorization: Bearer %s", bearer); h = curl_slist_append(h, auth); }
-	char ct[128];
-	if (ctype) { snprintf(ct, sizeof ct, "Content-Type: %s", ctype); h = curl_slist_append(h, ct); }
+	char auth[3100], ct[128];
+	if (r->bearer) { snprintf(auth, sizeof auth, "Authorization: Bearer %s", r->bearer); h = curl_slist_append(h, auth); }
+	if (r->ctype) { snprintf(ct, sizeof ct, "Content-Type: %s", r->ctype); h = curl_slist_append(h, ct); }
+	if (r->extra_hdr) h = curl_slist_append(h, r->extra_hdr);
 	FILE *up = NULL;
-	curl_easy_setopt(c, CURLOPT_URL, url);
+	curl_easy_setopt(c, CURLOPT_URL, r->url);
 	curl_easy_setopt(c, CURLOPT_USERAGENT, "pifired/" PF_VERSION);
 	curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 20L);
-	curl_easy_setopt(c, CURLOPT_TIMEOUT, upload_path ? 900L : 60L);
+	curl_easy_setopt(c, CURLOPT_TIMEOUT, r->upload_path || r->follow ? 900L : 60L);
 	curl_easy_setopt(c, CURLOPT_LOW_SPEED_LIMIT, 512L);
 	curl_easy_setopt(c, CURLOPT_LOW_SPEED_TIME, 60L);
-	curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 0L);
+	/* a download may be a redirect to a signed link; the bearer stays behind on a change of host */
+	curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, r->follow ? 1L : 0L);
+	curl_easy_setopt(c, CURLOPT_MAXREDIRS, 5L);
 	if (h) curl_easy_setopt(c, CURLOPT_HTTPHEADER, h);
 	curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, mem_cb);
 	curl_easy_setopt(c, CURLOPT_WRITEDATA, reply);
 	membuf hdrs = { 0 };
-	if (hdr_out) { curl_easy_setopt(c, CURLOPT_HEADERFUNCTION, mem_cb); curl_easy_setopt(c, CURLOPT_HEADERDATA, &hdrs); }
-	if (upload_path) {
-		up = fopen(upload_path, "rb");
-		if (!up) { snprintf(err, en, "cannot read %s", upload_path); curl_slist_free_all(h); curl_easy_cleanup(c); return -1; }
+	if (r->hdr_out) { curl_easy_setopt(c, CURLOPT_HEADERFUNCTION, mem_cb); curl_easy_setopt(c, CURLOPT_HEADERDATA, &hdrs); }
+	if (r->upload_path) {
+		up = fopen(r->upload_path, "rb");
+		if (!up) { snprintf(err, en, "cannot read %s", r->upload_path); curl_slist_free_all(h); curl_easy_cleanup(c); return -1; }
 		curl_easy_setopt(c, CURLOPT_UPLOAD, 1L);
 		curl_easy_setopt(c, CURLOPT_READDATA, up);
-		curl_easy_setopt(c, CURLOPT_INFILESIZE_LARGE, (curl_off_t)file_size(upload_path));
-		curl_easy_setopt(c, CURLOPT_CUSTOMREQUEST, method);
-	} else if (body) {
-		curl_easy_setopt(c, CURLOPT_POSTFIELDS, body);
-		curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE, (long)blen);
-		curl_easy_setopt(c, CURLOPT_CUSTOMREQUEST, method);
-	} else if (strcmp(method, "GET")) {
-		curl_easy_setopt(c, CURLOPT_CUSTOMREQUEST, method);
+		curl_easy_setopt(c, CURLOPT_INFILESIZE_LARGE, (curl_off_t)file_size(r->upload_path));
+		curl_easy_setopt(c, CURLOPT_CUSTOMREQUEST, r->method);
+	} else if (r->body) {
+		curl_easy_setopt(c, CURLOPT_POSTFIELDS, r->body);
+		curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE, (long)r->blen);
+		curl_easy_setopt(c, CURLOPT_CUSTOMREQUEST, r->method);
+	} else if (strcmp(r->method, "GET")) {
+		curl_easy_setopt(c, CURLOPT_CUSTOMREQUEST, r->method);
 	}
 	CURLcode rc = curl_easy_perform(c);
 	long status = 0;
 	if (rc == CURLE_OK) curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
 	else snprintf(err, en, "%s", curl_easy_strerror(rc));
-	if (hdr_out) { pf_strlcpy(hdr_out, hdrs.buf ? hdrs.buf : "", hdr_n); free(hdrs.buf); }
+	if (r->hdr_out) { pf_strlcpy(r->hdr_out, hdrs.buf ? hdrs.buf : "", r->hdr_n); free(hdrs.buf); }
 	if (up) fclose(up);
 	curl_slist_free_all(h);
 	curl_easy_cleanup(c);
 	return rc == CURLE_OK ? status : -1;
+}
+
+static long http_form(const char *url, const char *form, membuf *reply, char *err, size_t en)
+{
+	req_t r = { .method = "POST", .url = url, .ctype = "application/x-www-form-urlencoded", .body = form, .blen = strlen(form) };
+	return http(&r, reply, err, en);
 }
 
 static char *url_escape(const char *s)
@@ -526,63 +628,74 @@ static char *url_escape(const char *s)
 	return out;
 }
 
-/* the API's own account of what went wrong, when it gives one */
-static void api_error(membuf *m, long status, char *err, size_t n)
+/* the service's own account of what went wrong, when it gives one */
+static void api_error(const char *who, membuf *m, long status, char *err, size_t n)
 {
 	cJSON *j = m->buf ? cJSON_Parse(m->buf) : NULL;
 	const char *msg = j ? pf_json_str(j, "error.message", "") : "";
 	if (!msg[0] && j) msg = pf_json_str(j, "error_description", "");
 	if (!msg[0] && j) msg = pf_json_str(j, "error", "");
-	snprintf(err, n, "Google said %ld%s%s", status, msg[0] ? ": " : "", msg);
+	snprintf(err, n, "%s said %ld%s%.160s", who, status, msg[0] ? ": " : "", msg);
 	cJSON_Delete(j);
 }
 
-static bool gdrive_client(char *id, size_t in, char *secret, size_t sn)
+/* a header's value out of a raw header block, case-insensitively */
+static bool header_value(const char *hdrs, const char *name, char *out, size_t n)
 {
-	pf_set_str("backup.gdrive.client_id", id, in, "");
-	pf_set_str("backup.gdrive.client_secret", secret, sn, "");
-	return id[0] && secret[0];
-}
-
-static bool gdrive_refresh_token(char *out, size_t n)
-{
-	char buf[2048];
+	size_t nl = strlen(name);
+	for (const char *p = hdrs; p && *p; ) {
+		const char *eol = strpbrk(p, "\r\n");
+		size_t len = eol ? (size_t)(eol - p) : strlen(p);
+		if (len > nl + 1 && !strncasecmp(p, name, nl) && p[nl] == ':') {
+			const char *v = p + nl + 1;
+			while (*v == ' ' && v < p + len) v++;
+			size_t vl = (size_t)(p + len - v);
+			if (vl >= n) vl = n - 1;
+			memcpy(out, v, vl); out[vl] = 0;
+			return true;
+		}
+		if (!eol) break;
+		p = eol; while (*p == '\r' || *p == '\n') p++;
+	}
 	out[0] = 0;
-	if (pf_db_kv_get("backup", "gdrive", buf, sizeof buf) != 0) return false;
-	cJSON *j = cJSON_Parse(buf);
-	if (!j) return false;
-	pf_strlcpy(out, pf_json_str(j, "refresh_token", ""), n);
-	cJSON_Delete(j);
-	return out[0] != 0;
+	return false;
 }
 
-/* an access token, fresh, from the refresh token on file */
-static int gdrive_access(char *token, size_t n, char *err, size_t en)
+/* --- an access token, fresh, from the refresh token on file --- */
+static int cloud_access(const loc_t *L, char *token, size_t n, char *err, size_t en)
 {
-	char id[256], secret[256], refresh[512];
-	if (!gdrive_client(id, sizeof id, secret, sizeof secret)) { snprintf(err, en, "Google Drive needs a client ID and secret"); return -1; }
-	if (!gdrive_refresh_token(refresh, sizeof refresh)) { snprintf(err, en, "Google Drive is not connected"); return -1; }
-	char *eid = url_escape(id), *esec = url_escape(secret), *eref = url_escape(refresh);
-	char body[1600];
-	snprintf(body, sizeof body, "client_id=%s&client_secret=%s&refresh_token=%s&grant_type=refresh_token", eid ? eid : "", esec ? esec : "", eref ? eref : "");
+	char refresh[2000];
+	if (!L->client_id[0]) { snprintf(err, en, "%s needs a client ID", L->name); return -1; }
+	if (!token_get(L, refresh, sizeof refresh)) { snprintf(err, en, "%s is not connected", L->name); return -1; }
+	bool google = !strcmp(L->type, "gdrive");
+	char *eid = url_escape(L->client_id), *esec = url_escape(L->client_secret), *eref = url_escape(refresh);
+	char form[4000];
+	if (google) snprintf(form, sizeof form, "client_id=%s&client_secret=%s&refresh_token=%s&grant_type=refresh_token", eid ? eid : "", esec ? esec : "", eref ? eref : "");
+	else snprintf(form, sizeof form, "client_id=%s&refresh_token=%s&grant_type=refresh_token&scope=%s", eid ? eid : "", eref ? eref : "", "Files.ReadWrite.AppFolder%20offline_access");
 	free(eid); free(esec); free(eref);
 	membuf m = { 0 };
-	long st = http("POST", GDRIVE_TOKEN_URL, NULL, "application/x-www-form-urlencoded", body, strlen(body), NULL, NULL, 0, &m, err, en);
+	long st = http_form(google ? GDRIVE_TOKEN_URL : MS_TOKEN_URL, form, &m, err, en);
 	if (st < 0) { free(m.buf); return -1; }
-	if (st != 200) { api_error(&m, st, err, en); free(m.buf); if (st == 400 || st == 401) { LOGW(TAG, "Google refused the refresh token; disconnecting"); pf_db_kv_delete("backup", "gdrive"); pthread_mutex_lock(&g.mu); g.gdrive_connected = false; pthread_mutex_unlock(&g.mu); } return -1; }
+	if (st != 200) {
+		api_error(google ? "Google" : "Microsoft", &m, st, err, en); free(m.buf);
+		if (st == 400 || st == 401) { LOGW(TAG, "%s refused the refresh token; disconnecting", L->name); token_drop(L->id); }
+		return -1;
+	}
 	cJSON *j = cJSON_Parse(m.buf); free(m.buf);
 	pf_strlcpy(token, j ? pf_json_str(j, "access_token", "") : "", n);
+	/* Microsoft hands out a new refresh token each time; keep the latest */
+	if (j && !google && pf_json_str(j, "refresh_token", "")[0]) token_put(L, pf_json_str(j, "refresh_token", ""));
 	cJSON_Delete(j);
-	if (!token[0]) { snprintf(err, en, "Google returned no access token"); return -1; }
+	if (!token[0]) { snprintf(err, en, "no access token came back"); return -1; }
 	return 0;
 }
 
+/* --- Google Drive --- */
+
 /* the folder the backups go in, made if it is not there */
-static int gdrive_folder(const char *token, char *id, size_t n, bool create, char *err, size_t en)
+static int gdrive_folder(const loc_t *L, const char *token, char *id, size_t n, bool create, char *err, size_t en)
 {
-	char name[96];
-	pf_set_str("backup.gdrive.folder", name, sizeof name, "PiFire Backups");
-	if (!name[0]) pf_strlcpy(name, "PiFire Backups", sizeof name);
+	const char *name = L->cloud_folder[0] ? L->cloud_folder : "PiFire Backups";
 	char q[400];
 	snprintf(q, sizeof q, "name='%s' and mimeType='application/vnd.google-apps.folder' and trashed=false", name);
 	char *eq = url_escape(q);
@@ -590,9 +703,10 @@ static int gdrive_folder(const char *token, char *id, size_t n, bool create, cha
 	snprintf(url, sizeof url, GDRIVE_API "?q=%s&fields=files(id,name)&spaces=drive", eq ? eq : "");
 	free(eq);
 	membuf m = { 0 };
-	long st = http("GET", url, token, NULL, NULL, 0, NULL, NULL, 0, &m, err, en);
+	req_t r = { .method = "GET", .url = url, .bearer = token };
+	long st = http(&r, &m, err, en);
 	if (st < 0) { free(m.buf); return -1; }
-	if (st != 200) { api_error(&m, st, err, en); free(m.buf); return -1; }
+	if (st != 200) { api_error("Google", &m, st, err, en); free(m.buf); return -1; }
 	cJSON *j = cJSON_Parse(m.buf); free(m.buf);
 	cJSON *files = j ? cJSON_GetObjectItem(j, "files") : NULL;
 	cJSON *first = files ? cJSON_GetArrayItem(files, 0) : NULL;
@@ -605,23 +719,24 @@ static int gdrive_folder(const char *token, char *id, size_t n, bool create, cha
 	cJSON_AddStringToObject(meta, "name", name);
 	cJSON_AddStringToObject(meta, "mimeType", "application/vnd.google-apps.folder");
 	char *body = cJSON_PrintUnformatted(meta); cJSON_Delete(meta);
-	membuf r = { 0 };
-	st = http("POST", GDRIVE_API "?fields=id", token, "application/json", body, strlen(body), NULL, NULL, 0, &r, err, en);
+	membuf rb = { 0 };
+	req_t cr = { .method = "POST", .url = GDRIVE_API "?fields=id", .bearer = token, .ctype = "application/json", .body = body, .blen = strlen(body) };
+	st = http(&cr, &rb, err, en);
 	free(body);
-	if (st < 0) { free(r.buf); return -1; }
-	if (st != 200) { api_error(&r, st, err, en); free(r.buf); return -1; }
-	j = cJSON_Parse(r.buf); free(r.buf);
+	if (st < 0) { free(rb.buf); return -1; }
+	if (st != 200) { api_error("Google", &rb, st, err, en); free(rb.buf); return -1; }
+	j = cJSON_Parse(rb.buf); free(rb.buf);
 	pf_strlcpy(id, j ? pf_json_str(j, "id", "") : "", n);
 	cJSON_Delete(j);
 	if (!id[0]) { snprintf(err, en, "Google made no folder"); return -1; }
 	return 0;
 }
 
-static int gdrive_put(const char *local, const char *name, char *err, size_t n)
+static int gdrive_put(const loc_t *L, const char *local, const char *name, char *err, size_t n)
 {
-	char token[2048], folder[128];
-	if (gdrive_access(token, sizeof token, err, n)) return -1;
-	if (gdrive_folder(token, folder, sizeof folder, true, err, n)) return -1;
+	char token[3000], folder[128];
+	if (cloud_access(L, token, sizeof token, err, n)) return -1;
+	if (gdrive_folder(L, token, folder, sizeof folder, true, err, n)) return -1;
 	/* resumable upload: the metadata first, then the bytes to the session it hands back */
 	cJSON *meta = cJSON_CreateObject();
 	cJSON_AddStringToObject(meta, "name", name);
@@ -630,34 +745,28 @@ static int gdrive_put(const char *local, const char *name, char *err, size_t n)
 	char *body = cJSON_PrintUnformatted(meta); cJSON_Delete(meta);
 	membuf m = { 0 };
 	char hdrs[8192];
-	long st = http("POST", GDRIVE_UPLOAD, token, "application/json; charset=UTF-8", body, strlen(body), NULL, hdrs, sizeof hdrs, &m, err, n);
+	req_t r = { .method = "POST", .url = GDRIVE_UPLOAD, .bearer = token, .ctype = "application/json; charset=UTF-8", .body = body, .blen = strlen(body), .hdr_out = hdrs, .hdr_n = sizeof hdrs };
+	long st = http(&r, &m, err, n);
 	free(body);
 	if (st < 0) { free(m.buf); return -1; }
-	if (st != 200) { api_error(&m, st, err, n); free(m.buf); return -1; }
+	if (st != 200) { api_error("Google", &m, st, err, n); free(m.buf); return -1; }
 	free(m.buf);
-	char session[1024] = "";
-	for (char *p = hdrs; (p = strstr(p, "ocation:")); p += 8) {
-		if (p > hdrs && (p[-1] == 'L' || p[-1] == 'l')) {
-			p += 8; while (*p == ' ') p++;
-			size_t k = 0; while (p[k] && p[k] != '\r' && p[k] != '\n' && k < sizeof session - 1) { session[k] = p[k]; k++; }
-			session[k] = 0;
-			break;
-		}
-	}
-	if (!session[0]) { snprintf(err, n, "Google gave no upload session"); return -1; }
-	membuf r = { 0 };
-	st = http("PUT", session, token, "application/gzip", NULL, 0, local, NULL, 0, &r, err, n);
-	if (st < 0) { free(r.buf); return -1; }
-	if (st != 200 && st != 201) { api_error(&r, st, err, n); free(r.buf); return -1; }
-	free(r.buf);
+	char session[1024];
+	if (!header_value(hdrs, "Location", session, sizeof session)) { snprintf(err, n, "Google gave no upload session"); return -1; }
+	membuf rb = { 0 };
+	req_t up = { .method = "PUT", .url = session, .bearer = token, .ctype = "application/gzip", .upload_path = local };
+	st = http(&up, &rb, err, n);
+	if (st < 0) { free(rb.buf); return -1; }
+	if (st != 200 && st != 201) { api_error("Google", &rb, st, err, n); free(rb.buf); return -1; }
+	free(rb.buf);
 	return 0;
 }
 
-static cJSON *gdrive_list(char *err, size_t n)
+static cJSON *gdrive_list(const loc_t *L, char *err, size_t n)
 {
-	char token[2048], folder[128];
-	if (gdrive_access(token, sizeof token, err, n)) return NULL;
-	int fr = gdrive_folder(token, folder, sizeof folder, false, err, n);
+	char token[3000], folder[128];
+	if (cloud_access(L, token, sizeof token, err, n)) return NULL;
+	int fr = gdrive_folder(L, token, folder, sizeof folder, false, err, n);
 	if (fr < 0) return NULL;
 	if (fr > 0) return cJSON_CreateArray();
 	char q[300];
@@ -667,9 +776,10 @@ static cJSON *gdrive_list(char *err, size_t n)
 	snprintf(url, sizeof url, GDRIVE_API "?q=%s&fields=files(id,name,size,createdTime)&orderBy=createdTime%%20desc&pageSize=100", eq ? eq : "");
 	free(eq);
 	membuf m = { 0 };
-	long st = http("GET", url, token, NULL, NULL, 0, NULL, NULL, 0, &m, err, n);
+	req_t r = { .method = "GET", .url = url, .bearer = token };
+	long st = http(&r, &m, err, n);
 	if (st < 0) { free(m.buf); return NULL; }
-	if (st != 200) { api_error(&m, st, err, n); free(m.buf); return NULL; }
+	if (st != 200) { api_error("Google", &m, st, err, n); free(m.buf); return NULL; }
 	cJSON *j = cJSON_Parse(m.buf); free(m.buf);
 	cJSON *arr = cJSON_CreateArray();
 	cJSON *files = j ? cJSON_GetObjectItem(j, "files") : NULL, *f;
@@ -680,24 +790,79 @@ static cJSON *gdrive_list(char *err, size_t n)
 		cJSON_AddStringToObject(o, "name", name);
 		cJSON_AddStringToObject(o, "id", pf_json_str(f, "id", ""));
 		cJSON_AddNumberToObject(o, "size", atof(pf_json_str(f, "size", "0")));
-		struct tm tm = { 0 };
-		const char *ct = pf_json_str(f, "createdTime", "");
-		double ts = 0;
-		if (sscanf(ct, "%4d-%2d-%2dT%2d:%2d:%2d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min, &tm.tm_sec) == 6) {
-			tm.tm_year -= 1900; tm.tm_mon -= 1;
-			ts = (double)timegm(&tm);
-		}
-		cJSON_AddNumberToObject(o, "ts", ts);
+		cJSON_AddNumberToObject(o, "ts", ts_from_name(name));
 		cJSON_AddItemToArray(arr, o);
 	}
 	cJSON_Delete(j);
 	return arr;
 }
 
-static int gdrive_id_for(const char *name, char *id, size_t n)
+/* --- OneDrive --- */
+
+static cJSON *onedrive_list(const loc_t *L, char *err, size_t n)
+{
+	char token[3000];
+	if (cloud_access(L, token, sizeof token, err, n)) return NULL;
+	membuf m = { 0 };
+	req_t r = { .method = "GET", .url = MS_GRAPH "/me/drive/special/approot/children?$select=id,name,size,createdDateTime&$top=200", .bearer = token };
+	long st = http(&r, &m, err, n);
+	if (st < 0) { free(m.buf); return NULL; }
+	if (st != 200) { api_error("Microsoft", &m, st, err, n); free(m.buf); return NULL; }
+	cJSON *j = cJSON_Parse(m.buf); free(m.buf);
+	cJSON *arr = cJSON_CreateArray();
+	cJSON *items = j ? cJSON_GetObjectItem(j, "value") : NULL, *f;
+	cJSON_ArrayForEach(f, items) {
+		const char *name = pf_json_str(f, "name", "");
+		if (!is_ours(name)) continue;
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddStringToObject(o, "name", name);
+		cJSON_AddStringToObject(o, "id", pf_json_str(f, "id", ""));
+		cJSON_AddNumberToObject(o, "size", pf_json_num(f, "size", 0));
+		cJSON_AddNumberToObject(o, "ts", ts_from_name(name));
+		cJSON_AddItemToArray(arr, o);
+	}
+	cJSON_Delete(j);
+	return arr;
+}
+
+static int onedrive_put(const loc_t *L, const char *local, const char *name, char *err, size_t n)
+{
+	char token[3000];
+	if (cloud_access(L, token, sizeof token, err, n)) return -1;
+	/* an upload session, then the whole file in one PUT to it: fine for anything under 60 MB,
+	 * and a backup is a few */
+	char url[400];
+	snprintf(url, sizeof url, MS_GRAPH "/me/drive/special/approot:/%s:/createUploadSession", name);
+	const char *body = "{\"item\":{\"@microsoft.graph.conflictBehavior\":\"replace\"}}";
+	membuf m = { 0 };
+	req_t r = { .method = "POST", .url = url, .bearer = token, .ctype = "application/json", .body = body, .blen = strlen(body) };
+	long st = http(&r, &m, err, n);
+	if (st < 0) { free(m.buf); return -1; }
+	if (st != 200 && st != 201) { api_error("Microsoft", &m, st, err, n); free(m.buf); return -1; }
+	cJSON *j = cJSON_Parse(m.buf); free(m.buf);
+	char session[2048];
+	pf_strlcpy(session, j ? pf_json_str(j, "uploadUrl", "") : "", sizeof session);
+	cJSON_Delete(j);
+	if (!session[0]) { snprintf(err, n, "Microsoft gave no upload session"); return -1; }
+	long size = file_size(local);
+	char range[96];
+	snprintf(range, sizeof range, "Content-Range: bytes 0-%ld/%ld", size - 1, size);
+	membuf rb = { 0 };
+	/* the session URL is pre-authorised: no bearer on this one, by Microsoft's instruction */
+	req_t up = { .method = "PUT", .url = session, .ctype = "application/gzip", .upload_path = local, .extra_hdr = range };
+	st = http(&up, &rb, err, n);
+	if (st < 0) { free(rb.buf); return -1; }
+	if (st != 200 && st != 201) { api_error("Microsoft", &rb, st, err, n); free(rb.buf); return -1; }
+	free(rb.buf);
+	return 0;
+}
+
+/* --- both clouds: by id --- */
+
+static int cloud_id_for(const loc_t *L, const char *name, char *id, size_t n)
 {
 	char err[200];
-	cJSON *l = gdrive_list(err, sizeof err);
+	cJSON *l = !strcmp(L->type, "gdrive") ? gdrive_list(L, err, sizeof err) : onedrive_list(L, err, sizeof err);
 	if (!l) return -1;
 	id[0] = 0;
 	cJSON *f;
@@ -706,45 +871,54 @@ static int gdrive_id_for(const char *name, char *id, size_t n)
 	return id[0] ? 0 : -1;
 }
 
-static int gdrive_del(const char *name)
+static int cloud_del(const loc_t *L, const char *name)
 {
-	char token[2048], id[128], err[200], url[300];
-	if (gdrive_access(token, sizeof token, err, sizeof err) || gdrive_id_for(name, id, sizeof id)) return -1;
-	snprintf(url, sizeof url, GDRIVE_API "/%s", id);
+	char token[3000], id[256], err[200], url[600];
+	if (cloud_access(L, token, sizeof token, err, sizeof err) || cloud_id_for(L, name, id, sizeof id)) return -1;
+	if (!strcmp(L->type, "gdrive")) snprintf(url, sizeof url, GDRIVE_API "/%s", id);
+	else snprintf(url, sizeof url, MS_GRAPH "/me/drive/items/%s", id);
 	membuf m = { 0 };
-	long st = http("DELETE", url, token, NULL, NULL, 0, NULL, NULL, 0, &m, err, sizeof err);
+	req_t r = { .method = "DELETE", .url = url, .bearer = token };
+	long st = http(&r, &m, err, sizeof err);
 	free(m.buf);
 	return st == 204 || st == 200 ? 0 : -1;
 }
 
-static int gdrive_get(const char *name, const char *local)
+static int cloud_get(const loc_t *L, const char *name, const char *local)
 {
-	char token[2048], id[128], err[200], url[300];
-	if (gdrive_access(token, sizeof token, err, sizeof err) || gdrive_id_for(name, id, sizeof id)) return -1;
-	snprintf(url, sizeof url, GDRIVE_API "/%s?alt=media", id);
+	char token[3000], id[256], err[200], url[600];
+	if (cloud_access(L, token, sizeof token, err, sizeof err) || cloud_id_for(L, name, id, sizeof id)) return -1;
+	if (!strcmp(L->type, "gdrive")) snprintf(url, sizeof url, GDRIVE_API "/%s?alt=media", id);
+	else snprintf(url, sizeof url, MS_GRAPH "/me/drive/items/%s/content", id);
 	membuf m = { 0 };
-	long st = http("GET", url, token, NULL, NULL, 0, NULL, NULL, 0, &m, err, sizeof err);
+	req_t r = { .method = "GET", .url = url, .bearer = token, .follow = true };
+	long st = http(&r, &m, err, sizeof err);
 	int rc = st == 200 && m.buf ? pf_write_file_atomic(local, m.buf, m.len) : -1;
 	free(m.buf);
 	return rc;
 }
 
-/* Google's sign-in for devices without a browser: ask for a code, show it, poll until the person
- * has typed it into google.com/device on their phone. The refresh token that comes back is kept
- * in the database, so a restored backup brings the connection with it. */
-static void *gdrive_poll_thread(void *arg)
+/* --- sign-in for a device with no browser: a code shown here, typed in on the phone --- */
+
+static void *device_poll_thread(void *arg)
 {
 	(void)arg;
-	char id[256], secret[256], code[256];
+	loc_t L;
+	char code[1200], type[12], id[24];
 	double interval, expires;
 	pthread_mutex_lock(&g.mu);
 	pf_strlcpy(code, g.dev.device_code, sizeof code);
+	pf_strlcpy(type, g.dev.type, sizeof type);
+	pf_strlcpy(id, g.dev.loc, sizeof id);
 	interval = g.dev.interval; expires = g.dev.expires;
 	pthread_mutex_unlock(&g.mu);
-	gdrive_client(id, sizeof id, secret, sizeof secret);
-	char *eid = url_escape(id), *esec = url_escape(secret), *ecode = url_escape(code);
-	char body[1400];
-	snprintf(body, sizeof body, "client_id=%s&client_secret=%s&device_code=%s&grant_type=urn%%3Aietf%%3Aparams%%3Aoauth%%3Agrant-type%%3Adevice_code", eid ? eid : "", esec ? esec : "", ecode ? ecode : "");
+	if (!find_loc(id, &L)) { pthread_mutex_lock(&g.mu); g.dev.pending = false; pthread_mutex_unlock(&g.mu); return NULL; }
+	bool google = !strcmp(type, "gdrive");
+	const char *who = google ? "Google" : "Microsoft";
+	char *eid = url_escape(L.client_id), *esec = url_escape(L.client_secret), *ecode = url_escape(code);
+	char form[4000];
+	if (google) snprintf(form, sizeof form, "client_id=%s&client_secret=%s&device_code=%s&grant_type=urn%%3Aietf%%3Aparams%%3Aoauth%%3Agrant-type%%3Adevice_code", eid ? eid : "", esec ? esec : "", ecode ? ecode : "");
+	else snprintf(form, sizeof form, "client_id=%s&device_code=%s&grant_type=urn%%3Aietf%%3Aparams%%3Aoauth%%3Agrant-type%%3Adevice_code", eid ? eid : "", ecode ? ecode : "");
 	free(eid); free(esec); free(ecode);
 	while (pf_wall() < expires) {
 		pf_sleep_ms((unsigned)(interval * 1000));
@@ -754,117 +928,119 @@ static void *gdrive_poll_thread(void *arg)
 		if (!still) return NULL;
 		membuf m = { 0 };
 		char err[200];
-		long st = http("POST", GDRIVE_TOKEN_URL, NULL, "application/x-www-form-urlencoded", body, strlen(body), NULL, NULL, 0, &m, err, sizeof err);
+		long st = http_form(google ? GDRIVE_TOKEN_URL : MS_TOKEN_URL, form, &m, err, sizeof err);
 		cJSON *j = st >= 0 && m.buf ? cJSON_Parse(m.buf) : NULL;
 		free(m.buf);
 		const char *e = j ? pf_json_str(j, "error", "") : "";
 		if (st == 200 && j && pf_json_str(j, "refresh_token", "")[0]) {
-			cJSON *keep = cJSON_CreateObject();
-			cJSON_AddStringToObject(keep, "refresh_token", pf_json_str(j, "refresh_token", ""));
-			cJSON_AddNumberToObject(keep, "connected", pf_wall());
-			char *txt = cJSON_PrintUnformatted(keep); cJSON_Delete(keep);
-			if (txt) pf_db_kv_put("backup", "gdrive", txt);
-			free(txt);
+			token_put(&L, pf_json_str(j, "refresh_token", ""));
 			cJSON_Delete(j);
-			pthread_mutex_lock(&g.mu); g.dev.pending = false; g.gdrive_connected = true; pthread_mutex_unlock(&g.mu);
-			say(false, "Google Drive connected");
-			pf_events_emit("Backup_Connected", "Google Drive connected", "Backups can go to Google Drive now.");
+			pthread_mutex_lock(&g.mu); g.dev.pending = false; pthread_mutex_unlock(&g.mu);
+			say(false, "%s connected", L.name);
+			pf_events_emit("Backup_Connected", "Backup location connected", "%s is connected; backups can go there now.", L.name);
 			return NULL;
 		}
 		if (!strcmp(e, "slow_down")) interval += 5;
 		else if (strcmp(e, "authorization_pending")) {
-			say(true, "Google sign-in did not finish: %s", e[0] ? e : (st < 0 ? err : "no answer"));
+			say(true, "%s sign-in did not finish: %s", who, e[0] ? e : (st < 0 ? err : "no answer"));
 			cJSON_Delete(j);
 			pthread_mutex_lock(&g.mu); g.dev.pending = false; pthread_mutex_unlock(&g.mu);
 			return NULL;
 		}
 		cJSON_Delete(j);
 	}
-	say(true, "Google sign-in code expired before it was used");
+	say(true, "the %s sign-in code expired before it was used", who);
 	pthread_mutex_lock(&g.mu); g.dev.pending = false; pthread_mutex_unlock(&g.mu);
 	return NULL;
 }
 
-int pf_backup_gdrive_connect(char *err, size_t n)
+int pf_backup_connect(const char *loc_id, char *err, size_t n)
 {
-	char id[256], secret[256];
-	if (!gdrive_client(id, sizeof id, secret, sizeof secret)) { snprintf(err, n, "enter the Google client ID and secret first, then save"); return -1; }
+	loc_t L;
+	if (!find_loc(loc_id, &L) || !is_cloud(&L)) { snprintf(err, n, "no such cloud location"); return -1; }
+	bool google = !strcmp(L.type, "gdrive");
+	if (!L.client_id[0] || (google && !L.client_secret[0])) { snprintf(err, n, "enter the client ID%s first, then save", google ? " and secret" : ""); return -1; }
 	pthread_mutex_lock(&g.mu);
-	bool pending = g.dev.pending;
+	bool pending = g.dev.pending && !strcmp(g.dev.loc, loc_id);
+	if (g.dev.pending && !pending) g.dev.pending = false;   /* a sign-in for another location gives way */
 	pthread_mutex_unlock(&g.mu);
 	if (pending) return 0;   /* the code already showing is the one to use */
-	char *eid = url_escape(id), *esc = url_escape(GDRIVE_SCOPE);
-	char body[800];
-	snprintf(body, sizeof body, "client_id=%s&scope=%s", eid ? eid : "", esc ? esc : "");
+	char *eid = url_escape(L.client_id), *esc = url_escape(google ? GDRIVE_SCOPE : MS_SCOPE);
+	char form[1200];
+	snprintf(form, sizeof form, "client_id=%s&scope=%s", eid ? eid : "", esc ? esc : "");
 	free(eid); free(esc);
 	membuf m = { 0 };
-	long st = http("POST", GDRIVE_DEVICE_URL, NULL, "application/x-www-form-urlencoded", body, strlen(body), NULL, NULL, 0, &m, err, n);
+	long st = http_form(google ? GDRIVE_DEVICE_URL : MS_DEVICE_URL, form, &m, err, n);
 	if (st < 0) { free(m.buf); return -1; }
-	if (st != 200) { api_error(&m, st, err, n); free(m.buf); return -1; }
+	if (st != 200) { api_error(google ? "Google" : "Microsoft", &m, st, err, n); free(m.buf); return -1; }
 	cJSON *j = cJSON_Parse(m.buf); free(m.buf);
-	if (!j || !pf_json_str(j, "device_code", "")[0]) { cJSON_Delete(j); snprintf(err, n, "Google gave no device code"); return -1; }
+	if (!j || !pf_json_str(j, "device_code", "")[0]) { cJSON_Delete(j); snprintf(err, n, "no device code came back"); return -1; }
 	pthread_mutex_lock(&g.mu);
 	g.dev.pending = true;
+	pf_strlcpy(g.dev.loc, loc_id, sizeof g.dev.loc);
+	pf_strlcpy(g.dev.type, L.type, sizeof g.dev.type);
 	pf_strlcpy(g.dev.user_code, pf_json_str(j, "user_code", ""), sizeof g.dev.user_code);
-	pf_strlcpy(g.dev.url, pf_json_str(j, "verification_url", "https://www.google.com/device"), sizeof g.dev.url);
+	pf_strlcpy(g.dev.url, pf_json_str(j, google ? "verification_url" : "verification_uri", google ? "https://www.google.com/device" : "https://microsoft.com/devicelogin"), sizeof g.dev.url);
 	pf_strlcpy(g.dev.device_code, pf_json_str(j, "device_code", ""), sizeof g.dev.device_code);
 	g.dev.interval = pf_json_num(j, "interval", 5);
-	g.dev.expires = pf_wall() + pf_json_num(j, "expires_in", 1800);
+	g.dev.expires = pf_wall() + pf_json_num(j, "expires_in", 900);
 	pthread_mutex_unlock(&g.mu);
 	cJSON_Delete(j);
 	pthread_t t;
 	pthread_attr_t a; pthread_attr_init(&a); pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED);
-	if (pthread_create(&t, &a, gdrive_poll_thread, NULL)) { pthread_attr_destroy(&a); pthread_mutex_lock(&g.mu); g.dev.pending = false; pthread_mutex_unlock(&g.mu); snprintf(err, n, "cannot start the sign-in"); return -1; }
+	if (pthread_create(&t, &a, device_poll_thread, NULL)) { pthread_attr_destroy(&a); pthread_mutex_lock(&g.mu); g.dev.pending = false; pthread_mutex_unlock(&g.mu); snprintf(err, n, "cannot start the sign-in"); return -1; }
 	pthread_attr_destroy(&a);
 	return 0;
 }
 #else
-static int gdrive_put(const char *l, const char *nm, char *err, size_t n) { (void)l; (void)nm; snprintf(err, n, "built without libcurl"); return -1; }
-static cJSON *gdrive_list(char *err, size_t n) { snprintf(err, n, "built without libcurl"); return NULL; }
-static int gdrive_del(const char *name) { (void)name; return -1; }
-static int gdrive_get(const char *name, const char *local) { (void)name; (void)local; return -1; }
-int pf_backup_gdrive_connect(char *err, size_t n) { snprintf(err, n, "built without libcurl"); return -1; }
+static int gdrive_put(const loc_t *L, const char *l, const char *nm, char *err, size_t n) { (void)L; (void)l; (void)nm; snprintf(err, n, "built without libcurl"); return -1; }
+static int onedrive_put(const loc_t *L, const char *l, const char *nm, char *err, size_t n) { (void)L; (void)l; (void)nm; snprintf(err, n, "built without libcurl"); return -1; }
+static cJSON *gdrive_list(const loc_t *L, char *err, size_t n) { (void)L; snprintf(err, n, "built without libcurl"); return NULL; }
+static cJSON *onedrive_list(const loc_t *L, char *err, size_t n) { (void)L; snprintf(err, n, "built without libcurl"); return NULL; }
+static int cloud_del(const loc_t *L, const char *name) { (void)L; (void)name; return -1; }
+static int cloud_get(const loc_t *L, const char *name, const char *local) { (void)L; (void)name; (void)local; return -1; }
+int pf_backup_connect(const char *loc_id, char *err, size_t n) { (void)loc_id; snprintf(err, n, "built without libcurl"); return -1; }
 #endif
 
-void pf_backup_gdrive_disconnect(void)
+void pf_backup_disconnect(const char *loc_id)
 {
-	if (pf_db_handle()) pf_db_kv_delete("backup", "gdrive");
-	pthread_mutex_lock(&g.mu); g.gdrive_connected = false; g.dev.pending = false; pthread_mutex_unlock(&g.mu);
-	say(false, "Google Drive disconnected");
+	token_drop(loc_id);
+	pthread_mutex_lock(&g.mu);
+	if (g.dev.pending && !strcmp(g.dev.loc, loc_id)) g.dev.pending = false;
+	pthread_mutex_unlock(&g.mu);
+	say(false, "disconnected %s", loc_id);
 }
 
-/* ---- the destination, whichever it is ------------------------------------------------------ */
+/* ---- a location, whichever kind ------------------------------------------------------------ */
 
-static int dest_put(dest_t d, const char *local, const char *name, char *err, size_t n)
+static int loc_put(const loc_t *L, const char *local, const char *name, char *err, size_t n)
 {
-	switch (d) {
-	case DEST_GDRIVE: return gdrive_put(local, name, err, n);
-	case DEST_SMB: return smb_put(local, name, err, n);
-	case DEST_FOLDER: return folder_put(local, name, err, n);
-	default: snprintf(err, n, "no destination is set"); return -1;
-	}
+	if (!strcmp(L->type, "gdrive")) return gdrive_put(L, local, name, err, n);
+	if (!strcmp(L->type, "onedrive")) return onedrive_put(L, local, name, err, n);
+	if (!strcmp(L->type, "smb")) return smb_put(L, local, name, err, n);
+	if (!strcmp(L->type, "folder")) return folder_put(L, local, name, err, n);
+	snprintf(err, n, "unknown location type %s", L->type); return -1;
 }
-static cJSON *dest_list(dest_t d, char *err, size_t n)
+static cJSON *loc_list(const loc_t *L, char *err, size_t n)
 {
-	switch (d) {
-	case DEST_GDRIVE: return gdrive_list(err, n);
-	case DEST_SMB: return smb_list(err, n);
-	case DEST_FOLDER: return folder_list(err, n);
-	default: snprintf(err, n, "no destination is set"); return NULL;
-	}
+	if (!strcmp(L->type, "gdrive")) return gdrive_list(L, err, n);
+	if (!strcmp(L->type, "onedrive")) return onedrive_list(L, err, n);
+	if (!strcmp(L->type, "smb")) return smb_list(L, err, n);
+	if (!strcmp(L->type, "folder")) return folder_list(L, err, n);
+	snprintf(err, n, "unknown location type %s", L->type); return NULL;
 }
-static int dest_del(dest_t d, const char *name) { return d == DEST_GDRIVE ? gdrive_del(name) : d == DEST_SMB ? smb_del(name) : d == DEST_FOLDER ? folder_del(name) : -1; }
-static int dest_get(dest_t d, const char *name, const char *local) { return d == DEST_GDRIVE ? gdrive_get(name, local) : d == DEST_SMB ? smb_get(name, local) : d == DEST_FOLDER ? folder_get(name, local) : -1; }
+static int loc_del(const loc_t *L, const char *name) { return is_cloud(L) ? cloud_del(L, name) : !strcmp(L->type, "smb") ? smb_del(L, name) : folder_del(L, name); }
+static int loc_get(const loc_t *L, const char *name, const char *local) { return is_cloud(L) ? cloud_get(L, name, local) : !strcmp(L->type, "smb") ? smb_get(L, name, local) : folder_get(L, name, local); }
 
 static int by_name_desc(const void *a, const void *b) { return strcmp(*(const char *const *)b, *(const char *const *)a); }
 
-/* keep the newest N; the time is in the name, so the names sort the files */
-static void prune(dest_t d, int keep)
+/* keep the newest N at this location; the time is in the name, so the names sort the files */
+static void prune(const loc_t *L, int keep)
 {
 	if (keep <= 0) return;
 	char err[200];
-	cJSON *l = dest_list(d, err, sizeof err);
-	if (!l) { LOGW(TAG, "cannot list %s to prune: %s", dest_name(d), err); return; }
+	cJSON *l = loc_list(L, err, sizeof err);
+	if (!l) { LOGW(TAG, "cannot list %s to prune: %s", L->name, err); return; }
 	int n = cJSON_GetArraySize(l);
 	const char **names = calloc((size_t)(n > 0 ? n : 1), sizeof *names);
 	int k = 0;
@@ -872,8 +1048,8 @@ static void prune(dest_t d, int keep)
 	cJSON_ArrayForEach(f, l) names[k++] = pf_json_str(f, "name", "");
 	qsort(names, (size_t)k, sizeof *names, by_name_desc);
 	for (int i = keep; i < k; i++) {
-		if (dest_del(d, names[i]) == 0) LOGI(TAG, "pruned %s from %s", names[i], dest_name(d));
-		else LOGW(TAG, "could not remove %s from %s", names[i], dest_name(d));
+		if (loc_del(L, names[i]) == 0) LOGI(TAG, "pruned %s from %s", names[i], L->name);
+		else LOGW(TAG, "could not remove %s from %s", names[i], L->name);
 	}
 	free(names);
 	cJSON_Delete(l);
@@ -884,35 +1060,54 @@ static void prune(dest_t d, int keep)
 static void *backup_thread(void *arg)
 {
 	(void)arg;
-	dest_t d = dest_now();
-	char name[128], local[700], err[240];
+	loc_t all[MAX_LOC];
+	int n = locations(all, MAX_LOC);
+	char name[128], local[700], err[240], sz[32];
 	archive_name(name, sizeof name, pf_wall());
 	snprintf(local, sizeof local, "%s/%s", g.work, name);
 	say(false, "Making the backup");
 	if (pf_backup_make(local, err, sizeof err)) {
 		say(true, "Backup failed: %s", err);
-		file_last(false, name, 0, "", err);
+		file_last(false, name, 0, NULL);
 		if (g.fail_streak++ == 0) pf_events_emit("Backup_Failed", "Backup failed", "%s", err);
 		goto done;
 	}
 	long size = file_size(local);
-	say(false, "Sending %s to %s", name, dest_name(d));
-	if (dest_put(d, local, name, err, sizeof err)) {
-		say(true, "Backup could not be sent to %s: %s", dest_name(d), err);
-		file_last(false, name, size, "", err);
-		if (g.fail_streak++ == 0) pf_events_emit("Backup_Failed", "Backup failed", "Could not send it to %s: %s", dest_name(d), err);
-		unlink(local);
-		goto done;
+	fmt_size(size, sz, sizeof sz);
+	cJSON *results = cJSON_CreateObject();
+	int sent = 0, tried = 0;
+	char failed[400] = "";
+	for (int i = 0; i < n; i++) {
+		if (!all[i].enabled) continue;
+		tried++;
+		say(false, "Sending %s (%s) to %s", name, sz, all[i].name);
+		cJSON *r = cJSON_AddObjectToObject(results, all[i].id);
+		if (loc_put(&all[i], local, name, err, sizeof err)) {
+			LOGW(TAG, "%s: %s", all[i].name, err);
+			cJSON_AddBoolToObject(r, "ok", false);
+			cJSON_AddStringToObject(r, "message", err);
+			size_t fl = strlen(failed);
+			snprintf(failed + fl, sizeof failed - fl, "%s%s: %.120s", fl ? "; " : "", all[i].name, err);
+		} else {
+			cJSON_AddBoolToObject(r, "ok", true);
+			cJSON_AddStringToObject(r, "message", "");
+			sent++;
+		}
 	}
 	unlink(local);
-	{
-		char where[16]; pf_set_str("backup.destination", where, sizeof where, "");
-		file_last(true, name, size, where, "");
+	bool ok = tried > 0 && sent == tried;
+	file_last(ok, name, size, results);
+	if (ok) {
+		say(false, "Backed up %s (%s) to %d location%s", name, sz, sent, sent == 1 ? "" : "s");
+		pf_events_emit("Backup_Done", "Backup done", "%s, %s, sent to %d location%s.", name, sz, sent, sent == 1 ? "" : "s");
+	} else if (tried == 0) {
+		say(true, "Backup made but no location is switched on");
+		if (g.fail_streak++ == 0) pf_events_emit("Backup_Failed", "Backup failed", "No backup location is switched on.");
+	} else {
+		say(true, "Backup sent to %d of %d: %s", sent, tried, failed);
+		if (g.fail_streak++ == 0) pf_events_emit("Backup_Failed", "Backup incomplete", "Sent to %d of %d locations. %s", sent, tried, failed);
 	}
-	char sz[32];
-	say(false, "Backed up %s (%s) to %s", name, fmt_size(size, sz, sizeof sz), dest_name(d));
-	pf_events_emit("Backup_Done", "Backup done", "%s, %s, sent to %s.", name, sz, dest_name(d));
-	prune(d, (int)pf_set_num("backup.keep", 8));
+	for (int i = 0; i < n; i++) if (all[i].enabled) prune(&all[i], (int)pf_set_num("backup.keep", 8));
 done:
 	pthread_mutex_lock(&g.mu); g.busy = false; pthread_mutex_unlock(&g.mu);
 	return NULL;
@@ -932,9 +1127,17 @@ static int start_worker(void *(*fn)(void *), char *err, size_t n)
 	return 0;
 }
 
+static int enabled_count(void)
+{
+	loc_t all[MAX_LOC];
+	int n = locations(all, MAX_LOC), k = 0;
+	for (int i = 0; i < n; i++) if (all[i].enabled) k++;
+	return k;
+}
+
 int pf_backup_run(char *err, size_t n)
 {
-	if (dest_now() == DEST_OFF) { snprintf(err, n, "choose where backups go first"); return -1; }
+	if (enabled_count() == 0) { snprintf(err, n, "add a backup location first"); return -1; }
 	return start_worker(backup_thread, err, n);
 }
 
@@ -963,17 +1166,27 @@ static int stage_and_restart(const char *archive, char *err, size_t n)
 	return 0;
 }
 
-static char g_restore_name[128];
+static char g_restore_name[128], g_restore_loc[24];
 static void *restore_thread(void *arg)
 {
 	(void)arg;
 	char local[700], err[240];
 	snprintf(local, sizeof local, "%s/restore-download.tar.gz", g.work);
-	dest_t d = dest_now();
-	say(false, "Fetching %s from %s", g_restore_name, dest_name(d));
-	if (dest_get(d, g_restore_name, local)) {
-		say(true, "Could not fetch %s from %s", g_restore_name, dest_name(d));
-		pf_events_emit("Backup_Failed", "Restore failed", "Could not fetch %s from %s.", g_restore_name, dest_name(d));
+	loc_t all[MAX_LOC];
+	int n = locations(all, MAX_LOC);
+	/* the named location, or whichever has it -- a folder or a share before a cloud, being
+	 * nearer */
+	static const char *pref[] = { "folder", "smb", "onedrive", "gdrive" };
+	bool got = false;
+	for (int p = 0; p < 4 && !got; p++) for (int i = 0; i < n && !got; i++) {
+		if (!all[i].enabled || strcmp(all[i].type, pref[p])) continue;
+		if (g_restore_loc[0] && strcmp(all[i].id, g_restore_loc)) continue;
+		say(false, "Fetching %s from %s", g_restore_name, all[i].name);
+		if (loc_get(&all[i], g_restore_name, local) == 0) got = true;
+	}
+	if (!got) {
+		say(true, "Could not fetch %s from any location", g_restore_name);
+		pf_events_emit("Backup_Failed", "Restore failed", "Could not fetch %s.", g_restore_name);
 		goto done;
 	}
 	if (stage_and_restart(local, err, sizeof err)) {
@@ -986,12 +1199,13 @@ done:
 	return NULL;
 }
 
-int pf_backup_restore_named(const char *name, char *err, size_t n)
+int pf_backup_restore_named(const char *name, const char *loc_id, char *err, size_t n)
 {
 	if (!grill_idle()) { snprintf(err, n, "stop the grill first"); return -1; }
 	if (!name || !is_ours(name)) { snprintf(err, n, "not a PiFire backup name"); return -1; }
-	if (dest_now() == DEST_OFF) { snprintf(err, n, "no destination is set"); return -1; }
+	if (enabled_count() == 0) { snprintf(err, n, "no backup location is switched on"); return -1; }
 	pf_strlcpy(g_restore_name, name, sizeof g_restore_name);
+	pf_strlcpy(g_restore_loc, loc_id ? loc_id : "", sizeof g_restore_loc);
 	return start_worker(restore_thread, err, n);
 }
 
@@ -1079,33 +1293,58 @@ static int by_item_name_desc(const void *a, const void *b)
 	return strcmp(pf_json_str(*(cJSON *const *)b, "name", ""), pf_json_str(*(cJSON *const *)a, "name", ""));
 }
 
+/* every enabled location's listing, merged by name: one row per backup, saying where it is */
 cJSON *pf_backup_list(char *err, size_t n)
 {
-	dest_t d = dest_now();
-	cJSON *l = dest_list(d, err, n);
-	if (!l) return NULL;
-	/* newest first, by the time in the name */
-	int k = cJSON_GetArraySize(l);
-	if (k < 2) return l;
-	cJSON **items = calloc((size_t)k, sizeof *items);
-	if (!items) return l;
-	for (int i = 0; i < k; i++) items[i] = cJSON_DetachItemFromArray(l, 0);
+	loc_t all[MAX_LOC];
+	int nl = locations(all, MAX_LOC);
+	cJSON *merged = cJSON_CreateObject();
+	int reached = 0;
+	err[0] = 0;
+	for (int i = 0; i < nl; i++) {
+		if (!all[i].enabled) continue;
+		char e[240];
+		cJSON *l = loc_list(&all[i], e, sizeof e);
+		if (!l) { size_t el = strlen(err); snprintf(err + el, n - el, "%s%s: %.120s", el ? "; " : "", all[i].name, e); continue; }
+		reached++;
+		cJSON *f;
+		cJSON_ArrayForEach(f, l) {
+			const char *name = pf_json_str(f, "name", "");
+			cJSON *row = cJSON_GetObjectItem(merged, name);
+			if (!row) {
+				row = cJSON_AddObjectToObject(merged, name);
+				cJSON_AddStringToObject(row, "name", name);
+				cJSON_AddNumberToObject(row, "size", pf_json_num(f, "size", 0));
+				cJSON_AddNumberToObject(row, "ts", pf_json_num(f, "ts", 0) > 0 ? pf_json_num(f, "ts", 0) : ts_from_name(name));
+				cJSON_AddArrayToObject(row, "locations");
+			}
+			cJSON_AddItemToArray(cJSON_GetObjectItem(row, "locations"), cJSON_CreateString(all[i].id));
+		}
+		cJSON_Delete(l);
+	}
+	if (!reached && nl > 0) { cJSON_Delete(merged); if (!err[0]) snprintf(err, n, "no backup location is switched on"); return NULL; }
+	int k = cJSON_GetArraySize(merged);
+	cJSON **items = calloc((size_t)(k > 0 ? k : 1), sizeof *items);
+	for (int i = 0; i < k; i++) items[i] = cJSON_DetachItemFromArray(merged, 0);
+	cJSON_Delete(merged);
 	qsort(items, (size_t)k, sizeof *items, by_item_name_desc);
-	for (int i = 0; i < k; i++) cJSON_AddItemToArray(l, items[i]);
+	cJSON *out = cJSON_CreateArray();
+	for (int i = 0; i < k; i++) cJSON_AddItemToArray(out, items[i]);
 	free(items);
-	return l;
+	return out;
 }
 
-int pf_backup_test(char *msg, size_t n)
+int pf_backup_test(const char *loc_id, char *msg, size_t n)
 {
-	dest_t d = dest_now();
-	if (d == DEST_SMB) g.have_smb = smb_have();
+	loc_t L;
+	if (!find_loc(loc_id, &L)) { snprintf(msg, n, "no such location"); return -1; }
+	if (!strcmp(L.type, "smb")) g.have_smb = smb_have();
 	char err[240];
-	cJSON *l = dest_list(d, err, sizeof err);
+	cJSON *l = loc_list(&L, err, sizeof err);
 	if (!l) { snprintf(msg, n, "%s", err); return -1; }
 	int k = cJSON_GetArraySize(l);
 	cJSON_Delete(l);
-	snprintf(msg, n, "Reached %s: %d backup%s there.", dest_name(d), k, k == 1 ? "" : "s");
+	snprintf(msg, n, "Reached %s: %d backup%s there.", L.name, k, k == 1 ? "" : "s");
 	return 0;
 }
 
@@ -1114,7 +1353,7 @@ static double next_due(double last)
 {
 	char sched[16];
 	pf_set_str("backup.schedule", sched, sizeof sched, "off");
-	if (!strcmp(sched, "off") || dest_now() == DEST_OFF) return 0;
+	if (!strcmp(sched, "off") || enabled_count() == 0) return 0;
 	int hour = (int)pf_set_num("backup.hour", 3);
 	int wday = (int)pf_set_num("backup.weekday", 0);
 	int mday = (int)pf_set_num("backup.monthday", 1);
@@ -1137,10 +1376,10 @@ static double next_due(double last)
 
 cJSON *pf_backup_status_json(void)
 {
+	loc_t all[MAX_LOC];
+	int nl = locations(all, MAX_LOC);
 	pthread_mutex_lock(&g.mu);
 	cJSON *o = cJSON_CreateObject();
-	char dest[16]; pf_set_str("backup.destination", dest, sizeof dest, "off");
-	cJSON_AddStringToObject(o, "destination", dest);
 	cJSON_AddBoolToObject(o, "busy", g.busy);
 	cJSON_AddStringToObject(o, "message", g.message);
 	cJSON_AddBoolToObject(o, "error", g.msg_err);
@@ -1149,18 +1388,27 @@ cJSON *pf_backup_status_json(void)
 	cJSON_AddStringToObject(last, "name", g.last_name);
 	cJSON_AddNumberToObject(last, "size", (double)g.last_size);
 	cJSON_AddBoolToObject(last, "ok", g.last_ok);
-	cJSON_AddStringToObject(last, "message", g.last_msg);
-	cJSON_AddStringToObject(last, "where", g.last_where);
-	cJSON *gd = cJSON_AddObjectToObject(o, "gdrive");
-	cJSON_AddBoolToObject(gd, "connected", g.gdrive_connected);
+	cJSON *results = cJSON_Parse(g.last_results);
+	cJSON_AddItemToObject(last, "results", results ? results : cJSON_CreateObject());
 	if (g.dev.pending) {
-		cJSON *p = cJSON_AddObjectToObject(gd, "pending");
+		cJSON *p = cJSON_AddObjectToObject(o, "pending");
+		cJSON_AddStringToObject(p, "loc", g.dev.loc);
 		cJSON_AddStringToObject(p, "user_code", g.dev.user_code);
 		cJSON_AddStringToObject(p, "url", g.dev.url);
 		cJSON_AddNumberToObject(p, "expires", g.dev.expires);
 	}
 	double last_good_ts = g.last_good_ts;
 	pthread_mutex_unlock(&g.mu);
+	cJSON *locs = cJSON_AddArrayToObject(o, "locations");
+	for (int i = 0; i < nl; i++) {
+		cJSON *L = cJSON_CreateObject();
+		cJSON_AddStringToObject(L, "id", all[i].id);
+		cJSON_AddStringToObject(L, "type", all[i].type);
+		cJSON_AddStringToObject(L, "name", all[i].name);
+		cJSON_AddBoolToObject(L, "enabled", all[i].enabled);
+		if (is_cloud(&all[i])) cJSON_AddBoolToObject(L, "connected", connected(&all[i]));
+		cJSON_AddItemToArray(locs, L);
+	}
 	cJSON_AddNumberToObject(o, "next_ts", next_due(last_good_ts));
 	/* Found once at start and remembered -- except that "not there" is worth a second look now and
 	 * then: an upgrade used to restart the daemon before it installed smbclient, and the page said
@@ -1172,6 +1420,48 @@ cJSON *pf_backup_status_json(void)
 
 /* ---- lifecycle ----------------------------------------------------------------------------- */
 
+/* The page before this one had one destination in backup.destination with its fields beside it.
+ * Turned into the first location, once, so nothing set up there is lost. */
+static void migrate_single_destination(void)
+{
+	char dest[16];
+	pf_set_str("backup.destination", dest, sizeof dest, "");
+	cJSON *have = pf_set_dup("backup.locations");
+	bool any = cJSON_IsArray(have) && cJSON_GetArraySize(have) > 0;
+	cJSON_Delete(have);
+	if (any || !dest[0] || !strcmp(dest, "off")) return;
+	cJSON *L = cJSON_CreateObject();
+	cJSON_AddStringToObject(L, "id", "loc-1");
+	cJSON_AddStringToObject(L, "type", dest);
+	cJSON_AddBoolToObject(L, "enabled", true);
+	char v[256];
+	if (!strcmp(dest, "gdrive")) {
+		cJSON_AddStringToObject(L, "name", "Google Drive");
+		pf_set_str("backup.gdrive.client_id", v, sizeof v, ""); cJSON_AddStringToObject(L, "client_id", v);
+		pf_set_str("backup.gdrive.client_secret", v, sizeof v, ""); cJSON_AddStringToObject(L, "client_secret", v);
+		pf_set_str("backup.gdrive.folder", v, sizeof v, "PiFire Backups"); cJSON_AddStringToObject(L, "cloud_folder", v);
+		/* the token was filed under the old single key */
+		char buf[3000];
+		if (pf_db_kv_get("backup", "gdrive", buf, sizeof buf) == 0) { pf_db_kv_put("backup", "token:loc-1", buf); pf_db_kv_delete("backup", "gdrive"); }
+	} else if (!strcmp(dest, "smb")) {
+		cJSON_AddStringToObject(L, "name", "Network share");
+		pf_set_str("backup.smb.host", v, sizeof v, ""); cJSON_AddStringToObject(L, "host", v);
+		pf_set_str("backup.smb.share", v, sizeof v, ""); cJSON_AddStringToObject(L, "share", v);
+		pf_set_str("backup.smb.path", v, sizeof v, "PiFire"); cJSON_AddStringToObject(L, "path", v);
+		pf_set_str("backup.smb.user", v, sizeof v, ""); cJSON_AddStringToObject(L, "user", v);
+		pf_set_str("backup.smb.password", v, sizeof v, ""); cJSON_AddStringToObject(L, "password", v);
+	} else if (!strcmp(dest, "folder")) {
+		cJSON_AddStringToObject(L, "name", "Folder");
+		pf_set_str("backup.folder.path", v, sizeof v, ""); cJSON_AddStringToObject(L, "folder", v);
+	} else { cJSON_Delete(L); return; }
+	cJSON *arr = cJSON_CreateArray();
+	cJSON_AddItemToArray(arr, L);
+	pf_set_put("backup.locations", arr);
+	pf_set_put_str("backup.destination", "off");
+	pf_settings_save();
+	LOGI(TAG, "moved the %s destination into the locations list", dest);
+}
+
 void pf_backup_init(const char *data_dir, const char *config_path, bool sim)
 {
 	pf_strlcpy(g.data_dir, data_dir, sizeof g.data_dir);
@@ -1179,9 +1469,8 @@ void pf_backup_init(const char *data_dir, const char *config_path, bool sim)
 	snprintf(g.work, sizeof g.work, "%s/backup", data_dir);
 	g.sim = sim;
 	pf_mkdir_p(g.work);
+	migrate_single_destination();
 	load_last();
-	char buf[64];
-	g.gdrive_connected = pf_db_kv_get("backup", "gdrive", buf, sizeof buf) == 0;
 	g.have_smb = sim ? true : smb_have();
 	char done[600];
 	snprintf(done, sizeof done, "%s/restored", g.work);
@@ -1199,7 +1488,8 @@ void pf_backup_init(const char *data_dir, const char *config_path, bool sim)
 		}
 	}
 	if (d) closedir(d);
-	LOGI(TAG, "backups: %s, %s", dest_name(dest_now()), g.last_ts > 0 ? g.last_name : "none yet");
+	int k = enabled_count();
+	LOGI(TAG, "backups: %d location%s, %s", k, k == 1 ? "" : "s", g.last_ts > 0 ? g.last_name : "none yet");
 }
 
 void pf_backup_tick(double now)
@@ -1211,9 +1501,9 @@ void pf_backup_tick(double now)
 	double good = g.last_good_ts, attempt = g.last_ts;
 	pthread_mutex_unlock(&g.mu);
 	if (busy) return;
-	/* Counted from the last backup that got there, so one that failed is tried again -- an hour
-	 * later, not every minute, and announced once per streak rather than every hour. A slot missed
-	 * while the grill was switched off runs when it comes back. */
+	/* Counted from the last backup that got everywhere, so one that failed is tried again -- an
+	 * hour later, not every minute, and announced once per streak rather than every hour. A slot
+	 * missed while the grill was switched off runs when it comes back. */
 	double due = next_due(good);
 	if (due <= 0 || pf_wall() < due) return;
 	if (attempt > good && pf_wall() - attempt < 3600) return;

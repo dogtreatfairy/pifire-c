@@ -1,4 +1,4 @@
-import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, dialog, pushScreen, numberDialog, toast, confirmDialog, segmented, actionBtn, itemRow, iconBtn, addRow, patchSettings, screenActions } from '../app.js';
+import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, dialog, pushScreen, numberDialog, toast, confirmDialog, segmented, actionBtn, itemRow, iconBtn, addRow, transferRow, patchSettings, screenActions } from '../app.js';
 import { fmtEta } from './probes.js';
 import { icon as lucide, MODE_ICON } from '../icons.js';
 /* The same condition cards, rows and picker the notification editor is made of. A step ending is
@@ -537,6 +537,12 @@ export function renderCook(view) {
     if (!list.length) recipeList.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' },
       'No recipes yet. A recipe is a list of stages the grill runs for you.'));
     recipeList.append(addRow('Add Recipe', () => edit({ name: '', description: '', steps: [{ mode: 'Startup' }, blankStep(), { mode: 'Shutdown' }] }, true)));
+    recipeList.append(transferRow({
+      what: 'recipes', filename: 'pifire-recipes',
+      fetchDoc: () => api('/recipes/export'),
+      confirmText: 'A recipe with the same name as one on the grill replaces it; the rest are added.',
+      importDoc: async (doc) => { const r = await api('/recipes/import', { body: doc }); toast(`Imported ${r.imported} recipe${r.imported === 1 ? '' : 's'}${r.replaced ? `, ${r.replaced} replaced` : ''}`); loadRecipes(); },
+    }));
   }).catch(() => {});
   if (showRecipes) loadRecipes();
 

@@ -710,6 +710,38 @@ export function iconBtn(icon, title, attrs = {}) {
   return el('button', { type: 'button', title, 'aria-label': title, ...rest, class: `btn icon ${cls || ''}` }, lucide(icon, 'ic btn-ic'));
 }
 
+/* Every collection travels as a file, the same way: Export on the left (it takes nothing away),
+   Import on the right (it changes the list, so it is the committing action and it confirms).
+   Under the Add row, on every list that has one -- recipes, notifications, the tuning library. */
+export function transferRow({ what, filename, fetchDoc, importDoc, confirmText }) {
+  const download = async () => {
+    try {
+      const doc = await fetchDoc();
+      const name = `${filename}-${new Date().toISOString().slice(0, 10)}.json`;
+      const url = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }));
+      const a = el('a', { href: url, download: name });
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      toast(`Exported ${what}`);
+    } catch (e) { toast(e.message, true); }
+  };
+  const upload = () => {
+    const f = el('input', { type: 'file', accept: 'application/json,.json' });
+    f.onchange = async () => {
+      const file = f.files?.[0];
+      if (!file) return;
+      let doc;
+      try { doc = JSON.parse(await file.text()); } catch { toast(`${file.name} is not a JSON file`, true); return; }
+      if (!await confirmDialog(`Import ${what} from ${file.name}?`, confirmText, 'Import')) return;
+      try { await importDoc(doc); } catch (e) { toast(e.message || `That file does not hold ${what}`, true); }
+    };
+    f.click();
+  };
+  return el('div', { class: 'btnrow transfer' },
+    el('button', { class: 'btn ghost', type: 'button', onclick: download }, lucide('download', 'ic btn-ic'), el('span', {}, 'Export')),
+    el('button', { class: 'btn ghost', type: 'button', onclick: upload }, lucide('upload', 'ic btn-ic'), el('span', {}, 'Import')));
+}
+
 /* The way to add another one: a full-width outlined button at the FOOT of the list it adds to,
    where the eye ends up after reading what is already there. */
 export function addRow(label, onclick) {

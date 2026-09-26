@@ -71,6 +71,10 @@ void pf_recipes_seed(void);
 cJSON *pf_recipes_list(void);                       /* [{id,name,description,steps:[...]}] */
 int  pf_recipe_save(const char *json, char *err, size_t errn);   /* returns id or <0 */
 int  pf_recipe_delete(int id);
+/* Every recipe as a file, and a file's recipes back in: one with the same name is replaced, a
+ * new one added. Returns how many came in, or <0 with err. */
+cJSON *pf_recipes_export(void);
+int  pf_recipes_import(cJSON *doc, int *replaced, char *err, size_t errn);
 /* What is wrong with the shape of a recipe's steps, as [{code,message}]: "no_startup" when it
  * cooks without lighting the grill first, "no_shutdown" when it finishes without putting it out.
  * Advisory -- see the note on the implementation for why neither is enforced. Caller frees. */
