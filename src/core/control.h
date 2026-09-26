@@ -179,6 +179,7 @@ typedef struct {
 		double cyc_sum; int cyc_n;
 		double worst_split;     /* the most lopsided full cycle seen, as time-high / time-low */
 		int adjusts;            /* times the relay has been re-conditioned (centre or swing) */
+		double last_c_step;     /* how far the last centring moved, so a run can tell converging from wandering */
 		int adjust_at_cross;    /* the crossing it was last conditioned at: what follows is the measurement */
 		/* Where the swing actually sat, over the cycles the result is taken from. A limit cycle
 		 * that averages off the set point is measuring the grill somewhere other than where it is

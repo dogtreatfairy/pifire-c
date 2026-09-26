@@ -1894,7 +1894,16 @@ static double autotune_step(pf_control *c, double now)
 			 * belongs to the next one. */
 			if (!widened) {
 			bool material = fabs(c_step) > 0.15 * c->autotune.h;
-			if (material && c->autotune.adjusts < 2) {
+			/* A cap of two centrings was a budget, not a test of anything. A pellet grill relights
+			 * slower than it starves, so its limit cycle is asymmetric and the first centring
+			 * lands past the answer as often as short of it: tonight's run went 0.328, 0.263,
+			 * 0.292 and was then forbidden a fourth move, leaving it to finish uncentred or grind
+			 * to the crossing cap. What decides whether another centring is worth making is
+			 * whether they are converging: each step smaller than the last. A run that is homing
+			 * in may keep going, within reason; one that is wandering is stopped where it was. */
+			bool converging = c->autotune.adjusts < 2 || fabs(c_step) < 0.8 * fabs(c->autotune.last_c_step);
+			if (material && converging && c->autotune.adjusts < 5) {
+				c->autotune.last_c_step = c_step;
 				c->autotune.u_center = centre;
 				pf_control_autotune_size(c);
 				c->autotune.adjusts++;
