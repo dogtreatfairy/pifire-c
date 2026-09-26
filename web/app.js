@@ -698,7 +698,8 @@ export function itemRow(o) {
       el('span', { class: 'body' },
         el('span', { class: 't' }, o.title, o.badge ? el('span', { class: 'badge-pill' }, o.badge) : null),
         o.meta ? el('span', { class: 's' }, o.meta) : null),
-      lucide('chevron-right', 'ic chev')),
+      /* the chevron says "this opens"; a row whose own actions include a pencil has said it already */
+      o.chevron === false ? null : lucide('chevron-right', 'ic chev')),
     o.actions?.length ? el('div', { class: 'irow-acts' }, o.actions) : null);
 }
 

@@ -524,6 +524,17 @@ the subtitle, because that is where the eye looks for the answer to "what is thi
 detail, a **badge** when it is the one in use (`Loaded`, the equivalent of `Default`), and the
 action on it as a **bare icon** at the end. The row itself opens it.
 
+A saved-item row's actions are the things done to it *without* opening it -- Play on a recipe,
+Remove on a step. When one of them is a pencil, the row has said "this opens" already and carries
+no chevron. **Delete is never on the row.** It is on the item's own screen, in the footer, behind a
+confirmation that names what is about to go.
+
+**A collection is never cards.** A recipe was once a card with a description, a row of stage chips
+and a labelled Run button, on the argument that a plan you read before committing six hours to it
+deserved the room. It did not: it was three settings rows with padding, and it looked like nothing
+else in the app. Whatever the item, a list of saved things is this row, in an inset list, with its
+one line of summary. The argument that *this* item is special is the tell that the shape is wrong.
+
 **A toggle row** — title, optional one-line subtitle, and the switch. Nothing else; whatever the
 switch governs is behind the row.
 

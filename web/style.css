@@ -527,26 +527,6 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .tb-ind.ok { color: var(--ok-ink); } .tb-ind.warn { color: var(--warn-ink); } .tb-ind.bad { color: var(--danger-ink); } .tb-ind.muted { color: var(--line); }
 .tb-ind svg { width: 19px; height: 19px; }
 .tb-ind .sig.wifi { color: var(--text); }
-/* ---- the recipes, as a shelf of cards ---- */
-.recipe-shelf { display: flex; flex-direction: column; gap: var(--sp-3); }
-.recipe-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; }
-.recipe-main { display: block; width: 100%; text-align: left; background: none; border: 0; color: inherit; padding: 14px 14px 12px; cursor: pointer; }
-.recipe-head { display: flex; align-items: center; gap: var(--sp-3); }
-/* the same tile and chevron a list row has, so a card reads as the row it grew from */
-.recipe-head .tile { flex: none; width: 26px; height: 26px; border-radius: var(--r-sm); display: inline-flex; align-items: center; justify-content: center;
-  color: var(--tile-ink, var(--on-tile)); background: var(--tile, var(--accent)); box-shadow: none; }
-.recipe-head .tile .ic { width: 16px; height: 16px; stroke-width: 2.2; flex: none; }
-.recipe-head .chev { width: 16px; height: 16px; color: var(--muted); flex: none; }
-.chip.stage::before { display: none; }
-.recipe-title { flex: 1 1 auto; min-width: 0; }
-.recipe-title .t { font-size: var(--fs-lg); font-weight: var(--fw-medium); }
-.recipe-title .s { font-size: var(--fs-xs); color: var(--muted); margin-top: 2px; }
-.recipe-desc { margin: 10px 0 0; font-size: var(--fs-sm); color: var(--muted); }
-.recipe-stages { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.chip.stage { font-variant-numeric: tabular-nums; }
-.recipe-acts { display: flex; justify-content: flex-end; padding: 0 14px 14px; }
-.recipe-acts .btn { gap: 6px; min-width: 7rem; justify-content: center; }
-
 /* ---- the recipe that is running ---- */
 /* While a recipe runs this card is the page. It sits above everything else on Cook, and when the
    recipe is waiting on the cook it says so in a line you cannot skim past, with one button under
