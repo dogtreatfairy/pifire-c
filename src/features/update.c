@@ -8,6 +8,7 @@
 #include "core/status.h"
 #include "core/util.h"
 #include <pthread.h>
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +22,7 @@
 #define TAG "update"
 
 typedef enum { ST_IDLE, ST_CHECKING, ST_DOWNLOADING, ST_VERIFYING, ST_INSTALLING, ST_ERROR } state_t;
+static const char *const names[] = { "idle", "checking", "downloading", "verifying", "installing", "error" };
 
 static struct {
 	pthread_mutex_t mu;
@@ -33,6 +35,7 @@ static struct {
 	bool available;
 	double progress;   /* 0..1 while downloading */
 	char last_notified[32];
+	cJSON *installed;   /* the release this daemon was installed as, with its notes, for the app to announce */
 } g = { .mu = PTHREAD_MUTEX_INITIALIZER };
 
 const char *pf_update_arch(void)
@@ -332,6 +335,18 @@ static void *install_thread(void *arg)
 		if (rc != 0) { set_state(ST_ERROR, "apply failed (%d): %.150s", rc, out); goto done; }
 	}
 	set_state(ST_INSTALLING, "installed %s - restarting", latest);
+	/* the next daemon announces this: which release, from which, and what changed */
+	if (pf_db_handle()) {
+		cJSON *inst = cJSON_CreateObject();
+		cJSON_AddStringToObject(inst, "tag", latest);
+		cJSON_AddStringToObject(inst, "from", PF_VERSION);
+		pthread_mutex_lock(&g.mu); cJSON_AddStringToObject(inst, "notes", g.notes); pthread_mutex_unlock(&g.mu);
+		cJSON_AddNumberToObject(inst, "ts", pf_wall());
+		char *txt = cJSON_PrintUnformatted(inst);
+		if (txt) pf_db_kv_put("update", "installed", txt);
+		free(txt);
+		cJSON_Delete(inst);
+	}
 done:
 #else
 	set_state(ST_ERROR, "built without libcurl");
@@ -367,7 +382,6 @@ int pf_update_install(char *err, size_t n)
 
 cJSON *pf_update_status_json(void)
 {
-	static const char *const names[] = { "idle", "checking", "downloading", "verifying", "installing", "error" };
 	pthread_mutex_lock(&g.mu);
 	cJSON *o = cJSON_CreateObject();
 	cJSON_AddStringToObject(o, "current", PF_VERSION);
@@ -386,6 +400,7 @@ cJSON *pf_update_status_json(void)
 	cJSON_AddNumberToObject(o, "progress", g.progress);
 	cJSON_AddNumberToObject(o, "checked_at", g.checked_at);
 	cJSON_AddBoolToObject(o, "busy", g.busy);
+	if (g.installed) cJSON_AddItemToObject(o, "installed", cJSON_Duplicate(g.installed, true));
 	pthread_mutex_unlock(&g.mu);
 	return o;
 }
@@ -397,7 +412,24 @@ void pf_update_init(const char *data_dir, bool sim)
 	g.state = ST_IDLE;
 	snprintf(g.message, sizeof g.message, "not checked yet");
 	g.next_check = pf_now() + 120;  /* first automatic check two minutes after boot */
+	/* what the last install left behind: kept while it names the version now running */
+	char *txt = pf_db_handle() ? pf_db_kv_get_dup("update", "installed") : NULL;
+	if (txt) {
+		cJSON *inst = cJSON_Parse(txt);
+		free(txt);
+		const char *tag = pf_json_str(inst, "tag", "");
+		if (inst && pf_version_compare(tag, PF_VERSION) == 0) g.installed = inst;
+		else { cJSON_Delete(inst); pf_db_kv_delete("update", "installed"); }
+	}
 	LOGI(TAG, "version %s (%s)", PF_VERSION, pf_update_arch());
+}
+
+void pf_update_stage(char *state, size_t n, double *progress)
+{
+	pthread_mutex_lock(&g.mu);
+	pf_strlcpy(state, names[g.state], n);
+	if (progress) *progress = g.progress;
+	pthread_mutex_unlock(&g.mu);
 }
 
 /* Install on its own, when allowed: the switch is on, a newer release is installable, nothing
@@ -416,10 +448,19 @@ static void auto_install(double now)
 	pf_strlcpy(tag, g.latest, sizeof tag);
 	pthread_mutex_unlock(&g.mu);
 	if (!go) return;
+	/* only in the install hour, two in the morning by default: an update that lands the moment a
+	 * page is opened is an update nobody chose the time of */
+	time_t wall = time(NULL);
+	struct tm lt;
+	localtime_r(&wall, &lt);
+	int hour = (int)pf_set_num("update.auto_install_hour", 2);
+	if (hour < 0 || hour > 23) hour = 2;
+	if (lt.tm_hour != hour) { not_before = now + 60; return; }
 	pf_status st;
 	pf_status_get(&st);
 	bool idle = st.mode == PF_MODE_STOP || st.mode == PF_MODE_MONITOR;
-	if (!idle || pf_tuner_active(NULL, NULL, NULL)) { not_before = now + 60; return; }   /* ask again in a minute */
+	/* never with a cook on, a timer running, a recipe in hand or a tuning run going */
+	if (!idle || st.timer.running || st.recipe.active || pf_tuner_active(NULL, NULL, NULL)) { not_before = now + 60; return; }
 	pf_strlcpy(tried, tag, sizeof tried);
 	char err[160];
 	if (pf_update_install(err, sizeof err) == 0) {

@@ -1,6 +1,7 @@
 #include "core/status.h"
 #include "features/tuner.h"
 #include "features/alarms.h"
+#include "features/update.h"
 #include "core/settings.h"
 #include "core/util.h"
 #include "features/learning.h"
@@ -77,6 +78,15 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 		cJSON_AddStringToObject(o, "attention", word);   /* what the panel flashes until it is acknowledged */
 	}
 	cJSON_AddBoolToObject(o, "sim", s->sim);
+	cJSON_AddStringToObject(o, "version", PF_VERSION);
+	{
+		/* the updater's stage, so any page can say Downloading, Updating, Rebooting */
+		char st[16] = "idle"; double pr = 0;
+		pf_update_stage(st, sizeof st, &pr);
+		cJSON *u = cJSON_AddObjectToObject(o, "update");
+		cJSON_AddStringToObject(u, "state", st);
+		cJSON_AddNumberToObject(u, "progress", pr);
+	}
 	cJSON_AddNumberToObject(o, "hopper_pct", s->hopper_pct);
 	add_num_or_null(o, "ambient", r1(conv(s->ambient_c, units)));
 

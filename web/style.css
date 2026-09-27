@@ -294,6 +294,14 @@ small, .muted { color: var(--muted); }
 .setpoint-row .btn { width: 56px; height: 46px; padding: 0; font-size: var(--fs-xl); }
 .setpoint-row .value { min-width: 110px; font-size: var(--fs-xl); font-weight: 600; font-variant-numeric: tabular-nums; }
 .upd-stage { color: var(--accent-ink); font-weight: 600; font-size: var(--fs-md); margin-bottom: 8px; }
+/* the whole screen while the daemon updates itself: a turning ring, the stage, the detail */
+.upd-overlay { position: fixed; inset: 0; z-index: 60; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center; }
+.upd-overlay[hidden] { display: none; }
+.upd-overlay .upd-stage { font-size: var(--fs-xl); color: var(--text); margin: 0; }
+.upd-overlay .upd-detail { font-size: var(--fs-md); font-variant-numeric: tabular-nums; min-height: 1.3em; }
+.upd-ring { width: 56px; height: 56px; border-radius: 50%; border: 5px solid var(--surface2); border-top-color: var(--accent); animation: upd-turn 1s linear infinite; }
+@keyframes upd-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .upd-ring { animation-duration: 3s; } }
 .changelog { margin: 8px 0 12px; padding-left: 18px; color: var(--text); font-size: var(--fs-sm); line-height: 1.35; }
 .changelog li { margin: 3px 0; }
 .progress { height: 6px; border-radius: var(--r-sm); background: var(--surface2); overflow: hidden; margin-top: 8px; }
@@ -1151,7 +1159,7 @@ button.dt-cells > .chev { position: absolute; right: var(--pad-x); top: 50%; tra
 .ios-list .row.danger .t { color: var(--danger-ink); }
 /* Icon tiles are flat squares in one colour: an identifier, not an ornament. */
 .ios-list .tile, .ios-fold .tile { flex: none; width: 26px; height: 26px; border-radius: var(--r-sm); display: inline-flex; align-items: center; justify-content: center;
-  color: var(--tile-ink, var(--on-tile)); background: var(--tile, var(--accent)); box-shadow: none; }
+  color: var(--tile-ink, var(--tile-ink-auto, var(--on-tile))); background: var(--tile, var(--accent)); box-shadow: none; }
 .ios-list .tile .ic, .ios-fold .tile .ic { width: 16px; height: 16px; stroke-width: 2.2; flex: none; }
 /* A brand mark is its own tile: it carries the shape and the colour, so the coloured square behind
    it would only fight it. The corner radius is kept so it sits in the same grid as the others. */
@@ -1460,6 +1468,7 @@ main.view:has(> .screen-actions) { padding-bottom: calc(var(--tab-h) + env(safe-
       --line: var(--line-l); --line2: var(--line2-l); --text: var(--text-l); --muted: var(--muted-l);
       --accent-ink: var(--accent-ink-l); --ok-ink: var(--ok-ink-l); --warn-ink: var(--warn-ink-l);
       --danger-ink: var(--danger-ink-l); --info-ink: var(--info-ink-l);
+      --tile-ink: #fff;
     }
   }
   :root[data-theme="light"] {
@@ -1467,5 +1476,6 @@ main.view:has(> .screen-actions) { padding-bottom: calc(var(--tab-h) + env(safe-
     --line: var(--line-l); --line2: var(--line2-l); --text: var(--text-l); --muted: var(--muted-l);
       --accent-ink: var(--accent-ink-l); --ok-ink: var(--ok-ink-l); --warn-ink: var(--warn-ink-l);
       --danger-ink: var(--danger-ink-l); --info-ink: var(--info-ink-l);
+      --tile-ink: #fff;
   }
 }

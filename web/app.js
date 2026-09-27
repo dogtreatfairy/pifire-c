@@ -622,16 +622,66 @@ export function screenActions({ onDelete, deleteTitle = 'Delete', onCancel, onSa
      save]);
 }
 
+/* While the daemon updates itself -- from the update page or on its own at two in the morning with
+   the app open -- every page shows the same full-screen stage: a turning ring, Downloading with the
+   percentage, Updating, then Rebooting once the daemon has gone away, until it answers again
+   running the new version, when the app reloads itself. */
+let updOverlay = null, updWasBusy = false, updBootVersion = null;
+export function showUpdateOverlay(stage, detail) {
+  if (!updOverlay) {
+    updOverlay = el('div', { class: 'upd-overlay', role: 'status' }, el('div', { class: 'upd-ring' }), el('div', { class: 'upd-stage' }), el('div', { class: 'upd-detail muted' }));
+    document.body.append(updOverlay);
+  }
+  updOverlay.querySelector('.upd-stage').textContent = stage;
+  updOverlay.querySelector('.upd-detail').textContent = detail || '';
+  updOverlay.hidden = false;
+}
+function hideUpdateOverlay() { if (updOverlay) updOverlay.hidden = true; }
+function watchUpdate(s) {
+  const st = s?.update?.state;
+  if (updBootVersion == null && s?.version) updBootVersion = s.version;
+  if (st === 'downloading') { updWasBusy = true; showUpdateOverlay('Downloading…', `${Math.round((s.update.progress || 0) * 100)}%`); }
+  else if (st === 'verifying' || st === 'installing') { updWasBusy = true; showUpdateOverlay('Updating…', ''); }
+  else if (updWasBusy && s?.version && updBootVersion && s.version !== updBootVersion) {
+    /* the daemon is back, running something newer: fetch the new shell and start again */
+    showUpdateOverlay('Reloading…', s.version);
+    updWasBusy = false;
+    (async () => { try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); } catch { /* no worker */ } setTimeout(() => location.reload(), 1200); })();
+  } else if (updWasBusy && !PF.connected) showUpdateOverlay('Rebooting…', '');
+  else if (updWasBusy && st === 'error') { updWasBusy = false; hideUpdateOverlay(); toast(s.update.message || 'The update failed', true); }
+  else if (!updWasBusy) hideUpdateOverlay();
+}
+onStatus(watchUpdate);
+
 /* After an update the app reloads itself and says, once, what it is now running and what changed.
    The change log is the release's notes -- one line per change, written when the change was made --
    so it is short, and it is the same text the update page offered before the install. */
 export function updatedDialog(u) {
   const lines = String(u.notes || '').split(/\r?\n/).map((l) => l.replace(/^\s*[-*]\s+/, '').trim()).filter((l) => l && !/^#|^\*\*Full Changelog/.test(l));
+  const log = el('ul', { class: 'changelog', hidden: true }, lines.length ? lines.map((l) => el('li', {}, l)) : el('li', {}, 'No notes for this release'));
   return dialog((close) => el('div', {},
-    el('h3', {}, `Updated to ${u.to}`),
-    el('p', { class: 'muted' }, `The update from ${u.from} installed and the controller is running ${u.to}.`),
-    lines.length ? el('ul', { class: 'changelog' }, lines.slice(0, 12).map((l) => el('li', {}, l))) : null,
-    el('div', { class: 'btnrow' }, el('button', { class: 'btn primary', type: 'button', onclick: () => close(true) }, 'OK'))));
+    el('h3', {}, `Updated to ${String(u.to).replace(/^v/, '')}`),
+    el('p', { class: 'muted' }, u.from ? `From ${String(u.from).replace(/^v/, '')}.` : ''),
+    log,
+    /* dismissive left, committing right: Close, then the change log, which is the thing to look at */
+    el('div', { class: 'btnrow' },
+      el('button', { class: 'btn ghost', type: 'button', onclick: () => close(true) }, 'Close'),
+      el('button', { class: 'btn primary', type: 'button', onclick: (e) => { log.hidden = !log.hidden; e.currentTarget.textContent = log.hidden ? 'Changelog' : 'Hide changelog'; } }, 'Changelog'))));
+}
+
+/* What the last install left: shown once per device, whether the install was asked for on the
+   update page or happened on its own overnight and the app was simply opened afterwards. */
+async function announceInstall() {
+  try {
+    const u = await api('/update', { timeout: 5000 });
+    const inst = u?.installed;
+    if (!inst?.ts) return;
+    let seen = 0;
+    try { seen = Number(localStorage.getItem('pf.install_seen') || 0); } catch { /* private mode */ }
+    if (inst.ts <= seen) return;
+    try { localStorage.setItem('pf.install_seen', String(inst.ts)); } catch { /* private mode */ }
+    updatedDialog({ to: u.current || inst.tag, from: inst.from, notes: inst.notes });
+  } catch { /* offline: next time */ }
 }
 
 export function confirmDialog(title, text, okLabel = 'Confirm', danger = false) {
@@ -1128,10 +1178,7 @@ setTimeout(fitViewport, 500);
   emit();
   connect();
   updateBadge();
-  try {
-    const u = JSON.parse(localStorage.getItem('pf.updated') || 'null');
-    if (u) { localStorage.removeItem('pf.updated'); setTimeout(() => updatedDialog(u), 900); }
-  } catch { /* nothing to say */ }
+  setTimeout(announceInstall, 900);
   document.getElementById('bell')?.addEventListener('click', openNotifications);
   document.getElementById('ind-timer')?.addEventListener('click', (e) => headerPanel(e.currentTarget, timerPanel));
   setTimeout(installHint, 2500);

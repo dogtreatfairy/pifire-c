@@ -64,12 +64,6 @@ const PAGES = [
     I('max_duty_cycle', 'Maximum fan speed (%)', '', { min: 10, max: 100 }),
     I('update_time', 'Speed update interval (s)', '', { min: 1 }),
   ] }] },
-  { key: 'lid', title: 'Lid-Open Detection', sub: 'Pause feed on lid open', section: 'Cooking', icon: 'lock-open', color: '#ffd60a', sections: [{ id: 'cycle_data', fields: [
-    B('LidOpenDetectEnabled', 'Detect an open lid', 'A sudden temperature drop pauses the auger so the pot does not overfill'),
-    I('LidOpenThreshold', 'Drop that counts as open (%)', 'Percentage below the set point', { min: 1, max: 50 }),
-    I('LidOpenPauseTime', 'Pause length (s)', '', { min: 10 }),
-  ] }] },
-  // ---- Safety
   { key: 'safety', title: 'Temperature Limits', sub: 'High-temp cutoff, flame-out', section: 'Safety', icon: 'shield-check', color: '#ff453a', sections: [{ id: 'safety', fields: [
     T('maxtemp', 'High-temperature cutoff', 'Above this in any mode everything shuts off and the grill goes to Error'),
     B('relight_enabled', 'Flame-out protection', 'Relights the igniter if the pit falls away while holding'),
@@ -84,6 +78,11 @@ const PAGES = [
     I('probe_fault_s', 'Pit probe timeout (s)', 'Seconds without a valid pit reading before Error', { min: 3 }),
     I('error_cooldown_fan_s', 'Fan run after an error (s)', 'Cools the pot when the grill errors while hot', { min: 0 }),
   ] }] },
+  { key: 'powerloss', title: 'Power Loss', sub: 'Pick a cook back up after an outage', section: 'Safety', icon: 'zap', color: '#ff9f0a', sections: [{ id: 'safety', title: '', fields: [
+    B('power_loss.recovery', 'Recover after a power loss', 'Relight and carry on with the cook if the power comes back in time'),
+    I('power_loss.max_s', 'Longest outage to recover from (s)', 'Out longer than this and the grill goes to Error rather than lighting a pot nobody has checked', { min: 30, max: 3600 }),
+    I('power_loss.igniter_s', 'Relight for (s)', 'How long the igniter runs before the cook resumes', { min: 30, max: 900 }),
+  ] }] },
   { key: 'coldstart', title: 'Cold-Weather Start', sub: 'Confirm ignition by temperature rise', section: 'Safety', icon: 'snowflake', color: '#5ac8fa', sections: [{ id: 'safety', fields: [
     B('coldstart.enabled', 'Cold-weather start', 'Stay in startup until the pit rises from its cold baseline'),
     { path: 'coldstart.delta_rise', label: 'Rise that confirms ignition', help: 'Above the baseline measured in the first minute', type: 'tempdelta' },
@@ -97,7 +96,15 @@ const PAGES = [
     I('manual_override_time', 'Manual override lasts (s)', '', { min: 5 }),
   ] }] },
   // ---- Cook
-  { key: 'keepwarm', title: 'Keep Warm', sub: 'After a probe reaches target', section: 'Cooking', icon: 'flame', color: '#ff6b35', sections: [{ id: 'keep_warm', fields: [T('temp', 'Keep-warm temperature', ''), B('s_plus', 'Use Smoke+ while keeping warm', '')] }] },
+  { key: 'misc', title: 'Misc', sub: 'Auger rate, lid-open detection, keep warm', section: 'Cooking', icon: 'sliders-horizontal', color: '#8e8e93', sections: [
+    { id: 'globals', title: 'Auger', fields: [N('augerrate', 'Auger rate (g/s)', 'Pellets delivered per second of auger run; used for priming and usage estimates', { step: 0.01, min: 0.01 })] },
+    { id: 'cycle_data', title: 'Lid-open detection', fields: [
+    B('LidOpenDetectEnabled', 'Detect an open lid', 'A sudden temperature drop pauses the auger so the pot does not overfill'),
+    I('LidOpenThreshold', 'Drop that counts as open (%)', 'Percentage below the set point', { min: 1, max: 50 }),
+    I('LidOpenPauseTime', 'Pause length (s)', '', { min: 10 }),
+  ] },
+    { id: 'keep_warm', title: 'Keep warm', fields: [T('temp', 'Keep-warm temperature', 'After a probe reaches its target with Keep warm chosen'), B('s_plus', 'Use Smoke+ while keeping warm', '')] },
+  ] },
   { key: 'pellets', title: 'Pellets & Hopper', sub: 'Loaded pellets, brands, hopper sensor', section: 'Cooking', icon: 'package', color: '#ac8e68', custom: pelletsPage },
   { key: 'history', title: 'Data & History', sub: 'Chart sampling and retention', section: 'System', icon: 'database', color: '#5e5ce6', sections: [{ id: 'history', fields: [
     I('sample_s', 'Sample every (s)', '', { min: 1, max: 60 }), I('retention_hours', 'Keep for (hours)', '', { min: 1 }), B('clear_on_startup', 'Clear the chart when a cook starts', ''),
@@ -156,10 +163,9 @@ const PAGES = [
   { key: 'remote', title: 'Tailscale', sub: 'Remote access over the tailnet', section: 'Network', brand: 'tailscale', custom: (v) => import('./more.js').then((m) => m.remote(v)) },
   { key: 'webserver', title: 'Web Server', sub: 'Port', section: 'Network', icon: 'network', color: '#8e8e93', sections: [{ id: 'web', fields: [I('port', 'Port', 'Restart required', { min: 1, max: 65535 })] }] },
   // ---- System
-  { key: 'general', title: 'General', sub: 'Name, units, auger rate', section: 'System', icon: 'settings-2', color: '#8e8e93', sections: [{ id: 'globals', fields: [
+  { key: 'general', title: 'General', sub: 'Name, units', section: 'System', icon: 'settings-2', color: '#8e8e93', sections: [{ id: 'globals', fields: [
     X('grill_name', 'Grill name', 'Shown in the header and in notifications'),
     S('units', 'Temperature units', 'All temperature settings convert automatically', [['F', 'Fahrenheit'], ['C', 'Celsius']]),
-    N('augerrate', 'Auger rate (g/s)', 'Pellets delivered per second of auger run; used for priming and usage estimates', { step: 0.01, min: 0.01 }),
     B('prime_ignition', 'Igniter on while priming', ''),
     B('debug_mode', 'Debug logging', ''),
   ] }] },
@@ -174,7 +180,8 @@ const PAGES = [
     I('check_interval_h', 'Check every (hours)', '', { min: 1, max: 720 }),
     B('include_prerelease', 'Include pre-releases', 'Offer alpha/beta/rc builds as well as final releases'),
     B('hot_update', 'Update while cooking', 'On: installs mid-cook and resumes the running mode after a few seconds. Off: the grill must be stopped'),
-    B('auto_install', 'Install automatically', 'A newer release installs on its own while the grill is stopped or monitoring. Never mid-cook'),
+    B('auto_install', 'Install automatically', 'A newer release installs on its own in the hour below, while the grill is stopped or monitoring with no timer or recipe running. Never mid-cook'),
+    I('auto_install_hour', 'Install at (hour, 0–23)', 'Local time. 2 is two in the morning', { min: 0, max: 23 }),
   ] }] },
 ];
 // index order: what you cook with, the hardware, the safety net, connectivity, data, the app itself
@@ -579,7 +586,9 @@ export function renderSettings(view, rest) {
   if (!PF.settings) { view.append(el('div', { class: 'card muted' }, 'Loading settings…')); return; }
   const dc = !!PF.settings.platform?.dc_fan;
   const pages = PAGES.filter((p) => !p.dc || dc);
-  const page = rest?.[0];
+  /* pages that were folded into another keep their routes: a link or a habit still lands somewhere */
+  const ALIAS = { lid: 'misc', keepwarm: 'misc' };
+  const page = ALIAS[rest?.[0]] || rest?.[0];
   if (page) {
     setBack('#/settings', 'Settings');
     /* Auger & Feed was split: the cycle and the duty limits only ever affected Hold, and the smoke

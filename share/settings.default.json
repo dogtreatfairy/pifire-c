@@ -125,6 +125,11 @@
       "baseline_window_s": 60,
       "exit_on_rise": false
     },
+    "power_loss": {
+      "recovery": true,
+      "max_s": 300,
+      "igniter_s": 180
+    },
     "relight_enabled": true,
     "relight_drop": 20,
     "relight_recover": 10,
@@ -1033,7 +1038,8 @@
     "check_interval_h": 24,
     "include_prerelease": true,
     "hot_update": false,
-    "auto_install": false
+    "auto_install": false,
+    "auto_install_hour": 2
   },
   "history": {
     "minutes": 15,

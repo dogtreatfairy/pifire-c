@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "core/util.h"
 
 static char cfg_path[256], db_path[256];
 static pf_control ctrl;
@@ -420,6 +421,66 @@ static void test_warm_restart_resumes_hold(void)
 	TEST_ASSERT_EQUAL(PF_MODE_STOP, ctrl.mode);
 }
 
+/* Power loss. The cook writes a checkpoint every ten seconds; a daemon starting unclean within
+ * safety.power_loss.max_s of it relights for safety.power_loss.igniter_s and goes back to the mode
+ * it was in; beyond that it goes to Error and stays there, because a pot that has been out for
+ * that long has to be looked at before it is lit again. */
+static void test_power_loss_recovery(void)
+{
+	pf_settings_patch("safety", "{\"power_loss\":{\"recovery\":true,\"max_s\":300,\"igniter_s\":180}}", NULL, 0);
+	pf_control_init(&ctrl, true);
+	pf_control_set_checkpoint_path(&ctrl, "/tmp/pf_test_checkpoint.json");
+	unlink("/tmp/pf_test_checkpoint.json");
+	pf_cmd_mode(PF_MODE_HOLD, 225);
+	tick(400);
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	TEST_ASSERT_TRUE_MESSAGE(pf_file_exists("/tmp/pf_test_checkpoint.json"), "a cook leaves a checkpoint behind");
+	char *snap = pf_read_file("/tmp/pf_test_checkpoint.json", NULL);
+	TEST_ASSERT_NOT_NULL(snap);
+
+	/* the power comes back within the limit: relight, then Hold at the same set point */
+	cJSON *o = cJSON_Parse(snap);
+	cJSON_ReplaceItemInObject(o, "saved_wall", cJSON_CreateNumber(pf_wall() - 90));
+	char *soon = cJSON_PrintUnformatted(o);
+	pf_control_shutdown(&ctrl);
+	pf_control_init(&ctrl, true);
+	tick(2);
+	TEST_ASSERT_TRUE(pf_control_recover(&ctrl, soon, now));
+	TEST_ASSERT_EQUAL(PF_MODE_REIGNITE, ctrl.mode);
+	TEST_ASSERT_DOUBLE_WITHIN(1, 180, ctrl.startup_duration_s);
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.safety.reignite_last);
+	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_IGNITER));
+	tick(200);
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	TEST_ASSERT_DOUBLE_WITHIN(0.5, pf_f_to_c(225), ctrl.setpoint_c);
+	free(soon);
+
+	/* the power was out too long: Error, and no attempt to light */
+	cJSON_ReplaceItemInObject(o, "saved_wall", cJSON_CreateNumber(pf_wall() - 900));
+	char *late = cJSON_PrintUnformatted(o);
+	cJSON_Delete(o);
+	pf_control_shutdown(&ctrl);
+	pf_control_init(&ctrl, true);
+	tick(2);
+	TEST_ASSERT_TRUE(pf_control_recover(&ctrl, late, now));
+	TEST_ASSERT_EQUAL(PF_MODE_ERROR, ctrl.mode);
+	TEST_ASSERT_EQUAL_STRING("E08_POWER_LOSS", ctrl.safety.error_code);
+	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_IGNITER));
+	free(late);
+	free(snap);
+
+	/* stopping the cook takes the checkpoint away */
+	pf_control_shutdown(&ctrl);
+	pf_control_init(&ctrl, true);
+	pf_control_set_checkpoint_path(&ctrl, "/tmp/pf_test_checkpoint.json");
+	pf_cmd_mode(PF_MODE_HOLD, 225);
+	tick(30);
+	TEST_ASSERT_TRUE(pf_file_exists("/tmp/pf_test_checkpoint.json"));
+	pf_cmd_simple(PF_CMD_STOP);
+	tick(2);
+	TEST_ASSERT_FALSE_MESSAGE(pf_file_exists("/tmp/pf_test_checkpoint.json"), "a stopped grill has nothing to recover");
+}
+
 int main(void)
 {
 	pf_log_init(PF_LOG_WARN);
@@ -435,5 +496,6 @@ int main(void)
 	RUN_TEST(test_coldstart_failure);
 	RUN_TEST(test_manual_refused_and_override_expires);
 	RUN_TEST(test_warm_restart_resumes_hold);
+	RUN_TEST(test_power_loss_recovery);
 	return UNITY_END();
 }

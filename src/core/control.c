@@ -19,6 +19,7 @@
 #include "platform/sim.h"
 #include <math.h>
 #include <stdio.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -60,6 +61,9 @@ static void load_cfg(pf_cfg *g)
 	g->max_startup_c = T("safety.maxstartuptemp", 100);
 	g->max_temp_c = T("safety.maxtemp", 550);
 	g->restart_hot_c = T("safety.restart_hot_temp", 150);
+	g->power_loss_recovery = B("safety.power_loss.recovery", true);
+	g->power_loss_max_s = N("safety.power_loss.max_s", 300);
+	g->power_loss_igniter_s = N("safety.power_loss.igniter_s", 180);
 	g->reignite_retries = (int)N("safety.reigniteretries", 1);
 	g->startup_check = B("safety.startup_check", true);
 	g->allow_manual = B("safety.allow_manual_changes", false);
@@ -448,7 +452,8 @@ static void enter_mode(pf_control *c, pf_mode m, double now)
 		fan_on(c, c->cfg.dc_fan ? c->cfg.startup_pwm_duty : 100);
 		pf_outputs_set(PF_OUT_IGNITER, true);
 		c->raw_startup_c = c->pit_c;
-		c->startup_duration_s = c->cfg.startup_duration_s;
+		c->startup_duration_s = c->recover_ignite_s > 0 && m == PF_MODE_REIGNITE ? c->recover_ignite_s : c->cfg.startup_duration_s;
+		if (m == PF_MODE_REIGNITE) c->recover_ignite_s = 0;
 		c->startup_exit_c = c->cfg.startup_exit_c;
 		if (c->cfg.smartstart) {
 			select_smartstart_profile(c);
@@ -2791,6 +2796,79 @@ static void publish(pf_control *c, double now)
 	pf_history_record(&s, now, c->cfg.history_sample_s);
 }
 
+/* While a cook is on, its state is written to disk every ten seconds; when it ends, the file goes.
+ * That is what a daemon starting after a power cut finds and, within the allowed time, resumes. */
+static void checkpoint(pf_control *c, double now)
+{
+	if (!c->checkpoint_path[0]) return;
+	bool cooking = c->mode == PF_MODE_STARTUP || c->mode == PF_MODE_REIGNITE || c->mode == PF_MODE_SMOKE || c->mode == PF_MODE_HOLD;
+	if (cooking) {
+		if (now - c->checkpoint_t < 10) return;
+		c->checkpoint_t = now;
+		char *snap = pf_control_resume_json(c, now);
+		if (snap) { pf_write_file_atomic(c->checkpoint_path, snap, strlen(snap)); free(snap); c->checkpoint_on_disk = true; }
+	} else if (c->checkpoint_on_disk) {
+		unlink(c->checkpoint_path);
+		c->checkpoint_on_disk = false;
+	}
+}
+
+void pf_control_set_checkpoint_path(pf_control *c, const char *path)
+{
+	pf_strlcpy(c->checkpoint_path, path ? path : "", sizeof c->checkpoint_path);
+	c->checkpoint_on_disk = path && pf_file_exists(path);
+}
+
+bool pf_control_recover(pf_control *c, const char *json, double now)
+{
+	cJSON *o = json ? cJSON_Parse(json) : NULL;
+	if (!o) return false;
+	int m = pf_mode_from_name(pf_json_str(o, "mode", ""));
+	double age = pf_wall() - pf_json_num(o, "saved_wall", 0);
+	bool cooking = m == PF_MODE_STARTUP || m == PF_MODE_REIGNITE || m == PF_MODE_SMOKE || m == PF_MODE_HOLD;
+	if (!cooking || age < 0) { cJSON_Delete(o); return false; }
+	if (!c->cfg.power_loss_recovery) { cJSON_Delete(o); return false; }
+	if (age > c->cfg.power_loss_max_s) {
+		/* out too long: the pot may be full of unburnt pellets or still smouldering, and relighting
+		 * it blind is how a grill burns. Error, and stay there until somebody has looked. */
+		cJSON_Delete(o);
+		pf_safety_set_error(c, "E08_POWER_LOSS", "Power was lost for %.0f min during a cook; not restarting", age / 60);
+		char msg[200];
+		snprintf(msg, sizeof msg, "Power was lost for %.0f minutes during a cook. The grill was not restarted: check the fire pot before lighting it again.", age / 60);
+		event(PF_LVL_ERROR, "E08_POWER_LOSS", msg);
+		enter_mode(c, PF_MODE_ERROR, now);
+		return true;
+	}
+	double sp = pf_json_num(o, "setpoint_c", 0);
+	if (sp > 0) c->setpoint_c = sp;
+	c->s_plus = pf_json_bool(o, "s_plus", c->s_plus);
+	c->pwm_control = pf_json_bool(o, "pwm_control", c->pwm_control);
+	int nm = pf_mode_from_name(pf_json_str(o, "next_mode", ""));
+	double csw = pf_json_num(o, "cook_start_wall", 0);
+	double total = pf_json_num(o, "auger_total_on_s", 0), maxpit = pf_json_num(o, "cook_max_pit_c", 0);
+	if (m == PF_MODE_STARTUP) {
+		/* it was lighting: light again from the start, into what it was heading for */
+		c->next_mode = nm >= 0 ? (pf_mode)nm : PF_MODE_SMOKE;
+		enter_mode(c, PF_MODE_STARTUP, now);
+	} else {
+		/* it was cooking: relight for the configured time, then back to the mode it was in */
+		c->safety.reignite_last = m == PF_MODE_REIGNITE ? (nm == PF_MODE_HOLD ? PF_MODE_HOLD : PF_MODE_SMOKE) : (pf_mode)m;
+		c->recover_ignite_s = c->cfg.power_loss_igniter_s > 0 ? c->cfg.power_loss_igniter_s : 180;
+		enter_mode(c, PF_MODE_REIGNITE, now);
+	}
+	if (csw > 0) c->cook_start_wall = csw;
+	c->auger_total_on_s = total;
+	c->cook_max_pit_c = maxpit;
+	{
+		char msg[200];
+		snprintf(msg, sizeof msg, "Power was lost for %.0f s during a cook. Relighting for %.0f s, then back to %s.", age, c->startup_duration_s, pf_mode_name(c->safety.reignite_last));
+		event(PF_LVL_WARN, "W12_POWER_LOSS", msg);
+	}
+	LOGW(TAG, "power loss of %.0f s: relighting for %.0f s, then %s", age, c->startup_duration_s, pf_mode_name(c->safety.reignite_last));
+	cJSON_Delete(o);
+	return true;
+}
+
 void pf_control_step(pf_control *c, double now)
 {
 	if (c->mode_start == 0) c->mode_start = now;
@@ -2817,5 +2895,6 @@ void pf_control_step(pf_control *c, double now)
 	}
 
 	publish(c, now);
+	checkpoint(c, now);
 	c->last_step = now;
 }

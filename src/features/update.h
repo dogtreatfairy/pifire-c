@@ -10,6 +10,8 @@ void   pf_update_tick(double now);           /* periodic auto-check from the ser
 int    pf_update_check(void);                 /* start a check in the background; 0 if started */
 int    pf_update_install(char *err, size_t n);/* start download+verify+apply; 0 if started */
 cJSON *pf_update_status_json(void);
+/* where the updater is, for the status: state name and download progress 0..1 */
+void   pf_update_stage(char *state, size_t n, double *progress);
 const char *pf_update_arch(void);
 /* "v1.2.3" vs "1.2.4" -> <0, 0, >0 (exposed for tests) */
 int    pf_version_compare(const char *a, const char *b);

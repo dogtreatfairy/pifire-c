@@ -105,11 +105,9 @@ export function softwareUpdates(view) {
       const u = await api('/update', { timeout: installing ? 3000 : 8000 });
       last = u;
       if (installing && u.current !== installing.from) {
+        /* the app-wide watcher reloads the shell; this page only says so */
         renderUpd({ ...u, state: 'reloading', message: `${u.current} is running` });
-        try { localStorage.setItem('pf.updated', JSON.stringify({ from: installing.from, to: u.current, notes: installing.notes })); } catch { /* private mode */ }
         installing = null;
-        try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); } catch { /* no worker */ }
-        setTimeout(() => location.reload(), 1500);
         return;
       }
       renderUpd(u);

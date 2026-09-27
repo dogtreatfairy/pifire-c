@@ -125,8 +125,14 @@ int main(int argc, char **argv)
 	pf_write_file_atomic(marker, "1", 1);
 	char resume_path[600];
 	snprintf(resume_path, sizeof resume_path, "%s/resume.json", data_dir);
-	char *resume = unclean ? NULL : pf_read_file(resume_path, NULL);   /* only a clean handoff resumes */
+	/* a clean handoff (a software update) leaves resume.json; a running cook leaves checkpoint.json
+	 * every ten seconds, which is what a daemon starting after a power cut finds */
+	char *resume = unclean ? NULL : pf_read_file(resume_path, NULL);
 	unlink(resume_path);
+	char checkpoint_path[600];
+	snprintf(checkpoint_path, sizeof checkpoint_path, "%s/checkpoint.json", data_dir);
+	char *checkpoint = unclean ? pf_read_file(checkpoint_path, NULL) : NULL;
+	unlink(checkpoint_path);
 	pf_db_event(PF_LVL_INFO, "SYS_START", sim ? "pifired started (simulator)" : "pifired started");
 
 	/* plugins and hardware */
@@ -169,7 +175,11 @@ int main(int argc, char **argv)
 	/* first sensor pass before deciding on hot-restart recovery */
 	for (int i = 0; i < 12; i++) { pf_probes_poll(pf_now()); pf_sleep_ms(50); }
 	pf_control_step(&ctrl, pf_now());
-	pf_control_boot_check(&ctrl, unclean, pf_now());
+	bool recovered = false;
+	if (unclean && checkpoint) recovered = pf_control_recover(&ctrl, checkpoint, pf_now());
+	free(checkpoint);
+	if (!recovered) pf_control_boot_check(&ctrl, unclean, pf_now());
+	pf_control_set_checkpoint_path(&ctrl, checkpoint_path);
 	if (resume) {
 		if (pf_control_resume(&ctrl, resume, pf_now())) pf_control_step(&ctrl, pf_now());
 		else LOGI(TAG, "resume snapshot ignored (stale or not resumable)");

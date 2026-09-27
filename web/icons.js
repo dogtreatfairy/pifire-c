@@ -180,7 +180,11 @@ export function inkOn(hex) {
 }
 
 /** The inline style for a tile: its colour, and the ink that is readable on it. */
-export const tileStyle = (color) => (color ? `--tile:${color};--tile-ink:${inkOn(color)}` : '');
+/* The glyph on a tile: in the dark theme its ink is chosen against the tile's own colour; in the
+   light theme every tile's glyph is white, which is what the theme's tiles look like on a phone
+   and what Ryan asked for. The inline value is the fallback; the theme's --tile-ink, when set,
+   comes first. */
+export const tileStyle = (color) => (color ? `--tile:${color};--tile-ink-auto:${inkOn(color)}` : '');
 
 /** A brand mark at row size: its own artboard, its own colours, no tile behind it. */
 export function brandIcon(name, cls = 'ic') {

@@ -1002,6 +1002,36 @@ and then holds, rather than promising an arrival the pit is not moving toward. C
 real 250 to 300 °F step (docs/autotune-evidence.md): early on it is only as good as the plant
 model, some tens of percent; from halfway it is within a minute or two, and it never lurches.
 
+## An update is a screen, not a line
+
+While the daemon updates itself the app shows one full-screen stage on every page -- a turning
+ring, then Downloading with the percentage, Updating, Rebooting once the daemon has gone away,
+Reloading when it answers running the new version -- whether the install was asked for on the
+update page or happened on its own at two in the morning with the app open. After the reload,
+and after any install the daemon made while nobody was looking, the app says once per device
+"Updated to X", with Close on the left and Changelog on the right, which unfolds the release's
+notes in place. The record of what was installed lives in the daemon (`installed` on `/update`),
+so an unattended install is announced exactly like a chosen one.
+
+Automatic installs happen in one configurable hour, two in the morning by default, and only
+while the grill is stopped or monitoring with no timer, recipe or tuning run going. An update
+that landed the moment a page was refreshed was an update nobody chose the time of.
+
+## Power loss is a safety matter
+
+A cook writes a checkpoint every ten seconds. A daemon starting after an unclean stop finds it and,
+within a configurable outage (five minutes by default), relights for a configurable time (three
+minutes) and carries on in the mode it was in; beyond that it goes to Error and stays there, since
+a pot that has been out that long has to be looked at before it is lit again. All three settings
+live under Safety → Power Loss, beside the other things that keep the grill from burning.
+
+## Small settings share a page; a tile's glyph follows the theme
+
+Auger rate, lid-open detection and keep warm are one Misc page under Cooking, each its own titled
+group, rather than three pages of one or two fields; the old routes land there. In the light theme
+every tile's glyph is white, as the theme's tiles are on a phone -- the per-colour black ink is a
+dark-theme choice and was leaking into the light one.
+
 ## A short choice is shown whole, never as a strip to scroll
 
 The meats in the probe target sheet are nine buttons in two rows of five, every one on screen.

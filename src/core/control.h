@@ -20,6 +20,8 @@ typedef struct {
 	bool fan_pid;
 	/* safety */
 	double min_startup_c, max_startup_c, max_temp_c, restart_hot_c;
+	/* power loss: whether to pick a cook back up, how long a loss may be, how long to relight */
+	bool power_loss_recovery; double power_loss_max_s, power_loss_igniter_s;
 	int reignite_retries;
 	bool startup_check, allow_manual;
 	double manual_override_s, igniter_max_on_s, auger_max_on_s, probe_fault_s, error_cooldown_fan_s;
@@ -85,6 +87,9 @@ typedef struct {
 	double aim_since;
 	/* the pit when the aim was given, and the smoothed countdown to it: see setpoint_countdown() */
 	double aim_pit_c, eta_s, eta_last_t;
+	/* a checkpoint of the cook, written every few seconds while one is on, for power-loss recovery */
+	char checkpoint_path[512]; double checkpoint_t; bool checkpoint_on_disk;
+	double recover_ignite_s;   /* >0: the relight to run on entering Reignite after a power loss */
 	bool req_pending; pf_mode req_mode; double req_setpoint_c; bool req_prime_then_startup;
 	double setpoint_c;
 	bool s_plus, pwm_control; int duty_cycle;
@@ -219,6 +224,14 @@ void pf_control_step(pf_control *c, double now);
 void pf_control_request(pf_control *c, pf_mode mode, double setpoint_c);
 /* Called once after the first sensor poll: handle unclean-restart recovery. */
 void pf_control_boot_check(pf_control *c, bool unclean_restart, double now);
+/* Power-loss recovery: the checkpoint the last daemon wrote while cooking, read after an unclean
+ * start. Within safety.power_loss.max_s of it the cook is taken back up through a relight of
+ * safety.power_loss.igniter_s; beyond that the grill goes to Error and stays there, since a pot
+ * that has been out for that long has to be looked at before it is lit again. Returns true when
+ * it decided the mode (either way). */
+bool pf_control_recover(pf_control *c, const char *json, double now);
+/* where the checkpoint is written; nothing is written until this is set */
+void pf_control_set_checkpoint_path(pf_control *c, const char *path);
 /* Warm restart (software update while cooking): snapshot the running cook as JSON (NULL when nothing
  * is worth resuming), and restore it in the new process. Resume returns true when a mode was re-entered. */
 char *pf_control_resume_json(const pf_control *c, double now);
