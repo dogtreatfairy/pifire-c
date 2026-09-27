@@ -697,6 +697,13 @@ as plain text ("81%") at the right -- the phone's cell with the number inside it
 at the panel's size; the reading; the time to target and the target. The signal bars and the
 ambient reading are gone from it.
 
+**No grey type.** Every word and number on the panel is white on the dark theme or black on the
+light one and on bright fills, or red, green, blue or orange where the colour carries a meaning.
+Nothing is "muted": the theme's muted colour is the text colour, and a secondary reading is drawn
+smaller, never dimmer. Amber is a fill and a bar, not a text colour; what was amber type (a hopper
+getting low, a battery under a fifth, "lid open") is red. A grey "80%" beside a probe's name, and
+a number drawn inside a battery cell on its own fill, were both invisible at arm's length.
+
 Margins exist because a bezel hides the edge of the panel. They are set from the panel, with the
 screen in front of you, not from a number typed on a phone.
 

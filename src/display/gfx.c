@@ -29,14 +29,16 @@ void pf_gfx_set_theme(pf_gfx *g, const char *name)
 	if (light) {
 		/* web light tokens, with text pushed to full black for sunlight */
 		t = (pf_gfx_theme){ .bg = PF_RGB(0xF3, 0xF3, 0xF5), .card = PF_RGB(0xFF, 0xFF, 0xFF), .card2 = PF_RGB(0xE4, 0xE6, 0xEC), .line = PF_RGB(0xC8, 0xCA, 0xD2),
-		                    .text = PF_RGB(0x00, 0x00, 0x00), .muted = PF_RGB(0x4A, 0x4C, 0x55), .accent = PF_RGB(0xE8, 0x6E, 0x00), .accent_text = PF_RGB(0xFF, 0xFF, 0xFF),
+		                    .text = PF_RGB(0x00, 0x00, 0x00), .muted = PF_RGB(0x00, 0x00, 0x00), .accent = PF_RGB(0xE8, 0x6E, 0x00), .accent_text = PF_RGB(0xFF, 0xFF, 0xFF),
 		                    .ok = PF_RGB(0x0E, 0x8A, 0x2E), .warn = PF_RGB(0xB0, 0x7A, 0x00), .danger = PF_RGB(0xD3, 0x1F, 0x14), .info = PF_RGB(0x00, 0x6C, 0xB8),
 		                    .fan = PF_RGB(0x0E, 0x9A, 0x30), .auger = PF_RGB(0x00, 0x6C, 0xE8), .igniter = PF_RGB(0xF0, 0x70, 0x00), .light = true };
 	} else {
-		/* web dark tokens; background pulled to true black and "muted" lifted so it survives glare */
-		/* saturated, bright fills read in sunlight; "muted" stays light grey rather than dim */
+		/* web dark tokens; background pulled to true black. There is no grey type on this panel:
+		 * "muted" is the text colour, because every word on it is read at arm's length in sunlight,
+		 * and a secondary reading is drawn smaller, never dimmer (Ryan: red, green, blue, orange,
+		 * white or black, never grey). Amber stays for fills and bars, not for type. */
 		t = (pf_gfx_theme){ .bg = PF_RGB(0x00, 0x00, 0x00), .card = PF_RGB(0x1A, 0x1B, 0x20), .card2 = PF_RGB(0x2A, 0x2B, 0x32), .line = PF_RGB(0x3C, 0x3D, 0x46),
-		                    .text = PF_RGB(0xFF, 0xFF, 0xFF), .muted = PF_RGB(0xC4, 0xC5, 0xCC), .accent = PF_RGB(0xFF, 0x95, 0x00), .accent_text = PF_RGB(0x14, 0x0C, 0x00),
+		                    .text = PF_RGB(0xFF, 0xFF, 0xFF), .muted = PF_RGB(0xFF, 0xFF, 0xFF), .accent = PF_RGB(0xFF, 0x95, 0x00), .accent_text = PF_RGB(0x14, 0x0C, 0x00),
 		                    .ok = PF_RGB(0x30, 0xE0, 0x58), .warn = PF_RGB(0xFF, 0xD6, 0x0A), .danger = PF_RGB(0xFF, 0x3B, 0x30), .info = PF_RGB(0x40, 0xB0, 0xFF),
 		                    .fan = PF_RGB(0x30, 0xE0, 0x58), .auger = PF_RGB(0x3D, 0xA5, 0xFF), .igniter = PF_RGB(0xFF, 0x8A, 0x00), .light = false };
 	}

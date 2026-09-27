@@ -449,7 +449,7 @@ static void draw_datablock(pf_gfx *g, const cJSON *s, const cJSON *primary, cons
 	} else if (!strcmp(mode, "Monitor")) {
 		pf_gfx_text(g, B, p1, x, ly, "MONITOR", g->th.muted); ly += l1;
 	} else if (!strcmp(mode, "Manual")) {
-		pf_gfx_text(g, B, p1, x, ly, "MANUAL", g->th.warn); ly += l1;
+		pf_gfx_text(g, B, p1, x, ly, "MANUAL", g->th.text); ly += l1;
 	} else {
 		pf_gfx_text(g, B, p1, x, ly, "READY", g->th.muted); ly += l1;
 	}
@@ -460,7 +460,7 @@ static void draw_datablock(pf_gfx *g, const cJSON *s, const cJSON *primary, cons
 		 * spent most of a long cook claiming a fault it did not have, which is the surest way to
 		 * teach someone to ignore the colour. */
 		uint16_t hc = hop <= 10 ? g->th.danger : hop <= 25 ? g->th.warn : g->th.ok;
-		pf_gfx_text(g, B, p3, x, ly, line, hop <= 10 ? g->th.danger : hop <= 25 ? g->th.warn : g->th.text);
+		pf_gfx_text(g, B, p3, x, ly, line, hop <= 25 ? g->th.danger : g->th.text);
 		ly += l3;
 		/* Six pixels of bar is nothing at arm's length in daylight. Give it real height and an
 		 * outline, so the level reads as a level rather than as a hairline. */
@@ -468,7 +468,7 @@ static void draw_datablock(pf_gfx *g, const cJSON *s, const cJSON *primary, cons
 		pf_gfx_frame(g, x, ly + 2, w, 14, g->th.line);
 		g_hop_x = x - 4; g_hop_y = ly - l3 - 2; g_hop_w = w + 8; g_hop_h = l3 + 22;
 	}
-	if (pf_json_bool((cJSON *)s, "lid_open", false)) pf_gfx_text(g, B, p3, x, ly + 12, "LID OPEN", g->th.warn);
+	if (pf_json_bool((cJSON *)s, "lid_open", false)) pf_gfx_text(g, B, p3, x, ly + 12, "LID OPEN", g->th.danger);
 }
 
 static void draw_pit(pf_gfx *g, const cJSON *primary, const char *units, const char *mode, int x, int y, int big, int maxw)
@@ -543,7 +543,7 @@ static void draw_probe_col(pf_gfx *g, const cJSON *p, const char *units, bool bl
 	int battery = wireless ? (int)pf_json_num((cJSON *)p, "battery", -1) : -2;
 	uint16_t tgc = filled ? g->th.accent_text : tc == alert ? alert : g->th.accent;
 	uint16_t dim = filled ? g->th.accent_text : g->th.muted;
-	uint16_t batc = filled ? g->th.accent_text : battery <= 10 && battery >= 0 ? g->th.danger : battery <= 20 && battery >= 0 ? g->th.warn : g->th.muted;
+	uint16_t batc = filled ? g->th.accent_text : battery <= 20 && battery >= 0 ? g->th.danger : g->th.text;
 	/* The battery is plain text -- "81%" -- at the right of the name line. The phone's cell with the
 	 * number inside it was drawn here too, and at this size the number sat on its own fill with no
 	 * contrast left; three characters of type say the same thing and can be read. */
@@ -907,7 +907,7 @@ static void render_margins(pf_gfx *g, const pf_ui_state *ui)
 		pf_gfx_text_center(g, B, 14, bx + bw / 2, by + (bh - pf_gfx_line_height(B, 14)) / 2,
 		                   BTN[b2], sel ? g->th.accent_text : g->th.text);
 	}
-	if (ui->margin_dirty) pf_gfx_text_center(g, R, 11, W / 2, H / 2 + 24, "unsaved", g->th.warn);
+	if (ui->margin_dirty) pf_gfx_text_center(g, R, 11, W / 2, H / 2 + 24, "unsaved", g->th.danger);
 }
 
 void pf_screens_render(pf_gfx *g, const cJSON *status, const pf_ui_state *ui)
