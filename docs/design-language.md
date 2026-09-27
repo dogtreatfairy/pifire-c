@@ -1067,13 +1067,15 @@ the wrong one under a thumb as often as the right one. When a choice fits on the
 laid out to fit -- a grid that divides the width, labels short enough for a fifth of it -- and
 a strip that scrolls is kept for lists that genuinely cannot.
 
-## A cook starts by saying which probes are in the food
+## A recipe starts by saying which probes are in the food; Start asks Smoke or Hold
 
 Which probes are in the meat is a fact only the cook has. A probe on the counter reads perfectly
 well and is in nothing, and every reading a recipe or a notification takes from "the food" is wrong
-if it counts. So starting a cook -- from the Home screen or by running a recipe -- asks once:
-**Which probes are in the food?**, as a list of the enabled food probes with a switch each, and the
-answer holds until the cook ends. Before it is answered the daemon's guess stands (a probe reading
+if it counts. So running a recipe asks once: **Which probes are in the food?**, as a list of the
+enabled food probes with a switch each, and the answer holds until the cook ends. Plain Start does
+not ask it -- sometimes the grill is just being lit -- and asks only Smoke or Hold and, for Hold,
+the temperature, with the default mode highlighted; with "Ask when starting" off it asks nothing
+and lights straight into the default. Before it is answered the daemon's guess stands (a probe reading
 while the grill is lit); once it is answered the guess is not used. A probe switched off is not
 offered, and gets no target or step buttons on the Probes page either: dead controls under an "off"
 row say the opposite of what the row says.

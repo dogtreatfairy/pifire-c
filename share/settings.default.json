@@ -144,7 +144,8 @@
     "start_to_mode": {
       "after_startup_mode": "Hold",
       "primary_setpoint": 350,
-      "start_to_hold_prompt": true
+      "start_to_hold_prompt": true,
+      "ask": true
     },
     "smartstart": {
       "enabled": true,

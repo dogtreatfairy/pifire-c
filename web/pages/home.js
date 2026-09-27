@@ -1,6 +1,6 @@
 import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, tuneLive, numberDialog, dialog, confirmDialog, patchSettings, toast, actionBtn } from '../app.js';
 import { targetDialog, timerDialog, stepControls, openProbe } from './cook.js';
-import { btIcon, isWireless, sigBars, fmtEta, battIcon, pickFoodProbes } from './probes.js';
+import { btIcon, isWireless, sigBars, fmtEta, battIcon } from './probes.js';
 import { icon as lucide, MODE_ICON } from '../icons.js';
 
 // Home: status row (AUG/FAN/IGN, P-mode), the gauge with the grill temperature (reads 0 while stopped),
@@ -84,17 +84,30 @@ const holdAt = async (s, change, force = false) => {
   if (change) cmd({ cmd: 'setpoint', setpoint: v }); else cmd({ cmd: 'mode', mode: 'Hold', setpoint: v, force });
 };
 // Play: honours Settings -> Startup -> "After startup go to" and the hold prompt, like the original
+/* Start asks the one thing that matters: Smoke or Hold, and at what temperature. Which probes
+   are in the food is a recipe's question, not a start's -- sometimes the grill is just being
+   lit. With "Ask when starting" off, Start goes straight into the default mode at the default
+   temperature and asks nothing. */
 async function startGrill() {
   const st = PF.settings?.startup?.start_to_mode || {};
-  /* Which probes are in the food, asked as the cook starts -- the same question a recipe asks,
-     because a probe sitting on the counter reads perfectly well and is not in anything. */
-  const labels = await pickFoodProbes();
-  if (labels === undefined) return;
-  await cmd({ cmd: 'probes_in_use', labels });
-  if (st.after_startup_mode === 'Hold') {
-    if (st.start_to_hold_prompt) { const v = await numberDialog('Hold temperature after startup', st.primary_setpoint || 225, { presets: presets() }); if (v) cmd({ cmd: 'mode', mode: 'Hold', setpoint: v }); }
-    else cmd({ cmd: 'mode', mode: 'Hold', setpoint: st.primary_setpoint || 225 });
-  } else cmd({ cmd: 'mode', mode: 'Smoke' });
+  const def = st.primary_setpoint || 225;
+  const ask = st.ask !== false;
+  if (!ask) {
+    if (st.after_startup_mode === 'Hold') cmd({ cmd: 'mode', mode: 'Hold', setpoint: def });
+    else cmd({ cmd: 'mode', mode: 'Smoke' });
+    return;
+  }
+  const choice = await dialog((close) => el('div', {},
+    el('h3', {}, 'Start'),
+    el('p', { class: 'muted' }, 'Lights the grill, then runs the mode you choose.'),
+    el('div', { class: 'btnrow' },
+      el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'),
+      el('button', { class: `btn ${st.after_startup_mode === 'Hold' ? '' : 'primary'}`, type: 'button', onclick: () => close('Smoke') }, lucide(MODE_ICON.Smoke, 'ic btn-ic'), ' Smoke'),
+      el('button', { class: `btn ${st.after_startup_mode === 'Hold' ? 'primary' : ''}`, type: 'button', onclick: () => close('Hold') }, lucide(MODE_ICON.Hold, 'ic btn-ic'), ' Hold'))));
+  if (!choice) return;
+  if (choice === 'Smoke') { cmd({ cmd: 'mode', mode: 'Smoke' }); return; }
+  const v = await numberDialog('Hold temperature', def, { presets: presets() });
+  if (v) cmd({ cmd: 'mode', mode: 'Hold', setpoint: v });
 }
 function primeMenu() {
   return dialog((close) => el('div', {}, el('h3', {}, 'Prime auger'),
