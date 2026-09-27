@@ -550,6 +550,13 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		return;
 	}
 	if (post && !strcmp(p, "/tune/stop")) { pf_tuner_stop("Stopped from the app."); reply_ok(resp); return; }
+	if (post && !strcmp(p, "/tune/skip_verify")) {
+		cJSON *b = req->body_len ? cJSON_Parse(req->body) : NULL;
+		int rc = pf_tuner_skip_verify(pf_json_int(b, "step", -1), pf_json_bool(b, "skip", true));
+		cJSON_Delete(b);
+		if (rc) { reply_err(resp, 409, "no tuning run, or no such set point"); return; }
+		reply_ok(resp); return;
+	}
 	if (get && !strcmp(p, "/rules/entities")) {
 		pf_status st;
 		pf_status_get(&st);

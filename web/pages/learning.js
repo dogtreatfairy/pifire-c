@@ -5,13 +5,14 @@ const PHASE_TEXT = {
   starting: 'Starting the grill',
   settling: 'Waiting for the grill to settle',
   testing: 'Measuring the loop',
-  next: 'Moving to the next set point',
+  verifying: 'Holding under the new tuning to check it',
+  next: 'Next set point',
   finishing: 'Shutting the grill down',
 };
 
 // The nine temperatures the single-temperature picker offers, in the user's units.
-const PRESETS_F = [180, 200, 225, 250, 275, 325, 375, 425, 450];
-const PRESETS_C = [80, 95, 105, 120, 135, 165, 190, 220, 230];
+const PRESETS_F = [180, 200, 225, 250, 275, 300, 375, 425, 450];
+const PRESETS_C = [80, 95, 105, 120, 135, 150, 190, 220, 230];
 
 /* The page this fills is a short list of sections, so the parts are handed to whoever is laying it
    out rather than appended in one stream: `slots.tuning` gets everything about measuring the grill,
@@ -49,13 +50,28 @@ export function renderLearning(view, slots = {}) {
      one span. Replacing the whole rail, table and rows every few seconds (and, before this,
      every status message) was what froze the page on a phone: the elements under a thumb were
      being torn down and rebuilt faster than a tap could land on them. */
-  /* the row in hand says what it is doing now, in a word, in place of the plan's three */
-  const DOING = { starting: 'Lighting', settling: 'Settling', testing: 'Measuring', verifying: 'Verifying', next: 'Moving on', finishing: 'Shutting down' };
+  /* The row in hand says what it is doing and what its number is an estimate of, because "3:40"
+     with nothing beside it was being read as time-to-finish when it was time-to-settle. Reaching
+     the set point is estimated from the pit's climb; settling and verifying are clocks; measuring
+     has no honest estimate and is counted in crossings instead. */
+  const liveText = () => {
+    const e = tune?.eta || {};
+    const left = e.s >= 0 ? fmtDur(e.s) : null;
+    switch (e.what) {
+      case 'light': return ' \u00b7 Lighting';
+      case 'reach': return ` \u00b7 Heating${left ? ` \u00b7 ~${left} to ${tune.setpoint}${degUnit()}` : ''}`;
+      case 'settle': return ` \u00b7 Settling${left ? ` \u00b7 ${left} to stable` : ''}`;
+      case 'measure': return ` \u00b7 Measuring${tune.crossings ? ` \u00b7 crossing ${tune.crossings}` : ''}`;
+      case 'verify': return ` \u00b7 Verifying${left ? ` \u00b7 ${left} left` : ''}`;
+      case 'cool': return ' \u00b7 Shutting down';
+      default: return tune?.message ? ` \u00b7 ${tune.message}` : '';
+    }
+  };
   const SRC = { tuned: 'Autotune', learned: 'Learning', typed: 'Typed' };
   let tuneKey = '';
   async function loadTune() {
     tune = await api('/tune');
-    const { elapsed_s, ...rest } = tune;
+    const { elapsed_s, eta, crossings, ...rest } = tune;
     const key = JSON.stringify(rest);
     if (key !== tuneKey) { tuneKey = key; renderTune(); }
     else updateLive();
@@ -64,7 +80,7 @@ export function renderLearning(view, slots = {}) {
   function updateLive() {
     if (tune?.running) {
       const st = tuneCard.querySelector('.rr-state.rr-live');
-      if (st) st.textContent = ` \u00b7 ${DOING[tune.phase] || PHASE_TEXT[tune.phase] || tune.message}${tune.elapsed_s > 0 ? ` \u00b7 ${fmtDur(tune.elapsed_s)}` : ''}`;
+      if (st) st.textContent = liveText();
     }
     const s = PF.status;
     const t = s?.controller?.tuning;
@@ -176,18 +192,41 @@ export function renderLearning(view, slots = {}) {
        one in hand saying what it is doing. */
     const running = !!tune.running;
     const pts = running ? (tune.setpoints || []) : (tune.profile || []);
-    const rows = [{ ic: MODE_ICON.Startup, text: 'Startup', short: 'Startup' },
-      ...pts.map((v) => ({ ic: MODE_ICON.Hold, text: `Hold ${v}${degUnit()} \u00b7 settle, measure, verify`, short: `Hold ${v}${degUnit()}` })),
-      { ic: MODE_ICON.Shutdown, text: 'Shutdown', short: 'Shutdown' }];
+    /* Two rows per set point: the hold that measures it, then the hold that verifies what was
+       measured. The verify row carries a skip mark, as a recipe step does, set ahead of time or
+       while it is running. */
+    const rows = [{ ic: MODE_ICON.Startup, text: 'Startup', short: 'Startup', kind: 'start' }];
+    pts.forEach((v, i) => {
+      rows.push({ ic: MODE_ICON.Hold, text: `Hold ${v}${degUnit()} \u00b7 measure`, short: `Hold ${v}${degUnit()}`, kind: 'measure', i });
+      rows.push({ ic: 'circle-check', text: `Verify ${v}${degUnit()}`, short: `Verify ${v}${degUnit()}`, kind: 'verify', i });
+    });
+    rows.push({ ic: MODE_ICON.Shutdown, text: 'Shutdown', short: 'Shutdown', kind: 'end' });
     let cur = -1;
-    if (running) cur = tune.phase === 'starting' ? 0 : (tune.phase === 'finishing' ? rows.length - 1 : Math.min(rows.length - 2, Math.max(1, tune.step || 1)));
-    tuneCard.append(el('h3', { class: 'subhead' }, 'Profile'));
+    if (running) {
+      const step = Math.max(0, (tune.step || 1) - 1);
+      cur = tune.phase === 'starting' ? 0
+        : tune.phase === 'finishing' ? rows.length - 1
+        : tune.phase === 'verifying' ? 1 + step * 2 + 1
+        : 1 + step * 2;
+    }
+    const skips = tune.skip_verify || [];
     const rail = el('div', { class: 'run-rail' });
     rows.forEach((r, i) => {
       const state = !running ? 'rr-plan' : i < cur ? 'rr-done' : i === cur ? 'rr-now' : 'rr-todo';
+      const skipped = r.kind === 'verify' && skips[r.i];
       const title = el('span', { class: 'rr-title' }, state === 'rr-now' ? r.short : r.text);
-      if (state === 'rr-now') title.append(el('span', { class: 'rr-state rr-live' }, ` \u00b7 ${DOING[tune.phase] || PHASE_TEXT[tune.phase] || tune.message}${tune.elapsed_s > 0 ? ` \u00b7 ${fmtDur(tune.elapsed_s)}` : ''}`));
-      rail.append(el('div', { class: `rr-step ${state}` }, el('span', { class: 'rr-glyph' }, lucide(state === 'rr-done' ? 'check' : r.ic)), title));
+      if (state === 'rr-now') title.append(el('span', { class: 'rr-state rr-live' }, liveText()));
+      const acts = el('span', { class: 'rr-acts' });
+      if (running && r.kind === 'verify' && state !== 'rr-done') {
+        acts.append(iconBtn('chevrons-right', skipped ? 'Run the verification after all' : 'Skip the verification', {
+          class: skipped ? 'on' : '',
+          onclick: async () => {
+            if (!skipped && state === 'rr-now' && !await confirmDialog(`Skip the verification at ${pts[r.i]}${degUnit()}?`, 'The tune measured there is kept as it stands.', 'Skip')) return;
+            try { await api('/tune/skip_verify', { body: { step: r.i, skip: !skipped } }); loadTune(); } catch (e) { toast(e.message, true); }
+          } }));
+      }
+      rail.append(el('div', { class: `rr-step ${state}${skipped ? ' rr-skip' : ''}` },
+        el('span', { class: 'rr-glyph' }, lucide(state === 'rr-done' ? 'check' : skipped ? 'chevrons-right' : r.ic)), title, acts));
     });
     tuneCard.append(rail);
 

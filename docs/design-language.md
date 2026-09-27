@@ -866,13 +866,21 @@ step's message is said when the step ENDS, which is where the rail draws it.
 
 ## The tuning profile is a cook the grill runs on itself, and looks like one
 
-Under Auto Tuning the profile is the same rail a recipe has -- Startup, a hold at each set
-point (settle, measure, verify), Shutdown -- with Edit and Run Profile under it, and a live rail
-while it runs: the finished holds ticked, the one in hand saying in a word what it is doing
-(Settling, Measuring, Verifying) and for how long. Edit is a recipe-style screen: one row per
-set point, tap to change it, a mark to remove it, Add at the foot, Reset to standard. Running
-asks once, with "erase the library first" as a switch inside the question rather than a third
-red button on the page; tuning one temperature stays as a single row beneath.
+Under Auto Tuning the profile is the same rail a recipe has -- Startup, then two rows for each
+set point, `Hold 250°F · measure` and `Verify 250°F`, then Shutdown -- with Edit and Run Profile
+under it. The verification is its own row because it is the part the cook may not want: like a
+recipe step it carries a skip mark (chevrons-right) on the right, and skipping it moves straight
+to the next set point, so "moving on" never has to be explained. While it runs the finished rows
+are ticked and the one in hand says in a word what it is doing and, always, what it is estimating:
+`Heating · ~12 min to 250°F` until the pit arrives, then `Settling · 4:10 to stable`, then
+`Measuring · crossing 7` (no estimate is honest there; the relay decides), then `Verifying ·
+18 min left`. An estimate that answers a question the grill is not yet at -- time to stabilise
+while it is still climbing -- is worse than none, so each phase estimates only its own end. Edit
+is a recipe-style screen: one row per set point, tap to change it, a mark to remove it, Add at the
+foot, Reset to standard. Running asks once, with "erase the library first" as a switch inside the
+question rather than a third red button on the page; tuning one temperature stays as a single row
+beneath. The temperature presets are the ones cooks use: 180, 200, 225, 250, 275, 300, 375, 425,
+450 °F -- 300 belongs in that list and 325 does not.
 
 ## A cook starts by saying which probes are in the food
 

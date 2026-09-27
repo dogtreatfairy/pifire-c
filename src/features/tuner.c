@@ -44,7 +44,10 @@
 
 typedef enum { PH_IDLE = 0, PH_STARTING, PH_SETTLING, PH_TESTING, PH_VERIFYING, PH_NEXT, PH_FINISHING, PH_DONE, PH_FAILED } phase;
 
-static const char *PHASE_NAME[] = { "idle", "starting", "settling", "testing", "next", "finishing", "done", "failed" };
+/* One name per phase, in the enum's order. "verifying" was missing, so the verification hold
+ * reported itself as "next" -- "Moving to the next set point" for twenty-five minutes -- and every
+ * phase after it wore the name of the one before. */
+static const char *PHASE_NAME[] = { "idle", "starting", "settling", "testing", "verifying", "next", "finishing", "done", "failed" };
 
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 static struct {
@@ -70,6 +73,11 @@ static struct {
 	bool had_anchor;
 	double v_max_c, v_sq_c, v_sum_c; int v_n;
 	char message[120];
+	/* what the run is waiting for right now and how long it thinks that will take: "reach" the set
+	 * point (from the pit's climb), "settle" (the stable-hold clock), "measure" (no estimate; the
+	 * relay's crossings are counted instead), "verify" (the verification clock), "cool" */
+	char eta_what[12]; double eta_s; int crossings;
+	bool skip_verify[MAX_POINTS];   /* the cook chose to skip this set point's verification */
 } g;
 
 /* The tuning each set point produced. A run takes hours and nobody is standing over it, so the
@@ -93,6 +101,8 @@ static int fmt_results(char *out, size_t n, double since_wall)
 	out[o < n ? o : n - 1] = 0;
 	return written;
 }
+
+static void eta(const char *what, double secs) { pf_strlcpy(g.eta_what, what, sizeof g.eta_what); g.eta_s = secs; }
 
 static void set_phase(phase p, double now, const char *msg)
 {
@@ -312,6 +322,7 @@ void pf_tuner_tick(const cJSON *status, double now)
 
 	switch (g.ph) {
 	case PH_STARTING:
+		eta("light", -1);
 		/* the mode request routes through Startup on its own; wait for it to land in Hold */
 		if (!strcmp(mode, "Hold")) { set_phase(PH_SETTLING, now, "Waiting for the grill to settle"); break; }
 		if (elapsed > T_START_S) {
@@ -344,6 +355,9 @@ void pf_tuner_tick(const cJSON *status, double now)
 		bool close = !isnan(pit) && sp > 0 && fabs(pit - sp) <= band;
 		if (!close) g.stable_since = 0;
 		else if (g.stable_since == 0) g.stable_since = now;
+		/* what is being waited for, said plainly: the climb to the set point, then the settle */
+		if (!close) eta("reach", pf_json_num((cJSON *)status, "setpoint_eta_s", -1));
+		else eta("settle", fmax(0, STABLE_S - (now - g.stable_since)));
 		if (g.stable_since > 0 && now - g.stable_since >= STABLE_S) {
 			set_phase(PH_TESTING, now, "Measuring the loop");
 			g.at_gen = pf_learning_autotune_gen();
@@ -377,6 +391,8 @@ void pf_tuner_tick(const cJSON *status, double now)
 	}
 
 	case PH_TESTING: {
+		eta("measure", -1);
+		g.crossings = (int)pf_json_num((cJSON *)status, "autotune.crossings", 0);
 		if (at_active) {
 			if (elapsed > T_TEST_S) {
 				snprintf(why, sizeof why, "The measurement at %.0f%s ran past %.0f minutes without completing its swings.",
@@ -446,6 +462,13 @@ void pf_tuner_tick(const cJSON *status, double now)
 			g.v_sq_c += e * e; g.v_n++;
 			g.v_sum_c += pf_to_c(pit, pf_settings_units()) - pf_to_c(sp, pf_settings_units());
 		}
+		eta("verify", fmax(0, VERIFY_S - elapsed));
+		/* the cook may skip the check: the tune measured here is kept as it stands */
+		if (g.step < MAX_POINTS && g.skip_verify[g.step]) {
+			LOGI(TAG, "verification at %.0f C skipped as asked; the measurement stands", g.points_c[g.step]);
+			set_phase(PH_NEXT, now, "Verification skipped");
+			break;
+		}
 		if (elapsed < VERIFY_S) break;
 		double rms = g.v_n ? sqrt(g.v_sq_c / g.v_n) : 0;
 		bool ok = g.v_n >= 30 && g.v_max_c <= VERIFY_MAX_C && rms <= VERIFY_RMS_C;
@@ -485,6 +508,7 @@ void pf_tuner_tick(const cJSON *status, double now)
 		return;
 
 	case PH_FINISHING:
+		eta("cool", -1);
 		if (!strcmp(mode, "Stop") || elapsed > 900) finish(g.measured > 0, g.measured > 0 ? "" : "No set point produced a measurement.", now);
 		break;
 
@@ -538,6 +562,12 @@ cJSON *pf_tuner_json(void)
 		cJSON_AddNumberToObject(o, "elapsed_s", round(g.run_start > 0 ? g.last_now - g.run_start : 0));
 		cJSON *pts = cJSON_AddArrayToObject(o, "setpoints");
 		for (int i = 0; i < g.n; i++) cJSON_AddItemToArray(pts, cJSON_CreateNumber(round(pf_from_c(g.points_c[i], u))));
+		cJSON *e = cJSON_AddObjectToObject(o, "eta");
+		cJSON_AddStringToObject(e, "what", g.eta_what);
+		cJSON_AddNumberToObject(e, "s", g.eta_s >= 0 ? round(g.eta_s) : -1);
+		cJSON_AddNumberToObject(o, "crossings", g.crossings);
+		cJSON *sk = cJSON_AddArrayToObject(o, "skip_verify");
+		for (int i = 0; i < g.n && i < MAX_POINTS; i++) cJSON_AddItemToArray(sk, cJSON_CreateBool(g.skip_verify[i]));
 	}
 	pthread_mutex_unlock(&g_mu);
 
@@ -582,3 +612,17 @@ cJSON *pf_tuner_json(void)
 	}
 	return o;
 }
+
+/* The cook's choice to skip a set point's verification: set ahead of time on the rail, or on
+ * the verification that is running now, which then ends at the next tick with its measurement
+ * kept. Index is the run's own (0-based). */
+int pf_tuner_skip_verify(int step, bool skip)
+{
+	pthread_mutex_lock(&g_mu);
+	if (!g.running || step < 0 || step >= g.n || step >= MAX_POINTS) { pthread_mutex_unlock(&g_mu); return -1; }
+	g.skip_verify[step] = skip;
+	LOGI(TAG, "set point %.0f C: verification %s", g.points_c[step], skip ? "will be skipped" : "will run");
+	pthread_mutex_unlock(&g_mu);
+	return 0;
+}
+

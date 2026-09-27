@@ -38,3 +38,5 @@ bool pf_tuner_active(double *setpoint_user, int *step, int *steps);
 
 /* {running, phase, step, steps, setpoint, elapsed_s, message, anchors:[...]} */
 cJSON *pf_tuner_json(void);
+/* skip (or restore) the verification hold of one set point of the running profile; -1 if none */
+int pf_tuner_skip_verify(int step, bool skip);
