@@ -627,10 +627,10 @@ export function screenActions({ onDelete, deleteTitle = 'Delete', onCancel, onSa
      save]);
 }
 
-/* While the daemon updates itself -- from the update page or on its own at two in the morning with
-   the app open -- every page shows the same full-screen stage: a turning ring, Downloading with the
-   percentage, Updating, then Rebooting once the daemon has gone away, until it answers again
-   running the new version, when the app reloads itself. */
+/* While the daemon installs an update -- from the update page or on its own at two in the morning
+   with the app open -- every page shows the same full-screen stage: a turning ring, Updating, then
+   Rebooting once the daemon has gone away, until it answers again running the new version, when
+   the app reloads itself. The download before it does not take the screen. */
 let updOverlay = null, updWasBusy = false, updBootVersion = null;
 export function showUpdateOverlay(stage, detail) {
   if (!updOverlay) {
@@ -645,7 +645,9 @@ function hideUpdateOverlay() { if (updOverlay) updOverlay.hidden = true; }
 function watchUpdate(s) {
   const st = s?.update?.state;
   if (updBootVersion == null && s?.version) updBootVersion = s.version;
-  if (st === 'downloading') { updWasBusy = true; showUpdateOverlay('Downloading…', `${Math.round((s.update.progress || 0) * 100)}%`); }
+  /* The download leaves the app usable: the update page shows its percentage. The full screen
+     is for when the grill is actually being changed -- installing, rebooting, reloading. */
+  if (st === 'downloading' || st === 'checking') { updWasBusy = true; hideUpdateOverlay(); }
   else if (st === 'verifying' || st === 'installing') { updWasBusy = true; showUpdateOverlay('Updating…', ''); }
   else if (updWasBusy && s?.version && updBootVersion && s.version !== updBootVersion) {
     /* the daemon is back, running something newer: fetch the new shell and start again */

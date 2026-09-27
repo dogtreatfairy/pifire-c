@@ -1032,9 +1032,10 @@ model, some tens of percent; from halfway it is within a minute or two, and it n
 
 ## An update is a screen, not a line
 
-While the daemon updates itself the app shows one full-screen stage on every page -- a turning
-ring, then Downloading with the percentage, Updating, Rebooting once the daemon has gone away,
-Reloading when it answers running the new version -- whether the install was asked for on the
+While the daemon installs an update the app shows one full-screen stage on every page -- a turning
+ring, then Updating, Rebooting once the daemon has gone away, Reloading when it answers running the
+new version. The download before it does not take the screen: the app stays usable and the update
+page shows the percentage. That holds whether the install was asked for on the
 update page or happened on its own at two in the morning with the app open. After the reload,
 and after any install the daemon made while nobody was looking, the app says once, on whichever
 device opens it first, "Updated to X", with Close on the left and Changelog on the right, which unfolds the release's
