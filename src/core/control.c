@@ -385,6 +385,8 @@ static void enter_mode(pf_control *c, pf_mode m, double now)
 	c->mode = m;
 	c->mode_start = now;
 	c->aim_since = now;
+	c->aim_pit_c = c->pit_valid ? c->pit_c : NAN;
+	c->eta_s = -1;
 	{
 		bool cooking = m == PF_MODE_STARTUP || m == PF_MODE_REIGNITE || m == PF_MODE_SMOKE ||
 		               m == PF_MODE_HOLD || m == PF_MODE_SHUTDOWN || m == PF_MODE_PRIME;
@@ -576,6 +578,8 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 			c->setpoint_c = pf_to_c(cmd->num, u);
 			c->target_reached = false;
 			c->aim_since = now;
+			c->aim_pit_c = c->pit_valid ? c->pit_c : NAN;
+			c->eta_s = -1;
 			learn_reset_window(c, now);
 			if (c->mode == PF_MODE_HOLD) c->ctrl_reset_needed = true;
 			else if (c->mode == PF_MODE_SMOKE) pf_control_request(c, PF_MODE_HOLD, c->setpoint_c);
@@ -2262,6 +2266,22 @@ static void run_fan_logic(pf_control *c, double now)
 	}
 }
 
+/* The countdown to the set point, for the gauge and the tuner: the library's estimate for where
+ * this climb stands, smoothed over about twenty seconds so the pit's noise does not put a number
+ * on the screen that changes its mind every tick. Reset whenever the aim changes. */
+static void setpoint_countdown(pf_control *c, double now)
+{
+	double dt = c->eta_last_t > 0 ? fmax(0, now - c->eta_last_t) : 0.1;
+	c->eta_last_t = now;
+	double raw = -1;
+	if (c->mode == PF_MODE_HOLD && c->pit_valid && c->setpoint_c > c->pit_c && !c->target_reached)
+		raw = pf_learning_climb_eta(c->aim_pit_c, now - c->aim_since, c->pit_c, c->setpoint_c, c->ambient_c, c->ccfg.u_min, c->ccfg.u_max);
+	if (raw < 0) { c->eta_s = -1; return; }
+	if (c->eta_s < 0) { c->eta_s = raw; return; }
+	double a = fmin(1.0, dt / 20.0);
+	c->eta_s += a * (raw - c->eta_s);
+}
+
 static void run_mode(pf_control *c, double now)
 {
 	const pf_cfg *g = &c->cfg;
@@ -2271,6 +2291,7 @@ static void run_mode(pf_control *c, double now)
 	/* lid-open detection / expiry */
 	if (c->mode == PF_MODE_HOLD || c->mode == PF_MODE_SMOKE) {
 		if (c->mode == PF_MODE_HOLD && c->pit_c >= c->setpoint_c) c->target_reached = true;
+		setpoint_countdown(c, now);
 		/* threshold is a percentage of the setpoint in the user's units, as in the original */
 		double lid_thresh_c = pf_to_c(pf_from_c(c->setpoint_c, g->units) * (100.0 - g->lid_threshold_pct) / 100.0, g->units);
 		if (c->target_reached && g->lid_detect && !c->lid_open && c->pit_c < lid_thresh_c) {
@@ -2673,6 +2694,7 @@ static void publish(pf_control *c, double now)
 	memset(&s, 0, sizeof s);
 	s.t = now;
 	s.aim_since = c->aim_since;
+	s.setpoint_eta_s = c->eta_s;
 	s.wall = pf_wall();
 	s.mode = c->mode;
 	s.next_mode = c->next_mode;

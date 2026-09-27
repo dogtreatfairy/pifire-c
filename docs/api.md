@@ -6,7 +6,7 @@ Base path `/api/v1`. All bodies and responses are JSON. Temperatures are in the 
 
 | method | path | notes |
 |---|---|---|
-| GET | `/status` | full state: mode, set point, outputs, probes (temp/target/eta/limits), timer, recipe, safety, controller debug, cycle (`u_raw`, `u_applied`, `u_ff`), autotune. `timers.mode_remaining` counts down Startup/Reignite/Shutdown/Prime; `timers.startup_exit_temp` (0 = none) is the temperature that ends startup early; `coldstart.{active,reached,remaining}` show the cold-start gate |
+| GET | `/status` | full state: mode, set point, outputs, probes (temp/target/eta/limits), timer, recipe, safety, controller debug, cycle (`u_raw`, `u_applied`, `u_ff`), autotune. `timers.mode_remaining` counts down Startup/Reignite/Shutdown/Prime; `timers.startup_exit_temp` (0 = none) is the temperature that ends startup early; `coldstart.{active,reached,remaining}` show the cold-start gate; `setpoint_eta_s` is the smoothed countdown to the set point from the tuning data (-1 when the library cannot say) |
 | WS | `/ws` | pushes `{"type":"status",...}` at 1 Hz and on change, `{"type":"event",...}` for alerts; accepts the same JSON commands as `POST /cmd` |
 | GET | `/history?minutes=15` or `?from=&to=&res=` | `{t:[],mode:[],setpoint:[],u:[],probes:{label:{temp:[],target:[]}}}` |
 | POST | `/history/clear` | |

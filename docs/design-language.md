@@ -934,6 +934,25 @@ timer: the status comes once a second, and a redraw after a fixed delay raced it
 redraw lost, the sheet still said "Set Target" with nothing set, and that read as "it did not
 save".
 
+## A probe card is three lines, and Home has no controller readout
+
+The food probe cards on Home carry the Bluetooth mark, the name and the battery on one line, the
+reading large under it, and the target under that -- "Beef · Medium rare" then `Target 130°`
+when one is set. The signal bars and the ambient reading were on the card too and are not: a
+card read at a glance across a garden cannot carry five things, and both are one tap away on the
+probe's sheet. The Controller fold that sat under the cards -- duty, PID terms, cycle -- is gone
+from Home; it was a diagnostic, and it lives under Settings → Hold Mode. The cards take the room.
+
+The time to the set point on the gauge is a countdown, not a guess made afresh each second. The
+daemon runs the climb the tuning describes -- the anchor's gain, time constant and dead time under
+the adaptive controller's own law -- reads off how long is left from where the real pit stands on
+that curve, re-paces that by how the climb has actually gone, and as the climb progresses hands
+over to the climb's own average rate, which is smooth where any one minute's rate is not. The
+result is smoothed over twenty seconds. While the fire is catching it counts the dead time down
+and then holds, rather than promising an arrival the pit is not moving toward. Checked against a
+real 250 to 300 °F step (docs/autotune-evidence.md): early on it is only as good as the plant
+model, some tens of percent; from halfway it is within a minute or two, and it never lurches.
+
 ## A short choice is shown whole, never as a strip to scroll
 
 The meats in the probe target sheet are nine buttons in two rows of five, every one on screen.

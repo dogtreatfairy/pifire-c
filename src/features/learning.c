@@ -634,6 +634,98 @@ double pf_learning_time_to(double from_c, double to_c, double ambient_c, double 
 	return (t > 0 && t < 24 * 3600 && isfinite(t)) ? t : -1;
 }
 
+/* Why the old estimate jumped about: it was "the time from a standing start, if we began now",
+ * asked again every second. The dead time was added afresh each time, so the number never came
+ * down while the fire was catching; the ceiling came from the feed-forward fit, a line through a
+ * handful of noisy holds that moved every five minutes; and the pit's own noise went straight
+ * into a logarithm whose argument is small near the end. And it ignored the controller entirely,
+ * as though the climb were a step at full feed -- when in fact the controller cuts the feed hard
+ * as soon as the pit moves (the derivative term, and its prediction of the heat already committed
+ * during the dead time) and closes the last band slowly. On the 250 -> 300 F step this was checked
+ * against, the feed was at 0.9 for ninety seconds and around 0.4 for the remaining six minutes.
+ *
+ * This one runs the climb the tuning describes and reads the countdown off it. From the pit at
+ * the step, the anchor's plant (gain, time constant, dead time) is driven by the adaptive
+ * controller's own law -- feed-forward for the set point, the proportional band, the filtered
+ * derivative, and the same model of heat on its way that the controller uses to hold back -- until
+ * the modelled pit is within a degree of the set point. That gives one curve for the whole climb.
+ * The number shown is the time left on that curve from the point on it the real pit has reached,
+ * re-paced by how long the real climb has taken to get there against how long the curve says it
+ * should have: a grill running ahead of or behind its model on the day is followed rather than
+ * argued with, and because the pace is taken over the whole climb rather than the last minute,
+ * a surge in the fire does not swing it. The pit's noise moves the answer by a few seconds. While
+ * nothing has happened yet -- the dead time, the fire catching -- the countdown is the elapsed
+ * time taken off the modelled dead time, and no further: it does not keep promising an arrival the
+ * pit is not moving toward. */
+double pf_learning_climb_eta(double t0_c, double elapsed, double now_c, double to_c, double ambient_c, double u_min, double u_max)
+{
+	if (!(to_c > now_c + 1.0)) return 0;
+	double K = 0, tau = 0, theta = 0, PB = 0, Td = 0;
+	if (!pf_learning_plant(to_c, &K, &tau, &theta) || !(tau > 0) || !(K > 0)) return -1;
+	if (!pf_learning_gains(to_c, &PB, NULL, &Td) || !(PB > 0)) { PB = 0; Td = 0; }
+	if (!(u_max > 0)) u_max = 0.9;
+	if (!(u_min >= 0) || u_min >= u_max) u_min = 0.1;
+	if (!isfinite(t0_c) || t0_c > now_c) t0_c = now_c;
+	if (!(elapsed >= 0)) elapsed = 0;
+	theta = fmin(fmax(0, theta), 900);
+	if (!(ambient_c + K * u_max > to_c + 1)) return -1;   /* a grill that cannot get there has no time to give */
+
+	/* the climb the tuning describes, one second at a time, under the controller's own law */
+	enum { MAX_S = 6 * 3600, RING = 1024 };
+	double ring[RING], mring[RING];          /* feed on its way, and the controller's model of it */
+	int th = (int)(theta + 0.5);
+	double uff = pf_clamp((to_c - ambient_c) / K, u_min, u_max);
+	double u_pre = pf_clamp((t0_c - ambient_c) / K, 0, u_max);   /* what the pipe held before the step */
+	for (int i = 0; i < RING; i++) { ring[i] = u_pre; mring[i] = u_pre; }
+	double tf = fmax(20.0, Td / 4.0);
+	double T = t0_c, mdl = u_pre, derv_f = 0, model_rate = 0;
+	int t_star = -1, t_arrive = -1;
+	for (int t = 0; t < MAX_S; t++) {
+		double u;
+		if (PB > 0) {
+			double surplus = pf_clamp(K * (mdl - mring[(t + RING - th) % RING]), -100, 100);
+			double e = (T - to_c) + surplus;
+			u = pf_clamp(uff - e / PB - Td * derv_f / PB, u_min, u_max);
+		} else u = T < to_c ? u_max : uff;
+		double u_in = ring[(t + RING - th) % RING];
+		ring[t % RING] = u;
+		double dT = (-(T - ambient_c) + K * u_in) / tau;
+		T += dT;
+		derv_f += (dT - derv_f) / (tf + 1.0);
+		mdl += (u - mdl) / tau;
+		mring[t % RING] = mdl;
+		/* where the real pit stands on this curve: the first second the model has climbed past it */
+		if (t_star < 0 && T >= now_c && T > t0_c + 1.0) { t_star = t; model_rate = dT; }
+		if (T >= to_c - 1.0) { t_arrive = t; break; }
+	}
+	(void)model_rate;
+	if (t_arrive < 0) return -1;
+	if (now_c <= t0_c + 1.0 || t_star < 0) {
+		/* the pit has not moved yet: count the dead time down as far as it has gone, then hold */
+		double waited = fmin(elapsed, (double)th);
+		double t = (double)t_arrive - waited;
+		return t > 0 ? t : 0;
+	}
+	double t = (double)(t_arrive - t_star);
+	/* The grill on the day against the grill on paper. The curve's own pace is corrected by how
+	 * long the real climb has taken to get here against how long the curve said; and as the climb
+	 * goes on, the estimate hands over from the curve to the climb's own average rate since the
+	 * pit started moving -- remaining degrees over that rate. The plant in the library is a static
+	 * gain and one time constant, and this grill's step captures and relay tests disagree about
+	 * the time constant threefold, so the curve is only trustworthy to a few tens of percent; the
+	 * climb itself is the better witness once it has said enough, and its average over the whole
+	 * climb is smooth where the rate over the last minute is not. */
+	if (now_c > t0_c + 5.0 && t_star > th && elapsed > th) {
+		t *= pf_clamp(elapsed / (double)t_star, 0.5, 3.0);
+		double moving = fmax(30.0, elapsed - theta);
+		double avg = (now_c - t0_c) / moving;                 /* C per second since the pit started to move */
+		double by_rate = avg > 1e-4 ? (to_c - now_c) / avg : t;
+		double w = pf_clamp((now_c - t0_c) / (to_c - t0_c), 0, 1);   /* how far along the climb is */
+		t = (1 - w) * t + w * by_rate;
+	}
+	return t > 0 ? t : 0;
+}
+
 bool pf_learning_gains(double setpoint_c, double *PB_c, double *Ti, double *Td)
 {
 	pthread_mutex_lock(&g_mu);

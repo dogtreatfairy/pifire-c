@@ -69,14 +69,7 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 	 * not an alert: the question is asked the moment the set point changes, before there is any
 	 * climb to measure, which is why it comes from what the grill has learned rather than from a
 	 * line fitted through the last few minutes. -1 while it does not know enough to say. */
-	{
-		double eta = -1, pit = NAN;
-		for (int i = 0; i < s->sensors.n; i++)
-			if (s->sensors.p[i].role == PF_PROBE_PRIMARY && s->sensors.p[i].valid) { pit = s->sensors.p[i].temp_c; break; }
-		if (s->setpoint_c > 0 && !isnan(pit) && s->setpoint_c > pit)
-			eta = pf_learning_time_to(pit, s->setpoint_c, s->ambient_c, 0.9);
-		cJSON_AddNumberToObject(o, "setpoint_eta_s", eta >= 0 ? round(eta) : -1);
-	}
+	cJSON_AddNumberToObject(o, "setpoint_eta_s", s->setpoint_eta_s >= 0 ? round(s->setpoint_eta_s) : -1);
 	cJSON_AddBoolToObject(o, "sim", s->sim);
 	cJSON_AddNumberToObject(o, "hopper_pct", s->hopper_pct);
 	add_num_or_null(o, "ambient", r1(conv(s->ambient_c, units)));

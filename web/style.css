@@ -465,13 +465,14 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .hero .line1.ok { color: var(--ok-ink); } .hero .line1.accent { color: var(--accent-ink); } .hero .line1.info { color: var(--info-ink); } .hero .line1.warn { color: var(--warn-ink); } .hero .line1.danger { color: var(--danger-ink); } .hero .line1.muted { color: var(--muted); cursor: default; }
 .hero .line2 { font-size: var(--fs-sm); color: var(--muted); margin: 3px 0 10px; min-height: 1.2em; }
 .pgrid { display: grid; gap: 8px; margin-bottom: 12px; }
-.pcell { background: var(--surface); border: var(--bw) solid var(--line); border-radius: var(--r-md); padding: var(--sp-2) 6px;
+.pcell { background: var(--surface); border: var(--bw) solid var(--line); border-radius: var(--r-md); padding: var(--sp-3) 6px;
   text-align: center; cursor: pointer; min-width: 0; width: 100%; font: inherit; color: inherit; display: block; }
 .pcell .n, .pcell .t, .pcell .tg, .pcell .amb, .pcell .meat { display: block; }
 .pcell .meat { font-size: var(--fs-xs); color: var(--text); }
-.pcell .n { font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pcell .t { font-size: var(--fs-2xl); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.15; }
-.pcell .tg { font-size: var(--fs-xs); color: var(--accent-ink); }
+.pcell .n { font-size: var(--fs-sm); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; justify-content: center; gap: 5px; }
+.pcell .n .ic.bt { width: 14px; height: 14px; color: var(--info-ink); }
+.pcell .t { font-size: 2.25rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.15; margin: 4px 0 2px; }
+.pcell .tg { font-size: var(--fs-sm); color: var(--accent-ink); }
 /* A probe that has arrived flashes, exactly as it does on the panel: the whole card fills with the
    colour of how far past its target it is -- done, five degrees over, ten -- half a beat in every
    beat and a half. A number that has changed colour is easy to miss across a garden; one that
@@ -844,7 +845,7 @@ details[open] > summary::after { transform: rotate(-90deg); }
 .sig i.on { background: currentColor; }
 .sig.s1 i.on { background: var(--danger); } .sig.s2 i.on { background: var(--warn); }
 .pcell .n .sig { margin-right: 4px; color: var(--info-ink); }
-.pcell .n .batt { font-size: var(--fs-2xs); margin-right: 4px; color: var(--muted); }
+.pcell .n .batt { font-size: var(--fs-2xs); margin: 0; color: var(--muted); }
 .pcell .n .batt.low { color: var(--warn-ink); }
 .pcell .n .batt.crit { color: var(--danger-ink); }
 .batt.unknown { opacity: .6; }

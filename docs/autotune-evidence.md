@@ -80,3 +80,34 @@ the settled hold said 430 (121 C on 0.255 duty, ambient 11.5 C) and the startup 
 tuning rule itself is unchanged: Tyreus-Luyben from the relay, which the verification hold has
 now passed on the real grill.
 
+
+## The countdown to the set point, replayed over a real climb (27 September 2026)
+
+The estimate on the gauge used to be recomputed from a standing start every second -- the dead
+time re-added each time, the ceiling read from the feed-forward fit, the controller ignored -- and
+Ryan called it "extremely erratic". The replacement runs the climb the tuning describes under the
+adaptive controller's own law and reads the time left from where the real pit stands on that
+curve, re-paced by the climb so far and handed over to the climb's own average rate as it goes.
+
+It was checked by replaying the daemon's own estimator (`pf_learning_climb_eta`, linked from
+`libpfcore.a`) over the recorded pit of cook 13's step from 250 to 300 °F, given at 20:31:50 with
+the pit at 119.8 °C, using the 300 °F anchor as it stands in the library (K 432.8 °C per unit feed,
+τ 1644 s, θ 91.4 s, PB 32.9 °C, ambient 10.8 °C, feed 0.1–0.9). The pit was within a degree of the
+set point after 471 s.
+
+| elapsed | pit °C | estimate | predicted arrival | error |
+|---|---|---|---|---|
+| 0 s | 119.8 | 753 s | 753 s | +282 s |
+| 120 s | 125.9 | 497 s | 617 s | +146 s |
+| 240 s | 139.9 | 152 s | 392 s | −79 s |
+| 360 s | 143.7 | 105 s | 465 s | −6 s |
+
+The modelled feed followed the real feed closely (0.9 for the dead time, then about 0.48, 0.40,
+0.45, 0.37 as the controller held back), and the modelled pit was within 2 °C of the real one for
+the first three and a half minutes. After that the real grill crept in faster than its static gain
+says it should, which is why the hand-over to the climb's own pace is there: it is what brought
+the last four minutes to within a minute. The early error is the plant's: this grill's step captures
+and relay tests disagree about the time constant threefold (540 s against 1644 s, in the daemon's
+own log), and no curve drawn from that can call the first minutes better than a few tens of percent.
+What it no longer does is lurch: no reading in the replay moved the predicted arrival later by more
+than a minute, and in the daemon the value is further smoothed over twenty seconds.

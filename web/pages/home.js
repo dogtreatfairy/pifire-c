@@ -256,11 +256,9 @@ export function renderHome(view) {
   const hopper = el('div', { class: 'card tight hopper', hidden: true }, el('div', { class: 'row between' }, el('div', {}, el('strong', {}, 'Hopper'), ' ', hopBrand), hopPct), el('div', { class: 'progress' }, hopFill));
   const manual = el('div', { class: 'card tight', hidden: true });
   const probes = el('div', { class: 'pgrid' });
-  const ctrl = el('div', { class: 'kv' });
   view.append(
     el('div', { class: 'card hero' }, header, gauge, target, detail, recipeLine, tuneLine, bar),
     hopper, manual, probes,
-    el('details', { class: 'card tight' }, el('summary', { class: 'muted' }, 'Controller'), ctrl),
   );
 
   let brand = '';
@@ -359,8 +357,10 @@ export function renderHome(view) {
         /* spans, not divs: the cell is a <button> so that it focuses, answers the keyboard and
            takes the app's press layer like every other control, and a button may only contain
            phrasing content. The CSS gives each line its own row. */
-        el('span', { class: 'n' }, p.wireless ? [btIcon(), sigBars(p.signal || 0, p.rssi ? `${p.rssi} dBm` : 'no link'), battIcon(p.battery), ' '] : null, p.name), el('span', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
-        p.ambient_label ? el('span', { class: 'amb' }, `Ambient ${p.ambient == null ? '—' : fmtTemp(p.ambient) + '°'}`) : null,
+        /* three lines and no more: the mark, the name and the battery; the reading; the target.
+           The link bars and the ambient reading were here too, and a card read at a glance across
+           a garden cannot carry five things -- they live on the probe's sheet. */
+        el('span', { class: 'n' }, p.wireless ? [btIcon(), ' '] : null, p.name, p.wireless ? [' ', battIcon(p.battery)] : null), el('span', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
         /* what the target was chosen for, above the number: "Beef · Medium rare" is what the cook
            remembers setting; 130° is what it came to */
         p.target > 0 && p.meat ? el('span', { class: 'meat' }, `${p.meat}${p.done ? ` \u00b7 ${p.done}` : ''}`) : null,
@@ -368,10 +368,6 @@ export function renderHome(view) {
     }
     probes.hidden = !food.length;
 
-    ctrl.innerHTML = '';
-    const c = s.controller;
-    for (const [k, v] of [['Controller', c.id], ['Tuning', c.note || '—'], ['Auger duty (raw / applied)', `${s.cycle.u_raw.toFixed(2)} / ${s.cycle.u_applied.toFixed(2)}`], ['Cycle', `${s.cycle.cycle_s}s`], ['P / I / D', `${c.p.toFixed(2)} / ${c.i.toFixed(2)} / ${c.d.toFixed(2)}`], ['Error', `${c.error.toFixed(1)}${u}`], ['Ambient', s.ambient == null ? '—' : `${fmtTemp(s.ambient)}${u}`], ['Power', s.outputs.power ? 'on' : 'off']])
-      ctrl.append(el('div', {}, k), el('div', {}, v));
   };
   update(PF.status);
   return onStatus(update);

@@ -3,6 +3,7 @@
 #include "core/cmdq.h"
 #include "core/control.h"
 #include "core/db.h"
+#include "core/util.h"
 #include "core/env.h"
 #include "core/events.h"
 #include "core/history.h"
@@ -633,6 +634,63 @@ static void test_one_measurement_can_be_removed(void)
 	TEST_ASSERT_EQUAL(2, pf_learning_anchor_list(a, PF_TUNE_ANCHORS));
 }
 
+/* The estimate has to behave like a countdown along the climb the tuning describes: asked every
+ * half minute while a modelled grill climbs from cold to 300 F under its own controller, the
+ * predicted arrival time (now + estimate) must stay put rather than wander, must not creep up as
+ * the climb goes on, and must land near the real crossing. The old estimate re-added the dead time
+ * every second and read its ceiling off the feed-forward fit, and did none of these. */
+static void test_the_climb_estimate_is_a_countdown(void)
+{
+	pf_learning_reset();
+	pf_learning_clear_anchors();
+	const double to = pf_f_to_c(300), amb = 12, K = 430, tau = 1600, theta = 90, PB = 33;
+	pf_learning_store_anchor_plant(to, K, tau, theta);
+	pf_autotune_result r = { .Ku = 0.067, .Pu = 358, .PB_c = PB, .Ti = 787, .Td = 57, .valid = true };
+	pf_learning_store_anchor(to, &r, amb, 0);
+
+	/* the grill: first-order lag with dead time, under the adaptive controller's law -- feed-forward,
+	 * band, filtered derivative and its model of heat on its way -- which is the law the estimate
+	 * assumes, so what is being tested is the countdown, not the plant */
+	const double u_min = 0.1, u_max = 0.9, uff = (to - amb) / K, Td = 57, tf = 20;
+	double T = 20, hist[200] = { 0 }, mhist[200] = { 0 }, mdl = 0, derv_f = 0;
+	int n = 0;
+	double t = 0, arrive = -1, first_pred = -1, worst_up = 0, prev_pred = 1e9;
+	double preds[400]; int np = 0;
+	for (t = 0; t < 7200 && arrive < 0; t += 1) {
+		double then = n > (int)theta ? mhist[(n - (int)theta) % 200] : mdl;
+		double surplus = pf_clamp(K * (mdl - then), -100, 100);
+		double u = pf_clamp(uff - ((T - to) + surplus) / PB - Td * derv_f / PB, u_min, u_max);
+		hist[n % 200] = u; n++;
+		double u_del = n > (int)theta ? hist[(n - (int)theta) % 200] : 0;   /* nothing arrives before the dead time */
+		double dT = (-(T - amb) + K * u_del) / tau;
+		T += dT;
+		derv_f += (dT - derv_f) / (tf + 1.0);
+		mdl += (u - mdl) / tau; mhist[(n - 1) % 200] = mdl;
+		if (T >= to - 1 && arrive < 0) arrive = t;
+		if (((int)t) % 30 == 0 && T < to - 1) {
+			double e = pf_learning_climb_eta(20, t, T, to, amb, u_min, u_max);
+			TEST_ASSERT_TRUE_MESSAGE(e >= 0, "with the tuning data it can answer at every point of the climb");
+			double pred = t + e;
+			if (first_pred < 0) first_pred = pred;
+			if (pred > prev_pred + 1e-9) worst_up = fmax(worst_up, pred - prev_pred);
+			prev_pred = pred;
+			preds[np++] = pred;
+		}
+	}
+	TEST_ASSERT_TRUE_MESSAGE(arrive > 0, "the modelled grill must arrive");
+	printf("climb to 300 F: real %.0f s; predicted arrival first %.0f s, halfway %.0f s, last %.0f s; worst upward step %.0f s\n", arrive, first_pred, preds[np / 2], preds[np - 1], worst_up);
+	TEST_ASSERT_TRUE_MESSAGE(fabs(first_pred - arrive) < 0.30 * arrive, "the first estimate is within 30%% of the climb");
+	/* this modelled grill creeps its last few degrees for half the climb, and the hand-over to the
+	 * climb's own average pace under-calls a tail like that; the real grill's tail is faster than
+	 * its model (docs/autotune-evidence.md), which is why the hand-over is there at all */
+	TEST_ASSERT_TRUE_MESSAGE(fabs(preds[np / 2] - arrive) < 0.40 * arrive, "halfway through it is within 40%%");
+	TEST_ASSERT_TRUE_MESSAGE(fabs(preds[np - 1] - arrive) < 180, "the last estimate lands within three minutes");
+	TEST_ASSERT_TRUE_MESSAGE(worst_up < 120, "the predicted arrival never jumps later by more than two minutes between readings");
+	/* and it does not re-add the dead time: two readings a minute apart in the dead time differ by that minute */
+	double a = pf_learning_climb_eta(20, 0, 20, to, amb, u_min, u_max), b = pf_learning_climb_eta(20, 60, 20, to, amb, u_min, u_max);
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(1.0, 60, a - b, "the dead time is paid once, from the step");
+}
+
 int main(void)
 {
 	pf_log_init(PF_LOG_ERROR);
@@ -652,6 +710,7 @@ int main(void)
 	RUN_TEST(test_a_full_library_survives_a_restart);
 	RUN_TEST(test_a_backup_puts_back_every_field);
 	RUN_TEST(test_one_measurement_can_be_removed);
+	RUN_TEST(test_the_climb_estimate_is_a_countdown);
 	RUN_TEST(test_a_repeat_run_refines_that_set_point_only);
 	RUN_TEST(test_an_untuned_set_point_interpolates_between_its_neighbours);
 	RUN_TEST(test_a_full_library_gives_up_its_most_redundant_entry);

@@ -83,6 +83,8 @@ typedef struct {
 	 * A pit below its target is only worth reporting once it has had time to climb, and this is
 	 * what "had time" is measured from. */
 	double aim_since;
+	/* the pit when the aim was given, and the smoothed countdown to it: see setpoint_countdown() */
+	double aim_pit_c, eta_s, eta_last_t;
 	bool req_pending; pf_mode req_mode; double req_setpoint_c; bool req_prime_then_startup;
 	double setpoint_c;
 	bool s_plus, pwm_control; int duty_cycle;

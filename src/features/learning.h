@@ -82,6 +82,15 @@ bool pf_learning_plant(double setpoint_c, double *K, double *tau, double *theta)
  * seconds, or -1 when the grill does not yet know enough to say. It answers before the climb has
  * started, which is the point: the question is asked the moment the set point changes. */
 double pf_learning_time_to(double from_c, double to_c, double ambient_c, double u_max);
+/* Seconds until the pit reaches to_c, from where the climb stands: t0_c is the pit when the set
+ * point was given, elapsed the seconds since, now_c the pit now. Built from the tuning data at
+ * that set point -- gain, time constant, dead time and proportional band -- with the dead time
+ * counted once from the step, the climb's own progress calibrating the ceiling, and the last
+ * band of the climb taken at the rate the controller's own law -- feed-forward, proportional
+ * band, derivative, and its prediction of heat already on its way -- actually produces, then
+ * re-paced by how this climb has gone so far against the model.
+ * -1 when the library cannot say; 0 once it is there. */
+double pf_learning_climb_eta(double t0_c, double elapsed, double now_c, double to_c, double ambient_c, double u_min, double u_max);
 int  pf_learning_anchor_list(pf_tune_anchor *out, int max);
 /* The load measured at this set point (within 5 C), or 0 when it has never been measured. */
 double pf_learning_anchor_load(double setpoint_c);
