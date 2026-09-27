@@ -427,7 +427,10 @@ static void test_warm_restart_resumes_hold(void)
  * that long has to be looked at before it is lit again. */
 static void test_power_loss_recovery(void)
 {
+	/* setUp has already built the controller; it reads the safety settings on init, so re-init
+	 * after patching them -- shutting the first one down, or the sanitiser calls it a leak */
 	pf_settings_patch("safety", "{\"power_loss\":{\"recovery\":true,\"max_s\":300,\"igniter_s\":180}}", NULL, 0);
+	pf_control_shutdown(&ctrl);
 	pf_control_init(&ctrl, true);
 	pf_control_set_checkpoint_path(&ctrl, "/tmp/pf_test_checkpoint.json");
 	unlink("/tmp/pf_test_checkpoint.json");
