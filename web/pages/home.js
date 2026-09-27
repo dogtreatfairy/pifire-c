@@ -360,7 +360,7 @@ export function renderHome(view) {
         /* three lines and no more: the mark, the name and the battery; the reading; the target.
            The link bars and the ambient reading were here too, and a card read at a glance across
            a garden cannot carry five things -- they live on the probe's sheet. */
-        el('span', { class: 'n' }, p.wireless ? [btIcon(), ' '] : null, p.name, p.wireless ? [' ', battIcon(p.battery)] : null), el('span', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
+        el('span', { class: `n ${p.wireless ? 'wl' : ''}` }, p.wireless ? btIcon() : null, el('span', { class: 'nm' }, p.name), p.wireless ? battIcon(p.battery) : null), el('span', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
         /* what the target was chosen for, above the number: "Beef · Medium rare" is what the cook
            remembers setting; 130° is what it came to */
         p.target > 0 && p.meat ? el('span', { class: 'meat' }, `${p.meat}${p.done ? ` \u00b7 ${p.done}` : ''}`) : null,

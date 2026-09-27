@@ -35,16 +35,16 @@ export const battIcon = (pct) => {
   /* not reported -- the probe is docked, asleep or out of range: the outline stays, empty, with a
      dash where the number goes, so a wireless probe always wears its battery and the reader can
      tell "unknown" from "0%" */
-  /* The cell the phone's own status bar draws when the percentage is on: a small outline, the
-     charge as its fill, the number inside it, and nothing beside it. A number beside the cell was
-     the widest thing on the line. */
+  /* A small upright cell, nub on top, the charge rising behind the number written inside it, and
+     nothing beside it: the one battery mark, on the Home card, the Probes row and the probe sheet.
+     A number beside the cell was the widest thing on the line. */
   if (!(pct >= 0)) return el('span', { class: 'batt unknown', title: 'Battery unknown', 'aria-label': 'battery unknown' }, el('b', {}, '\u2014'));
   const p = Math.max(0, Math.min(100, Math.round(pct)));
   /* Getting low is amber; about to die is red. Red from a fifth remaining meant most of a cook
      spent claiming a fault that was not there. */
   const cls = `batt ${p <= 10 ? 'crit' : p <= 20 ? 'low' : ''}`;
   return el('span', { class: cls, title: `Battery ${p}%`, 'aria-label': `battery ${p} percent` },
-    el('i', { style: `width:${p}%` }), el('b', {}, String(p)));
+    el('i', { style: `height:${p}%` }), el('b', { class: p >= 100 ? 'three' : '' }, String(p)));
 };
 const WIRELESS_MODULES = ['ibbq', 'meater', 'chefiq'];
 /** 0..4 bars from an RSSI in dBm (same thresholds as the daemon) */

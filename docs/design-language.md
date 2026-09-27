@@ -904,9 +904,10 @@ it -- the card readout size was too loud in a row), and bare icons at the end --
 struck through to clear the target, then the crosshair itself last because it is the committing
 one. A wireless probe wears its signal bars and its battery after its name wherever it is listed,
 unknown states included -- dark bars, an empty outline with a dash -- so docked is told apart
-from dead. The battery is the cell a phone's status bar draws with the percentage on: a small
-outline, the charge as its fill, the number inside it, nothing beside it. It was a vertical cell
-with the number next to it, and the number was the widest thing on the line. A mark that undoes a thing is that thing's own mark with a slash, the way every "-off" icon
+from dead. The battery is one small upright cell, nub on top, the charge rising behind the
+number written inside it, and nothing beside it. On the Home card the line is the Bluetooth mark,
+the name close beside it, and the cell at the right edge. A number beside a cell was the widest
+thing on the line. A mark that undoes a thing is that thing's own mark with a slash, the way every "-off" icon
 is drawn, not a generic X. The icons sit at the row's standard 4 px gap. The row itself opens the probe's settings. The pit probe
 has neither icon: its target is the set point. The step alerts -- flip, wrap, spritz, a named
 temperature on the way -- are not a second kind of target and do not get a second button; they
