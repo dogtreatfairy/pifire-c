@@ -513,25 +513,6 @@ static void pf_sel_ring(pf_gfx *g, int x, int y, int w, int h, int r, uint16_t e
 	pf_gfx_rrect(g, x + 1, y + 1, w - 2, h - 2, r > 1 ? r - 1 : r, fill);
 }
 
-/* an upright cell with the charge behind the number inside it: the phone's battery mark, at the
- * panel's scale. -1 draws an empty cell with a dash. */
-static void draw_batt(pf_gfx *g, int x, int y, int pct, uint16_t edge, uint16_t fill_bg, uint16_t ink)
-{
-	const int w = 13, h = 17;
-	pf_gfx_rect(g, x + 4, y, 5, 2, edge);                       /* the terminal */
-	pf_gfx_rrect(g, x, y + 2, w, h, 3, edge);
-	pf_gfx_rrect(g, x + 1, y + 3, w - 2, h - 2, 2, fill_bg);
-	char v[5];
-	if (pct >= 0) {
-		int fh = (h - 4) * (pct > 100 ? 100 : pct) / 100;
-		if (fh > 0) pf_gfx_rrect(g, x + 2, y + 3 + (h - 4) - fh + 1, w - 4, fh, 1, edge);
-		snprintf(v, sizeof v, "%d", pct % 1000);
-	} else snprintf(v, sizeof v, "-");
-	int px = pct >= 100 ? 7 : 9;
-	int tw = pf_gfx_text_width(B, px, v);
-	pf_gfx_text(g, B, px, x + (w - tw) / 2, y + 2 + (h - pf_gfx_line_height(B, px)) / 2, v, ink);
-}
-
 static void draw_probe_col(pf_gfx *g, const cJSON *p, const char *units, bool blink, int x, int y, int w)
 {
 	const cJSON *tv = cJSON_GetObjectItem((cJSON *)p, "temp");
@@ -563,14 +544,19 @@ static void draw_probe_col(pf_gfx *g, const cJSON *p, const char *units, bool bl
 	uint16_t tgc = filled ? g->th.accent_text : tc == alert ? alert : g->th.accent;
 	uint16_t dim = filled ? g->th.accent_text : g->th.muted;
 	uint16_t batc = filled ? g->th.accent_text : battery <= 10 && battery >= 0 ? g->th.danger : battery <= 20 && battery >= 0 ? g->th.warn : g->th.muted;
-	uint16_t bat_bg = filled ? alert : g->th.card2;
+	/* The battery is plain text -- "81%" -- at the right of the name line. The phone's cell with the
+	 * number inside it was drawn here too, and at this size the number sat on its own fill with no
+	 * contrast left; three characters of type say the same thing and can be read. */
+	char bat[6] = "";
+	if (battery >= 0) snprintf(bat, sizeof bat, "%d%%", battery % 1000);
+	else if (battery == -1) snprintf(bat, sizeof bat, "--");
 	if (w >= 90) {
-		/* row 1: rune, name, the battery cell at the right
+		/* row 1: rune, name, the battery at the right
 		 * row 2: the reading, large
 		 * row 3: time to target left, target right */
 		int nx = x + 6, nw = w - 12;
 		if (wireless) { pf_gfx_bt_rune(g, x + 5, y + 4, rune); nx = x + 16; nw -= 10; }
-		if (battery >= -1) { draw_batt(g, x + w - 6 - 13, y + 3, battery, batc, bat_bg, filled ? g->th.accent_text : g->th.text); nw -= 17; }
+		if (bat[0]) { pf_gfx_text_right(g, B, 11, x + w - 6, y + 5, bat, batc); nw -= pf_gfx_text_width(B, 11, bat) + 4; }
 		int px = 13;
 		while (px > 10 && pf_gfx_text_width(B, px, name) > nw) px--;
 		pf_gfx_text(g, B, px, nx, y + 4, name, mc);
@@ -582,6 +568,7 @@ static void draw_probe_col(pf_gfx *g, const cJSON *p, const char *units, bool bl
 		int nx = x + 5;
 		if (wireless) { pf_gfx_bt_rune(g, x + 4, y + 3, rune); nx = x + 14; }
 		pf_gfx_text(g, B, 11, nx, y + 3, name, mc);
+		if (bat[0]) pf_gfx_text_right(g, B, 10, x + w - 5, y + 4, bat, batc);
 		pf_gfx_text(g, B, 24, x + 5, y + 15, t, tc);
 		if (et[0]) pf_gfx_text(g, B, 10, x + 5, y + 49, et, dim);
 		if (tg[0]) pf_gfx_text_right(g, B, 11, x + w - 5, y + 47, tg, tgc);

@@ -692,9 +692,10 @@ doneness, which sets the target with its name, or Custom for a number) when it h
 Change Target, Custom Temperature, Clear Target when it has one -- the same rule as a tap on the
 phone. Two quick presses, on the main screen only, open the full menu; a single press with
 nothing ringed does nothing, which is what makes the double one safe. Inside any other screen a
-press is a press. The food probe card is the phone's: the Bluetooth rune, the name and an upright
-battery cell with the percentage inside it; the reading; the time to target and the target. The
-signal bars and the ambient reading are gone from it.
+press is a press. The food probe card is the phone's: the Bluetooth rune, the name and the battery
+as plain text ("81%") at the right -- the phone's cell with the number inside it has no contrast
+at the panel's size; the reading; the time to target and the target. The signal bars and the
+ambient reading are gone from it.
 
 Margins exist because a bezel hides the edge of the panel. They are set from the panel, with the
 screen in front of you, not from a number typed on a phone.
