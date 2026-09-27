@@ -174,6 +174,7 @@ const PAGES = [
     I('check_interval_h', 'Check every (hours)', '', { min: 1, max: 720 }),
     B('include_prerelease', 'Include pre-releases', 'Offer alpha/beta/rc builds as well as final releases'),
     B('hot_update', 'Update while cooking', 'On: installs mid-cook and resumes the running mode after a few seconds. Off: the grill must be stopped'),
+    B('auto_install', 'Install automatically', 'A newer release installs on its own while the grill is stopped or monitoring. Never mid-cook'),
   ] }] },
 ];
 // index order: what you cook with, the hardware, the safety net, connectivity, data, the app itself

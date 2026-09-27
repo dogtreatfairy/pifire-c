@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "features/update.h"
+#include "features/tuner.h"
 #include "core/db.h"
 #include "core/log.h"
 #include "core/settings.h"
@@ -399,8 +400,39 @@ void pf_update_init(const char *data_dir, bool sim)
 	LOGI(TAG, "version %s (%s)", PF_VERSION, pf_update_arch());
 }
 
+/* Install on its own, when allowed: the switch is on, a newer release is installable, nothing
+ * else is going on with the updater, and the grill is idle -- Stop or Monitor, with no tuning
+ * run going. Never mid-cook, whatever the hot-update switch says: that switch is for a person
+ * who has decided to, and this is nobody deciding. One attempt per release, so a build that
+ * fails to install is not retried every tick until the next one comes. */
+static void auto_install(double now)
+{
+	static char tried[32];
+	static double not_before;
+	if (!pf_set_bool("update.auto_install", false) || now < not_before) return;
+	pthread_mutex_lock(&g.mu);
+	bool go = g.available && g.asset_url[0] && g.sums_url[0] && !g.busy && !g.sim && g.latest[0] && strcmp(tried, g.latest) != 0;
+	char tag[32];
+	pf_strlcpy(tag, g.latest, sizeof tag);
+	pthread_mutex_unlock(&g.mu);
+	if (!go) return;
+	pf_status st;
+	pf_status_get(&st);
+	bool idle = st.mode == PF_MODE_STOP || st.mode == PF_MODE_MONITOR;
+	if (!idle || pf_tuner_active(NULL, NULL, NULL)) { not_before = now + 60; return; }   /* ask again in a minute */
+	pf_strlcpy(tried, tag, sizeof tried);
+	char err[160];
+	if (pf_update_install(err, sizeof err) == 0) {
+		LOGI(TAG, "installing %s automatically: the grill is idle and automatic updates are on", tag);
+		char msg[80];
+		snprintf(msg, sizeof msg, "Installing %s automatically", tag);
+		if (pf_db_handle()) pf_db_event(PF_LVL_INFO, "UPDATE_AUTO", msg);
+	} else LOGW(TAG, "automatic install of %s not started: %s", tag, err);
+}
+
 void pf_update_tick(double now)
 {
+	auto_install(now);
 	if (!pf_set_bool("update.auto_check", true)) return;
 	if (now < g.next_check) return;
 	double hours = pf_set_num("update.check_interval_h", 24);
