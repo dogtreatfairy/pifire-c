@@ -10,7 +10,11 @@ sqlite3 *pf_db_handle(void);
 int pf_db_exec(const char *sql);
 
 /* Key/value store (JSON text) namespaced by component, e.g. ("controller.pid", "tuning"). */
-int pf_db_kv_get(const char *ns, const char *key, char *out, size_t n); /* 0 found, 1 missing, <0 error */
+int pf_db_kv_get(const char *ns, const char *key, char *out, size_t n); /* 0 found, 1 missing, <0 error (-2: does not fit in n, and it is logged) */
+/* The value as a malloc'd string, or NULL when missing or on error: for anything that grows with
+ * use -- a library of tuning anchors, a list of push subscriptions -- where a fixed buffer is a
+ * limit somebody hits one day without a word said. The tuning library hit it at two set points. */
+char *pf_db_kv_get_dup(const char *ns, const char *key);
 int pf_db_kv_put(const char *ns, const char *key, const char *json);
 int pf_db_kv_delete(const char *ns, const char *key);
 int pf_db_kv_delete_ns(const char *ns);

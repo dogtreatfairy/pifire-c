@@ -253,11 +253,13 @@ static void resolve_client(loc_t *L)
  * connections with it */
 static bool token_get(const loc_t *L, char *out, size_t n)
 {
-	char key[40], buf[3000];
+	char key[40];
 	snprintf(key, sizeof key, "token:%.23s", L->id);
 	out[0] = 0;
-	if (pf_db_kv_get("backup", key, buf, sizeof buf) != 0) return false;
-	cJSON *j = cJSON_Parse(buf);
+	char *txt = pf_db_kv_get_dup("backup", key);
+	if (!txt) return false;
+	cJSON *j = cJSON_Parse(txt);
+	free(txt);
 	if (!j) return false;
 	pf_strlcpy(out, pf_json_str(j, "refresh_token", ""), n);
 	cJSON_Delete(j);
@@ -407,9 +409,10 @@ int pf_backup_stage(const char *archive, const char *stage_dir, char *err, size_
 
 static void load_last(void)
 {
-	char buf[2048];
-	if (pf_db_kv_get("backup", "last", buf, sizeof buf) != 0) return;
-	cJSON *j = cJSON_Parse(buf);
+	char *stored = pf_db_kv_get_dup("backup", "last");
+	if (!stored) return;
+	cJSON *j = cJSON_Parse(stored);
+	free(stored);
 	if (!j) return;
 	g.last_ts = pf_json_num(j, "ts", 0);
 	pf_strlcpy(g.last_name, pf_json_str(j, "name", ""), sizeof g.last_name);

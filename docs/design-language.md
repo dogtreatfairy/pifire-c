@@ -914,6 +914,18 @@ there) and `Step alerts`. They were "When it gets there" and "On the way", which
 "stupid, cute, wordy ways of explaining the flow" -- a label names the thing in the reader's own
 technical words; it does not narrate the flow to them.
 
+The rows on the Probes page follow the status: the reading, the link and the line under the
+name change in place each second, and a row is rebuilt only when its target changes, since that
+adds or removes the clear mark. Tapping a working food probe's row opens the target sheet,
+because setting a target is what the row is for.
+
+An update says where it is and what it did. The update page shows one line in the accent for
+the stage -- Checking, Updating with the download's percentage, Restarting once the daemon has
+gone away, Reloading when it is back running the new version -- and then reloads itself, so nobody
+is left on the old interface against the new daemon. On the next start the app says, once,
+"Updated to X" with the release's change log: the commit subjects since the previous tag, one
+line each, which is what the release notes are built from.
+
 A sheet that changes something redraws on the first status that carries the change, never on a
 timer: the status comes once a second, and a redraw after a fixed delay raced it -- when the
 redraw lost, the sheet still said "Set Target" with nothing set, and that read as "it did not

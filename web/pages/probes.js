@@ -1,4 +1,4 @@
-import { PF, el, api, cmd, fmtTemp, patchSettings, toast, confirmDialog, dialog, pushScreen, degUnit, segmented, actionBtn, itemRow, iconBtn, addRow, iconField, listGroup, screenActions, actionBar } from '../app.js';
+import { PF, el, api, cmd, onStatus, fmtTemp, patchSettings, toast, confirmDialog, dialog, pushScreen, degUnit, segmented, actionBtn, itemRow, iconBtn, addRow, iconField, listGroup, screenActions, actionBar } from '../app.js';
 
 /* Which probes are in the food. Asked when a cook starts, because it is a fact only the cook has:
    a spare probe on the counter reads perfectly well and is not in anything, and every reading a
@@ -263,7 +263,9 @@ export async function renderProbes(view, opts = {}) {
     const st = (live.steps || []).find((x) => !x.done);
     return st ? `${st.name} at ${st.temp}${degUnit()}` : null;
   };
+  let updaters = [];   /* one per row on the page, run on every status */
   const renderTable = () => {
+    updaters = [];
     table.innerHTML = '';
     /* Grouped the way the probes are used, and named for the type that puts them there: the pit,
        the food, then everything measuring air rather than meat. Each group is a labelled list of
@@ -294,9 +296,7 @@ export async function renderProbes(view, opts = {}) {
        while the settings were a list here, so one probe appeared in two places and neither showed
        the whole of it. */
     function renderRow(list, p) {
-      const live = PF.status?.probes?.find((x) => x.label === p.label);
       const wireless = isWireless(p.device);
-      const tgt = live?.target > 0;
       if (setup) {
         list.append(itemRow({
           icon: wireless ? 'bluetooth' : 'thermometer', color: wireless ? '#0a84ff' : '#ff453a',
@@ -308,38 +308,66 @@ export async function renderProbes(view, opts = {}) {
         return;
       }
       /* The cooking row is the recipe row's shape: a mark, the name, one line under it, the
-         reading at the right, and what you do to the probe as bare icons at the end; the row
-         itself opens the probe's settings. The line under the name is the target when there is
-         one -- "Beef · Medium rare · 130°F · 12 min left" -- in the accent, so it reads as
-         something set rather than as a description. Clear is a bare mark too, at the left of the
-         icons, because it is the dismissive action; the target mark is last, the committing one.
-         The pit probe has no target of its own (that is the set point) and no icons. */
+         reading at the right, and what you do to the probe as bare icons at the end. The line
+         under the name is the target when there is one -- "Beef · Medium rare · 130°F · 12 min
+         left" -- in the accent, so it reads as something set rather than as a description. Clear
+         is a bare mark too, at the left of the icons, because it is the dismissive action; the
+         target mark is last, the committing one. Tapping the row of a working food probe opens
+         the target sheet -- setting a target is what the row is for -- and the pit probe's row, or
+         a disabled one, opens its settings; the pit has no target of its own (that is the set
+         point) and no icons.
+
+         The row follows the status: the reading, the link and the line under the name change in
+         place each second, and the row is rebuilt only when the target itself changes, since that
+         adds or removes the clear mark. Nothing here waits for a page reload. */
       const primary = p.type === 'Primary';
-      const line = !p.enabled ? 'Disabled'
-        : primary
-          ? (PF.status?.mode === 'Hold' ? `Holding ${PF.status.setpoint}${degUnit()}` : live?.valid ? `${PF.status?.mode || 'Reading'}` : 'No reading')
-        : tgt ? [live.meat, live.done, `${live.target}${degUnit()}`].filter(Boolean).join(' \u00b7 ')
-              + (live.eta_s > 0 && live.temp < live.target ? ` \u00b7 ${fmtEta(live.eta_s)} left` : live.valid && live.temp >= live.target ? ' \u00b7 reached' : '')
-        : live?.valid ? nextStep(live) || 'Reading' : 'No reading';
-      const setTarget = async () => { const r = await targetDialog({ ...p, ...live }); if (r) cmd({ cmd: 'target', label: p.label, ...r }); };
-      list.append(itemRow({
-        icon: wireless ? 'bluetooth' : 'thermometer', color: wireless ? '#0a84ff' : '#ff453a',
-        title: [
-          p.name,
-          /* a wireless probe always wears its link and its battery, unknown states included */
-          wireless ? sigBars(live?.signal || 0, live?.rssi ? `${live.rssi} dBm` : 'no link') : null,
-          wireless ? battIcon(live?.battery ?? -1) : null],
-        meta: el('span', { class: tgt ? 'set' : '' }, line),
-        /* the reading is what the row is looked at for, so it is the readout size, not a setting's answer */
-        value: !p.enabled ? 'off' : el('span', { class: 'reading' }, live?.valid ? fmtTemp(live.temp) : '\u2014', live?.valid ? el('small', {}, degUnit()) : null),
-        chevron: primary || !p.enabled,
-        onclick: () => editProbe(p),
-        actions: primary || !p.enabled ? [] : [
-          tgt ? iconBtn('crosshair-off', `Clear ${p.name} target`, { class: 'danger', onclick: (e) => { e.stopPropagation(); cmd({ cmd: 'target', label: p.label, target: 0, after: 0 }); } }) : null,
-          iconBtn(MODE_ICON.Hold, tgt ? `Change ${p.name} target` : `Set ${p.name} target`, { onclick: (e) => { e.stopPropagation(); setTarget(); } }),
-        ].filter(Boolean),
-      }));
-      if (!p.enabled) list.lastChild.classList.add('off');
+      const liveNow = () => PF.status?.probes?.find((x) => x.label === p.label);
+      const lineFor = (live) => {
+        const tgt = live?.target > 0;
+        return !p.enabled ? 'Disabled'
+          : primary
+            ? (PF.status?.mode === 'Hold' ? `Holding ${PF.status.setpoint}${degUnit()}` : live?.valid ? `${PF.status?.mode || 'Reading'}` : 'No reading')
+          : tgt ? [live.meat, live.done, `${live.target}${degUnit()}`].filter(Boolean).join(' \u00b7 ')
+                + (live.eta_s > 0 && live.temp < live.target ? ` \u00b7 ${fmtEta(live.eta_s)} left` : live.valid && live.temp >= live.target ? ' \u00b7 reached' : '')
+          : live?.valid ? nextStep(live) || 'Reading' : 'No reading';
+      };
+      const readingOf = (live) => [live?.valid ? fmtTemp(live.temp) : '\u2014', live?.valid ? el('small', {}, degUnit()) : null].filter(Boolean);
+      const setTarget = async () => { const live = liveNow(); const r = await targetDialog({ ...p, ...live }); if (r) cmd({ cmd: 'target', label: p.label, ...r }); };
+      const build = (live) => {
+        const tgt = live?.target > 0;
+        const row = itemRow({
+          icon: wireless ? 'bluetooth' : 'thermometer', color: wireless ? '#0a84ff' : '#ff453a',
+          title: [
+            p.name,
+            /* a wireless probe always wears its link and its battery, unknown states included */
+            wireless ? sigBars(live?.signal || 0, live?.rssi ? `${live.rssi} dBm` : 'no link') : null,
+            wireless ? battIcon(live?.battery ?? -1) : null],
+          meta: el('span', { class: tgt ? 'set' : '' }, lineFor(live)),
+          value: !p.enabled ? 'off' : el('span', { class: 'reading' }, ...readingOf(live)),
+          chevron: primary || !p.enabled,
+          onclick: () => (primary || !p.enabled ? editProbe(p) : setTarget()),
+          actions: primary || !p.enabled ? [] : [
+            tgt ? iconBtn('crosshair-off', `Clear ${p.name} target`, { class: 'danger', onclick: (e) => { e.stopPropagation(); cmd({ cmd: 'target', label: p.label, target: 0, after: 0 }); } }) : null,
+            iconBtn(MODE_ICON.Hold, tgt ? `Change ${p.name} target` : `Set ${p.name} target`, { onclick: (e) => { e.stopPropagation(); setTarget(); } }),
+          ].filter(Boolean),
+        });
+        if (!p.enabled) row.classList.add('off');
+        return row;
+      };
+      let node = null, key = '';
+      const refresh = () => {
+        const live = liveNow();
+        const k = JSON.stringify([live?.target > 0, live?.target, live?.meat, live?.done]);
+        if (!node || k !== key) { key = k; const n = build(live); if (node) node.replaceWith(n); else list.append(n); node = n; return; }
+        const r = node.querySelector('.reading'); if (r) r.replaceChildren(...readingOf(live));
+        const ln = node.querySelector('.irow-main .s > span'); if (ln) ln.textContent = lineFor(live);
+        if (wireless) {
+          node.querySelector('.sig')?.replaceWith(sigBars(live?.signal || 0, live?.rssi ? `${live.rssi} dBm` : 'no link'));
+          node.querySelector('.batt')?.replaceWith(battIcon(live?.battery ?? -1));
+        }
+      };
+      updaters.push(refresh);
+      refresh();
     }
   };
 
@@ -390,6 +418,7 @@ export async function renderProbes(view, opts = {}) {
 
   const renderAll = () => { renderTable(); };
   renderAll();
+  const offStatus = onStatus(() => { for (const u of updaters) u(); });
   /* `append` here is the DOM's, not el()'s, so a null child is written out as the word "null" --
      which is exactly what appeared under the probe list. Filter before appending. */
   view.append(...[
@@ -413,6 +442,7 @@ export async function renderProbes(view, opts = {}) {
       [actionBtn('add', 'Add Probe', { size: '', class: 'primary', onclick: () => pairBluetooth() })],
       [actionBtn('filter', 'Filter', { size: '', onclick: filterProbes })]),
   ].filter(Boolean));
+  return offStatus;
 }
 
 /* Probe profiles have a settings page of their own.

@@ -41,16 +41,27 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
       - name: Checksums
         run: cd dist && sha256sum *.tar.gz > SHA256SUMS && cat SHA256SUMS
+      # The notes are the commit subjects since the previous tag, one line each: this repository
+      # writes them as sentences, so they are the change log the app shows after an update.
+      # GitHub's generated notes were only a compare link, since nothing here arrives by pull request.
+      - name: Notes
+        run: |
+          prev=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          if [ -n "$prev" ]; then git log --no-merges --format='- %s' "$prev..${GITHUB_REF_NAME}"; else git log --no-merges --format='- %s' -n 20; fi > dist/NOTES.md
+          cat dist/NOTES.md
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.tar.gz
             dist/SHA256SUMS
-          generate_release_notes: true
+          body_path: dist/NOTES.md
           prerelease: ${{ contains(github.ref_name, '-') }}

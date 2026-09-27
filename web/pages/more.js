@@ -71,7 +71,17 @@ export function softwareUpdates(view) {
     const busy = u.busy;
     const rows = el('div', { class: 'kv' }, el('div', {}, 'Installed'), el('div', {}, `${u.current} (${u.arch})`), el('div', {}, 'Latest release'), el('div', {}, u.latest || '—'),
       el('div', {}, 'Source'), el('div', {}, u.repo ? el('a', { href: `https://github.com/${u.repo}/releases`, target: '_blank' }, u.repo) : '— (set below)'));
-    upd.append(rows, el('p', { class: 'help' }, u.state === 'error' ? `⚠ ${u.message}` : u.message + (u.state === 'downloading' ? ` ${(u.progress * 100).toFixed(0)}%` : '')));
+    /* One line that says which stage the update is at, in the accent while it is under way:
+       Checking, Updating (with the download's percentage), Restarting once the daemon has gone
+       away, Reloading when it is back. The daemon's own sentence stays as the help line. */
+    const stage = u.state === 'checking' ? 'Checking…'
+      : u.state === 'downloading' ? `Updating · downloading ${(u.progress * 100).toFixed(0)}%`
+      : u.state === 'verifying' ? 'Updating · verifying'
+      : u.state === 'installing' ? 'Updating · installing'
+      : u.state === 'restarting' ? 'Restarting…'
+      : u.state === 'reloading' ? 'Reloading…' : '';
+    if (stage) upd.append(el('div', { class: 'upd-stage' }, stage));
+    upd.append(rows, el('p', { class: 'help' }, u.state === 'error' ? `⚠ ${u.message}` : u.message || ''));
     if (u.state === 'downloading') upd.append(el('div', { class: 'progress' }, el('div', { style: `width:${(u.progress * 100).toFixed(0)}%` })));
     if (u.available && u.notes) upd.append(el('details', {}, el('summary', { class: 'muted' }, `What's new in ${u.latest}`), el('div', { class: 'mono', style: 'margin-top:6px' }, u.notes)));
     upd.append(el('div', { class: 'btnrow', style: 'margin-top:10px' },
@@ -80,12 +90,37 @@ export function softwareUpdates(view) {
         const cooking = !['Stop', 'Monitor', 'Error'].includes(PF.status?.mode);
         if (cooking && !PF.settings?.update?.hot_update) { toast('Stop the grill first, or turn on "Update while cooking" below', true); return; }
         if (!await confirmDialog(`Install ${u.latest}?`, cooking ? `The grill is in ${PF.status.mode}. The release is downloaded and verified, then the controller restarts and picks the cook back up where it left off (the fan and auger pause for a few seconds).` : 'Downloads, verifies the checksum, reinstalls and restarts. About a minute. This page reloads when it is back.', 'Install')) return;
-        try { await api('/update/install', { body: {} }); poll(); } catch (e) { toast(e.message, true); }
+        try { await api('/update/install', { body: {} }); installing = { from: u.current, to: u.latest, notes: u.notes || '', since: Date.now() }; poll(); } catch (e) { toast(e.message, true); }
       } }, u.available ? `Install ${u.latest}` : 'Up to date')));
   };
-  let pollT = null;
+  let pollT = null, installing = null, last = null;
+  const again = (ms) => { clearTimeout(pollT); pollT = setTimeout(poll, ms); };
+  /* The daemon goes away while it restarts, so a failed poll during an install is the Restarting
+     stage, not an error. When it answers again with a different version the install is done: the
+     outcome is left for the app to announce after it reloads, the service worker is told to fetch
+     the new shell, and the page reloads itself so nobody is left running the old interface against
+     the new daemon. Ten minutes without the daemon coming back is reported instead of waited on. */
   const poll = async () => {
-    try { const u = await api('/update'); renderUpd(u); if (u.busy) { clearTimeout(pollT); pollT = setTimeout(poll, 1000); } } catch { /* daemon restarting during install */ }
+    try {
+      const u = await api('/update', { timeout: installing ? 3000 : 8000 });
+      last = u;
+      if (installing && u.current !== installing.from) {
+        renderUpd({ ...u, state: 'reloading', message: `${u.current} is running` });
+        try { localStorage.setItem('pf.updated', JSON.stringify({ from: installing.from, to: u.current, notes: installing.notes })); } catch { /* private mode */ }
+        installing = null;
+        try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); } catch { /* no worker */ }
+        setTimeout(() => location.reload(), 1500);
+        return;
+      }
+      renderUpd(u);
+      if (u.busy || installing) again(1000);
+    } catch {
+      if (installing) {
+        if (Date.now() - installing.since > 600000) { renderUpd({ ...(last || {}), state: 'error', message: 'The controller has not come back after the update; check it on the grill', busy: false }); installing = null; return; }
+        renderUpd({ ...(last || {}), state: 'restarting', message: 'The controller is restarting', busy: true });
+        again(1000);
+      }
+    }
   };
   poll();
   view.append(upd);   /* the page title above already says Software updates */

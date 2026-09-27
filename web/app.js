@@ -622,6 +622,18 @@ export function screenActions({ onDelete, deleteTitle = 'Delete', onCancel, onSa
      save]);
 }
 
+/* After an update the app reloads itself and says, once, what it is now running and what changed.
+   The change log is the release's notes -- one line per change, written when the change was made --
+   so it is short, and it is the same text the update page offered before the install. */
+export function updatedDialog(u) {
+  const lines = String(u.notes || '').split(/\r?\n/).map((l) => l.replace(/^\s*[-*]\s+/, '').trim()).filter((l) => l && !/^#|^\*\*Full Changelog/.test(l));
+  return dialog((close) => el('div', {},
+    el('h3', {}, `Updated to ${u.to}`),
+    el('p', { class: 'muted' }, `The update from ${u.from} installed and the controller is running ${u.to}.`),
+    lines.length ? el('ul', { class: 'changelog' }, lines.slice(0, 12).map((l) => el('li', {}, l))) : null,
+    el('div', { class: 'btnrow' }, el('button', { class: 'btn primary', type: 'button', onclick: () => close(true) }, 'OK'))));
+}
+
 export function confirmDialog(title, text, okLabel = 'Confirm', danger = false) {
   return dialog((close) => el('div', {},
     el('h3', {}, title), el('p', { class: 'muted' }, text),
@@ -1116,6 +1128,10 @@ setTimeout(fitViewport, 500);
   emit();
   connect();
   updateBadge();
+  try {
+    const u = JSON.parse(localStorage.getItem('pf.updated') || 'null');
+    if (u) { localStorage.removeItem('pf.updated'); setTimeout(() => updatedDialog(u), 900); }
+  } catch { /* nothing to say */ }
   document.getElementById('bell')?.addEventListener('click', openNotifications);
   document.getElementById('ind-timer')?.addEventListener('click', (e) => headerPanel(e.currentTarget, timerPanel));
   setTimeout(installHint, 2500);

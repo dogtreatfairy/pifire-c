@@ -293,6 +293,9 @@ small, .muted { color: var(--muted); }
 .setpoint-row { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 4px 0 12px; }
 .setpoint-row .btn { width: 56px; height: 46px; padding: 0; font-size: var(--fs-xl); }
 .setpoint-row .value { min-width: 110px; font-size: var(--fs-xl); font-weight: 600; font-variant-numeric: tabular-nums; }
+.upd-stage { color: var(--accent-ink); font-weight: 600; font-size: var(--fs-md); margin-bottom: 8px; }
+.changelog { margin: 8px 0 12px; padding-left: 18px; color: var(--text); font-size: var(--fs-sm); line-height: 1.35; }
+.changelog li { margin: 3px 0; }
 .progress { height: 6px; border-radius: var(--r-sm); background: var(--surface2); overflow: hidden; margin-top: 8px; }
 .progress > div { height: 100%; background: var(--accent); transition: width var(--dur-3) linear; }
 

@@ -557,6 +557,64 @@ static void test_capture_overshoot(void)
 	TEST_ASSERT_TRUE_MESSAGE(pf_c_to_f(peak2) - 300.0 < 8.0, "overshot on a set-point change");
 }
 
+/* Two set points with their plants are 641 bytes of JSON, and the loader read them into 512: the
+ * second anchor of a profile tune pushed the library past the buffer, the truncated text parsed as
+ * nothing, and the next restart came up empty while the database still held both. The library is
+ * eight entries deep, so eight entries with every field set must come back whole. */
+static void test_a_full_library_survives_a_restart(void)
+{
+	pf_learning_clear_anchors();
+	static const double sp_f[PF_TUNE_ANCHORS] = { 180, 200, 225, 250, 275, 300, 350, 450 };
+	for (int i = 0; i < PF_TUNE_ANCHORS; i++) {
+		pf_learning_store_anchor_plant(pf_f_to_c(sp_f[i]), 400 + 5 * i, 1200 + 50 * i, 80 + i);
+		pf_autotune_result r = { .Ku = 0.06 + 0.001 * i, .Pu = 300 + 10 * i, .PB_c = 30 + i, .Ti = 700 + 10 * i, .Td = 50 + i, .valid = true };
+		pf_learning_store_anchor(pf_f_to_c(sp_f[i]), &r, 10 + i, 3 + i);
+	}
+	pf_tune_anchor before[PF_TUNE_ANCHORS];
+	TEST_ASSERT_EQUAL(PF_TUNE_ANCHORS, pf_learning_anchor_list(before, PF_TUNE_ANCHORS));
+
+	pf_learning_init();   /* what a restart does: the library comes from the database alone */
+
+	pf_tune_anchor after[PF_TUNE_ANCHORS];
+	TEST_ASSERT_EQUAL_MESSAGE(PF_TUNE_ANCHORS, pf_learning_anchor_list(after, PF_TUNE_ANCHORS), "every anchor must come back after a restart");
+	for (int i = 0; i < PF_TUNE_ANCHORS; i++) {
+		TEST_ASSERT_DOUBLE_WITHIN(0.01, before[i].setpoint_c, after[i].setpoint_c);
+		TEST_ASSERT_DOUBLE_WITHIN(0.01, before[i].PB_c, after[i].PB_c);
+		TEST_ASSERT_DOUBLE_WITHIN(0.1, before[i].Ti, after[i].Ti);
+		TEST_ASSERT_DOUBLE_WITHIN(0.1, before[i].K, after[i].K);
+		TEST_ASSERT_DOUBLE_WITHIN(0.1, before[i].tau, after[i].tau);
+		TEST_ASSERT_DOUBLE_WITHIN(0.01, before[i].ambient_c, after[i].ambient_c);
+	}
+}
+
+/* A backup put back must be the library that was backed up: the feed at the hold and the plant's
+ * source were left out of the file, so a restore lost the feed-forward anchor and then "healed" a
+ * relay-measured plant as though a capture had guessed it. */
+static void test_a_backup_puts_back_every_field(void)
+{
+	pf_learning_clear_anchors();
+	pf_learning_store_anchor_plant(pf_f_to_c(250), 426, 1239, 77);
+	pf_autotune_result r = { .Ku = 0.0609, .Pu = 300, .PB_c = 36.2, .Ti = 661, .Td = 47.7, .valid = true };
+	pf_learning_store_anchor(pf_f_to_c(250), &r, 12, 8);
+	pf_tune_anchor before[PF_TUNE_ANCHORS];
+	TEST_ASSERT_EQUAL(1, pf_learning_anchor_list(before, PF_TUNE_ANCHORS));
+	before[0].load = 0.2556; before[0].plant_src = PF_PLANT_FROM_RELAY;
+	pf_learning_put_anchor(&before[0]);
+
+	cJSON *doc = pf_learning_export();
+	pf_learning_clear_anchors();
+	char err[128] = "";
+	TEST_ASSERT_EQUAL_MESSAGE(1, pf_learning_import(doc, err, sizeof err), err);
+	cJSON_Delete(doc);
+
+	pf_tune_anchor after[PF_TUNE_ANCHORS];
+	TEST_ASSERT_EQUAL(1, pf_learning_anchor_list(after, PF_TUNE_ANCHORS));
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(1e-6, 0.2556, after[0].load, "the feed at the hold travels with the anchor");
+	TEST_ASSERT_EQUAL_MESSAGE(PF_PLANT_FROM_RELAY, after[0].plant_src, "the plant's source travels with the anchor");
+	TEST_ASSERT_DOUBLE_WITHIN(0.1, before[0].K, after[0].K);
+	TEST_ASSERT_DOUBLE_WITHIN(0.1, before[0].tau, after[0].tau);
+}
+
 int main(void)
 {
 	pf_log_init(PF_LOG_ERROR);
@@ -573,6 +631,8 @@ int main(void)
 	RUN_TEST(test_autotune);
 	RUN_TEST(test_measuring_twice_gives_the_same_answer);
 	RUN_TEST(test_a_tune_at_one_set_point_leaves_the_others_alone);
+	RUN_TEST(test_a_full_library_survives_a_restart);
+	RUN_TEST(test_a_backup_puts_back_every_field);
 	RUN_TEST(test_a_repeat_run_refines_that_set_point_only);
 	RUN_TEST(test_an_untuned_set_point_interpolates_between_its_neighbours);
 	RUN_TEST(test_a_full_library_gives_up_its_most_redundant_entry);

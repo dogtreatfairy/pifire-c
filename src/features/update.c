@@ -28,7 +28,7 @@ static struct {
 	state_t state;
 	char message[200];
 	double checked_at, next_check;
-	char latest[32], notes[2048], asset_name[96], asset_url[512], sums_url[512], html_url[256];
+	char latest[32], notes[4096], asset_name[96], asset_url[512], sums_url[512], html_url[256];
 	bool available;
 	double progress;   /* 0..1 while downloading */
 	char last_notified[32];

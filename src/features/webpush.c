@@ -291,9 +291,10 @@ static void subs_save(void)
 
 static void subs_load(void)
 {
-	char buf[4096];
-	if (pf_db_kv_get("webpush", "subs", buf, sizeof buf) != 0) return;
-	cJSON *arr = cJSON_Parse(buf), *e;
+	char *txt = pf_db_kv_get_dup("webpush", "subs");   /* one per phone; read whole, however many */
+	if (!txt) return;
+	cJSON *arr = cJSON_Parse(txt), *e;
+	free(txt);
 	int i = 0;
 	cJSON_ArrayForEach(e, arr) {
 		if (i >= MAX_SUBS) break;

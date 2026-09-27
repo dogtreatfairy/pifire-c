@@ -103,11 +103,36 @@ int pf_db_kv_get(const char *ns, const char *key, char *out, size_t n)
 	int rc = 1;
 	if (sqlite3_step(st) == SQLITE_ROW) {
 		const unsigned char *v = sqlite3_column_text(st, 0);
-		pf_strlcpy(out, v ? (const char *)v : "", n);
-		rc = 0;
+		size_t len = v ? strlen((const char *)v) : 0;
+		if (len >= n) {
+			/* A truncated JSON value parses as nothing, and "nothing" looked exactly like an empty
+			 * store: the tuning library vanished after a restart this way. Refuse, and say so. */
+			LOGW("db", "kv %s/%s is %zu bytes and the caller's buffer holds %zu: not loaded", ns, key, len, n);
+			if (n) out[0] = 0;
+			rc = -2;
+		} else {
+			pf_strlcpy(out, v ? (const char *)v : "", n);
+			rc = 0;
+		}
 	}
 	sqlite3_finalize(st);
 	return rc;
+}
+
+char *pf_db_kv_get_dup(const char *ns, const char *key)
+{
+	sqlite3_stmt *st;
+	if (!g_db) return NULL;
+	if (sqlite3_prepare_v2(g_db, "SELECT value FROM kv WHERE ns=? AND key=?", -1, &st, NULL) != SQLITE_OK) return NULL;
+	sqlite3_bind_text(st, 1, ns, -1, SQLITE_STATIC);
+	sqlite3_bind_text(st, 2, key, -1, SQLITE_STATIC);
+	char *out = NULL;
+	if (sqlite3_step(st) == SQLITE_ROW) {
+		const unsigned char *v = sqlite3_column_text(st, 0);
+		out = strdup(v ? (const char *)v : "");
+	}
+	sqlite3_finalize(st);
+	return out;
 }
 
 int pf_db_kv_put(const char *ns, const char *key, const char *json)

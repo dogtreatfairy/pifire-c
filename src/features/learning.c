@@ -44,8 +44,14 @@ static void load_kv(void)
 		g_fopdt.valid = g_fopdt.tau > 0;
 		cJSON_Delete(j);
 	}
-	if (pf_db_kv_get("learning", "anchors", buf, sizeof buf) == 0) {
-		cJSON *j = cJSON_Parse(buf), *it;
+	/* The library is read whole. It was read into the 512-byte buffer above, which holds one
+	 * anchor with its plant and not two: the second set point of a profile tune pushed it past the
+	 * limit, the truncated text parsed as nothing, and the next restart came up with an empty
+	 * library while the database still held both -- which read as "the update cleared my tuning". */
+	char *anchors_txt = pf_db_handle() ? pf_db_kv_get_dup("learning", "anchors") : NULL;
+	if (anchors_txt) {
+		cJSON *j = cJSON_Parse(anchors_txt), *it;
+		free(anchors_txt);
 		int i = 0;
 		cJSON_ArrayForEach(it, j) {
 			if (i >= PF_TUNE_ANCHORS) break;
@@ -840,7 +846,11 @@ cJSON *pf_learning_export(void)
 			cJSON_AddNumberToObject(e, "K", a[i].K);
 			cJSON_AddNumberToObject(e, "tau", a[i].tau);
 			cJSON_AddNumberToObject(e, "theta", a[i].theta);
+			cJSON_AddNumberToObject(e, "plant_src", a[i].plant_src);   /* relay or capture: decides whether it is later healed */
 		}
+		/* the feed the set point took at the settled hold: the feed-forward anchor, and the
+		 * static gain -- a library put back without it holds less than the one backed up */
+		if (a[i].load > 0) cJSON_AddNumberToObject(e, "load", a[i].load);
 		cJSON_AddNumberToObject(e, "ts", a[i].ts);
 		cJSON_AddNumberToObject(e, "runs", a[i].runs);
 		if (!isnan(a[i].ambient_c)) cJSON_AddNumberToObject(e, "ambient_c", a[i].ambient_c);
@@ -878,6 +888,8 @@ int pf_learning_import(const cJSON *doc, char *err, size_t n)
 			.Td = pf_json_num((cJSON *)e, "Td", 0),
 			.K = pf_json_num((cJSON *)e, "K", 0), .tau = pf_json_num((cJSON *)e, "tau", 0),
 			.theta = pf_json_num((cJSON *)e, "theta", 0), .ts = pf_json_num((cJSON *)e, "ts", pf_wall()),
+			.plant_src = pf_json_int((cJSON *)e, "plant_src", PF_PLANT_FROM_CAPTURE),
+			.load = pf_json_num((cJSON *)e, "load", 0),
 			.ambient_c = pf_json_num((cJSON *)e, "ambient_c", NAN),
 			.wind = pf_json_num((cJSON *)e, "wind", 0),
 			.runs = pf_json_int((cJSON *)e, "runs", 1),
