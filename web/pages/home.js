@@ -1,5 +1,5 @@
 import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, tuneLive, numberDialog, dialog, confirmDialog, patchSettings, toast, actionBtn } from '../app.js';
-import { targetDialog, limitsDialog, timerDialog, stepsDialog, stepControls } from './cook.js';
+import { targetDialog, limitsDialog, timerDialog, stepControls } from './cook.js';
 import { btIcon, isWireless, sigBars, fmtEta, battIcon, pickFoodProbes } from './probes.js';
 import { icon as lucide, MODE_ICON } from '../icons.js';
 
@@ -209,7 +209,6 @@ function probePopup(label) {
                 actionBtn('timer', 'Timer', { size: '', onclick: async () => { const r = await timerDialog(); if (r) cmd({ cmd: 'timer', op: 'start', ...r }); } }, 'timer'))
             : el('div', { class: 'btnrow' },
                 actionBtn('target', q.target > 0 ? 'Change Target' : 'Set Target', { size: '', class: 'primary', onclick: async () => { const r = await targetDialog(q); if (r) { cmd({ cmd: 'target', label: q.label, ...r }); onNext(render); } } }, MODE_ICON.Hold),
-                actionBtn('steps', 'Steps', { size: '', onclick: async () => { await stepsDialog(q); onNext(render); } }, 'flag'),
                 actionBtn('alarms', 'Alarms', { size: '', onclick: async () => { const r = await limitsDialog(q); if (r) { cmd({ cmd: 'limits', label: q.label, ...r }); onNext(render); } } }, 'bell'),
                 actionBtn('timer', 'Timer', { size: '', onclick: async () => { const r = await timerDialog(); if (r) cmd({ cmd: 'timer', op: 'start', ...r }); } }, 'timer')),
           q.role !== 'Primary' && q.target > 0 ? el('div', { class: 'form-actions' },

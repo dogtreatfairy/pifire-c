@@ -1006,6 +1006,9 @@ h2 { font-size: var(--fs-xs); letter-spacing: var(--track-label); margin: var(--
 .irow-main .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .irow-main .t { font-weight: var(--fw-medium); font-size: var(--fs-md); display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
 .irow-main .s { font-size: var(--fs-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* a probe row's second line is its target when one is set: in the accent, so it reads as set */
+.irow-main .s .set { color: var(--accent-ink); font-weight: 600; }
+.irow.off { opacity: .55; }
 .irow-main .chev { width: 16px; height: 16px; color: var(--muted); flex: none; }
 .irow-main .v { flex: none; color: var(--muted); font-size: var(--fs-md); font-variant-numeric: tabular-nums; margin-left: auto; padding-left: 8px; }
 .irow-acts { display: flex; align-items: center; gap: var(--sp-1); flex: none; }
@@ -1393,6 +1396,9 @@ main.view:has(> .screen-actions) { padding-bottom: calc(var(--tab-h) + env(safe-
 /* every meat on screen at once, two rows of five, no strip to scroll: a strip inside a sheet
    scrolled the sheet as often as itself, and a choice of nine is small enough to show whole */
 .chiprow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.chiprow.steps { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+.tsteps { margin-top: var(--sp-3); }
+.tsteps .ios-list { margin-bottom: 4px; }
 .chip-btn { min-width: 0; border: 1px solid var(--line); background: transparent; border-radius: var(--r-pill); padding: 7px 4px; font-size: var(--fs-xs); font-weight: 600; color: var(--muted); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chip-btn.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 

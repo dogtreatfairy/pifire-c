@@ -49,7 +49,7 @@ const deltaUser = (f) => (PF.units === 'C' ? Math.round(f * 5 / 9) : f);
 export async function targetDialog(p) {
   return dialog((close) => {
     let after = p.after || 0;
-    let meat = 'Beef';
+    let meat = p.meat && PRESETS[p.meat] ? p.meat : 'Beef';
 
     const now = p.valid ? `${fmtTemp(p.temp)}${degUnit()}` : '—';
     const head = el('div', { class: 'sheet-head' },
@@ -84,14 +84,43 @@ export async function targetDialog(p) {
     for (const m of Object.keys(PRESETS)) chips.append(el('button', { class: 'chip-btn', type: 'button', 'data-meat': m, onclick: () => showMeat(m) }, m));
     showMeat(meat);
 
+    /* The steps on the way -- flip, wrap, spritz -- live with the target, because a step is a
+       thing to do before the target and means nothing without one. They save as they change,
+       since picking a doneness closes the sheet; clearing the target clears them too. */
+    const stepsBox = el('div', { class: 'sheet-foot tsteps' });
+    const cur = (PF.settings?.notify?.probe_steps?.[p.label] || []).map((s) => ({ ...s }));
+    const ask = (title, v) => numberDialog(title, v, { min: 32, max: 400, step: 5 });
+    const drawSteps = () => {
+      stepsBox.innerHTML = '';
+      const inner = el('div', { class: 'ios-list' });
+      for (const [i, st] of cur.entries()) {
+        inner.append(itemRow({
+          icon: 'bell', color: '#bf5af2', title: st.name, value: `${st.temp}${degUnit()}`, chevron: false,
+          onclick: async () => { const v = await ask(st.name, st.temp); if (v != null) { st.temp = v; await saveProbeSteps(p.label, cur); drawSteps(); } },
+          actions: [iconBtn('trash-2', `Remove ${st.name}`, { class: 'danger', onclick: async (e) => { e.stopPropagation(); cur.splice(i, 1); await saveProbeSteps(p.label, cur); drawSteps(); } })],
+        }));
+      }
+      const left = STEP_PRESETS.filter(([n]) => !cur.some((s) => s.name === n));
+      stepsBox.append(el('label', {}, 'On the way'), cur.length ? inner : null,
+        cur.length >= 4 ? null : el('div', { class: 'chiprow steps' },
+          left.map(([n, t]) => el('button', { class: 'chip-btn', type: 'button', onclick: async () => {
+            cur.push({ name: n, temp: PF.units === 'C' ? Math.round((t - 32) * 5 / 9) : t }); await saveProbeSteps(p.label, cur); drawSteps();
+          } }, `+ ${n}`)),
+          el('button', { class: 'chip-btn', type: 'button', onclick: async () => {
+            const v = await ask('Alert at', PF.units === 'C' ? 60 : 140); if (v != null) { cur.push({ name: 'Alert', temp: v }); await saveProbeSteps(p.label, cur); drawSteps(); }
+          } }, '+ Custom')));
+    };
+    drawSteps();
+
     return el('div', { class: 'sheet' }, head, chips, list,
       el('div', { class: 'sheet-foot' },
         el('label', {}, 'When it gets there'),
         segmented(AFTER, after, (v) => (after = v))),
+      stepsBox,
       /* dismissive left, committing right: see docs/design-language.md */
       el('div', { class: 'btnrow' },
         el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'),
-        p.target > 0 ? el('button', { class: 'btn ghost', type: 'button', onclick: () => close({ target: 0, after: 0 }) }, 'Clear target') : null));
+        p.target > 0 ? el('button', { class: 'btn ghost', type: 'button', onclick: async () => { cur.length = 0; await saveProbeSteps(p.label, cur); close({ target: 0, after: 0 }); } }, 'Clear target') : null));
   });
 }
 
@@ -101,49 +130,10 @@ export async function targetDialog(p) {
  * at the grill for before then. Four is enough for flip, wrap, probe-tender and a spare. */
 const STEP_PRESETS = [['Flip', 120], ['Wrap', 165], ['Spritz', 150], ['Probe Tender', 198]];
 
-export async function stepsDialog(p) {
-  const key = p.label;
-  const cur = (PF.settings?.notify?.probe_steps?.[key] || []).map((s) => ({ ...s }));
-  return pushScreen((close) => {
-    const wrap = el('div', { class: 'sheet-body' });
-    const draw = () => {
-      wrap.innerHTML = '';
-      const inner = el('div', { class: 'ios-list' });
-      for (const [i, st] of cur.entries()) {
-        inner.append(itemRow({
-          icon: 'bell', color: '#bf5af2', title: st.name,
-          meta: `${st.temp}${degUnit()}`,
-          onclick: async () => {
-            const v = await numberDialog(st.name, st.temp, { min: 32, max: 400, step: 5 });
-            if (v != null) { st.temp = v; draw(); }
-          },
-          actions: [iconBtn('trash-2', 'Remove', { class: 'danger', onclick: (e) => { e.stopPropagation(); cur.splice(i, 1); draw(); } })],
-        }));
-      }
-      if (!cur.length) inner.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No steps. Add one to be told when to flip, wrap or spritz.'));
-      const left = STEP_PRESETS.filter(([n]) => !cur.some((s) => s.name === n));
-      wrap.append(inner,
-        cur.length >= 4 ? null : el('div', { class: 'chiprow' }, left.map(([n, t]) =>
-          el('button', { class: 'chip-btn', type: 'button', onclick: () => { cur.push({ name: n, temp: PF.units === 'C' ? Math.round((t - 32) * 5 / 9) : t }); draw(); } }, `+ ${n}`))),
-        cur.length >= 4 ? null : addRow('Custom Step', async () => {
-          const v = await numberDialog('Alert at', PF.units === 'C' ? 60 : 140, { min: 32, max: 400, step: 5 });
-          if (v != null) { cur.push({ name: 'Alert', temp: v }); draw(); }
-        }));
-    };
-    draw();
-    return el('div', { class: 'sheet' },
-      el('div', { class: 'sheet-head' }, el('div', {}, el('h3', {}, 'Step Alerts'), el('div', { class: 'help' }, p.name))),
-      wrap,
-      el('div', { class: 'form-actions' },
-        actionBtn('cancel', 'Cancel', { size: '', onclick: () => close(undefined) }),
-        actionBtn('save', 'Save', { size: '', onclick: () => close(cur) })));
-  }, { title: 'Step Alerts', back: p.name }).then(async (steps) => {
-    if (!steps) return;
-    const all = { ...(PF.settings?.notify?.probe_steps || {}) };
-    if (steps.length) all[key] = steps; else delete all[key];
-    try { await patchSettings('notify', { probe_steps: all }); toast('Steps saved'); }
-    catch (e) { toast(e.message, true); }
-  });
+async function saveProbeSteps(label, steps) {
+  const all = { ...(PF.settings?.notify?.probe_steps || {}) };
+  if (steps.length) all[label] = steps; else delete all[label];
+  try { await patchSettings('notify', { probe_steps: all }); } catch (e) { toast(e.message, true); }
 }
 
 export async function limitsDialog(p) {

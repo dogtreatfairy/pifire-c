@@ -894,6 +894,15 @@ doneness blank; clearing the target clears both. The daemon stores the words bes
 (`meat`, `done` on the `target` command and on the probe in the status), so the panel and any
 other client see the same thing.
 
+On the Probes page a working food probe is the recipe row's shape: the mark, the name, the
+target on the line under it in the accent (`Beef · Medium rare · 130°F · 12 min left`), the
+reading at the right, and bare icons at the end -- an X to clear the target, then the target mark
+last because it is the committing one. The row itself opens the probe's settings. The pit probe
+has neither icon: its target is the set point. The step alerts -- flip, wrap, spritz, a named
+temperature on the way -- are not a second kind of target and do not get a second button; they
+live inside the target sheet under "On the way", save as they change (picking a doneness closes
+the sheet), and go when the target is cleared.
+
 A sheet that changes something redraws on the first status that carries the change, never on a
 timer: the status comes once a second, and a redraw after a fixed delay raced it -- when the
 redraw lost, the sheet still said "Set Target" with nothing set, and that read as "it did not

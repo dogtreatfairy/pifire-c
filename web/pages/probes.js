@@ -22,7 +22,7 @@ export function pickFoodProbes(title = 'Which probes are in the food?', sub = ''
       el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'),
       el('button', { class: 'btn primary', type: 'button', onclick: () => close([...chosen]) }, chosen.size ? 'Start' : 'None, Start'))));
 }
-import { targetDialog, limitsDialog, stepsDialog } from './cook.js';
+import { targetDialog, limitsDialog } from './cook.js';
 import { icon as lucide, MODE_ICON } from '../icons.js';
 
 // One place for everything probe-related: the probe table (tap a row to edit), adding probes to free
@@ -302,41 +302,37 @@ export async function renderProbes(view, opts = {}) {
         }));
         return;
       }
-      list.append(el('div', { class: `prow ${p.enabled ? '' : 'off'}` },
-        el('button', { class: 'row prow-main', type: 'button', onclick: () => editProbe(p) },
-          el('span', { class: 'body' },
-            el('span', { class: 't' },
-              wireless ? btIcon() : null,
-              wireless && live ? sigBars(live.signal || 0, live.rssi ? `${live.rssi} dBm` : 'no link') : null,
-              wireless && live?.battery >= 0 ? battIcon(live.battery) : null,
-              p.name),
-            /* What the probe is doing, not how it is wired. The port and the profile were here, and
-             they are set once when the grill is built and then never looked at again; what changes
-             during a cook is whether it is reading, what the target is and how long is left. The
-             wiring is inside, where it is wanted about once. */
-          el('span', { class: 's' }, !p.enabled ? 'Disabled'
-              : p.type === 'Primary'
-                ? (PF.status?.mode === 'Hold' ? `Holding ${PF.status.setpoint}${degUnit()}` : live?.valid ? `${PF.status?.mode || 'Reading'}` : 'No reading')
-              : tgt ? `${live.meat ? `${live.meat}${live.done ? ` \u00b7 ${live.done}` : ''} \u00b7 ` : ''}Target ${live.target}${degUnit()}${live.eta_s > 0 && live.temp < live.target ? ` \u00b7 ${fmtEta(live.eta_s)} left` : live.temp >= live.target ? ' \u00b7 reached' : ''}`
-              : live?.valid ? nextStep(live) || 'Reading' : 'No reading'),
-            /* A wired probe's curve, named and labelled, under the live line rather than instead
-               of it: it is worth being able to see at a glance which probe is on which profile
-               without opening each one. A Bluetooth probe reports degrees and has none. */
-            wireless ? null : el('span', { class: 's' }, `Profile: ${profName(p)}`)),
-          el('span', { class: 'v' }, p.enabled ? (live?.valid ? `${live.temp}${degUnit()}` : '\u2014') : 'off'),
-          lucide('chevron-right', 'ic chev')),
-        /* The pit probe has neither of these. Its target is the set point, which is what Hold mode
-           is for, and a second place to type one would be a second answer to the same question.
-           Its alarms are conditional notifications -- "Grill Stalled Hot", "Grill Stalled Cold" --
-           which compare it with the set point and so keep working when the set point changes,
-           where a fixed limit typed once would not. */
-        /* A probe that is switched off has no reading to set a target against, so it gets no
-           buttons: two dead controls under an "off" row said the opposite of what the row said. */
-        p.type === 'Primary' || !p.enabled ? null : el('div', { class: 'prow-acts' },
-          actionBtn('target', tgt ? 'Change Target' : 'Set Target', { size: 'xs', onclick: async () => {
-            const r = await targetDialog({ ...p, ...live }); if (r) cmd({ cmd: 'target', label: p.label, ...r });
-          } }, MODE_ICON.Hold),
-          actionBtn('steps', 'Steps', { size: 'xs', class: 'ghost', onclick: () => stepsDialog({ ...p, ...live }) }, 'flag'))));
+      /* The cooking row is the recipe row's shape: a mark, the name, one line under it, the
+         reading at the right, and what you do to the probe as bare icons at the end; the row
+         itself opens the probe's settings. The line under the name is the target when there is
+         one -- "Beef · Medium rare · 130°F · 12 min left" -- in the accent, so it reads as
+         something set rather than as a description. Clear is a bare mark too, at the left of the
+         icons, because it is the dismissive action; the target mark is last, the committing one.
+         The pit probe has no target of its own (that is the set point) and no icons. */
+      const primary = p.type === 'Primary';
+      const line = !p.enabled ? 'Disabled'
+        : primary
+          ? (PF.status?.mode === 'Hold' ? `Holding ${PF.status.setpoint}${degUnit()}` : live?.valid ? `${PF.status?.mode || 'Reading'}` : 'No reading')
+        : tgt ? [live.meat, live.done, `${live.target}${degUnit()}`].filter(Boolean).join(' \u00b7 ')
+              + (live.eta_s > 0 && live.temp < live.target ? ` \u00b7 ${fmtEta(live.eta_s)} left` : live.valid && live.temp >= live.target ? ' \u00b7 reached' : '')
+        : live?.valid ? nextStep(live) || 'Reading' : 'No reading';
+      const setTarget = async () => { const r = await targetDialog({ ...p, ...live }); if (r) cmd({ cmd: 'target', label: p.label, ...r }); };
+      list.append(itemRow({
+        icon: wireless ? 'bluetooth' : 'thermometer', color: wireless ? '#0a84ff' : '#ff453a',
+        title: [
+          wireless && live ? sigBars(live.signal || 0, live.rssi ? `${live.rssi} dBm` : 'no link') : null,
+          wireless && live?.battery >= 0 ? battIcon(live.battery) : null,
+          p.name],
+        meta: el('span', { class: tgt ? 'set' : '' }, line),
+        value: p.enabled ? (live?.valid ? `${live.temp}${degUnit()}` : '\u2014') : 'off',
+        chevron: primary || !p.enabled,
+        onclick: () => editProbe(p),
+        actions: primary || !p.enabled ? [] : [
+          tgt ? iconBtn('x', `Clear ${p.name} target`, { class: 'danger', onclick: (e) => { e.stopPropagation(); cmd({ cmd: 'target', label: p.label, target: 0, after: 0 }); } }) : null,
+          iconBtn(MODE_ICON.Hold, tgt ? `Change ${p.name} target` : `Set ${p.name} target`, { onclick: (e) => { e.stopPropagation(); setTarget(); } }),
+        ].filter(Boolean),
+      }));
+      if (!p.enabled) list.lastChild.classList.add('off');
     }
   };
 
