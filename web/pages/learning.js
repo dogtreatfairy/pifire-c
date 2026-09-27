@@ -44,9 +44,43 @@ export function renderLearning(view, slots = {}) {
   }
 
   // The run moves through phases over hours, so poll it faster than the rest of the page.
+  /* Rebuilding the section is for when the run has changed -- a phase, a step, a new anchor --
+     not for every poll. The elapsed time is the one thing that moves between polls, and it is
+     one span. Replacing the whole rail, table and rows every few seconds (and, before this,
+     every status message) was what froze the page on a phone: the elements under a thumb were
+     being torn down and rebuilt faster than a tap could land on them. */
+  /* the row in hand says what it is doing now, in a word, in place of the plan's three */
+  const DOING = { starting: 'Lighting', settling: 'Settling', testing: 'Measuring', verifying: 'Verifying', next: 'Moving on', finishing: 'Shutting down' };
+  const SRC = { tuned: 'Autotune', learned: 'Learning', typed: 'Typed' };
+  let tuneKey = '';
   async function loadTune() {
     tune = await api('/tune');
-    renderTune();
+    const { elapsed_s, ...rest } = tune;
+    const key = JSON.stringify(rest);
+    if (key !== tuneKey) { tuneKey = key; renderTune(); }
+    else updateLive();
+  }
+  /* the words that move without the page being rebuilt */
+  function updateLive() {
+    if (tune?.running) {
+      const st = tuneCard.querySelector('.rr-state.rr-live');
+      if (st) st.textContent = ` \u00b7 ${DOING[tune.phase] || PHASE_TEXT[tune.phase] || tune.message}${tune.elapsed_s > 0 ? ` \u00b7 ${fmtDur(tune.elapsed_s)}` : ''}`;
+    }
+    const s = PF.status;
+    const t = s?.controller?.tuning;
+    if (t) {
+      note.replaceChildren(
+        el('h3', { class: 'subhead' }, 'Tuning In Use'),
+        el('div', { class: 'kv' },
+          el('div', {}, 'Proportional Band'), el('div', {}, `${t.PB}${degUnit()}`),
+          el('div', {}, 'Integral Time'), el('div', {}, `${t.Ti} s`),
+          el('div', {}, 'Derivative Time'), el('div', {}, `${t.Td} s`),
+          el('div', {}, 'From'), el('div', {}, SRC[t.src] || t.src)),
+        el('p', { class: 'help' },
+          s?.mode === 'Hold' ? `In use, holding ${s.setpoint}${degUnit()}.` : 'Would be used at the next hold.'));
+    }
+    const now = ffCard.querySelector('.ff-now');
+    if (now) now.textContent = s?.mode === 'Hold' ? `Now: ff ${(s.cycle.u_ff * 100).toFixed(0)}% \u00b7 applied ${(s.cycle.u_applied * 100).toFixed(0)}%` : '';
   }
 
   async function start(body, label) {
@@ -145,8 +179,6 @@ export function renderLearning(view, slots = {}) {
     const rows = [{ ic: MODE_ICON.Startup, text: 'Startup', short: 'Startup' },
       ...pts.map((v) => ({ ic: MODE_ICON.Hold, text: `Hold ${v}${degUnit()} \u00b7 settle, measure, verify`, short: `Hold ${v}${degUnit()}` })),
       { ic: MODE_ICON.Shutdown, text: 'Shutdown', short: 'Shutdown' }];
-    /* the row in hand says what it is doing now, in a word, in place of the plan's three */
-    const DOING = { starting: 'Lighting', settling: 'Settling', testing: 'Measuring', verifying: 'Verifying', next: 'Moving on', finishing: 'Shutting down' };
     let cur = -1;
     if (running) cur = tune.phase === 'starting' ? 0 : (tune.phase === 'finishing' ? rows.length - 1 : Math.min(rows.length - 2, Math.max(1, tune.step || 1)));
     tuneCard.append(el('h3', { class: 'subhead' }, 'Profile'));
@@ -154,7 +186,7 @@ export function renderLearning(view, slots = {}) {
     rows.forEach((r, i) => {
       const state = !running ? 'rr-plan' : i < cur ? 'rr-done' : i === cur ? 'rr-now' : 'rr-todo';
       const title = el('span', { class: 'rr-title' }, state === 'rr-now' ? r.short : r.text);
-      if (state === 'rr-now') title.append(el('span', { class: 'rr-state' }, ` \u00b7 ${DOING[tune.phase] || PHASE_TEXT[tune.phase] || tune.message}${tune.elapsed_s > 0 ? ` \u00b7 ${fmtDur(tune.elapsed_s)}` : ''}`));
+      if (state === 'rr-now') title.append(el('span', { class: 'rr-state rr-live' }, ` \u00b7 ${DOING[tune.phase] || PHASE_TEXT[tune.phase] || tune.message}${tune.elapsed_s > 0 ? ` \u00b7 ${fmtDur(tune.elapsed_s)}` : ''}`));
       rail.append(el('div', { class: `rr-step ${state}` }, el('span', { class: 'rr-glyph' }, lucide(state === 'rr-done' ? 'check' : r.ic)), title));
     });
     tuneCard.append(rail);
@@ -281,6 +313,7 @@ export function renderLearning(view, slots = {}) {
   }
 
   function render() {
+    tuneKey = '';
     renderTune();
     if (!data) return;
     const s = PF.status;
@@ -291,7 +324,7 @@ export function renderLearning(view, slots = {}) {
       data.enabled ? null : el('div', { class: 'notice warn' }, 'Learning off. Not updating.'),
       el('p', { class: 'help' }, `feed = ${f.a.toFixed(3)} + ${f.b_per_degC.toFixed(4)} × (set point − ambient °C) · ${f.observations} obs${f.observations ? ` · rms ${f.rms.toFixed(3)}` : ' · prior'}`),
       el('div', { class: 'kv' }, ...f.examples.flatMap((e) => [el('div', {}, `Hold ${e.setpoint}${degUnit()} at ${f.example_ambient}${degUnit()} ambient`), el('div', {}, `${(e.u * 100).toFixed(0)}% feed`)])),
-      s?.mode === 'Hold' ? el('p', { class: 'help' }, `Now: ff ${(s.cycle.u_ff * 100).toFixed(0)}% · applied ${(s.cycle.u_applied * 100).toFixed(0)}%`) : null,
+      el('p', { class: 'help ff-now' }, s?.mode === 'Hold' ? `Now: ff ${(s.cycle.u_ff * 100).toFixed(0)}% · applied ${(s.cycle.u_applied * 100).toFixed(0)}%` : ''),
       // Clearing what the grill taught itself belongs here, with the rest of the learning. The
       // other clearing -- throwing the measurements away and going back to the typed values -- sits
       // under Auto Tuning, beside the library it removes.
@@ -303,7 +336,6 @@ export function renderLearning(view, slots = {}) {
        force during the last one, which straight after a tuning run is the one moment it is
        certainly wrong. Where it came from is said in words, because "which of these three numbers
        am I actually running" is the whole question this card exists to answer. */
-    const SRC = { tuned: 'Autotune', learned: 'Learning', typed: 'Typed' };
     const t = s?.controller?.tuning;
     if (t) {
       note.replaceChildren(
@@ -323,7 +355,7 @@ export function renderLearning(view, slots = {}) {
   }
 
   load().catch((e) => toast(e.message, true));
-  const off = onStatus(() => render());
+  const off = onStatus(() => updateLive());
   const t = setInterval(load, 30000);
   const tt = setInterval(() => loadTune().catch(() => {}), 5000);
   return () => { off(); clearInterval(t); clearInterval(tt); };

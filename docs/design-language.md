@@ -408,6 +408,16 @@ edge of its field with dead space beside it, which reads as a row of buttons nob
 exception is a control sharing a row with something else -- a number and its unit -- which takes
 only what it needs (`.segmented.hug`).
 
+## A status message changes words, never the page
+
+The daemon pushes a status every second. A page that answers each one by rebuilding itself --
+the rail, the table, the rows, the cards -- is tearing down the elements under the cook's thumb
+faster than a tap can land on them, and on a phone that reads as a frozen app. The Auto Tuning
+page did exactly that the moment a tune started, and the phone went dead. What a status may do is
+update the words that move: a phase, a time, a temperature, a note. The structure is rebuilt when
+the thing it describes changes (a new step, a new anchor, a saved edit), and the page keeps the
+key of what it last drew so a poll that brings the same answer draws nothing.
+
 ## A page scrolls; nothing inside it scrolls on its own
 
 A capped, inner-scrolling region — `max-height: 60vh; overflow-y: auto` — is a **dialog's** answer
