@@ -359,6 +359,66 @@ static void test_a_reading_measures_the_same_whatever_its_digits(void)
 	TEST_ASSERT_EQUAL_INT(pf_gfx_text_width(PF_FONT_SEMIBOLD, 20, "HOLD"), pf_gfx_number_width(PF_FONT_SEMIBOLD, 20, "HOLD"));
 }
 
+/* The main screen picks things out: a turn of the knob rings the banner, the pit, the hopper or a
+ * probe card, and a press acts on the ring. Rendered for the eye, and checked for the menus each
+ * ring opens: the banner's modes, the hopper's two ends, a probe's meats and their doneness. */
+static void test_main_screen_focus_and_its_menus(void)
+{
+	pf_gfx g;
+	TEST_ASSERT_EQUAL_INT(0, pf_gfx_init(&g, 320, 240));
+	pf_gfx_set_theme(&g, "dark");
+	cJSON *st = cJSON_Parse(status_json);
+	pf_ui_state ui = { 0 };
+	pf_nav_reset(&ui);
+	TEST_ASSERT_EQUAL_INT(PF_FOCUS_NONE, ui.main_focus);
+	render_to(&g, st, &ui, "main_cards");
+	/* from nothing, the first turn picks the pit; then it walks the ring */
+	ui.main_focus = pf_main_focus_step(st, PF_FOCUS_NONE, +1);
+	TEST_ASSERT_EQUAL_INT(PF_FOCUS_PIT, ui.main_focus);
+	render_to(&g, st, &ui, "focus_pit");
+	ui.main_focus = pf_main_focus_step(st, ui.main_focus, -1);
+	TEST_ASSERT_EQUAL_INT(PF_FOCUS_MODE, ui.main_focus);
+	render_to(&g, st, &ui, "focus_mode");
+	ui.main_focus = pf_main_focus_step(st, PF_FOCUS_PIT, +1);
+	TEST_ASSERT_EQUAL_INT(PF_FOCUS_HOPPER, ui.main_focus);
+	render_to(&g, st, &ui, "focus_hopper");
+	ui.main_focus = pf_main_focus_step(st, ui.main_focus, +1);
+	TEST_ASSERT_EQUAL_INT(PF_FOCUS_PROBE0, ui.main_focus);
+	render_to(&g, st, &ui, "focus_probe");
+	TEST_ASSERT_EQUAL_INT(1, pf_main_probe_index(st, 0));   /* Probe 1 is the second probe in the status */
+	/* the menus the rings open */
+	pf_menu_item items[PF_MENU_MAX];
+	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_MODE);
+	int n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
+	TEST_ASSERT_EQUAL_STRING("Smoke Mode", items[0].label);
+	TEST_ASSERT_EQUAL_STRING("Shutdown", items[1].label);
+	TEST_ASSERT_EQUAL_STRING("Stop", items[2].label);
+	TEST_ASSERT_TRUE(items[2].danger);
+	TEST_ASSERT_EQUAL_INT(4, n);
+	render_to(&g, st, &ui, "menu_mode");
+	pf_nav_pop(&ui);
+	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_MEAT);
+	n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
+	TEST_ASSERT_EQUAL_INT(PF_MEAT_COUNT + 2, n);
+	TEST_ASSERT_EQUAL_STRING("Beef", items[0].label);
+	TEST_ASSERT_EQUAL_STRING("Custom", items[n - 2].label);
+	render_to(&g, st, &ui, "menu_meat");
+	pf_nav_pop(&ui);
+	ui.meat_idx = 0;
+	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_DONE);
+	n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
+	TEST_ASSERT_EQUAL_INT(6, n);
+	TEST_ASSERT_EQUAL_STRING("Medium rare", items[1].label);
+	TEST_ASSERT_EQUAL_STRING("130\xC2\xB0", items[1].right);   /* 135 done, 5 of carry-over */
+	render_to(&g, st, &ui, "menu_done");
+	pf_nav_pop(&ui);
+	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_HOPPER);
+	n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
+	TEST_ASSERT_EQUAL_INT(3, n);
+	cJSON_Delete(st);
+	pf_gfx_free(&g);
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -370,5 +430,6 @@ int main(void)
 	RUN_TEST(test_settings_menu_offers_the_margin_editor);
 	RUN_TEST(test_navigation_stack);
 	RUN_TEST(test_text_metrics);
+	RUN_TEST(test_main_screen_focus_and_its_menus);
 	return UNITY_END();
 }

@@ -60,7 +60,7 @@ const pf_bt_kind PF_BT_KINDS[] = {
 };
 const int PF_BT_KIND_COUNT = (int)(sizeof PF_BT_KINDS / sizeof PF_BT_KINDS[0]);
 
-void pf_nav_reset(pf_ui_state *ui) { ui->depth = 0; }
+void pf_nav_reset(pf_ui_state *ui) { ui->depth = 0; ui->main_focus = PF_FOCUS_NONE; }
 
 void pf_nav_push(pf_ui_state *ui, pf_screen screen, int list)
 {
@@ -105,6 +105,58 @@ int pf_bt_devices(const cJSON *status, pf_bt_device *out, int max)
 	return n;
 }
 
+static const pf_doneness D_BEEF[] = { { "Rare", 125, 5 }, { "Medium rare", 135, 5 }, { "Medium", 145, 5 }, { "Medium well", 150, 5 }, { "Well done", 160, 5 } };
+static const pf_doneness D_BRISKET[] = { { "Probe tender", 203, 0 } };
+static const pf_doneness D_PORK[] = { { "Chops and loin", 145, 5 }, { "Pulled pork", 203, 0 } };
+static const pf_doneness D_RIBS[] = { { "Bend test", 195, 0 } };
+static const pf_doneness D_CHICKEN[] = { { "Breast", 165, 5 }, { "Thighs", 175, 5 } };
+static const pf_doneness D_TURKEY[] = { { "Whole bird", 165, 8 } };
+static const pf_doneness D_FISH[] = { { "Flaky", 145, 3 } };
+static const pf_doneness D_LAMB[] = { { "Medium rare", 135, 5 }, { "Medium", 145, 5 } };
+static const pf_doneness D_SAUSAGE[] = { { "Cooked through", 160, 5 } };
+#define MEAT(n, d) { n, d, (int)(sizeof d / sizeof d[0]) }
+const pf_meat PF_MEATS[] = { MEAT("Beef", D_BEEF), MEAT("Brisket", D_BRISKET), MEAT("Pork", D_PORK), MEAT("Ribs", D_RIBS), MEAT("Chicken", D_CHICKEN),
+                             MEAT("Turkey", D_TURKEY), MEAT("Fish", D_FISH), MEAT("Lamb", D_LAMB), MEAT("Sausage", D_SAUSAGE) };
+const int PF_MEAT_COUNT = (int)(sizeof PF_MEATS / sizeof PF_MEATS[0]);
+
+/* the food probes the main screen shows, in card order: the same rule render_main uses */
+static int main_food(const cJSON *status, const cJSON **food, int max)
+{
+	const cJSON *probes = cJSON_GetObjectItem((cJSON *)status, "probes"), *p;
+	int nf = 0;
+	cJSON_ArrayForEach(p, probes) {
+		if (nf >= max) break;
+		if (!strcmp(pf_json_str((cJSON *)p, "role", ""), "Food") && pf_json_bool((cJSON *)p, "enabled", true) && pf_json_bool((cJSON *)p, "home", true) && !pf_json_bool((cJSON *)p, "companion", false)) food[nf++] = p;
+	}
+	return nf;
+}
+
+int pf_main_probe_index(const cJSON *status, int card)
+{
+	const cJSON *food[3];
+	int nf = main_food(status, food, 3);
+	if (card < 0 || card >= nf) return -1;
+	const cJSON *probes = cJSON_GetObjectItem((cJSON *)status, "probes"), *p;
+	int i = 0;
+	cJSON_ArrayForEach(p, probes) { if (p == food[card]) return i; i++; }
+	return -1;
+}
+
+int pf_main_focus_step(const cJSON *status, int cur, int dir)
+{
+	const cJSON *food[3];
+	int nf = main_food(status, food, 3);
+	bool hopper = pf_json_num((cJSON *)status, "hopper_pct", -1) >= 0;
+	int n = PF_FOCUS_PROBE0 + nf;
+	if (cur < 0) return PF_FOCUS_PIT;
+	for (int k = 0; k < n; k++) {
+		cur = ((cur + (dir > 0 ? 1 : -1)) % n + n) % n;
+		if (cur == PF_FOCUS_HOPPER && !hopper) continue;
+		return cur;
+	}
+	return PF_FOCUS_PIT;
+}
+
 int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out, int max)
 {
 	const char *mode = pf_json_str((cJSON *)status, "mode", "Stop");
@@ -132,6 +184,63 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 		 * right. Orange stops being blue. */
 		ADD(PF_ACT_COLOUR, 0, "Colour Order");
 		snprintf(out[n - 1].right, sizeof out[n - 1].right, "%s", pf_set_bool("display.bgr", false) ? "BGR" : "RGB");
+		ADD(PF_ACT_BACK, 0, "Back");
+		break;
+	}
+
+	case PF_LIST_MODE:
+		/* from the banner: where the grill can go from here, and Stop */
+		if (!strcmp(mode, "Error")) { ADD(PF_ACT_CLEAR_ERROR, 0, "Clear Error"); }
+		else if (!strcmp(mode, "Stop") || !strcmp(mode, "Monitor") || !strcmp(mode, "Prime")) {
+			ADD(PF_ACT_STARTUP_HOLD, 0, "Startup To Hold");
+			ADD(PF_ACT_STARTUP_SMOKE, 0, "Startup To Smoke");
+			if (strcmp(mode, "Monitor")) ADD(PF_ACT_MONITOR, 0, "Monitor");
+			if (strcmp(mode, "Stop")) { ADD(PF_ACT_STOP, 0, "Stop"); DANGER(); }
+		} else {
+			if (!strcmp(mode, "Hold")) ADD(PF_ACT_SMOKE, 0, "Smoke Mode");
+			else ADD(PF_ACT_HOLD, 0, "Hold Mode");
+			if (strcmp(mode, "Shutdown")) ADD(PF_ACT_END_COOK, 0, "Shutdown");
+			ADD(PF_ACT_STOP, 0, "Stop"); DANGER();
+		}
+		ADD(PF_ACT_BACK, 0, "Back");
+		break;
+
+	case PF_LIST_HOPPER:
+		/* the level in the hopper right now becomes one end of the scale */
+		ADD(PF_ACT_HOPPER_FULL, 0, "Set Full Here");
+		ADD(PF_ACT_HOPPER_EMPTY, 0, "Set Empty Here");
+		ADD(PF_ACT_BACK, 0, "Back");
+		break;
+
+	case PF_LIST_PROBE_ACT: {
+		/* a probe that has a target: what its sheet on the phone offers */
+		const cJSON *p = cJSON_GetArrayItem(cJSON_GetObjectItem((cJSON *)status, "probes"), ui->probe_idx);
+		ADD(PF_ACT_PROBE_PICK, 0, "Change Target");
+		if (p) {
+			const char *meat = pf_json_str((cJSON *)p, "meat", ""), *done = pf_json_str((cJSON *)p, "done", "");
+			if (meat[0]) snprintf(out[n - 1].right, sizeof out[n - 1].right, "%.10s", done[0] ? done : meat);
+		}
+		ADD(PF_ACT_PROBE_CUSTOM, 0, "Custom Temperature");
+		ADD(PF_ACT_PROBE_CLEAR, 0, "Clear Target"); DANGER();
+		ADD(PF_ACT_BACK, 0, "Back");
+		break;
+	}
+
+	case PF_LIST_MEAT:
+		for (int i = 0; i < PF_MEAT_COUNT && i < max - 2; i++) ADD(PF_ACT_MEAT, i, PF_MEATS[i].name);
+		ADD(PF_ACT_PROBE_CUSTOM, 0, "Custom");
+		ADD(PF_ACT_BACK, 0, "Back");
+		break;
+
+	case PF_LIST_DONE: {
+		const char *units = pf_json_str((cJSON *)status, "units", "F");
+		int m = ui->meat_idx >= 0 && ui->meat_idx < PF_MEAT_COUNT ? ui->meat_idx : 0;
+		for (int i = 0; i < PF_MEATS[m].n; i++) {
+			ADD(PF_ACT_DONE, i, PF_MEATS[m].d[i].name);
+			double pull_f = PF_MEATS[m].d[i].to_f - PF_MEATS[m].d[i].carry_f;
+			double v = units[0] == 'C' ? round((pull_f - 32) * 5 / 9) : pull_f;
+			snprintf(out[n - 1].right, sizeof out[n - 1].right, "%.0f" DEG, v);
+		}
 		ADD(PF_ACT_BACK, 0, "Back");
 		break;
 	}
@@ -237,12 +346,14 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 
 /* --------------------------------------------------------------- pieces */
 
-static void draw_banner(pf_gfx *g, const cJSON *s, const char *mode)
+static void draw_banner(pf_gfx *g, const cJSON *s, const char *mode, bool ring)
 {
 	int W = g->vw;
 	bool tuning_fill = pf_json_bool((cJSON *)s, "tuning.running", false) || pf_json_bool((cJSON *)s, "autotune.active", false);
 	uint16_t fill = tuning_fill ? g->th.info : mode_fill(g, mode), tc = on_fill_text(g, fill);
 	pf_gfx_rect(g, 0, 0, g->w, 34, fill);
+	/* picked out by the knob: a two-pixel ring in the banner's own text colour, under the words */
+	if (ring) { pf_gfx_rrect(g, 2, 2, W - 4, 30, 5, tc); pf_gfx_rrect(g, 4, 4, W - 8, 26, 3, fill); }
 	/* A tuning run holds set points like any cook, so "HOLD" tells you nothing about why the pit is
 	 * deliberately swinging either side of its target. Say what it is doing, and what it is aiming
 	 * at, because during a run the set point is the thing that keeps changing. */
@@ -297,8 +408,12 @@ static void draw_tiles(pf_gfx *g, const cJSON *s, int y, int h, int px)
 }
 
 /* right-hand data block: set point, error, and one status line */
+/* where the hopper was drawn on the last main screen, so the focus ring can find it */
+static int g_hop_x, g_hop_y, g_hop_w, g_hop_h;
+
 static void draw_datablock(pf_gfx *g, const cJSON *s, const cJSON *primary, const char *mode, const char *units, int x, int y, int w, bool compact)
 {
+	g_hop_h = 0;
 	int p1 = compact ? 22 : 26, p2 = compact ? 18 : 22, p3 = compact ? 14 : 16, l1 = p1 + 4, l2 = p2 + 4, l3 = p3 + 2;
 	bool valid = primary && cJSON_IsNumber(cJSON_GetObjectItem((cJSON *)primary, "temp"));
 	double pit = valid ? cJSON_GetObjectItem((cJSON *)primary, "temp")->valuedouble : 0;
@@ -351,6 +466,7 @@ static void draw_datablock(pf_gfx *g, const cJSON *s, const cJSON *primary, cons
 		 * outline, so the level reads as a level rather than as a hairline. */
 		pf_gfx_bar(g, x, ly + 2, w, 14, hop / 100.0, hc, g->th.card2);
 		pf_gfx_frame(g, x, ly + 2, w, 14, g->th.line);
+		g_hop_x = x - 4; g_hop_y = ly - l3 - 2; g_hop_w = w + 8; g_hop_h = l3 + 22;
 	}
 	if (pf_json_bool((cJSON *)s, "lid_open", false)) pf_gfx_text(g, B, p3, x, ly + 12, "LID OPEN", g->th.warn);
 }
@@ -397,13 +513,31 @@ static void pf_sel_ring(pf_gfx *g, int x, int y, int w, int h, int r, uint16_t e
 	pf_gfx_rrect(g, x + 1, y + 1, w - 2, h - 2, r > 1 ? r - 1 : r, fill);
 }
 
+/* an upright cell with the charge behind the number inside it: the phone's battery mark, at the
+ * panel's scale. -1 draws an empty cell with a dash. */
+static void draw_batt(pf_gfx *g, int x, int y, int pct, uint16_t edge, uint16_t fill_bg, uint16_t ink)
+{
+	const int w = 13, h = 17;
+	pf_gfx_rect(g, x + 4, y, 5, 2, edge);                       /* the terminal */
+	pf_gfx_rrect(g, x, y + 2, w, h, 3, edge);
+	pf_gfx_rrect(g, x + 1, y + 3, w - 2, h - 2, 2, fill_bg);
+	char v[5];
+	if (pct >= 0) {
+		int fh = (h - 4) * (pct > 100 ? 100 : pct) / 100;
+		if (fh > 0) pf_gfx_rrect(g, x + 2, y + 3 + (h - 4) - fh + 1, w - 4, fh, 1, edge);
+		snprintf(v, sizeof v, "%d", pct % 1000);
+	} else snprintf(v, sizeof v, "-");
+	int px = pct >= 100 ? 7 : 9;
+	int tw = pf_gfx_text_width(B, px, v);
+	pf_gfx_text(g, B, px, x + (w - tw) / 2, y + 2 + (h - pf_gfx_line_height(B, px)) / 2, v, ink);
+}
+
 static void draw_probe_col(pf_gfx *g, const cJSON *p, const char *units, bool blink, int x, int y, int w)
 {
 	const cJSON *tv = cJSON_GetObjectItem((cJSON *)p, "temp");
 	double target = pf_json_num((cJSON *)p, "target", 0), eta = pf_json_num((cJSON *)p, "eta_s", -1);
 	bool valid = cJSON_IsNumber(tv), hit = target > 0 && valid && tv->valuedouble >= target;
 	bool wireless = pf_json_bool((cJSON *)p, "wireless", false);
-	int bars = (int)pf_json_num((cJSON *)p, "signal", 0);
 	double over = hit ? tv->valuedouble - target : 0, step = units[0] == 'C' ? 3 : 5;
 	uint16_t alert = over >= 2 * step ? g->th.danger : over >= step ? g->th.accent : g->th.ok;
 	bool filled = hit && !blink;
@@ -414,51 +548,43 @@ static void draw_probe_col(pf_gfx *g, const cJSON *p, const char *units, bool bl
 	}
 	uint16_t tc = filled ? g->th.accent_text : hit ? alert : valid ? g->th.text : g->th.muted;
 	uint16_t mc = filled ? g->th.accent_text : hit ? alert : g->th.muted;
-	/* The bars say how strong the link is; weak is amber, not red, because a probe at the far end
-	 * of the garden is not faulted -- losing it altogether raises its own alarm. */
-	uint16_t sig_on = filled ? g->th.accent_text : bars >= 3 ? g->th.info : g->th.warn;
-	/* The Bluetooth rune is an identity mark -- "this probe is wireless" -- not a status light.
-	 * Colouring it by signal strength painted it red whenever the probe was a room away, which
-	 * reads as a fault and is simply the wrong thing for the symbol to be saying. It is Bluetooth
-	 * blue, always, except on a filled card where it takes the card's own text colour. */
+	/* The Bluetooth rune is an identity mark -- "this probe is wireless" -- not a status light. It
+	 * is Bluetooth blue, always, except on a filled card where it takes the card's own text colour.
+	 * The signal bars are gone from the card, as they are from the phone's: a card read across a
+	 * garden carries the mark, the name and the battery, the reading, and the target. */
 	uint16_t rune = filled ? g->th.accent_text : g->th.info;
-	uint16_t sig_off = filled ? alert : g->th.line;
-	char name[12], t[8], tg[12] = "", et[8] = "", amb[16] = "", bat[8] = "";
+	char name[12], t[8], tg[12] = "", et[8] = "";
 	snprintf(name, sizeof name, "%.8s", pf_json_str((cJSON *)p, "name", "?"));
 	upper(name);
 	fmt_temp(t, sizeof t, tv);
 	if (target > 0) snprintf(tg, sizeof tg, "%.0f" DEG, target);
 	if (target > 0 && !hit && eta > 0) fmt_eta(et, sizeof et, eta);
-	const cJSON *av = cJSON_GetObjectItem((cJSON *)p, "ambient");
-	if (cJSON_GetObjectItem((cJSON *)p, "ambient_label")) { char a[8]; fmt_temp(a, sizeof a, av); snprintf(amb, sizeof amb, "AMB %s" DEG, a); }
-	int battery = (int)pf_json_num((cJSON *)p, "battery", -1);
-	if (wireless && battery >= 0) snprintf(bat, sizeof bat, "%d%%", battery % 1000);
+	int battery = wireless ? (int)pf_json_num((cJSON *)p, "battery", -1) : -2;
 	uint16_t tgc = filled ? g->th.accent_text : tc == alert ? alert : g->th.accent;
 	uint16_t dim = filled ? g->th.accent_text : g->th.muted;
-	uint16_t batc = filled ? g->th.accent_text : battery <= 10 ? g->th.danger : battery <= 20 ? g->th.warn : g->th.muted;
+	uint16_t batc = filled ? g->th.accent_text : battery <= 10 && battery >= 0 ? g->th.danger : battery <= 20 && battery >= 0 ? g->th.warn : g->th.muted;
+	uint16_t bat_bg = filled ? alert : g->th.card2;
 	if (w >= 90) {
-		/* row 1: name left, Bluetooth rune + bars right
-		 * row 2: temperature left; target and ETA stacked on the right
-		 * row 3: ambient readout left, battery right */
-		int nw = w - 12;
-		if (wireless) { pf_gfx_bt_rune(g, x + w - 6 - 15 - 11, y + 4, rune); pf_gfx_signal(g, x + w - 6 - 15, y + 3, bars, sig_on, sig_off); nw -= 30; }
+		/* row 1: rune, name, the battery cell at the right
+		 * row 2: the reading, large
+		 * row 3: time to target left, target right */
+		int nx = x + 6, nw = w - 12;
+		if (wireless) { pf_gfx_bt_rune(g, x + 5, y + 4, rune); nx = x + 16; nw -= 10; }
+		if (battery >= -1) { draw_batt(g, x + w - 6 - 13, y + 3, battery, batc, bat_bg, filled ? g->th.accent_text : g->th.text); nw -= 17; }
 		int px = 13;
 		while (px > 10 && pf_gfx_text_width(B, px, name) > nw) px--;
-		pf_gfx_text(g, B, px, x + 6, y + 3, name, mc);
-		pf_gfx_text(g, B, 28, x + 6, y + 15, t, tc);
-		if (tg[0]) pf_gfx_text_right(g, B, 13, x + w - 6, y + 17, tg, tgc);
-		if (et[0]) pf_gfx_text_right(g, B, 12, x + w - 6, y + 31, et, dim);
-		if (amb[0]) pf_gfx_text(g, B, 11, x + 6, y + 47, amb, dim);
-		if (bat[0]) pf_gfx_text_right(g, B, 11, x + w - 6, y + 47, bat, batc);
-	} else {   /* narrow (portrait): name + bars / temperature / ambient + target / ETA + battery */
+		pf_gfx_text(g, B, px, nx, y + 4, name, mc);
+		pf_gfx_text(g, B, 28, x + 6, y + 19, t, tc);
+		if (et[0]) pf_gfx_text(g, B, 11, x + 6, y + 48, et, dim);
+		if (tg[0]) pf_gfx_text_right(g, B, 13, x + w - 6, y + 46, tg, tgc);
+	} else {   /* narrow (portrait): rune + name / reading / target */
 		name[6] = 0;
-		if (wireless) pf_gfx_signal(g, x + w - 5 - 15, y + 3, bars, sig_on, sig_off);
-		pf_gfx_text(g, B, 11, x + 5, y + 3, name, mc);
-		pf_gfx_text(g, B, 24, x + 5, y + 13, t, tc);
-		if (amb[0]) { memmove(amb + 1, amb + 4, strlen(amb + 4) + 1); pf_gfx_text(g, B, 10, x + 5, y + 38, amb, dim); }   /* "AMB 221°" -> "A221°": room for the target */
-		if (tg[0]) pf_gfx_text_right(g, B, 11, x + w - 5, y + 37, tg, tgc);
+		int nx = x + 5;
+		if (wireless) { pf_gfx_bt_rune(g, x + 4, y + 3, rune); nx = x + 14; }
+		pf_gfx_text(g, B, 11, nx, y + 3, name, mc);
+		pf_gfx_text(g, B, 24, x + 5, y + 15, t, tc);
 		if (et[0]) pf_gfx_text(g, B, 10, x + 5, y + 49, et, dim);
-		if (bat[0]) pf_gfx_text_right(g, B, 10, x + w - 5, y + 49, bat, batc);
+		if (tg[0]) pf_gfx_text_right(g, B, 11, x + w - 5, y + 47, tg, tgc);
 	}
 }
 
@@ -468,7 +594,7 @@ static void render_main(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 	const char *units = pf_json_str((cJSON *)s, "units", "F");
 	int W = g->vw, H = g->vh;
 	bool landscape = g->w > g->h;
-	draw_banner(g, s, mode);
+	draw_banner(g, s, mode, ui->main_focus == PF_FOCUS_MODE);
 
 	const cJSON *probes = cJSON_GetObjectItem((cJSON *)s, "probes");
 	const cJSON *primary = NULL, *food[3] = { 0 }, *p;
@@ -479,20 +605,36 @@ static void render_main(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 		if (!strcmp(role, "Food") && pf_json_bool((cJSON *)p, "enabled", true) && pf_json_bool((cJSON *)p, "home", true) && !pf_json_bool((cJSON *)p, "companion", false) && nf < 3) food[nf++] = p;
 	}
 
+	/* The focus ring: a turn of the knob picks out the banner, the pit, the hopper or a probe card,
+	 * and a press acts on it. Two pixels of the accent following the block's own corner, drawn
+	 * under the block so the block's own fill leaves exactly the ring showing. */
+	int f = ui->main_focus;
+	int top = H - 66, w = (W - 12 - 10) / 3;
+	int pit_x, pit_y, pit_w, pit_h, col = W - 100;
+	if (landscape) { pit_x = 4; pit_y = 76; pit_w = col - 10; pit_h = 84; }
+	else { pit_x = 6; pit_y = 78; pit_w = W - 12; pit_h = 100; }
+	if (f == PF_FOCUS_PIT) { pf_gfx_rrect(g, pit_x, pit_y, pit_w, pit_h, 6, g->th.accent); pf_gfx_rrect(g, pit_x + 2, pit_y + 2, pit_w - 4, pit_h - 4, 4, g->th.bg); }
 	if (landscape) {
 		draw_tiles(g, s, 39, 36, 20);
-		int col = W - 100;                                      /* data column on the right */
 		draw_pit(g, primary, units, mode, 8, 78, 100, col - 12);
 		draw_datablock(g, s, primary, mode, units, col, 80, W - col - 6, true);
-		int top = H - 66, w = (W - 12 - 10) / 3;
 		if (nf == 0) pf_gfx_text(g, R, 16, 8, top + 22, "No food probes enabled", g->th.muted);
-		for (int i = 0; i < nf; i++) draw_probe_col(g, food[i], units, ui->blink, 6 + i * (w + 5), top, w);
 	} else {
 		draw_tiles(g, s, 39, 36, 18);
 		draw_pit(g, primary, units, mode, 10, 80, 118, W - 16);
 		draw_datablock(g, s, primary, mode, units, 10, 190, W - 20, true);
-		int top = H - 66, w = (W - 12 - 10) / 3;
-		for (int i = 0; i < nf; i++) draw_probe_col(g, food[i], units, ui->blink, 6 + i * (w + 5), top, w);
+	}
+	if (f == PF_FOCUS_HOPPER && g_hop_h > 0) {
+		/* the hopper's place is known once the block has drawn; ring it and draw the block again */
+		pf_gfx_rrect(g, g_hop_x, g_hop_y, g_hop_w, g_hop_h, 4, g->th.accent);
+		pf_gfx_rrect(g, g_hop_x + 2, g_hop_y + 2, g_hop_w - 4, g_hop_h - 4, 2, g->th.bg);
+		if (landscape) draw_datablock(g, s, primary, mode, units, col, 80, W - col - 6, true);
+		else draw_datablock(g, s, primary, mode, units, 10, 190, W - 20, true);
+	}
+	for (int i = 0; i < nf; i++) {
+		int cx = 6 + i * (w + 5);
+		if (f == PF_FOCUS_PROBE0 + i) pf_gfx_rrect(g, cx - 2, top - 2, w + 4, 66, 8, g->th.accent);
+		draw_probe_col(g, food[i], units, ui->blink, cx, top, w);
 	}
 }
 
@@ -518,13 +660,23 @@ static void render_list(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 	pf_menu_item items[PF_MENU_MAX];
 	int n = pf_menu_build(s, ui, items, PF_MENU_MAX);
 	chrome(g, "MENU", s, g->th.card2);
-	int rowh = (H - 40) / (n > 0 ? n : 1);
-	if (rowh > 44) rowh = 44;
-	int px = rowh - 8 < 24 ? (rowh - 8 < 13 ? 13 : rowh - 8) : 24;
-	int y = 38 + ((H - 40) - rowh * n) / 2;
+	/* A long list scrolls rather than shrinks: the meats are eleven rows, and eleven rows of
+	 * 13-pixel type is not a menu anyone reads at arm's length. Six rows at most, the selected one
+	 * kept in view, a mark at the edge when there is more above or below. */
 	int sel = ui->depth > 0 ? ui->stack[ui->depth - 1].index : 0;
 	if (n > 0) sel = ((sel % n) + n) % n;
-	for (int i = 0; i < n; i++) {
+	int vis = n > 6 ? 6 : (n > 0 ? n : 1);
+	int first = sel - vis / 2;
+	if (first > n - vis) first = n - vis;
+	if (first < 0) first = 0;
+	int rowh = (H - 40) / vis;
+	if (rowh > 44) rowh = 44;
+	int px = rowh - 8 < 24 ? (rowh - 8 < 13 ? 13 : rowh - 8) : 24;
+	int y = 38 + ((H - 40) - rowh * vis) / 2;
+	/* drawn, not typed: the panel font has no arrow glyphs */
+	if (first > 0) { pf_gfx_line(g, W - 14, 44, W - 9, 39, 1.5, g->th.muted); pf_gfx_line(g, W - 9, 39, W - 4, 44, 1.5, g->th.muted); }
+	if (first + vis < n) { pf_gfx_line(g, W - 14, H - 10, W - 9, H - 5, 1.5, g->th.muted); pf_gfx_line(g, W - 9, H - 5, W - 4, H - 10, 1.5, g->th.muted); }
+	for (int i = first; i < first + vis && i < n; i++) {
 		bool is = i == sel;
 		/* Selection has to survive sunlight on a dim panel: a filled block, an outline around it in
 		 * the opposite colour, and text chosen for the fill. A slightly lighter shade of grey --

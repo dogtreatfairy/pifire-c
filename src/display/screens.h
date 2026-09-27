@@ -30,6 +30,11 @@ typedef enum {
 	PF_LIST_BTEDIT,    /* paired probes: switch one on or off */
 	PF_LIST_BTDEL,     /* paired probes: remove one */
 	PF_LIST_SETTINGS,  /* panel settings: what can sensibly be changed at the grill */
+	PF_LIST_MODE,      /* from the banner: a new mode, or stop */
+	PF_LIST_HOPPER,    /* from the hopper: mark it full or empty at its current level */
+	PF_LIST_PROBE_ACT, /* a probe with a target: change it, a custom temperature, or clear it */
+	PF_LIST_MEAT,      /* a probe without one: what is on it */
+	PF_LIST_DONE,      /* ...and how done, which sets the target with its name */
 } pf_list_id;
 
 /* What a row does when it is pressed. */
@@ -59,6 +64,13 @@ typedef enum {
 	PF_ACT_MARGINS,       /* open the margin editor */
 	PF_ACT_THEME,         /* switch the panel between dark and light */
 	PF_ACT_COLOUR,        /* swap the panel's red/blue order, judged with the screen in front of you */
+	PF_ACT_HOPPER_FULL,   /* the hopper is full at this reading */
+	PF_ACT_HOPPER_EMPTY,  /* the hopper is empty at this reading */
+	PF_ACT_PROBE_PICK,    /* open the meat list for ui->probe_idx */
+	PF_ACT_PROBE_CUSTOM,  /* open the temperature selector for ui->probe_idx */
+	PF_ACT_PROBE_CLEAR,   /* clear ui->probe_idx's target */
+	PF_ACT_MEAT,          /* arg = index into PF_MEATS: open its doneness list */
+	PF_ACT_DONE,          /* arg = index into that meat's doneness: set the target */
 } pf_action;
 
 typedef struct {
@@ -75,7 +87,7 @@ typedef struct {
 /* the four edges, in the order the editor walks them */
 enum { PF_EDGE_TOP = 0, PF_EDGE_RIGHT, PF_EDGE_BOTTOM, PF_EDGE_LEFT };
 
-#define PF_MENU_MAX 10
+#define PF_MENU_MAX 12   /* the meat list: nine meats, Custom, Back */
 #define PF_NAV_MAX 5
 #define PF_BT_MAX 6
 
@@ -92,6 +104,22 @@ typedef struct { char device[32], name[32]; bool enabled; } pf_bt_device;
 int pf_bt_devices(const cJSON *status, pf_bt_device *out, int max);
 
 typedef struct { pf_screen screen; int list; int index; } pf_nav;
+
+/* What is on the probe and how done, the same table the phone's picker offers. `to_f` is where the
+ * meat is done and `carry_f` how far it climbs once it is off the heat; the target set is the
+ * difference, so the alarm fires while there is still time to pull it. */
+typedef struct { const char *name; int to_f, carry_f; } pf_doneness;
+typedef struct { const char *name; const pf_doneness *d; int n; } pf_meat;
+extern const pf_meat PF_MEATS[];
+extern const int PF_MEAT_COUNT;
+
+/* The main screen's focus: what a turn of the knob has picked out, and what a press acts on.
+ * The banner, the pit, the hopper, then the food probes left to right. */
+enum { PF_FOCUS_NONE = -1, PF_FOCUS_MODE = 0, PF_FOCUS_PIT, PF_FOCUS_HOPPER, PF_FOCUS_PROBE0 };
+/* The next focus in that direction, skipping what the status has no card for; from none, the pit. */
+int pf_main_focus_step(const cJSON *status, int cur, int dir);
+/* The status index of the food probe shown in card `card` (0..2), or -1. */
+int pf_main_probe_index(const cJSON *status, int card);
 
 typedef struct {
 	pf_nav stack[PF_NAV_MAX];
@@ -124,6 +152,12 @@ typedef struct {
 	pf_bt_found bt[PF_BT_MAX];
 	int bt_n;
 	bool bt_scanning;
+
+	/* main screen: what the knob has picked out, and until when it stays picked out */
+	int main_focus;
+	double main_focus_until;
+	/* the probe and meat a target is being chosen for (status index, PF_MEATS index) */
+	int probe_idx, meat_idx;
 
 	char message[64];
 	double message_until;

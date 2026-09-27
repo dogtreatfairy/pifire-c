@@ -16,6 +16,7 @@
 #include "display/gfx.h"
 #include "display/registry.h"
 #include "display/screens.h"
+#include "features/pellets.h"
 #include "probes/ble/bluez.h"
 #include "probes/probes.h"
 #include "hal/gpio.h"
@@ -33,7 +34,9 @@
 #define SPI_CHUNK 4096
 #define MENU_TIMEOUT_S 5.0
 #define LONG_PRESS_S 1.5
-#define SW_DEBOUNCE_S 0.25
+#define SW_DEBOUNCE_S 0.06
+#define DOUBLE_CLICK_S 0.45   /* two presses this close on the main screen open the menu */
+#define FOCUS_HOLD_S 6.0      /* the focus ring stays this long after the last turn */
 
 typedef struct {
 	const pf_env *env;
@@ -446,15 +449,58 @@ static void do_action(tft_t *t, pf_action act, int arg)
 		return;
 
 	case PF_ACT_PROBE_TARGET: {
+		/* a probe, from its card or the Probe Target list: as on the phone, no target opens the
+		 * picker and a target opens what can be done with it */
 		const cJSON *p = cJSON_GetArrayItem(cJSON_GetObjectItem(t->status, "probes"), arg);
 		if (!p) return;
+		t->ui.probe_idx = arg;
+		pf_strlcpy(t->ui.temp_probe, pf_json_str((cJSON *)p, "label", ""), sizeof t->ui.temp_probe);
+		pf_nav_push(&t->ui, PF_SCR_LIST, pf_json_num((cJSON *)p, "target", 0) > 0 ? PF_LIST_PROBE_ACT : PF_LIST_MEAT);
+		return;
+	}
+	case PF_ACT_PROBE_PICK:
+		pf_nav_push(&t->ui, PF_SCR_LIST, PF_LIST_MEAT);
+		return;
+	case PF_ACT_PROBE_CUSTOM: {
+		const cJSON *p = cJSON_GetArrayItem(cJSON_GetObjectItem(t->status, "probes"), t->ui.probe_idx);
 		bool cel = false;
 		temp_step(t, &cel);
-		double cur = pf_json_num((cJSON *)p, "target", 0);
-		pf_strlcpy(t->ui.temp_probe, pf_json_str((cJSON *)p, "label", ""), sizeof t->ui.temp_probe);
+		double cur = p ? pf_json_num((cJSON *)p, "target", 0) : 0;
 		open_temp(t, PF_ACT_PROBE_TARGET, "PROBE TARGET", "Save", cur > 0 ? cur : (cel ? 95 : 203));
 		return;
 	}
+	case PF_ACT_PROBE_CLEAR:
+		c.type = PF_CMD_NOTIFY_TARGET; c.num = 0;
+		pf_strlcpy(c.str, t->ui.temp_probe, sizeof c.str);
+		pf_cmdq_push(&c);
+		show_message(t, "Target cleared", 2);
+		return;
+	case PF_ACT_MEAT:
+		t->ui.meat_idx = arg;
+		pf_nav_push(&t->ui, PF_SCR_LIST, PF_LIST_DONE);
+		return;
+	case PF_ACT_DONE: {
+		int m = t->ui.meat_idx >= 0 && t->ui.meat_idx < PF_MEAT_COUNT ? t->ui.meat_idx : 0;
+		if (arg < 0 || arg >= PF_MEATS[m].n) return;
+		bool cel = false;
+		temp_step(t, &cel);
+		double pull_f = PF_MEATS[m].d[arg].to_f - PF_MEATS[m].d[arg].carry_f;
+		c.type = PF_CMD_NOTIFY_TARGET; c.num = cel ? round((pull_f - 32) * 5 / 9) : pull_f;
+		pf_strlcpy(c.str, t->ui.temp_probe, sizeof c.str);
+		pf_strlcpy(c.meat, PF_MEATS[m].name, sizeof c.meat);
+		pf_strlcpy(c.done, PF_MEATS[m].d[arg].name, sizeof c.done);
+		pf_cmdq_push(&c);
+		char msg[64];
+		snprintf(msg, sizeof msg, "%s %s: %.0f\xC2\xB0", PF_MEATS[m].name, PF_MEATS[m].d[arg].name, c.num);
+		show_message(t, msg, 2);
+		return;
+	}
+	case PF_ACT_HOPPER_FULL:
+		open_confirm(t, PF_ACT_HOPPER_FULL, "Hopper is full now?", "Set", false);
+		return;
+	case PF_ACT_HOPPER_EMPTY:
+		open_confirm(t, PF_ACT_HOPPER_EMPTY, "Hopper is empty now?", "Set", false);
+		return;
 	case PF_ACT_BT_SCAN:
 		bt_begin_scan(t, arg);
 		return;
@@ -523,6 +569,11 @@ static void temp_confirm(tft_t *t)
 static void confirm_yes(tft_t *t)
 {
 	pf_action act = t->ui.confirm_action;
+	if (act == PF_ACT_HOPPER_FULL || act == PF_ACT_HOPPER_EMPTY) {
+		pf_pellets_calibrate(act == PF_ACT_HOPPER_FULL);
+		show_message(t, act == PF_ACT_HOPPER_FULL ? "Hopper set full" : "Hopper set empty", 2);
+		return;
+	}
 	if (act == PF_ACT_RESTART || act == PF_ACT_POWEROFF) {
 		bool reboot = act == PF_ACT_RESTART;
 		pf_cmd c = { .type = PF_CMD_STOP };
@@ -618,6 +669,27 @@ static void margins_save(tft_t *t)
 	}
 }
 
+/* what a press does to whatever the knob has picked out on the main screen */
+static void focus_act(tft_t *t, const char *mode)
+{
+	int f = t->ui.main_focus;
+	t->ui.main_focus = PF_FOCUS_NONE;
+	if (f == PF_FOCUS_MODE) { pf_nav_push(&t->ui, PF_SCR_LIST, PF_LIST_MODE); return; }
+	if (f == PF_FOCUS_PIT) {
+		/* the pit's number is the set point: in Hold it changes it, from anywhere else it starts
+		 * a hold there */
+		open_temp(t, PF_ACT_HOLD, "HOLD", !strcmp(mode, "Hold") ? "Set" : "Start",
+		          pf_json_num(t->status, "setpoint", 0) > 0 ? pf_json_num(t->status, "setpoint", 0) : pf_set_num("startup.start_to_mode.primary_setpoint", 225));
+		return;
+	}
+	if (f == PF_FOCUS_HOPPER) { pf_nav_push(&t->ui, PF_SCR_LIST, PF_LIST_HOPPER); return; }
+	if (f >= PF_FOCUS_PROBE0) {
+		int idx = pf_main_probe_index(t->status, f - PF_FOCUS_PROBE0);
+		if (idx < 0) return;
+		do_action(t, PF_ACT_PROBE_TARGET, idx);
+	}
+}
+
 static void handle_key(tft_t *t, pf_key k, double now)
 {
 	t->last_activity = now;
@@ -632,10 +704,17 @@ static void handle_key(tft_t *t, pf_key k, double now)
 
 	switch (pf_nav_screen(&t->ui)) {
 	case PF_SCR_MAIN:
-		if (k == PF_KEY_ENTER) open_menu(t);
-		else if (dir && !strcmp(mode, "Hold")) {
-			open_temp(t, PF_ACT_HOLD, "HOLD", "Start", pf_json_num(t->status, "setpoint", 0));
-			spin_temp(t, dir, now);
+		/* A turn picks something out -- the banner, the pit, the hopper, a probe -- and shows a
+		 * ring around it; a press acts on what is ringed; two quick presses open the menu. A
+		 * single press with nothing ringed does nothing, which is what makes the double safe. */
+		if (dir) {
+			t->ui.main_focus = pf_main_focus_step(t->status, t->ui.main_focus, dir);
+			t->ui.main_focus_until = now + FOCUS_HOLD_S;
+		} else if (k == PF_KEY_DOUBLE) {
+			t->ui.main_focus = PF_FOCUS_NONE;
+			open_menu(t);
+		} else if (k == PF_KEY_ENTER && t->ui.main_focus >= 0) {
+			focus_act(t, mode);
 		}
 		break;
 
@@ -739,6 +818,9 @@ static void *encoder_thread(void *arg)
 	int state = ((pf_gpio_get(t->clk) > 0) << 1) | (pf_gpio_get(t->dt) > 0), accum = 0;
 	bool pressed = pf_gpio_get(t->sw) > 0, long_sent = false;
 	double press_t = 0, last_enter = 0;
+	/* On the main screen a press is held back briefly to see whether a second follows: two make
+	 * PF_KEY_DOUBLE, one alone is delivered when the window closes. Elsewhere a press is a press. */
+	bool click_pending = false; double click_t = 0;
 	struct pollfd fds[3] = { { .fd = pf_gpio_fd(t->clk), .events = POLLIN }, { .fd = pf_gpio_fd(t->dt), .events = POLLIN }, { .fd = pf_gpio_fd(t->sw), .events = POLLIN } };
 	while (atomic_load(&t->run)) {
 		int r = poll(fds, 3, 50);
@@ -764,10 +846,19 @@ static void *encoder_thread(void *arg)
 				if (down && !pressed) { pressed = true; press_t = now; long_sent = false; }
 				else if (!down && pressed) {
 					pressed = false;
-					if (!long_sent && now - press_t >= 0.02 && now - last_enter >= SW_DEBOUNCE_S) { last_enter = now; input(t, PF_KEY_ENTER); }
+					if (!long_sent && now - press_t >= 0.02 && now - last_enter >= SW_DEBOUNCE_S) {
+						last_enter = now;
+						pthread_mutex_lock(&t->mu);
+						bool on_main = t->ui.depth == 0;
+						pthread_mutex_unlock(&t->mu);
+						if (!on_main) input(t, PF_KEY_ENTER);
+						else if (click_pending && now - click_t <= DOUBLE_CLICK_S) { click_pending = false; input(t, PF_KEY_DOUBLE); }
+						else { click_pending = true; click_t = now; }
+					}
 				}
 			}
 		}
+		if (click_pending && now - click_t > DOUBLE_CLICK_S) { click_pending = false; input(t, PF_KEY_ENTER); }
 		if (pressed && !long_sent && now - press_t >= LONG_PRESS_S) {
 			long_sent = true;
 			pthread_mutex_lock(&t->mu);
@@ -920,6 +1011,7 @@ static void status(void *self, const char *json)
 	bool stopped = !strcmp(pf_json_str(t->status, "mode", ""), "Stop");
 	bt_collect(t);
 	if (t->ui.depth > 0 && pf_nav_screen(&t->ui) != PF_SCR_MESSAGE && !t->ui.bt_scanning && now - t->last_activity > MENU_TIMEOUT_S) pf_nav_reset(&t->ui);
+	if (t->ui.main_focus >= 0 && now > t->ui.main_focus_until) t->ui.main_focus = PF_FOCUS_NONE;
 	if (!stopped && !t->backlight_on) backlight(t, true);                       /* any active mode: screen on */
 	if (stopped && t->backlight_on && t->backlight_timeout > 0 && pf_nav_screen(&t->ui) == PF_SCR_MAIN && now - t->last_activity > t->backlight_timeout) backlight(t, false);
 	redraw(t);

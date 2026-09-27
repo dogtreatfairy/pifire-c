@@ -4,7 +4,7 @@
 
 #define PF_DISPLAY_ABI 1
 
-typedef enum { PF_KEY_NONE = 0, PF_KEY_UP, PF_KEY_DOWN, PF_KEY_ENTER, PF_KEY_LONG_ENTER } pf_key;
+typedef enum { PF_KEY_NONE = 0, PF_KEY_UP, PF_KEY_DOWN, PF_KEY_ENTER, PF_KEY_LONG_ENTER, PF_KEY_DOUBLE } pf_key;   /* DOUBLE: two quick presses on the main screen */
 
 typedef struct pf_display_ops {
 	uint32_t abi;

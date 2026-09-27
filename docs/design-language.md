@@ -683,6 +683,19 @@ Every screen is pushed onto a navigation stack, so Back is always the same opera
 press unwinds to the main screen from anywhere. A value being edited is highlighted in the accent
 colour; the same value merely selected is highlighted in the surface colour.
 
+**The knob picks things out on the main screen.** A turn shows a two-pixel ring around the banner,
+the pit reading, the hopper or a probe card -- the first turn lands on the pit, then it walks in
+turn order -- and it fades after six seconds untouched. A press acts on whatever is ringed: the
+banner opens the modes it can go to and Stop; the pit opens the hold temperature; the hopper
+offers to mark itself full or empty at its current level; a probe opens the meat list (then
+doneness, which sets the target with its name, or Custom for a number) when it has no target, and
+Change Target, Custom Temperature, Clear Target when it has one -- the same rule as a tap on the
+phone. Two quick presses, on the main screen only, open the full menu; a single press with
+nothing ringed does nothing, which is what makes the double one safe. Inside any other screen a
+press is a press. The food probe card is the phone's: the Bluetooth rune, the name and an upright
+battery cell with the percentage inside it; the reading; the time to target and the target. The
+signal bars and the ambient reading are gone from it.
+
 Margins exist because a bezel hides the edge of the panel. They are set from the panel, with the
 screen in front of you, not from a number typed on a phone.
 
