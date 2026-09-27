@@ -845,10 +845,10 @@ details[open] > summary::after { transform: rotate(-90deg); }
 .sig i.on { background: currentColor; }
 .sig.s1 i.on { background: var(--danger); } .sig.s2 i.on { background: var(--warn); }
 .pcell .n .sig { margin-right: 4px; color: var(--info-ink); }
-.pcell .n .batt { font-size: var(--fs-2xs); margin: 0; color: var(--muted); }
 .pcell .n .batt.low { color: var(--warn-ink); }
 .pcell .n .batt.crit { color: var(--danger-ink); }
 .batt.unknown { opacity: .6; }
+.batt.unknown b { color: var(--muted); }
 .irow-main .t .sig, .irow-main .t .batt { margin: 0; }
 .irow-main .t .sig, .irow-main .t .batt:not(.low):not(.crit) { color: var(--muted); }
 .pcell .amb { font-size: var(--fs-xs); color: var(--muted); margin-top: -2px; }
@@ -1321,14 +1321,12 @@ main.view > :first-child { margin-top: 12px; }
 
 /* Battery: a small cell that fills in proportion, with the number beside it. A percentage on its
    own next to a probe name could be signal, doneness or duty; the cell says which. */
-.batt { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-2xs); color: var(--muted); margin-right: 5px; vertical-align: middle; }
-/* a vertical cell: the nub on top, the charge rising from the bottom, as a phone draws one */
-.batt-body { position: relative; width: 10px; height: 16px; border: 1.5px solid currentColor; border-radius: 2px; padding: 1.5px; margin-top: 3px; display: flex; flex-direction: column; justify-content: flex-end; }
-.batt-body::after { content: ""; position: absolute; top: -4px; left: 50%; transform: translateX(-50%); width: 5px; height: 2.5px; background: currentColor; border-radius: 1px 1px 0 0; }
-.batt-body i { display: block; width: 100%; background: currentColor; border-radius: 1px; min-height: 1px; }
+.batt { position: relative; display: inline-block; width: 26px; height: 12px; border: 1.5px solid currentColor; border-radius: 3px; color: var(--muted); vertical-align: middle; box-sizing: border-box; overflow: hidden; flex: none; }
+.batt::after { content: ""; position: absolute; right: -4px; top: 50%; transform: translateY(-50%); width: 2px; height: 5px; background: currentColor; border-radius: 0 1px 1px 0; }
+.batt i { position: absolute; left: 0; top: 0; bottom: 0; background: currentColor; opacity: .35; }
+.batt b { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--text); }
 .batt.low { color: var(--warn-ink); }
 .batt.crit { color: var(--danger-ink); }
-.batt-pct { font-variant-numeric: tabular-nums; }
 /* the time remaining is its own fact, not a tail on the target line */
 .probe .tgt.eta { color: var(--accent-ink); margin-top: 2px; }
 
