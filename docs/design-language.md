@@ -899,7 +899,10 @@ target on the line under it in the accent (`Beef · Medium rare · 130°F · 12 
 reading at the right at the prominent-value size (`--fs-xl`, weight 600, the unit small beside
 it -- the card readout size was too loud in a row), and bare icons at the end -- the crosshair
 struck through to clear the target, then the crosshair itself last because it is the committing
-one. A mark that undoes a thing is that thing's own mark with a slash, the way every "-off" icon
+one. A wireless probe wears its signal bars and its battery after its name wherever it is listed,
+unknown states included -- dark bars, an empty outline with a dash -- so docked is told apart
+from dead. The battery is a vertical cell, nub on top, the charge rising from the bottom, the
+way a phone draws one; it was a horizontal one. A mark that undoes a thing is that thing's own mark with a slash, the way every "-off" icon
 is drawn, not a generic X. The icons sit at the row's standard 4 px gap. The row itself opens the probe's settings. The pit probe
 has neither icon: its target is the set point. The step alerts -- flip, wrap, spritz, a named
 temperature on the way -- are not a second kind of target and do not get a second button; they

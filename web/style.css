@@ -845,7 +845,8 @@ details[open] > summary::after { transform: rotate(-90deg); }
 .pcell .n .batt.low { color: var(--warn-ink); }
 .pcell .n .batt.crit { color: var(--danger-ink); }
 .batt.unknown { opacity: .6; }
-.irow-main .t .sig, .irow-main .t .batt { margin: 0; color: var(--muted); }
+.irow-main .t .sig, .irow-main .t .batt { margin: 0; }
+.irow-main .t .sig, .irow-main .t .batt:not(.low):not(.crit) { color: var(--muted); }
 .pcell .amb { font-size: var(--fs-xs); color: var(--muted); margin-top: -2px; }
 .pcell .tg.muted { color: var(--muted); }
 .ppop-temp { font-size: var(--fs-3xl); font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; margin: 6px 0 10px; }
@@ -1317,9 +1318,10 @@ main.view > :first-child { margin-top: 12px; }
 /* Battery: a small cell that fills in proportion, with the number beside it. A percentage on its
    own next to a probe name could be signal, doneness or duty; the cell says which. */
 .batt { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-2xs); color: var(--muted); margin-right: 5px; vertical-align: middle; }
-.batt-body { position: relative; width: 20px; height: 11px; border: 1.5px solid currentColor; border-radius: var(--r-sm); padding: 1.5px; }
-.batt-body::after { content: ""; position: absolute; right: -3.5px; top: 50%; transform: translateY(-50%); width: 2px; height: 5px; background: currentColor; border-radius: 0 1px 1px 0; }
-.batt-body i { display: block; height: 100%; background: currentColor; border-radius: 1px; min-width: 1px; }
+/* a vertical cell: the nub on top, the charge rising from the bottom, as a phone draws one */
+.batt-body { position: relative; width: 10px; height: 16px; border: 1.5px solid currentColor; border-radius: 2px; padding: 1.5px; margin-top: 3px; display: flex; flex-direction: column; justify-content: flex-end; }
+.batt-body::after { content: ""; position: absolute; top: -4px; left: 50%; transform: translateX(-50%); width: 5px; height: 2.5px; background: currentColor; border-radius: 1px 1px 0 0; }
+.batt-body i { display: block; width: 100%; background: currentColor; border-radius: 1px; min-height: 1px; }
 .batt.low { color: var(--warn-ink); }
 .batt.crit { color: var(--danger-ink); }
 .batt-pct { font-variant-numeric: tabular-nums; }

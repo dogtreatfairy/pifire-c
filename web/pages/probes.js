@@ -42,7 +42,7 @@ export const battIcon = (pct) => {
      spent claiming a fault that was not there. */
   const cls = `batt ${p <= 10 ? 'crit' : p <= 20 ? 'low' : ''}`;
   return el('span', { class: cls, title: `Battery ${p}%`, 'aria-label': `battery ${p} percent` },
-    el('span', { class: 'batt-body' }, el('i', { style: `width:${p}%` })),
+    el('span', { class: 'batt-body' }, el('i', { style: `height:${p}%` })),
     el('span', { class: 'batt-pct' }, `${p}%`));
 };
 const WIRELESS_MODULES = ['ibbq', 'meater', 'chefiq'];
