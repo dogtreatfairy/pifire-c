@@ -36,6 +36,7 @@ typedef enum {
 	PF_LIST_MEAT,      /* a probe without one: what is on it */
 	PF_LIST_DONE,      /* ...and how done, which sets the target with its name */
 	PF_LIST_TIMER,     /* from the banner's corner while a timer runs: change it or cancel it */
+	PF_LIST_STOP,      /* one Stop, which asks: End Cook (graceful) or Emergency Stop */
 } pf_list_id;
 
 /* What a row does when it is pressed. */
@@ -87,6 +88,9 @@ typedef enum {
 	PF_ICON_NONE = 0, PF_ICON_PLAY, PF_ICON_HOLD, PF_ICON_SMOKE, PF_ICON_STOP, PF_ICON_POWER, PF_ICON_TIMER,
 	PF_ICON_PROBE, PF_ICON_GEAR, PF_ICON_WIFI, PF_ICON_BACK, PF_ICON_EYE, PF_ICON_SLIDERS, PF_ICON_BT,
 	PF_ICON_NEXT, PF_ICON_PREV, PF_ICON_EXIT, PF_ICON_HOPPER, PF_ICON_CHECK,
+	PF_ICON_FLAG,      /* the chequered flag: the graceful stop, everywhere */
+	/* what is on the probe, in PF_MEATS order */
+	PF_ICON_STEAK, PF_ICON_BRISKET, PF_ICON_PORK, PF_ICON_RIBS, PF_ICON_CHICKEN, PF_ICON_TURKEY, PF_ICON_FISH, PF_ICON_LAMB, PF_ICON_SAUSAGE,
 } pf_icon;
 
 typedef struct {

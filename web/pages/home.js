@@ -113,13 +113,15 @@ function smokeMenu(s) {
     el('div', { class: 'presets pad' }, ...Array.from({ length: 9 }, (_, i) => i + 1).map((n) => el('button', { class: `btn ${n === cur ? 'primary' : ''}`, type: 'button', onclick: async () => { close(); try { await patchSettings('cycle_data', { PMode: n }); toast(`P-Mode ${n}`); } catch (e) { toast(e.message, true); } } }, String(n)))),
     el('button', { class: 'btn ghost block', type: 'button', onclick: () => close() }, 'Cancel')));
 }
-// Shutdown dialog: the normal cool-down, or an immediate Emergency Stop (everything off, no cool-down)
-const shutdown = (s) => dialog((close) => el('div', {}, el('h3', {}, 'Shut down?'),
-  el('p', { class: 'muted' }, `Feed stops and the fan runs for ${fmtDur(s.timers.shutdown_duration)} to cool the pot.`),
+/* One Stop, which asks which kind: End Cook is the graceful one (feed stops, the fan cools the
+   pot) under the chequered flag; Emergency Stop is everything off now, under the square. The
+   same two answers the panel's Stop gives. */
+const shutdown = (s) => dialog((close) => el('div', {}, el('h3', {}, 'Stop?'),
+  el('p', { class: 'muted' }, `End Cook stops the feed and runs the fan for ${fmtDur(s.timers.shutdown_duration)} to cool the pot. Emergency Stop turns everything off now.`),
   el('div', { class: 'btnrow' },
     el('button', { class: 'btn ghost', type: 'button', onclick: () => close() }, 'Cancel'),
-    el('button', { class: 'btn primary', type: 'button', onclick: () => { close(); cmd({ cmd: 'mode', mode: 'Shutdown' }); } }, 'Shutdown')),
-  el('button', { class: 'btn danger block', type: 'button', style: 'margin-top:10px', onclick: () => { close(); cmd({ cmd: 'stop' }); } }, 'Emergency Stop — all outputs off now')));
+    el('button', { class: 'btn primary', type: 'button', onclick: () => { close(); cmd({ cmd: 'mode', mode: 'Shutdown' }); } }, lucide(MODE_ICON.Shutdown, 'ic btn-ic'), ' End Cook')),
+  el('button', { class: 'btn danger block', type: 'button', style: 'margin-top:10px', onclick: () => { close(); cmd({ cmd: 'stop' }); } }, lucide(MODE_ICON.Stop, 'ic btn-ic'), ' Emergency Stop')));
 const stopGrill = (s) => (s.mode === 'Error' ? cmd({ cmd: 'stop' }) : confirmDialog('Stop the grill?', 'All outputs turn off immediately.', 'Stop', true).then((ok) => ok && cmd({ cmd: 'stop' })));
 
 // ---- control bar: the transitions that make sense from the current mode
@@ -152,7 +154,7 @@ function controlBar(s) {
         b('target', `${fmtTemp(s.setpoint)}°`, { active: true, cls: 'ok', onclick: () => holdAt(s, true) }), b('power', '', { onclick: () => shutdown(s), aria: 'Shutdown' }));
       break;
     case 'Shutdown':
-      right.push(b('power', 'Shutdown', { active: true, cls: 'info', disabled: true }), stop);
+      right.push(b('power', 'Cooling', { active: true, cls: 'info', disabled: true }), stop);
       break;
     case 'Manual':
       right.push(b('wrench', 'Manual', { active: true, onclick: () => (location.hash = '#/more/manual') }), stop);

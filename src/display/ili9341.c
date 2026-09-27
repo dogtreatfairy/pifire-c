@@ -536,7 +536,7 @@ static void do_action(tft_t *t, pf_action act, int arg)
 		open_confirm(t, PF_ACT_RECIPE_EXIT, "Leave the recipe? The grill keeps its mode.", "Leave", true);
 		return;
 	case PF_ACT_STOP_GRILL:
-		open_confirm(t, PF_ACT_STOP, "Stop the grill?", "Stop", true);
+		open_confirm(t, PF_ACT_STOP, "Everything off, now?", "Stop", true);
 		return;
 	case PF_ACT_HOPPER_FULL:
 		open_confirm(t, PF_ACT_HOPPER_FULL, "Hopper is full now?", "Set", false);

@@ -582,6 +582,11 @@ export function dialog(build) {
     d.onclose = () => { if (!d.open) d._resolve?.(undefined); };
     d.onclick = (e) => { if (e.target === d) close(undefined); };
     d.showModal();
+    /* showModal() hands focus to the first button, and the focus ring paints it as though it had
+       been tabbed to: Cancel opened wearing a two-pixel orange border its neighbours did not
+       have. Focus goes to the dialog itself instead; a button gets its ring only when tabbed to. */
+    d.tabIndex = -1;
+    d.focus({ preventScroll: true });
   });
 }
 /* The actions of a pushed edit screen, as one row stuck under the header.

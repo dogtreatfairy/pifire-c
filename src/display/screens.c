@@ -210,6 +210,43 @@ static void draw_icon(pf_gfx *g, pf_icon ic, int x, int y, uint16_t c)
 		pf_gfx_rect(g, x + 5, y + 9, 6, 4, c); break;
 	case PF_ICON_CHECK:
 		pf_gfx_line(g, x + 3, cy, x + 7, y + 13, t, c); pf_gfx_line(g, x + 7, y + 13, x + 14, y + 3, t, c); break;
+	case PF_ICON_FLAG:
+		/* a pole and a flag of six checks */
+		pf_gfx_rect(g, x + 2, y + 1, 2, 15, c);
+		for (int r = 0; r < 2; r++) {
+			for (int k = 0; k < 3; k++) { if ((r + k) % 2 == 0) pf_gfx_rect(g, x + 4 + k * 4, y + 2 + r * 4, 4, 4, c); }
+		}
+		pf_gfx_rect(g, x + 4, y + 2, 12, 1, c); pf_gfx_rect(g, x + 4, y + 9, 12, 1, c); pf_gfx_rect(g, x + 15, y + 2, 1, 8, c); break;
+	case PF_ICON_STEAK:
+		/* a slab with the bone's eye */
+		pf_gfx_rrect(g, x + 1, y + 4, 14, 9, 4, c); pf_gfx_disc(g, x + 5, y + 8, 2, g->th.bg); break;
+	case PF_ICON_BRISKET:
+		pf_gfx_rrect(g, x + 1, y + 5, 14, 8, 3, c); pf_gfx_line(g, x + 3, y + 9, x + 13, y + 7, 1.2, g->th.bg); break;
+	case PF_ICON_PORK:
+		/* a pig's face: ears, snout */
+		pf_gfx_disc(g, (int)cx, (int)cy + 1, 6, c); pf_gfx_disc(g, x + 4, y + 4, 2, c); pf_gfx_disc(g, x + 12, y + 4, 2, c);
+		pf_gfx_rrect(g, x + 5, y + 9, 6, 4, 2, g->th.bg); pf_gfx_disc(g, x + 7, y + 11, 1, c); pf_gfx_disc(g, x + 9, y + 11, 1, c); break;
+	case PF_ICON_RIBS:
+		/* a rack: the bones under the arc */
+		pf_gfx_arc(g, (int)cx, y + 14, 9, 11, 200, 340, c);
+		for (int k = 0; k < 4; k++) { pf_gfx_rect(g, x + 2 + k * 4, y + 8, 2, 7, c); }
+		break;
+	case PF_ICON_CHICKEN:
+		/* a drumstick: the meat, the bone, the knuckle */
+		pf_gfx_disc(g, x + 6, y + 6, 5, c); pf_gfx_line(g, x + 8, y + 8, x + 14, y + 14, 2.4, c); pf_gfx_disc(g, x + 14, y + 14, 1.8, c); break;
+	case PF_ICON_TURKEY:
+		/* the whole bird: body and the two legs */
+		pf_gfx_disc(g, (int)cx, y + 7, 6, c); pf_gfx_line(g, x + 5, y + 11, x + 3, y + 15, 2.2, c); pf_gfx_line(g, x + 11, y + 11, x + 13, y + 15, 2.2, c); break;
+	case PF_ICON_FISH:
+		/* body, tail, eye */
+		pf_gfx_disc(g, x + 6, (int)cy, 5, c); pf_gfx_rect(g, x + 6, y + 5, 5, 6, c);
+		pf_gfx_line(g, x + 11, cy, x + 15, y + 3, 2.2, c); pf_gfx_line(g, x + 11, cy, x + 15, y + 13, 2.2, c); pf_gfx_disc(g, x + 4, y + 7, 1, g->th.bg); break;
+	case PF_ICON_LAMB:
+		/* a chop: the meat with its bone */
+		pf_gfx_disc(g, x + 6, y + 7, 5, c); pf_gfx_line(g, x + 9, y + 10, x + 14, y + 15, 2.4, c); break;
+	case PF_ICON_SAUSAGE:
+		/* a link, curved */
+		pf_gfx_arc(g, (int)cx, y + 16, 7, 11, 210, 330, c); break;
 	default: break;
 	}
 }
@@ -221,9 +258,11 @@ static pf_icon icon_for(pf_action act, int arg)
 	case PF_ACT_HOLD: return PF_ICON_HOLD;
 	case PF_ACT_SMOKE: return PF_ICON_SMOKE;
 	case PF_ACT_STOP: case PF_ACT_STOP_GRILL: case PF_ACT_ESTOP: return PF_ICON_STOP;
-	case PF_ACT_END_COOK: case PF_ACT_RESTART: case PF_ACT_POWEROFF: return PF_ICON_POWER;
+	case PF_ACT_END_COOK: return PF_ICON_FLAG;
+	case PF_ACT_RESTART: case PF_ACT_POWEROFF: return PF_ICON_POWER;
 	case PF_ACT_TIMER: case PF_ACT_TIMER_CANCEL: case PF_ACT_TIMER_CHANGE: return PF_ICON_TIMER;
-	case PF_ACT_PROBE_TARGET: case PF_ACT_PROBE_PICK: case PF_ACT_PROBE_CUSTOM: case PF_ACT_PROBE_CLEAR: case PF_ACT_MEAT: case PF_ACT_DONE: return PF_ICON_PROBE;
+	case PF_ACT_PROBE_TARGET: case PF_ACT_PROBE_PICK: case PF_ACT_PROBE_CUSTOM: case PF_ACT_PROBE_CLEAR: case PF_ACT_DONE: return PF_ICON_PROBE;
+	case PF_ACT_MEAT: return arg >= 0 && arg < 9 ? (pf_icon)(PF_ICON_STEAK + arg) : PF_ICON_PROBE;
 	case PF_ACT_MARGINS: case PF_ACT_THEME: case PF_ACT_COLOUR: return PF_ICON_GEAR;
 	case PF_ACT_NETINFO: return PF_ICON_WIFI;
 	case PF_ACT_BACK: return PF_ICON_BACK;
@@ -238,7 +277,7 @@ static pf_icon icon_for(pf_action act, int arg)
 	case PF_ACT_LIST:
 		return arg == PF_LIST_STARTUP ? PF_ICON_PLAY : arg == PF_LIST_PROBE ? PF_ICON_PROBE : arg == PF_LIST_SETTINGS ? PF_ICON_GEAR
 		     : arg == PF_LIST_POWER ? PF_ICON_POWER : arg == PF_LIST_BT || arg == PF_LIST_BTKIND || arg == PF_LIST_BTEDIT || arg == PF_LIST_BTDEL ? PF_ICON_BT
-		     : arg == PF_LIST_HOPPER ? PF_ICON_HOPPER : arg == PF_LIST_TIMER ? PF_ICON_TIMER : PF_ICON_NONE;
+		     : arg == PF_LIST_HOPPER ? PF_ICON_HOPPER : arg == PF_LIST_TIMER ? PF_ICON_TIMER : arg == PF_LIST_STOP ? PF_ICON_STOP : PF_ICON_NONE;
 	default: return PF_ICON_NONE;
 	}
 }
@@ -289,6 +328,13 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 			if (strcmp(mode, "Shutdown")) ADD(PF_ACT_END_COOK, 0, "Shutdown");
 			ADD(PF_ACT_STOP, 0, "Stop"); DANGER();
 		}
+		ADD(PF_ACT_BACK, 0, "Back");
+		break;
+
+	case PF_LIST_STOP:
+		/* which kind of stop: the graceful one under the flag, the immediate one under the square */
+		ADD(PF_ACT_END_COOK, 0, "End Cook");
+		ADD(PF_ACT_STOP_GRILL, 0, "Emergency Stop"); DANGER();
 		ADD(PF_ACT_BACK, 0, "Back");
 		break;
 
@@ -408,14 +454,14 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 			else ADD(PF_ACT_RECIPE_SKIP, 0, "Skip Forward");
 			ADD(PF_ACT_RECIPE_BACK, 0, "Skip Back");
 			ADD(PF_ACT_RECIPE_EXIT, 0, "Exit Recipe"); DANGER();
-			ADD(PF_ACT_STOP_GRILL, 0, "Stop Grill"); DANGER();
+			ADD(PF_ACT_LIST, PF_LIST_STOP, "Stop"); DANGER();
 		} else if (!strcmp(mode, "Error")) {
 			ADD(PF_ACT_CLEAR_ERROR, 0, "Clear Error"); DANGER();
 		} else if (!strcmp(mode, "Monitor")) {
 			ADD(PF_ACT_MANUAL, 0, "Control");
 			ADD(PF_ACT_LIST, PF_LIST_STARTUP, "Startup");
 			ADD(timer_on ? PF_ACT_TIMER_CANCEL : PF_ACT_TIMER, 0, timer_on ? "Cancel Timer" : "Timer");
-			ADD(PF_ACT_STOP_GRILL, 0, "Stop Grill"); DANGER();
+			ADD(PF_ACT_STOP_GRILL, 0, "Stop"); DANGER();
 		} else if (!strcmp(mode, "Stop") || !strcmp(mode, "Prime")) {
 			ADD(PF_ACT_LIST, PF_LIST_STARTUP, "Startup");
 			ADD(PF_ACT_MONITOR, 0, "Monitor");
@@ -425,8 +471,7 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 			else ADD(PF_ACT_HOLD, 0, "Hold Mode");
 			ADD(PF_ACT_LIST, PF_LIST_PROBE, "Probe Target");
 			ADD(timer_on ? PF_ACT_TIMER_CANCEL : PF_ACT_TIMER, 0, timer_on ? "Cancel Timer" : "Timer");
-			ADD(PF_ACT_END_COOK, 0, "Shutdown");
-			ADD(PF_ACT_STOP_GRILL, 0, "Stop Grill"); DANGER();
+			ADD(PF_ACT_LIST, PF_LIST_STOP, "Stop"); DANGER();
 		}
 		ADD(PF_ACT_LIST, PF_LIST_SETTINGS, "Settings");
 		ADD(PF_ACT_NETINFO, 0, "Network Info");

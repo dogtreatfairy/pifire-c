@@ -162,6 +162,7 @@
 :where(a, button, summary, input, select, textarea, [tabindex]):focus-visible {
   outline: 2px solid var(--ring); outline-offset: 2px;
 }
+dialog:focus, dialog:focus-visible { outline: none; }   /* the dialog holds focus on open so no button wears a ring */
 /* Motion is decoration except where it is the message. Everything stops, and
    the one animation that carries information -- a probe past its target --
    becomes the solid colour it was flashing to. */
@@ -261,8 +262,11 @@ small, .muted { color: var(--muted); }
 /* A row of buttons wraps rather than overflowing. A flex child will not shrink below its content
    width unless it is told it may, and `white-space: nowrap` on a small button made that width a
    hard floor -- which is how two buttons ended up hanging outside the probe card holding them. */
-.btnrow { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
-.btnrow .btn { flex: 1 1 auto; min-width: 0; }
+.btnrow { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: stretch; }
+/* every button in a row is the same height: the content is centred in a flex box, so an icon
+   beside the label cannot make its button taller than its neighbour's */
+.btnrow .btn { flex: 1 1 auto; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; line-height: 1.2; }
+.btn.block { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; line-height: 1.2; }
 
 .toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
 .toggle:first-of-type { border-top: 0; }
