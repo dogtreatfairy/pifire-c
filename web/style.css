@@ -498,9 +498,9 @@ legend { font-weight: 600; margin-bottom: 6px; }
    beat and a half. A number that has changed colour is easy to miss across a garden; one that
    blinks is not. */
 .pcell.hit { border-color: var(--hitc); animation: pf-hit 1.5s steps(1, end) infinite; }
-.pcell.hit.done { --hitc: var(--ok); --hitink: var(--on-ok); }
-.pcell.hit.over { --hitc: var(--accent); --hitink: var(--on-accent); }
-.pcell.hit.way { --hitc: var(--danger); --hitink: var(--on-danger); }
+.pcell.hit.hit-done { --hitc: var(--ok); --hitink: var(--on-ok); }
+.pcell.hit.hit-over { --hitc: var(--accent); --hitink: var(--on-accent); }
+.pcell.hit.hit-way { --hitc: var(--danger); --hitink: var(--on-danger); }
 .pcell.hit .t, .pcell.hit .tg, .pcell.hit .n, .pcell.hit .amb, .pcell.hit .meat { color: inherit; }
 @keyframes pf-hit { 50% { background: var(--hitc); color: var(--hitink); } }
 /* The flash is information, not decoration -- it is how a probe says it has arrived from across a

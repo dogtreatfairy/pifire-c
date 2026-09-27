@@ -739,9 +739,10 @@ and a two-line foot for what the target is for and the target with its time rema
 do not move when a target is set or cleared: a reading that jumped up and down as targets came
 and went read as three different cards.
 
-**One Stop, two answers, two marks.** Stopping is one control on the panel and on the phone, and it
-asks which kind: End Cook, the graceful stop that cuts the feed and cools the pot, under the
-chequered flag; Emergency Stop, everything off now, under the square. The chequered flag is the
+**Finish, two answers, two marks.** Ending a cook is one control on the panel and on the phone --
+Finish, under the chequered flag; the menu has no plain Stop row -- and it asks which kind:
+Shutdown, the graceful stop that cuts the feed and cools the pot, under the flag; Emergency Stop,
+everything off now, under the square. The chequered flag is the
 mark of a graceful stop everywhere -- the Shutdown mode, the recipe's last step, the control bar
 -- and the square is the mark of an immediate one; a power sign now means only the machine's own
 power (restart, shut the Pi down). On the panel's meat list each row wears its meat: a steak, a

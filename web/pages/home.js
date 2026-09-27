@@ -304,7 +304,7 @@ export function renderHome(view) {
          phone: done, a step over, two steps over -- five degrees a step, three in Celsius. */
       const step = PF.units === 'C' ? 3 : 5;
       const over = hit ? p.temp - p.target : 0;
-      const level = !hit ? '' : over >= 2 * step ? 'way' : over >= step ? 'over' : 'done';
+      const level = !hit ? '' : over >= 2 * step ? 'hit-way' : over >= step ? 'hit-over' : 'hit-done';   /* not 'done': that is the doneness row's class and made the card a flex row */
       probes.append(el('button', { class: `pcell ${p.valid ? '' : 'invalid'} ${hit ? 'hit' : ''} ${level}`, onclick: () => openProbe(p.label) },
         /* spans, not divs: the cell is a <button> so that it focuses, answers the keyboard and
            takes the app's press layer like every other control, and a button may only contain

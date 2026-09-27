@@ -277,7 +277,7 @@ static pf_icon icon_for(pf_action act, int arg)
 	case PF_ACT_LIST:
 		return arg == PF_LIST_STARTUP ? PF_ICON_PLAY : arg == PF_LIST_PROBE ? PF_ICON_PROBE : arg == PF_LIST_SETTINGS ? PF_ICON_GEAR
 		     : arg == PF_LIST_POWER ? PF_ICON_POWER : arg == PF_LIST_BT || arg == PF_LIST_BTKIND || arg == PF_LIST_BTEDIT || arg == PF_LIST_BTDEL ? PF_ICON_BT
-		     : arg == PF_LIST_HOPPER ? PF_ICON_HOPPER : arg == PF_LIST_TIMER ? PF_ICON_TIMER : arg == PF_LIST_STOP ? PF_ICON_STOP : PF_ICON_NONE;
+		     : arg == PF_LIST_HOPPER ? PF_ICON_HOPPER : arg == PF_LIST_TIMER ? PF_ICON_TIMER : arg == PF_LIST_STOP ? PF_ICON_FLAG : PF_ICON_NONE;
 	default: return PF_ICON_NONE;
 	}
 }
@@ -332,8 +332,9 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 		break;
 
 	case PF_LIST_STOP:
-		/* which kind of stop: the graceful one under the flag, the immediate one under the square */
-		ADD(PF_ACT_END_COOK, 0, "End Cook");
+		/* Finish asks which kind: the normal shutdown under the flag, the emergency stop under the
+		 * square. There is no plain Stop row in the menu; Finish is the way a cook ends. */
+		ADD(PF_ACT_END_COOK, 0, "Shutdown");
 		ADD(PF_ACT_STOP_GRILL, 0, "Emergency Stop"); DANGER();
 		ADD(PF_ACT_BACK, 0, "Back");
 		break;
@@ -454,14 +455,14 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 			else ADD(PF_ACT_RECIPE_SKIP, 0, "Skip Forward");
 			ADD(PF_ACT_RECIPE_BACK, 0, "Skip Back");
 			ADD(PF_ACT_RECIPE_EXIT, 0, "Exit Recipe"); DANGER();
-			ADD(PF_ACT_LIST, PF_LIST_STOP, "Stop"); DANGER();
+			ADD(PF_ACT_LIST, PF_LIST_STOP, "Finish");
 		} else if (!strcmp(mode, "Error")) {
 			ADD(PF_ACT_CLEAR_ERROR, 0, "Clear Error"); DANGER();
 		} else if (!strcmp(mode, "Monitor")) {
 			ADD(PF_ACT_MANUAL, 0, "Control");
 			ADD(PF_ACT_LIST, PF_LIST_STARTUP, "Startup");
 			ADD(timer_on ? PF_ACT_TIMER_CANCEL : PF_ACT_TIMER, 0, timer_on ? "Cancel Timer" : "Timer");
-			ADD(PF_ACT_STOP_GRILL, 0, "Stop"); DANGER();
+			ADD(PF_ACT_LIST, PF_LIST_STOP, "Finish");
 		} else if (!strcmp(mode, "Stop") || !strcmp(mode, "Prime")) {
 			ADD(PF_ACT_LIST, PF_LIST_STARTUP, "Startup");
 			ADD(PF_ACT_MONITOR, 0, "Monitor");
@@ -471,7 +472,7 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 			else ADD(PF_ACT_HOLD, 0, "Hold Mode");
 			ADD(PF_ACT_LIST, PF_LIST_PROBE, "Probe Target");
 			ADD(timer_on ? PF_ACT_TIMER_CANCEL : PF_ACT_TIMER, 0, timer_on ? "Cancel Timer" : "Timer");
-			ADD(PF_ACT_LIST, PF_LIST_STOP, "Stop"); DANGER();
+			ADD(PF_ACT_LIST, PF_LIST_STOP, "Finish");
 		}
 		ADD(PF_ACT_LIST, PF_LIST_SETTINGS, "Settings");
 		ADD(PF_ACT_NETINFO, 0, "Network Info");

@@ -183,9 +183,9 @@ static void test_menus_by_mode(void)
 	TEST_ASSERT_EQUAL_STRING("Smoke Mode", items[0].label);
 	TEST_ASSERT_EQUAL_STRING("Probe Target", items[1].label);
 	TEST_ASSERT_EQUAL_STRING("Timer", items[2].label);
-	TEST_ASSERT_EQUAL_STRING("Stop", items[3].label);
-	TEST_ASSERT_TRUE(items[3].danger);
-	TEST_ASSERT_EQUAL_INT(PF_ICON_STOP, items[3].icon);
+	TEST_ASSERT_EQUAL_STRING("Finish", items[3].label);
+	TEST_ASSERT_FALSE(items[3].danger);
+	TEST_ASSERT_EQUAL_INT(PF_ICON_FLAG, items[3].icon);
 	TEST_ASSERT_EQUAL_STRING("Settings", items[4].label);
 	TEST_ASSERT_EQUAL_STRING("Network Info", items[5].label);
 	TEST_ASSERT_EQUAL_STRING("Back", items[6].label);
@@ -193,7 +193,7 @@ static void test_menus_by_mode(void)
 	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_STOP);
 	n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
 	TEST_ASSERT_EQUAL_INT(3, n);
-	TEST_ASSERT_EQUAL_STRING("End Cook", items[0].label);
+	TEST_ASSERT_EQUAL_STRING("Shutdown", items[0].label);
 	TEST_ASSERT_EQUAL_INT(PF_ICON_FLAG, items[0].icon);
 	TEST_ASSERT_EQUAL_STRING("Emergency Stop", items[1].label);
 	TEST_ASSERT_TRUE(items[1].danger);
@@ -210,7 +210,7 @@ static void test_menus_by_mode(void)
 	TEST_ASSERT_EQUAL_STRING("Control", items[0].label);
 	TEST_ASSERT_EQUAL_STRING("Startup", items[1].label);
 	TEST_ASSERT_EQUAL_STRING("Timer", items[2].label);
-	TEST_ASSERT_EQUAL_STRING("Stop", items[3].label);
+	TEST_ASSERT_EQUAL_STRING("Finish", items[3].label);
 	cJSON_Delete(st);
 
 	/* with a recipe running the menu is the recipe's: continue or skip, back, leave, stop */
@@ -220,7 +220,7 @@ static void test_menus_by_mode(void)
 	TEST_ASSERT_EQUAL_STRING("Skip Forward", items[0].label);
 	TEST_ASSERT_EQUAL_STRING("Skip Back", items[1].label);
 	TEST_ASSERT_EQUAL_STRING("Exit Recipe", items[2].label);
-	TEST_ASSERT_EQUAL_STRING("Stop", items[3].label);
+	TEST_ASSERT_EQUAL_STRING("Finish", items[3].label);
 	TEST_ASSERT_EQUAL_STRING("Settings", items[4].label);
 	TEST_ASSERT_EQUAL_STRING("Network Info", items[5].label);
 	cJSON_Delete(st);
