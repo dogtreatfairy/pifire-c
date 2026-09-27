@@ -120,7 +120,14 @@ export function renderLearning(view, slots = {}) {
         el('div', {}, 'Time Constant'), el('div', {}, `${a.tau} s`),
         el('div', {}, 'Dead Time'), el('div', {}, `${a.theta} s`)) : null,
       a.K ? el('div', { class: 'help' }, 'Used to predict heat already on its way.') : null),
+    /* Remove lives here, on the entry's own sheet, with a confirmation -- the way a recipe or a
+       rule is deleted from inside its editor -- so one duplicate or one bad run can be pruned
+       without clearing the library. Dismissive and destructive on the left, as everywhere. */
     el('div', { class: 'form-actions' },
+      iconBtn('trash-2', `Remove the ${a.setpoint}${degUnit()} measurement`, { class: 'danger', onclick: async () => {
+        if (!await confirmDialog(`Remove ${a.setpoint}${degUnit()}?`, 'The other measurements stay. Between them the controller interpolates; with none left it uses the typed values.', 'Remove', true)) return;
+        try { await api('/tune/remove', { body: { setpoint: a.setpoint } }); close(); toast(`Removed ${a.setpoint}${degUnit()}`); loadTune(); } catch (e) { toast(e.message, true); }
+      } }),
       el('button', { class: 'btn ghost', type: 'button', onclick: async () => {
         const line = `${a.setpoint}${degUnit()}: PB ${a.PB}${degUnit()}, Ti ${a.Ti} s, Td ${a.Td} s`;
         try { await navigator.clipboard.writeText(line); toast('Copied'); } catch { toast(line); }

@@ -517,13 +517,16 @@ double pf_learning_anchor_load(double setpoint_c)
 	return load;
 }
 
-void pf_learning_remove_anchor(double setpoint_c)
+int pf_learning_remove_anchor(double setpoint_c)
 {
 	pthread_mutex_lock(&g_mu);
+	int slot = -1;
 	for (int i = 0; i < PF_TUNE_ANCHORS; i++)
-		if (g_anchors[i].valid && fabs(g_anchors[i].setpoint_c - setpoint_c) < 5) { memset(&g_anchors[i], 0, sizeof g_anchors[i]); break; }
-	anchors_save();
+		if (g_anchors[i].valid && fabs(g_anchors[i].setpoint_c - setpoint_c) < 5) { slot = i; break; }
+	if (slot >= 0) { memset(&g_anchors[slot], 0, sizeof g_anchors[slot]); anchors_save(); }
 	pthread_mutex_unlock(&g_mu);
+	if (slot >= 0) LOGI(TAG, "removed the %.0f C entry from the tuning library", setpoint_c);
+	return slot >= 0 ? 0 : -1;
 }
 
 void pf_learning_put_anchor(const pf_tune_anchor *in)

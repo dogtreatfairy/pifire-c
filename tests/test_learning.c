@@ -615,6 +615,24 @@ static void test_a_backup_puts_back_every_field(void)
 	TEST_ASSERT_DOUBLE_WITHIN(0.1, before[0].tau, after[0].tau);
 }
 
+/* Pruning: one entry goes and the others stand where they were. */
+static void test_one_measurement_can_be_removed(void)
+{
+	pf_learning_clear_anchors();
+	for (int i = 0; i < 3; i++) {
+		pf_autotune_result r = { .Ku = 0.06, .Pu = 300, .PB_c = 30 + i, .Ti = 700, .Td = 50, .valid = true };
+		pf_learning_store_anchor(pf_f_to_c(250 + 50 * i), &r, 20, 0);
+	}
+	TEST_ASSERT_EQUAL(0, pf_learning_remove_anchor(pf_f_to_c(300)));
+	TEST_ASSERT_EQUAL(-1, pf_learning_remove_anchor(pf_f_to_c(400)));   /* nothing there */
+	pf_tune_anchor a[PF_TUNE_ANCHORS];
+	TEST_ASSERT_EQUAL(2, pf_learning_anchor_list(a, PF_TUNE_ANCHORS));
+	TEST_ASSERT_DOUBLE_WITHIN(0.01, pf_f_to_c(250), a[0].setpoint_c);
+	TEST_ASSERT_DOUBLE_WITHIN(0.01, pf_f_to_c(350), a[1].setpoint_c);
+	pf_learning_init();   /* and it stays gone after a restart */
+	TEST_ASSERT_EQUAL(2, pf_learning_anchor_list(a, PF_TUNE_ANCHORS));
+}
+
 int main(void)
 {
 	pf_log_init(PF_LOG_ERROR);
@@ -633,6 +651,7 @@ int main(void)
 	RUN_TEST(test_a_tune_at_one_set_point_leaves_the_others_alone);
 	RUN_TEST(test_a_full_library_survives_a_restart);
 	RUN_TEST(test_a_backup_puts_back_every_field);
+	RUN_TEST(test_one_measurement_can_be_removed);
 	RUN_TEST(test_a_repeat_run_refines_that_set_point_only);
 	RUN_TEST(test_an_untuned_set_point_interpolates_between_its_neighbours);
 	RUN_TEST(test_a_full_library_gives_up_its_most_redundant_entry);

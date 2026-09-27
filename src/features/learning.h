@@ -86,8 +86,10 @@ int  pf_learning_anchor_list(pf_tune_anchor *out, int max);
 /* The load measured at this set point (within 5 C), or 0 when it has never been measured. */
 double pf_learning_anchor_load(double setpoint_c);
 void pf_learning_clear_anchors(void);
-/* Drop the entry within 5 C of this set point, if there is one. */
-void pf_learning_remove_anchor(double setpoint_c);
+/* Take one measurement out of the library -- the one within 5 C of this set point -- and keep the
+ * rest: the tuner taking back a run that held worse than the old one, or the cook pruning a
+ * duplicate or a bad run without starting over. 0 removed, -1 no such entry. */
+int  pf_learning_remove_anchor(double setpoint_c);
 /* Two clearings, because two different things can be wrong.
  *
  * `forget` throws away what the grill taught itself -- the observations behind the feed-forward and

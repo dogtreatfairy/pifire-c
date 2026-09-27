@@ -552,6 +552,15 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		return;
 	}
 	if (post && !strcmp(p, "/tune/stop")) { pf_tuner_stop("Stopped from the app."); reply_ok(resp); return; }
+	if (post && !strcmp(p, "/tune/remove")) {
+		/* one entry out of the library, by set point in the user's units; the rest stay */
+		cJSON *b = req->body_len ? cJSON_Parse(req->body) : NULL;
+		double sp = pf_json_num(b, "setpoint", 0);
+		cJSON_Delete(b);
+		if (!(sp > 0)) { reply_err(resp, 400, "setpoint required"); return; }
+		if (pf_learning_remove_anchor(pf_to_c(sp, pf_settings_units()))) { reply_err(resp, 404, "no measurement at that set point"); return; }
+		reply_ok(resp); return;
+	}
 	if (post && !strcmp(p, "/tune/skip_verify")) {
 		cJSON *b = req->body_len ? cJSON_Parse(req->body) : NULL;
 		int rc = pf_tuner_skip_verify(pf_json_int(b, "step", -1), pf_json_bool(b, "skip", true));

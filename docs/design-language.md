@@ -879,7 +879,10 @@ while it is still climbing -- is worse than none, so each phase estimates only i
 is a recipe-style screen: one row per set point, tap to change it, a mark to remove it, Add at the
 foot, Reset to standard. Running asks once, with "erase the library first" as a switch inside the
 question rather than a third red button on the page; tuning one temperature stays as a single row
-beneath. Home carries the same line under the target while a run is going -- the tuning mark,
+beneath. An entry in the library opens its own sheet, and that is where it is removed -- a trash
+mark on the left of the sheet's actions, with a confirmation -- so a duplicate run or a bad one
+is pruned on its own and the rest of the library stands; clearing everything stays a separate,
+quieter action at the foot. Home carries the same line under the target while a run is going -- the tuning mark,
 the phase in bold, the estimate muted, in the recipe line's shape -- built from one function
 (`tuneLive` in `app.js`) so the two screens can never say different things. The temperature presets are the ones cooks use: 180, 200, 225, 250, 275, 300, 350, 400,
 450 °F -- the fifties cooks set, never 325, 375 or 425.
