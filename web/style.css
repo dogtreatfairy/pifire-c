@@ -1325,9 +1325,13 @@ main.view > :first-child { margin-top: 12px; }
 
 /* Battery: a small cell that fills in proportion, with the number beside it. A percentage on its
    own next to a probe name could be signal, doneness or duty; the cell says which. */
-.batt { position: relative; display: inline-block; width: 15px; height: 21px; border: 1.5px solid currentColor; border-radius: 3px; color: var(--muted); vertical-align: middle; box-sizing: border-box; overflow: hidden; flex: none; margin-top: 2px; }
-.batt::after { content: ""; position: absolute; top: -4px; left: 50%; transform: translateX(-50%); width: 6px; height: 2.5px; background: currentColor; border-radius: 1px 1px 0 0; }
-.batt i { position: absolute; left: 0; right: 0; bottom: 0; background: currentColor; opacity: .35; }
+/* an upright cell: the terminal is drawn above the case, so the case must not clip it -- clipped, it
+   was a rounded rectangle with a number in it. The charge stays inside the case by geometry. */
+.batt { position: relative; display: inline-block; width: 14px; height: 21px; border: 1.5px solid var(--text); border-radius: 3px; color: var(--text); vertical-align: middle; box-sizing: border-box; flex: none; margin-top: 3px; background: color-mix(in oklab, var(--text) 8%, transparent); }
+.batt::after { content: ""; position: absolute; top: -4.5px; left: 50%; transform: translateX(-50%); width: 6px; height: 3px; background: var(--text); border-radius: 1.5px 1.5px 0 0; }
+.batt i { position: absolute; left: 1px; right: 1px; bottom: 1px; max-height: calc(100% - 2px); background: currentColor; opacity: .45; border-radius: 1px; }
+.batt.low::after, .batt.crit::after { background: currentColor; }
+.batt.low, .batt.crit { border-color: currentColor; }
 .batt b { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; line-height: 1; letter-spacing: -.03em; font-variant-numeric: tabular-nums; color: var(--text); }
 .batt b.three { font-size: 6.5px; letter-spacing: -.05em; }
 .batt.low { color: var(--warn-ink); }
