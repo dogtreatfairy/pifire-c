@@ -324,11 +324,12 @@ export async function renderProbes(view, opts = {}) {
           wireless && live?.battery >= 0 ? battIcon(live.battery) : null,
           p.name],
         meta: el('span', { class: tgt ? 'set' : '' }, line),
-        value: p.enabled ? (live?.valid ? `${live.temp}${degUnit()}` : '\u2014') : 'off',
+        /* the reading is what the row is looked at for, so it is the readout size, not a setting's answer */
+        value: !p.enabled ? 'off' : el('span', { class: 'reading' }, live?.valid ? fmtTemp(live.temp) : '\u2014', live?.valid ? el('small', {}, degUnit()) : null),
         chevron: primary || !p.enabled,
         onclick: () => editProbe(p),
         actions: primary || !p.enabled ? [] : [
-          tgt ? iconBtn('x', `Clear ${p.name} target`, { class: 'danger', onclick: (e) => { e.stopPropagation(); cmd({ cmd: 'target', label: p.label, target: 0, after: 0 }); } }) : null,
+          tgt ? iconBtn('crosshair-off', `Clear ${p.name} target`, { class: 'danger', onclick: (e) => { e.stopPropagation(); cmd({ cmd: 'target', label: p.label, target: 0, after: 0 }); } }) : null,
           iconBtn(MODE_ICON.Hold, tgt ? `Change ${p.name} target` : `Set ${p.name} target`, { onclick: (e) => { e.stopPropagation(); setTarget(); } }),
         ].filter(Boolean),
       }));

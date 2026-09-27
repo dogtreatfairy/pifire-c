@@ -896,8 +896,11 @@ other client see the same thing.
 
 On the Probes page a working food probe is the recipe row's shape: the mark, the name, the
 target on the line under it in the accent (`Beef · Medium rare · 130°F · 12 min left`), the
-reading at the right, and bare icons at the end -- an X to clear the target, then the target mark
-last because it is the committing one. The row itself opens the probe's settings. The pit probe
+reading at the right at the prominent-value size (`--fs-xl`, weight 600, the unit small beside
+it -- the card readout size was too loud in a row), and bare icons at the end -- the crosshair
+struck through to clear the target, then the crosshair itself last because it is the committing
+one. A mark that undoes a thing is that thing's own mark with a slash, the way every "-off" icon
+is drawn, not a generic X. The icons sit at the row's standard 4 px gap. The row itself opens the probe's settings. The pit probe
 has neither icon: its target is the set point. The step alerts -- flip, wrap, spritz, a named
 temperature on the way -- are not a second kind of target and do not get a second button; they
 live inside the target sheet under "Step alerts", save as they change (picking a doneness closes
