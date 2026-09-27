@@ -65,7 +65,7 @@ export async function targetDialog(p) {
       list.innerHTML = '';
       for (const d of PRESETS[m]) {
         const to = toUser(d.to), pull = toUser(d.to - d.carry), carry = deltaUser(d.carry);
-        list.append(el('button', { class: 'done', type: 'button', onclick: () => close({ target: pull, after }) },
+        list.append(el('button', { class: 'done', type: 'button', onclick: () => close({ target: pull, after, meat: m, done: d.name }) },
           el('div', { class: 'done-main' },
             el('div', { class: 'done-name' }, d.name),
             el('div', { class: 'done-note' }, carry > 0
@@ -76,7 +76,7 @@ export async function targetDialog(p) {
             carry > 0 ? el('div', { class: 'done-final' }, `ready at ${to}${degUnit()}`) : null)));
       }
       const custom = el('input', { type: 'text', inputmode: 'decimal', placeholder: degUnit(), 'aria-label': 'Custom target' });
-      list.append(el('form', { class: 'done custom', onsubmit: (e) => { e.preventDefault(); const v = parseFloat(custom.value); if (!Number.isNaN(v) && v > 0) close({ target: v, after }); } },
+      list.append(el('form', { class: 'done custom', onsubmit: (e) => { e.preventDefault(); const v = parseFloat(custom.value); if (!Number.isNaN(v) && v > 0) close({ target: v, after, meat: m, done: '' }); } },
         el('div', { class: 'done-main' }, el('div', { class: 'done-name' }, 'Something else'), el('div', { class: 'done-note' }, 'Set the alarm temperature yourself')),
         el('div', { class: 'row', style: 'gap:6px' }, custom, el('button', { class: 'btn sm primary', type: 'submit' }, 'Set'))));
     };

@@ -53,6 +53,7 @@ typedef struct {
 	int aux;
 	bool flag;
 	char str[256];         /* room for a list of probe labels */
+	char meat[24], done[24];   /* PF_CMD_NOTIFY_TARGET: what the target is for, e.g. Beef, Medium rare */
 } pf_cmd;
 
 void pf_cmdq_init(void);

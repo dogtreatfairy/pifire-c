@@ -23,6 +23,7 @@ typedef struct {
 typedef struct {
 	char label[PF_LABEL_LEN];
 	double target_c;        /* 0 = none */
+	char meat[24], done[24]; /* what the target was chosen for -- Beef, Medium rare -- so the card can say so */
 	pf_notify_step steps[PF_MAX_STEPS];
 	int nsteps;
 	int after;              /* PF_AFTER_* */
@@ -64,6 +65,8 @@ void pf_notify_sync(pf_notify *n, const pf_sensors *s);
 /* Evaluate triggers. Sets n->pending_action when a fired trigger asks for keep-warm/shutdown. */
 void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now, pf_units units);
 int  pf_notify_set_target(pf_notify *n, const char *label, double target_c, int after);
+/* the words behind the target; either may be empty. Cleared when the target is. */
+void pf_notify_set_target_note(pf_notify *n, const char *label, const char *meat, const char *done);
 int  pf_notify_set_limits(pf_notify *n, const char *label, double high_c, double low_c);
 void pf_notify_timer_start(pf_notify *n, double seconds, int after, double now);
 void pf_notify_timer_pause(pf_notify *n, double now);

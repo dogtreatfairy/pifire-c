@@ -179,6 +179,10 @@ function probePopup(label) {
   const p = () => PF.status?.probes?.find((x) => x.label === label);
   return dialog((close) => {
     const wrap = el('div', { class: 'sheet' });
+    /* Redraw on the first status after a change, not on a timer: the status arrives once a
+       second, and a redraw 600 ms after the command raced it -- when it lost, the sheet still
+       said "Set Target" with nothing set, and the cook read that as the target not saving. */
+    const onNext = (fn) => { const off = onStatus(() => { off(); fn(); }); };
     const render = () => {
       const q = p(); if (!q) { close(); return; }
       const hit = q.target > 0 && q.valid && q.temp >= q.target;
@@ -190,7 +194,8 @@ function probePopup(label) {
             el('div', { class: 'help row', style: 'gap:8px' },
               q.wireless ? sigBars(q.signal || 0, q.rssi ? `${q.rssi} dBm` : 'no link') : null,
               q.wireless && q.battery >= 0 ? battIcon(q.battery) : null,
-              q.valid ? (q.target > 0 ? (hit ? 'at target' : q.eta_s > 0 ? `${fmtEta(q.eta_s)} to target` : 'estimating…') : 'reading') : 'no reading')),
+              q.valid ? (q.target > 0 ? (hit ? 'at target' : q.eta_s > 0 ? `${fmtEta(q.eta_s)} to target` : 'estimating…') : 'reading') : 'no reading',
+              q.meat ? el('span', {}, `\u00b7 ${q.meat}${q.done ? ` \u00b7 ${q.done}` : ''}`) : null)),
           el('div', { class: 'sheet-now' }, q.valid ? fmtTemp(q.temp) : '—', el('small', {}, degUnit()))),
 
         el('div', { class: 'sheet-body' },
@@ -203,12 +208,12 @@ function probePopup(label) {
                 actionBtn('rules', 'Alarm Rules', { size: '', onclick: () => { close(); location.hash = '#/settings/rules'; } }, 'bell'),
                 actionBtn('timer', 'Timer', { size: '', onclick: async () => { const r = await timerDialog(); if (r) cmd({ cmd: 'timer', op: 'start', ...r }); } }, 'timer'))
             : el('div', { class: 'btnrow' },
-                actionBtn('target', q.target > 0 ? 'Change Target' : 'Set Target', { size: '', class: 'primary', onclick: async () => { const r = await targetDialog(q); if (r) { cmd({ cmd: 'target', label: q.label, ...r }); setTimeout(render, 600); } } }, MODE_ICON.Hold),
-                actionBtn('steps', 'Steps', { size: '', onclick: async () => { await stepsDialog(q); setTimeout(render, 600); } }, 'flag'),
-                actionBtn('alarms', 'Alarms', { size: '', onclick: async () => { const r = await limitsDialog(q); if (r) { cmd({ cmd: 'limits', label: q.label, ...r }); setTimeout(render, 600); } } }, 'bell'),
+                actionBtn('target', q.target > 0 ? 'Change Target' : 'Set Target', { size: '', class: 'primary', onclick: async () => { const r = await targetDialog(q); if (r) { cmd({ cmd: 'target', label: q.label, ...r }); onNext(render); } } }, MODE_ICON.Hold),
+                actionBtn('steps', 'Steps', { size: '', onclick: async () => { await stepsDialog(q); onNext(render); } }, 'flag'),
+                actionBtn('alarms', 'Alarms', { size: '', onclick: async () => { const r = await limitsDialog(q); if (r) { cmd({ cmd: 'limits', label: q.label, ...r }); onNext(render); } } }, 'bell'),
                 actionBtn('timer', 'Timer', { size: '', onclick: async () => { const r = await timerDialog(); if (r) cmd({ cmd: 'timer', op: 'start', ...r }); } }, 'timer')),
           q.role !== 'Primary' && q.target > 0 ? el('div', { class: 'form-actions' },
-            actionBtn('delete', 'Clear Target', { onclick: () => { cmd({ cmd: 'target', label: q.label, target: 0, after: 0 }); setTimeout(render, 600); } })) : null,
+            actionBtn('delete', 'Clear Target', { onclick: () => { cmd({ cmd: 'target', label: q.label, target: 0, after: 0 }); onNext(render); } })) : null,
 
           q.steps?.length ? el('h2', {}, 'Steps') : null,
           q.steps?.length ? el('div', { class: 'kv' }, ...q.steps.flatMap((st) => [
@@ -357,6 +362,9 @@ export function renderHome(view) {
            phrasing content. The CSS gives each line its own row. */
         el('span', { class: 'n' }, p.wireless ? [btIcon(), sigBars(p.signal || 0, p.rssi ? `${p.rssi} dBm` : 'no link'), p.battery >= 0 ? battIcon(p.battery) : null, ' '] : null, p.name), el('span', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
         p.ambient_label ? el('span', { class: 'amb' }, `Ambient ${p.ambient == null ? '—' : fmtTemp(p.ambient) + '°'}`) : null,
+        /* what the target was chosen for, above the number: "Beef · Medium rare" is what the cook
+           remembers setting; 130° is what it came to */
+        p.target > 0 && p.meat ? el('span', { class: 'meat' }, `${p.meat}${p.done ? ` \u00b7 ${p.done}` : ''}`) : null,
         el('span', { class: `tg ${p.target > 0 ? '' : 'muted'}` }, p.target > 0 ? `Target ${fmtTemp(p.target)}°${!hit && p.eta_s > 0 ? ` · ${fmtEta(p.eta_s)}` : ''}` : 'Set target')));
     }
     probes.hidden = !food.length;

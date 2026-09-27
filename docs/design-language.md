@@ -884,6 +884,29 @@ the phase in bold, the estimate muted, in the recipe line's shape -- built from 
 (`tuneLive` in `app.js`) so the two screens can never say different things. The temperature presets are the ones cooks use: 180, 200, 225, 250, 275, 300, 350, 400,
 450 °F -- the fifties cooks set, never 325, 375 or 425.
 
+## A target remembers what it was chosen for
+
+A probe target set from the doneness list carries its words with it -- `Beef · Medium rare` --
+and every place that shows the target shows them too: the Home card above the number, the probe
+sheet's header, the Probes row. The cook remembers choosing medium rare, not 130°, so a number on
+its own reads as a target that was never set. A custom temperature keeps the meat and leaves the
+doneness blank; clearing the target clears both. The daemon stores the words beside the target
+(`meat`, `done` on the `target` command and on the probe in the status), so the panel and any
+other client see the same thing.
+
+A sheet that changes something redraws on the first status that carries the change, never on a
+timer: the status comes once a second, and a redraw after a fixed delay raced it -- when the
+redraw lost, the sheet still said "Set Target" with nothing set, and that read as "it did not
+save".
+
+## A short choice is shown whole, never as a strip to scroll
+
+The meats in the probe target sheet are nine buttons in two rows of five, every one on screen.
+They were a strip that scrolled sideways, and a strip inside a sheet that itself scrolls moves
+the wrong one under a thumb as often as the right one. When a choice fits on the screen it is
+laid out to fit -- a grid that divides the width, labels short enough for a fifth of it -- and
+a strip that scrolls is kept for lists that genuinely cannot.
+
 ## A cook starts by saying which probes are in the food
 
 Which probes are in the meat is a fact only the cook has. A probe on the counter reads perfectly

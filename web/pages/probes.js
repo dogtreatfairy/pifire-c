@@ -317,7 +317,7 @@ export async function renderProbes(view, opts = {}) {
           el('span', { class: 's' }, !p.enabled ? 'Disabled'
               : p.type === 'Primary'
                 ? (PF.status?.mode === 'Hold' ? `Holding ${PF.status.setpoint}${degUnit()}` : live?.valid ? `${PF.status?.mode || 'Reading'}` : 'No reading')
-              : tgt ? `Target ${live.target}${degUnit()}${live.eta_s > 0 && live.temp < live.target ? ` \u00b7 ${fmtEta(live.eta_s)} left` : live.temp >= live.target ? ' \u00b7 reached' : ''}`
+              : tgt ? `${live.meat ? `${live.meat}${live.done ? ` \u00b7 ${live.done}` : ''} \u00b7 ` : ''}Target ${live.target}${degUnit()}${live.eta_s > 0 && live.temp < live.target ? ` \u00b7 ${fmtEta(live.eta_s)} left` : live.temp >= live.target ? ' \u00b7 reached' : ''}`
               : live?.valid ? nextStep(live) || 'Reading' : 'No reading'),
             /* A wired probe's curve, named and labelled, under the live line rather than instead
                of it: it is worth being able to see at a glance which probe is on which profile

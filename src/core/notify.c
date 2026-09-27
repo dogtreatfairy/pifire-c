@@ -50,10 +50,19 @@ int pf_notify_set_target(pf_notify *n, const char *label, double target_c, int a
 	p->eta_warned = false;
 	p->eta_hits = 0;
 	p->target_c = target_c > 0 ? target_c : 0;
+	if (p->target_c <= 0) p->meat[0] = p->done[0] = 0;
 	p->after = after;
 	p->eta_s = -1;
 	p->eta_step_s = -1;
 	return 0;
+}
+
+void pf_notify_set_target_note(pf_notify *n, const char *label, const char *meat, const char *done)
+{
+	pf_notify_probe *p = find_mut(n, label);
+	if (!p || p->target_c <= 0) return;
+	pf_strlcpy(p->meat, meat ? meat : "", sizeof p->meat);
+	pf_strlcpy(p->done, done ? done : "", sizeof p->done);
 }
 
 int pf_notify_set_limits(pf_notify *n, const char *label, double high_c, double low_c)

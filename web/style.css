@@ -464,7 +464,8 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .pgrid { display: grid; gap: 8px; margin-bottom: 12px; }
 .pcell { background: var(--surface); border: var(--bw) solid var(--line); border-radius: var(--r-md); padding: var(--sp-2) 6px;
   text-align: center; cursor: pointer; min-width: 0; width: 100%; font: inherit; color: inherit; display: block; }
-.pcell .n, .pcell .t, .pcell .tg, .pcell .amb { display: block; }
+.pcell .n, .pcell .t, .pcell .tg, .pcell .amb, .pcell .meat { display: block; }
+.pcell .meat { font-size: var(--fs-xs); color: var(--text); }
 .pcell .n { font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pcell .t { font-size: var(--fs-2xl); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.15; }
 .pcell .tg { font-size: var(--fs-xs); color: var(--accent-ink); }
@@ -476,7 +477,7 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .pcell.hit.done { --hitc: var(--ok); --hitink: var(--on-ok); }
 .pcell.hit.over { --hitc: var(--accent); --hitink: var(--on-accent); }
 .pcell.hit.way { --hitc: var(--danger); --hitink: var(--on-danger); }
-.pcell.hit .t, .pcell.hit .tg, .pcell.hit .n, .pcell.hit .amb { color: inherit; }
+.pcell.hit .t, .pcell.hit .tg, .pcell.hit .n, .pcell.hit .amb, .pcell.hit .meat { color: inherit; }
 @keyframes pf-hit { 50% { background: var(--hitc); color: var(--hitink); } }
 /* The flash is information, not decoration -- it is how a probe says it has arrived from across a
    garden. With motion turned down it becomes the colour it was flashing to, said once. The
@@ -1389,9 +1390,10 @@ main.view:has(> .screen-actions) { padding-bottom: calc(var(--tab-h) + env(safe-
 .sheet-now small { display: block; font-size: var(--fs-2xs); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-top: 3px; }
 
 /* the cuts: one line, scrolled sideways, so the list below never moves */
-.chiprow { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
-.chiprow::-webkit-scrollbar { display: none; }
-.chip-btn { flex: none; border: 1px solid var(--line); background: transparent; border-radius: var(--r-pill); padding: 7px 14px; font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
+/* every meat on screen at once, two rows of five, no strip to scroll: a strip inside a sheet
+   scrolled the sheet as often as itself, and a choice of nine is small enough to show whole */
+.chiprow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.chip-btn { min-width: 0; border: 1px solid var(--line); background: transparent; border-radius: var(--r-pill); padding: 7px 4px; font-size: var(--fs-xs); font-weight: 600; color: var(--muted); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chip-btn.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
 .donelist { display: flex; flex-direction: column; gap: 7px; max-height: min(46vh, 340px); overflow-y: auto; }

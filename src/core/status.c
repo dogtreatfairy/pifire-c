@@ -236,6 +236,8 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 		add_num_or_null(po, "temp", p->valid ? r1(conv(p->temp_c, units)) : NAN);
 		cJSON_AddNumberToObject(po, "target", p->target_c > 0 ? r1(conv(p->target_c, units)) : 0);
 		cJSON_AddNumberToObject(po, "after", s->notify[i].after);
+		if (s->notify[i].meat[0]) cJSON_AddStringToObject(po, "meat", s->notify[i].meat);
+		if (s->notify[i].done[0]) cJSON_AddStringToObject(po, "done", s->notify[i].done);
 		cJSON_AddNumberToObject(po, "eta_s", s->notify[i].eta_s);
 		cJSON_AddNumberToObject(po, "eta_step_s", s->notify[i].eta_step_s);
 		if (s->notify[i].next_step[0]) cJSON_AddStringToObject(po, "next_step", s->notify[i].next_step);
