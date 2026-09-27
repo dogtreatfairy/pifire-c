@@ -22,7 +22,7 @@ export function pickFoodProbes(title = 'Which probes are in the food?', sub = ''
       el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'),
       el('button', { class: 'btn primary', type: 'button', onclick: () => close([...chosen]) }, chosen.size ? 'Start' : 'None, Start'))));
 }
-import { targetDialog, limitsDialog } from './cook.js';
+import { targetDialog, limitsDialog, openProbe } from './cook.js';
 import { icon as lucide, MODE_ICON } from '../icons.js';
 
 // One place for everything probe-related: the probe table (tap a row to edit), adding probes to free
@@ -346,7 +346,7 @@ export async function renderProbes(view, opts = {}) {
           meta: el('span', { class: tgt ? 'set' : '' }, lineFor(live)),
           value: !p.enabled ? 'off' : el('span', { class: 'reading' }, ...readingOf(live)),
           chevron: primary || !p.enabled,
-          onclick: () => (primary || !p.enabled ? editProbe(p) : setTarget()),
+          onclick: () => (primary || !p.enabled ? editProbe(p) : openProbe(p.label)),
           actions: primary || !p.enabled ? [] : [
             tgt ? iconBtn('crosshair-off', `Clear ${p.name} target`, { class: 'danger', onclick: (e) => { e.stopPropagation(); cmd({ cmd: 'target', label: p.label, target: 0, after: 0 }); } }) : null,
             iconBtn(MODE_ICON.Hold, tgt ? `Change ${p.name} target` : `Set ${p.name} target`, { onclick: (e) => { e.stopPropagation(); setTarget(); } }),

@@ -921,8 +921,10 @@ technical words; it does not narrate the flow to them.
 
 The rows on the Probes page follow the status: the reading, the link and the line under the
 name change in place each second, and a row is rebuilt only when its target changes, since that
-adds or removes the clear mark. Tapping a working food probe's row opens the target sheet,
-because setting a target is what the row is for.
+adds or removes the clear mark. Tapping a food probe -- its card on Home or its row on the Probes
+page -- does one of two things: with no target set it opens the picker, because setting one is
+what the tap is for; with a target set it opens the probe's sheet, where the target is changed or
+cleared and the alarms and timer live. The pit probe always opens its sheet.
 
 An update says where it is and what it did. The update page shows one line in the accent for
 the stage -- Checking, Updating with the download's percentage, Restarting once the daemon has

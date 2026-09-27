@@ -1,5 +1,5 @@
 import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, tuneLive, numberDialog, dialog, confirmDialog, patchSettings, toast, actionBtn } from '../app.js';
-import { targetDialog, limitsDialog, timerDialog, stepControls } from './cook.js';
+import { targetDialog, timerDialog, stepControls, openProbe } from './cook.js';
 import { btIcon, isWireless, sigBars, fmtEta, battIcon, pickFoodProbes } from './probes.js';
 import { icon as lucide, MODE_ICON } from '../icons.js';
 
@@ -175,69 +175,6 @@ function controlBar(s) {
  * to put an alarm on it, or to start a timer. So the reading is the header, the three things you
  * came to do are first, and the detail follows. Its settings are on the Probes tab, one layer
  * further in, where they are wanted about once. */
-function probePopup(label) {
-  const p = () => PF.status?.probes?.find((x) => x.label === label);
-  return dialog((close) => {
-    const wrap = el('div', { class: 'sheet' });
-    /* Redraw on the first status after a change, not on a timer: the status arrives once a
-       second, and a redraw 600 ms after the command raced it -- when it lost, the sheet still
-       said "Set Target" with nothing set, and the cook read that as the target not saving. */
-    const onNext = (fn) => { const off = onStatus(() => { off(); fn(); }); };
-    const render = () => {
-      const q = p(); if (!q) { close(); return; }
-      const hit = q.target > 0 && q.valid && q.temp >= q.target;
-      wrap.innerHTML = '';
-      wrap.append(
-        el('div', { class: 'sheet-head' },
-          el('div', {},
-            el('h3', {}, q.wireless ? btIcon() : null, ' ', q.name),
-            el('div', { class: 'help row', style: 'gap:8px' },
-              q.wireless ? sigBars(q.signal || 0, q.rssi ? `${q.rssi} dBm` : 'no link') : null,
-              q.wireless ? battIcon(q.battery) : null,
-              q.valid ? (q.target > 0 ? (hit ? 'at target' : q.eta_s > 0 ? `${fmtEta(q.eta_s)} to target` : 'estimating…') : 'reading') : 'no reading',
-              q.meat ? el('span', {}, `\u00b7 ${q.meat}${q.done ? ` \u00b7 ${q.done}` : ''}`) : null)),
-          el('div', { class: 'sheet-now' }, q.valid ? fmtTemp(q.temp) : '—', el('small', {}, degUnit()))),
-
-        el('div', { class: 'sheet-body' },
-          /* The pit probe is not a food probe: what it is aiming at is the set point, set by Hold,
-             and what shouts about it is a conditional notification comparing it with that set
-             point. Offering a second target here would be a second answer to one question. */
-          q.role === 'Primary'
-            ? el('div', { class: 'btnrow' },
-                actionBtn('hold', 'Hold Mode', { size: '', class: 'primary', onclick: () => { close(); location.hash = '#/settings/controller'; } }, MODE_ICON.Hold),
-                actionBtn('rules', 'Alarm Rules', { size: '', onclick: () => { close(); location.hash = '#/settings/rules'; } }, 'bell'),
-                actionBtn('timer', 'Timer', { size: '', onclick: async () => { const r = await timerDialog(); if (r) cmd({ cmd: 'timer', op: 'start', ...r }); } }, 'timer'))
-            : el('div', { class: 'btnrow' },
-                actionBtn('target', q.target > 0 ? 'Change Target' : 'Set Target', { size: '', class: 'primary', onclick: async () => { const r = await targetDialog(q); if (r) { cmd({ cmd: 'target', label: q.label, ...r }); onNext(render); } } }, MODE_ICON.Hold),
-                actionBtn('alarms', 'Alarms', { size: '', onclick: async () => { const r = await limitsDialog(q); if (r) { cmd({ cmd: 'limits', label: q.label, ...r }); onNext(render); } } }, 'bell'),
-                actionBtn('timer', 'Timer', { size: '', onclick: async () => { const r = await timerDialog(); if (r) cmd({ cmd: 'timer', op: 'start', ...r }); } }, 'timer')),
-          q.role !== 'Primary' && q.target > 0 ? el('div', { class: 'form-actions' },
-            actionBtn('delete', 'Clear Target', { onclick: () => { cmd({ cmd: 'target', label: q.label, target: 0, after: 0 }); onNext(render); } })) : null,
-
-          q.steps?.length ? el('h2', {}, 'Steps') : null,
-          q.steps?.length ? el('div', { class: 'kv' }, ...q.steps.flatMap((st) => [
-            el('div', {}, st.done ? '\u2713 ' + st.name : st.name),
-            el('div', {}, `${st.temp}${degUnit()}`)])) : null,
-          el('h2', {}, 'Detail'),
-          el('div', { class: 'kv' },
-            el('div', {}, q.role === 'Primary' ? 'Set point' : 'Target'),
-            el('div', {}, q.role === 'Primary'
-              ? (PF.status?.mode === 'Hold' ? `${fmtTemp(PF.status.setpoint)}${degUnit()}` : PF.status?.mode || '—')
-              : q.target > 0 ? `${fmtTemp(q.target)}${degUnit()}` : '—'),
-            q.ambient_label ? el('div', {}, 'Ambient') : null, q.ambient_label ? el('div', {}, q.ambient == null ? '—' : `${fmtTemp(q.ambient)}${degUnit()}`) : null,
-            q.role === 'Primary' ? null : el('div', {}, 'Alarm above'),
-            q.role === 'Primary' ? null : el('div', {}, q.limit_high > 0 ? `${fmtTemp(q.limit_high)}${degUnit()}` : 'off'),
-            q.role === 'Primary' ? null : el('div', {}, 'Alarm below'),
-            q.role === 'Primary' ? null : el('div', {}, q.limit_low > 0 ? `${fmtTemp(q.limit_low)}${degUnit()}` : 'off')),
-          q.role === 'Primary' ? el('p', { class: 'help' }, 'Over- and under-temperature alarms for the pit are conditional notifications, so they follow the set point when it changes.') : null),
-
-        el('div', { class: 'form-actions' },
-          actionBtn('cancel', 'Close', { size: '', onclick: () => close() })));
-    };
-    render();
-    return wrap;
-  });
-}
 
 export function renderHome(view) {
   const outs = ['fan', 'auger', 'igniter'].map((k) => el('span', { class: 'out', 'data-k': k }, k === 'auger' ? 'AUG' : k === 'fan' ? 'FAN' : 'IGN'));
@@ -353,7 +290,7 @@ export function renderHome(view) {
       const step = PF.units === 'C' ? 3 : 5;
       const over = hit ? p.temp - p.target : 0;
       const level = !hit ? '' : over >= 2 * step ? 'way' : over >= step ? 'over' : 'done';
-      probes.append(el('button', { class: `pcell ${p.valid ? '' : 'invalid'} ${hit ? 'hit' : ''} ${level}`, onclick: () => probePopup(p.label) },
+      probes.append(el('button', { class: `pcell ${p.valid ? '' : 'invalid'} ${hit ? 'hit' : ''} ${level}`, onclick: () => openProbe(p.label) },
         /* spans, not divs: the cell is a <button> so that it focuses, answers the keyboard and
            takes the app's press layer like every other control, and a button may only contain
            phrasing content. The CSS gives each line its own row. */
