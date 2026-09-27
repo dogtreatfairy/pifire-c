@@ -35,6 +35,11 @@ void pf_tuner_tick(const cJSON *status, double now);
  * is true through the startup and the settling too, which is when someone glancing at the grill
  * most needs to know why it lit itself. Any argument may be NULL. */
 bool pf_tuner_active(double *setpoint_user, int *step, int *steps);
+/* What the run is doing right now and what its number estimates: `what` is one of light, reach,
+ * settle, measure, verify, cool; eta_s is -1 when there is no honest estimate; crossings is the
+ * relay's count while measuring. Returns false when no run is going. Carried in the status so
+ * Home can say the same words the Auto Tuning page does. */
+bool pf_tuner_live(char *what, size_t n, double *eta_s, int *crossings);
 
 /* {running, phase, step, steps, setpoint, elapsed_s, message, anchors:[...]} */
 cJSON *pf_tuner_json(void);

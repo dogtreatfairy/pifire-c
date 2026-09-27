@@ -107,6 +107,13 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 			cJSON_AddNumberToObject(tn, "step", step);
 			cJSON_AddNumberToObject(tn, "steps", steps);
 			cJSON_AddBoolToObject(tn, "measuring", s->autotune_active);
+			char what[12] = ""; double eta_s = -1; int cr = 0;
+			if (pf_tuner_live(what, sizeof what, &eta_s, &cr)) {
+				cJSON *e = cJSON_AddObjectToObject(tn, "eta");
+				cJSON_AddStringToObject(e, "what", what);
+				cJSON_AddNumberToObject(e, "s", eta_s >= 0 ? round(eta_s) : -1);
+				cJSON_AddNumberToObject(tn, "crossings", cr);
+			}
 		}
 	}
 

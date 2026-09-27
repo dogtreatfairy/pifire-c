@@ -1,4 +1,4 @@
-import { PF, el, api, patchSettings, toast, onStatus, confirmDialog, numberDialog, dialog, degUnit, fmtDur, actionBtn, dataTable, transferRow, pushScreen, itemRow, iconBtn, addRow, screenActions } from '../app.js';
+import { PF, el, api, patchSettings, toast, onStatus, confirmDialog, numberDialog, dialog, degUnit, fmtDur, tuneLive, actionBtn, dataTable, transferRow, pushScreen, itemRow, iconBtn, addRow, screenActions } from '../app.js';
 import { icon as lucide, MODE_ICON } from '../icons.js';
 
 const PHASE_TEXT = {
@@ -11,8 +11,8 @@ const PHASE_TEXT = {
 };
 
 // The nine temperatures the single-temperature picker offers, in the user's units.
-const PRESETS_F = [180, 200, 225, 250, 275, 300, 375, 425, 450];
-const PRESETS_C = [80, 95, 105, 120, 135, 150, 190, 220, 230];
+const PRESETS_F = [180, 200, 225, 250, 275, 300, 350, 400, 450];
+const PRESETS_C = [80, 95, 105, 120, 135, 150, 175, 205, 230];
 
 /* The page this fills is a short list of sections, so the parts are handed to whoever is laying it
    out rather than appended in one stream: `slots.tuning` gets everything about measuring the grill,
@@ -55,17 +55,8 @@ export function renderLearning(view, slots = {}) {
      the set point is estimated from the pit's climb; settling and verifying are clocks; measuring
      has no honest estimate and is counted in crossings instead. */
   const liveText = () => {
-    const e = tune?.eta || {};
-    const left = e.s >= 0 ? fmtDur(e.s) : null;
-    switch (e.what) {
-      case 'light': return ' \u00b7 Lighting';
-      case 'reach': return ` \u00b7 Heating${left ? ` \u00b7 ~${left} to ${tune.setpoint}${degUnit()}` : ''}`;
-      case 'settle': return ` \u00b7 Settling${left ? ` \u00b7 ${left} to stable` : ''}`;
-      case 'measure': return ` \u00b7 Measuring${tune.crossings ? ` \u00b7 crossing ${tune.crossings}` : ''}`;
-      case 'verify': return ` \u00b7 Verifying${left ? ` \u00b7 ${left} left` : ''}`;
-      case 'cool': return ' \u00b7 Shutting down';
-      default: return tune?.message ? ` \u00b7 ${tune.message}` : '';
-    }
+    const [phase, detail] = tuneLive(tune);
+    return phase ? ` \u00b7 ${phase}${detail ? ` \u00b7 ${detail}` : ''}` : '';
   };
   const SRC = { tuned: 'Autotune', learned: 'Learning', typed: 'Typed' };
   let tuneKey = '';

@@ -1,4 +1,4 @@
-import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, numberDialog, dialog, confirmDialog, patchSettings, toast, actionBtn } from '../app.js';
+import { PF, el, api, cmd, onStatus, fmtTemp, degUnit, fmtDur, tuneLive, numberDialog, dialog, confirmDialog, patchSettings, toast, actionBtn } from '../app.js';
 import { targetDialog, limitsDialog, timerDialog, stepsDialog, stepControls } from './cook.js';
 import { btIcon, isWireless, sigBars, fmtEta, battIcon, pickFoodProbes } from './probes.js';
 import { icon as lucide, MODE_ICON } from '../icons.js';
@@ -244,6 +244,9 @@ export function renderHome(view) {
   /* which recipe has the grill, when one does: on the Home screen, under what the grill is
      doing, because that is where the question "why is it holding 180?" gets asked */
   const recipeLine = el('div', { class: 'line2 recipe-line', hidden: true });
+  /* and what a tuning run is doing -- level change, stabilizing, measuring, verifying -- with the
+     estimate that phase can honestly give, in the same words as the Auto Tuning page */
+  const tuneLine = el('div', { class: 'line2 recipe-line', hidden: true });
   const bar = el('div');
   const hopBrand = el('span', { class: 'muted' }), hopPct = el('span', { class: 'pct' }), hopFill = el('div');
   const hopper = el('div', { class: 'card tight hopper', hidden: true }, el('div', { class: 'row between' }, el('div', {}, el('strong', {}, 'Hopper'), ' ', hopBrand), hopPct), el('div', { class: 'progress' }, hopFill));
@@ -251,7 +254,7 @@ export function renderHome(view) {
   const probes = el('div', { class: 'pgrid' });
   const ctrl = el('div', { class: 'kv' });
   view.append(
-    el('div', { class: 'card hero' }, header, gauge, target, detail, recipeLine, bar),
+    el('div', { class: 'card hero' }, header, gauge, target, detail, recipeLine, tuneLine, bar),
     hopper, manual, probes,
     el('details', { class: 'card tight' }, el('summary', { class: 'muted' }, 'Controller'), ctrl),
   );
@@ -295,6 +298,13 @@ export function renderHome(view) {
     recipeLine.hidden = !rc?.active;
     if (rc?.active) recipeLine.replaceChildren(lucide('book-open', 'ic inl'), el('span', { class: 'rl-name' }, rc.name),
       el('span', { class: 'rl-step' }, `Step ${(rc.step ?? 0) + 1} of ${rc.nsteps}${rc.waiting ? ' \u00b7 Continue?' : ''}`));
+    const tn = s.tuning;
+    tuneLine.hidden = !tn?.running;
+    if (tn?.running) {
+      const [phase, det] = tuneLive(tn);
+      tuneLine.replaceChildren(lucide('activity', 'ic inl'), el('span', { class: 'rl-name' }, phase || 'Auto Tuning'),
+        el('span', { class: 'rl-step' }, det || `${tn.setpoint}${u} · ${tn.step} of ${tn.steps}`));
+    }
     hopper.hidden = !(s.hopper_pct >= 0);
     if (s.hopper_pct >= 0) {
       const low = s.hopper_pct <= (PF.settings?.pelletlevel?.warning_level ?? 25);

@@ -532,6 +532,19 @@ bool pf_tuner_active(double *setpoint_user, int *step, int *steps)
 	return on;
 }
 
+bool pf_tuner_live(char *what, size_t n, double *eta_s, int *crossings)
+{
+	pthread_mutex_lock(&g_mu);
+	bool on = g.running;
+	if (on) {
+		pf_strlcpy(what, g.eta_what, n);
+		if (eta_s) *eta_s = g.eta_s;
+		if (crossings) *crossings = g.crossings;
+	}
+	pthread_mutex_unlock(&g_mu);
+	return on;
+}
+
 cJSON *pf_tuner_json(void)
 {
 	cJSON *o = cJSON_CreateObject();

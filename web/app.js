@@ -59,6 +59,23 @@ export const patchSettings = async (group, obj) => {
 // ---------- units / formatting ----------
 export const fmtTemp = (v, d = 0) => (v == null || Number.isNaN(v) ? '—' : Number(v).toFixed(d));
 export const degUnit = () => (PF.units === 'C' ? '°C' : '°F');
+/* What a tuning run is doing and what its number estimates, in the cook's words -- the same words
+   on Home and on the Auto Tuning page, because the two must never disagree. `t` is the status's
+   `tuning` block or GET /tune: {eta: {what, s}, crossings, setpoint}. Returns [phase, detail]. */
+export function tuneLive(t) {
+  const e = t?.eta || {};
+  const left = e.s >= 0 ? fmtDur(e.s) : '';
+  switch (e.what) {
+    case 'light': return ['Lighting', ''];
+    case 'reach': return ['Level change', left ? `~${left} to ${t.setpoint}${degUnit()}` : ''];
+    case 'settle': return ['Stabilizing', left ? `${left} to stable` : ''];
+    case 'measure': return ['Measuring', t.crossings ? `crossing ${t.crossings}` : ''];
+    case 'verify': return ['Verifying', left ? `${left} left` : ''];
+    case 'cool': return ['Shutting down', ''];
+    default: return [t?.message || '', ''];
+  }
+}
+
 export const fmtDur = (s) => {
   s = Math.max(0, Math.round(s));
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
