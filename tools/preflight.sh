@@ -9,9 +9,19 @@
 # Exits non-zero at the first failure, saying which.
 set -u
 VER="${1:-0.0.0}"
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT" || exit 2
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO" || exit 2
 fail() { echo "PREFLIGHT FAILED: $*" >&2; exit 1; }
+
+# The gate tests the commit, not the working tree. The containers build from a mounted directory,
+# and an edit made there while they run -- a probe script added to CMakeLists.txt and removed
+# again -- reached one build and failed it, on a tree whose HEAD was fine. So HEAD is exported to
+# a scratch directory and everything below builds that; what is tagged is exactly what was tested.
+git diff --quiet HEAD -- . || fail "uncommitted changes: the gate tests HEAD, commit first"
+ROOT="$(mktemp -d /tmp/pf-preflight.XXXXXX)"
+trap 'rm -rf "$ROOT"' EXIT
+git archive HEAD | tar -x -C "$ROOT"
+cd "$ROOT" || exit 2
 
 echo "+ shell checks"
 sh tests/check_sw_cache.sh || fail "service worker cache list"
@@ -35,6 +45,6 @@ for arch in "arm64 linux/arm64 arm64v8/debian:bookworm-slim" "armhf linux/arm/v7
   podman run --rm --platform "$2" -v "$ROOT":/src -w /src "$3" bash -euc '
     apt-get update -qq >/dev/null; apt-get install -y -qq --no-install-recommends cmake gcc make pkg-config libsqlite3-dev libmosquitto-dev libcurl4-openssl-dev libssl-dev libsystemd-dev gzip tar binutils >/dev/null 2>&1
     cmake -B /tmp/b -DCMAKE_BUILD_TYPE=Release -DPF_BUILD_TESTS=OFF -DPF_VERSION="'"$VER"'" >/dev/null
-    cmake --build /tmp/b -j"$(nproc)" >/tmp/b.log 2>&1 || { grep -E "error" -A3 /tmp/b.log | head -20; exit 1; }' || fail "$1 release build"
+    cmake --build /tmp/b -j"$(nproc)" >/tmp/b.log 2>&1 || { grep -iE "error" -A3 /tmp/b.log | head -20; tail -5 /tmp/b.log; exit 1; }' || fail "$1 release build"
 done
 echo "PREFLIGHT OK $VER"

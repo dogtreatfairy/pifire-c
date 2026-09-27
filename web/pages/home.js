@@ -193,7 +193,7 @@ function probePopup(label) {
             el('h3', {}, q.wireless ? btIcon() : null, ' ', q.name),
             el('div', { class: 'help row', style: 'gap:8px' },
               q.wireless ? sigBars(q.signal || 0, q.rssi ? `${q.rssi} dBm` : 'no link') : null,
-              q.wireless && q.battery >= 0 ? battIcon(q.battery) : null,
+              q.wireless ? battIcon(q.battery) : null,
               q.valid ? (q.target > 0 ? (hit ? 'at target' : q.eta_s > 0 ? `${fmtEta(q.eta_s)} to target` : 'estimating…') : 'reading') : 'no reading',
               q.meat ? el('span', {}, `\u00b7 ${q.meat}${q.done ? ` \u00b7 ${q.done}` : ''}`) : null)),
           el('div', { class: 'sheet-now' }, q.valid ? fmtTemp(q.temp) : '—', el('small', {}, degUnit()))),
@@ -359,7 +359,7 @@ export function renderHome(view) {
         /* spans, not divs: the cell is a <button> so that it focuses, answers the keyboard and
            takes the app's press layer like every other control, and a button may only contain
            phrasing content. The CSS gives each line its own row. */
-        el('span', { class: 'n' }, p.wireless ? [btIcon(), sigBars(p.signal || 0, p.rssi ? `${p.rssi} dBm` : 'no link'), p.battery >= 0 ? battIcon(p.battery) : null, ' '] : null, p.name), el('span', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
+        el('span', { class: 'n' }, p.wireless ? [btIcon(), sigBars(p.signal || 0, p.rssi ? `${p.rssi} dBm` : 'no link'), battIcon(p.battery), ' '] : null, p.name), el('span', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
         p.ambient_label ? el('span', { class: 'amb' }, `Ambient ${p.ambient == null ? '—' : fmtTemp(p.ambient) + '°'}`) : null,
         /* what the target was chosen for, above the number: "Beef · Medium rare" is what the cook
            remembers setting; 130° is what it came to */

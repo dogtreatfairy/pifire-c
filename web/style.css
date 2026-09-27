@@ -844,6 +844,8 @@ details[open] > summary::after { transform: rotate(-90deg); }
 .pcell .n .batt { font-size: var(--fs-2xs); margin-right: 4px; color: var(--muted); }
 .pcell .n .batt.low { color: var(--warn-ink); }
 .pcell .n .batt.crit { color: var(--danger-ink); }
+.batt.unknown { opacity: .6; }
+.irow-main .t .sig, .irow-main .t .batt { margin: 0; color: var(--muted); }
 .pcell .amb { font-size: var(--fs-xs); color: var(--muted); margin-top: -2px; }
 .pcell .tg.muted { color: var(--muted); }
 .ppop-temp { font-size: var(--fs-3xl); font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; margin: 6px 0 10px; }

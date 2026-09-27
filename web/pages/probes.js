@@ -32,6 +32,11 @@ export const btIcon = () => lucide('bluetooth', 'ic bt');
 /* A bare "42%" beside a probe name reads as anything: signal, doneness, duty. The outline fills in
    proportion so the level is legible before the number is, and it turns red when it is nearly out. */
 export const battIcon = (pct) => {
+  /* not reported -- the probe is docked, asleep or out of range: the outline stays, empty, with a
+     dash where the number goes, so a wireless probe always wears its battery and the reader can
+     tell "unknown" from "0%" */
+  if (!(pct >= 0)) return el('span', { class: 'batt unknown', title: 'Battery unknown', 'aria-label': 'battery unknown' },
+    el('span', { class: 'batt-body' }), el('span', { class: 'batt-pct' }, '\u2014'));
   const p = Math.max(0, Math.min(100, Math.round(pct)));
   /* Getting low is amber; about to die is red. Red from a fifth remaining meant most of a cook
      spent claiming a fault that was not there. */
@@ -320,9 +325,10 @@ export async function renderProbes(view, opts = {}) {
       list.append(itemRow({
         icon: wireless ? 'bluetooth' : 'thermometer', color: wireless ? '#0a84ff' : '#ff453a',
         title: [
-          wireless && live ? sigBars(live.signal || 0, live.rssi ? `${live.rssi} dBm` : 'no link') : null,
-          wireless && live?.battery >= 0 ? battIcon(live.battery) : null,
-          p.name],
+          p.name,
+          /* a wireless probe always wears its link and its battery, unknown states included */
+          wireless ? sigBars(live?.signal || 0, live?.rssi ? `${live.rssi} dBm` : 'no link') : null,
+          wireless ? battIcon(live?.battery ?? -1) : null],
         meta: el('span', { class: tgt ? 'set' : '' }, line),
         /* the reading is what the row is looked at for, so it is the readout size, not a setting's answer */
         value: !p.enabled ? 'off' : el('span', { class: 'reading' }, live?.valid ? fmtTemp(live.temp) : '\u2014', live?.valid ? el('small', {}, degUnit()) : null),
