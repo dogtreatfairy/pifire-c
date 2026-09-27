@@ -101,7 +101,7 @@ export async function targetDialog(p) {
         }));
       }
       const left = STEP_PRESETS.filter(([n]) => !cur.some((s) => s.name === n));
-      stepsBox.append(el('label', {}, 'On the way'), cur.length ? inner : null,
+      stepsBox.append(el('label', {}, 'Step alerts'), cur.length ? inner : null,
         cur.length >= 4 ? null : el('div', { class: 'chiprow steps' },
           left.map(([n, t]) => el('button', { class: 'chip-btn', type: 'button', onclick: async () => {
             cur.push({ name: n, temp: PF.units === 'C' ? Math.round((t - 32) * 5 / 9) : t }); await saveProbeSteps(p.label, cur); drawSteps();
@@ -114,7 +114,7 @@ export async function targetDialog(p) {
 
     return el('div', { class: 'sheet' }, head, chips, list,
       el('div', { class: 'sheet-foot' },
-        el('label', {}, 'When it gets there'),
+        el('label', {}, 'At target'),
         segmented(AFTER, after, (v) => (after = v))),
       stepsBox,
       /* dismissive left, committing right: see docs/design-language.md */

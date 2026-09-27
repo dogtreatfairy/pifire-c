@@ -900,8 +900,13 @@ reading at the right, and bare icons at the end -- an X to clear the target, the
 last because it is the committing one. The row itself opens the probe's settings. The pit probe
 has neither icon: its target is the set point. The step alerts -- flip, wrap, spritz, a named
 temperature on the way -- are not a second kind of target and do not get a second button; they
-live inside the target sheet under "On the way", save as they change (picking a doneness closes
+live inside the target sheet under "Step alerts", save as they change (picking a doneness closes
 the sheet), and go when the target is cleared.
+
+The two group labels in that sheet are `At target` (what the grill does when the probe gets
+there) and `Step alerts`. They were "When it gets there" and "On the way", which Ryan called
+"stupid, cute, wordy ways of explaining the flow" -- a label names the thing in the reader's own
+technical words; it does not narrate the flow to them.
 
 A sheet that changes something redraws on the first status that carries the change, never on a
 timer: the status comes once a second, and a redraw after a fixed delay raced it -- when the
