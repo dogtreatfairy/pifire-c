@@ -60,7 +60,7 @@ static void run_window(const pf_controller_ops *ops, void *c, double *t, double 
 	/* 16 minutes of 20 s cycles */
 	for (int k = 0; k < 48; k++) {
 		*t += 20;
-		pf_ctrl_in in = { .now_s = *t, .pit_c = pit(*t), .setpoint_c = sp, .ambient_c = 20, .u_prev_raw = 0.3, .u_prev_applied = 0.3, .u_ff = 0.3, .saturated = saturated, .cycle_time_s = 20, .u_min = 0.1, .u_max = 0.9 };
+		pf_ctrl_in in = { .now_s = *t, .pit_c = pit(*t), .setpoint_c = sp, .ambient_c = 20, .u_prev_raw = 0.3, .u_prev_applied = 0.3, .u_ff = 0.3, .saturated = saturated, .target_reached = true, .cycle_time_s = 20, .u_min = 0.1, .u_max = 0.9 };
 		ops->update(c, &in, NULL);
 	}
 }
@@ -334,12 +334,43 @@ static void test_a_tune_at_one_temperature_keeps_what_was_learned_at_another(voi
 	ops->destroy(c);
 }
 
+/* Arriving in Hold from startup, the pit is far below the set point and climbs for ten minutes or
+ * more. That window is the step's business, not the hold's: judged as hold behaviour it read as
+ * "slow to reach target" and narrowed the band by the most learning allows on every cook, which is
+ * what made every intercept overshoot on Ryan's grill. */
+static void test_the_first_approach_is_not_slowness(void)
+{
+	g_kv[0] = 0;
+	const pf_controller_ops *ops = pf_controller_find("adaptive");
+	void *c = ops->create("{\"_units\":\"C\"}", &env);
+	double t = 1000;
+	pf_ctrl_in in0 = { .now_s = t, .pit_c = 45, .setpoint_c = 110, .ambient_c = 20, .u_prev_applied = 0.3, .u_ff = 0.3, .cycle_time_s = 20, .u_min = 0.1, .u_max = 0.9 };
+	ops->reset(c, &in0);
+	double base = state_num(ops, c, "PB_c");
+	/* twenty minutes of climbing toward the target, the feed free, the pit far below: the old
+	 * monitor's picture of a sluggish hold */
+	for (int k = 0; k < 60; k++) {
+		t += 20;
+		pf_ctrl_in in = { .now_s = t, .pit_c = 45 + 55.0 * k / 60, .setpoint_c = 110, .ambient_c = 20, .u_prev_raw = 0.5, .u_prev_applied = 0.5, .u_ff = 0.3, .target_reached = false, .cycle_time_s = 20, .u_min = 0.1, .u_max = 0.9 };
+		ops->update(c, &in, NULL);
+	}
+	TEST_ASSERT_EQUAL_DOUBLE_MESSAGE(base, state_num(ops, c, "PB_c"), "the approach must leave the band alone");
+	/* a record of bands learned under the old rules is not carried forward */
+	snprintf(g_kv, sizeof g_kv, "{\"PB_c\":30,\"Ti\":600,\"Td\":40,\"band_learned\":[24,24,24,24],\"band_anchor\":[30,30,30,30],\"valid\":true,\"ts\":1,\"src\":\"x\",\"m\":2}");
+	void *c2 = ops->create("{\"_units\":\"C\"}", &env);
+	ops->reset(c2, &in0);
+	TEST_ASSERT_TRUE_MESSAGE(fabs(state_num(ops, c2, "PB_c") - 24) > 1.0, "bands narrowed under the old rules are dropped");
+	ops->destroy(c2);
+	ops->destroy(c);
+}
+
 int main(void)
 {
 	pf_controllers_init(NULL);
 	UNITY_BEGIN();
 	RUN_TEST(test_model_tuning_and_persistence);
 	RUN_TEST(test_monitor_adjusts_the_band);
+	RUN_TEST(test_the_first_approach_is_not_slowness);
 	RUN_TEST(test_overshoot_widens_the_band);
 	RUN_TEST(test_the_band_is_learned_per_temperature_range);
 	RUN_TEST(test_learning_refines_a_tune_rather_than_being_overruled_by_it);

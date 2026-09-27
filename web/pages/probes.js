@@ -35,16 +35,16 @@ export const battIcon = (pct) => {
   /* not reported -- the probe is docked, asleep or out of range: the outline stays, empty, with a
      dash where the number goes, so a wireless probe always wears its battery and the reader can
      tell "unknown" from "0%" */
-  /* A small upright cell, nub on top, the charge rising behind the number written inside it, and
-     nothing beside it: the one battery mark, on the Home card, the Probes row and the probe sheet.
-     A number beside the cell was the widest thing on the line. */
-  if (!(pct >= 0)) return el('span', { class: 'batt unknown', title: 'Battery unknown', 'aria-label': 'battery unknown' }, el('b', {}, '\u2014'));
+  /* The cell iOS draws in the status bar with the percentage on: horizontal, the terminal on the
+     right, the charge filling from the left behind the number written inside it, nothing beside
+     it. A probe that is not connected has no battery to speak of, so it shows none. */
+  if (!(pct >= 0)) return null;
   const p = Math.max(0, Math.min(100, Math.round(pct)));
   /* Getting low is amber; about to die is red. Red from a fifth remaining meant most of a cook
      spent claiming a fault that was not there. */
   const cls = `batt ${p <= 10 ? 'crit' : p <= 20 ? 'low' : ''}`;
   return el('span', { class: cls, title: `Battery ${p}%`, 'aria-label': `battery ${p} percent` },
-    el('i', { style: `height:${p}%` }), el('b', { class: p >= 100 ? 'three' : '' }, String(p)));
+    el('i', { style: `width:${p}%` }), el('b', { class: p >= 100 ? 'three' : '' }, String(p)));
 };
 const WIRELESS_MODULES = ['ibbq', 'meater', 'chefiq'];
 /** 0..4 bars from an RSSI in dBm (same thresholds as the daemon) */
@@ -364,7 +364,8 @@ export async function renderProbes(view, opts = {}) {
         const ln = node.querySelector('.irow-main .s > span'); if (ln) ln.textContent = lineFor(live);
         if (wireless) {
           node.querySelector('.sig')?.replaceWith(sigBars(live?.signal || 0, live?.rssi ? `${live.rssi} dBm` : 'no link'));
-          node.querySelector('.batt')?.replaceWith(battIcon(live?.battery ?? -1));
+          const old = node.querySelector('.batt'), fresh = battIcon(live?.battery ?? -1);
+          if (old && fresh) old.replaceWith(fresh); else if (old) old.remove(); else if (fresh) node.querySelector('.irow-main .t')?.append(fresh);
         }
       };
       updaters.push(refresh);

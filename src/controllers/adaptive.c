@@ -40,7 +40,14 @@
  * simulator, whose fire dies back no faster than it grows, it turned the sag into three degrees
  * more overshoot and cost the tuner its settled hold, so it is off; the filtered derivative
  * below is what addresses the sag. Kept, because the real grill's asymmetry may yet want it. */
+/* A feed floor on the way up -- never below what holds the pit where it is -- was tried twice
+ * against the sag the brake causes short of the set point. Both times the simulator's capture
+ * overshot (+18.6 F at 250 F with the plant's own hold feed as the floor, against the 8 F the
+ * test allows): a pit fed at its hold feed until it arrives carries a dead time's worth of rise
+ * past the target, which is exactly what the brake is there to stop. The brake stays; what the
+ * intercept needed was the band it was tuned with, which learning was narrowing on every cook. */
 #define APPROACH_FLOOR 0
+#define BAND_RULES_GEN 2   /* bumped when the rules that learn the band change; older lessons are dropped */
 #define IBAND_C       8.5     /* +/- 15 F: entering this band trims the integrator (approach wind-up) */
 #define THETA_MIN     40.0
 #define THETA_MAX     240.0
@@ -174,6 +181,9 @@ static void save_learned(ad_t *s)
 	         s->band_learned[0], s->band_learned[1], s->band_learned[2], s->band_learned[3],
 	         s->band_anchor[0], s->band_anchor[1], s->band_anchor[2], s->band_anchor[3],
 	         s->l_valid ? "true" : "false", s->l_ts, s->l_src, s->theta, s->K, s->tau, LEARNED_REC_GEN);
+	/* bg: the generation of the band rules. Bands learned under older rules are not carried. */
+	size_t L = strlen(buf);
+	if (L > 1) snprintf(buf + L - 1, sizeof buf - (L - 1), ",\"bg\":%d}", BAND_RULES_GEN);
 	s->env->kv_put(s->env, "learned", buf);
 }
 
@@ -190,6 +200,9 @@ static void load_learned(ad_t *s)
 	/* Per-band corrections, or the old single value spread across every band when upgrading from
 	 * a release that only had one. */
 	cJSON *bs = cJSON_GetObjectItem(j, "band_learned"), *ba = cJSON_GetObjectItem(j, "band_anchor");
+	/* Bands learned under the rules that judged the approach as slowness were narrowed on every
+	 * cook; they are not a lesson about the grill and are not carried forward. */
+	if ((int)pf_pid_cfg_num(j, "bg", 1) < BAND_RULES_GEN) { bs = NULL; ba = NULL; if (s->env && s->env->log) s->env->log(PF_LVL_INFO, "adaptive", "band corrections from older learning rules dropped; the tune stands"); }
 	for (int i = 0; i < PF_SCALE_BANDS; i++) {
 		cJSON *it = cJSON_IsArray(bs) ? cJSON_GetArrayItem(bs, i) : NULL;
 		cJSON *an = cJSON_IsArray(ba) ? cJSON_GetArrayItem(ba, i) : NULL;
@@ -249,8 +262,14 @@ static void window_reset(ad_t *s, double now)
 static void reset(void *self, const pf_ctrl_in *in)
 {
 	ad_t *s = self;
+	/* A set-point change is a step. So is arriving in Hold from startup with the pit far below the
+	 * set point: the climb that follows is a step response, and it was being judged as hold
+	 * behaviour -- ten minutes of the pit sitting far from target with a free feed read as "slow
+	 * to reach target", and the band was narrowed by the most learning allows, on every cook,
+	 * before the grill had arrived once. That is what made every intercept overshoot. */
 	bool sp_change = s->have_last && s->setpoint_c != in->setpoint_c;
-	if (sp_change) { s->step_t = in->now_s; s->step_size = in->setpoint_c - s->setpoint_c; s->step_peak = 0; s->step_open = true; s->settled_n = 0; }
+	bool far = fabs(in->pit_c - in->setpoint_c) > IBAND_C;
+	if (sp_change || far) { s->step_t = in->now_s; s->step_size = in->setpoint_c - (sp_change ? s->setpoint_c : in->pit_c); s->step_peak = 0; s->step_open = true; s->settled_n = 0; }
 	s->setpoint_c = in->setpoint_c;
 	use_band(s, in->setpoint_c);      /* the correction learned around this temperature, not the last one */
 	s->last_t = in->now_s;
@@ -359,7 +378,9 @@ static void monitor(ad_t *s, const pf_ctrl_in *in, double e)
 	bool mostly_free = s->win_sat < s->win_n / 4;
 	bool step_recent = s->step_open || in->now_s - s->step_t < 1200;
 	if (s->win_changes >= 3 && s->win_peak >= 3.0) adjust_band(s, 0.85, "sustained oscillation");
-	else if (mean_abs > 3.0 && s->win_changes <= 1 && mostly_free && !step_recent) adjust_band(s, mean_abs > 6.0 ? 1.25 : 1.15, "slow to reach target");
+	/* "slow to reach target" is a judgement about holding, so it needs the pit to have reached
+	 * the target once: until then the window is the approach, which is the step's business */
+	else if (mean_abs > 3.0 && s->win_changes <= 1 && mostly_free && !step_recent && in->target_reached) adjust_band(s, mean_abs > 6.0 ? 1.25 : 1.15, "slow to reach target");
 	window_reset(s, in->now_s);
 }
 
@@ -520,9 +541,15 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 	 * it is; the brake may bring the feed down to that and no further, so the climb can only
 	 * coast to a stop, never turn round. Once the set point has been reached the rule is off and
 	 * the loop may cut as deep as it likes. */
-	if (APPROACH_FLOOR && !in->target_reached && e_true < 0 && s->ff > 0 && isfinite(in->ambient_c) && in->setpoint_c > in->ambient_c + 5) {
-		double hold_now = s->ff * (in->pit_c - in->ambient_c) / (in->setpoint_c - in->ambient_c);
-		hold_now = clampd(hold_now, 0, s->ff);
+	if (APPROACH_FLOOR && !in->tuning && !in->target_reached && e_true < 0 && isfinite(in->ambient_c) && in->setpoint_c > in->ambient_c + 5) {   /* never under a relay test: the swing must be free */
+		/* Two answers to "what holds the pit where it is now": the feed-forward fit scaled by how
+		 * far above ambient the pit is, and the anchor's static gain. The larger is the floor.
+		 * On the cook this was measured against the brake took the feed to 0.15 at 216 F on the
+		 * way to 225, below the 0.24 that holds the pit, and it fell back three degrees and then
+		 * overshot on the second approach. */
+		double hold_now = s->ff > 0 ? s->ff * (in->pit_c - in->ambient_c) / (in->setpoint_c - in->ambient_c) : 0;
+		if (s->K > 0) { double by_plant = (in->pit_c - in->ambient_c) / s->K; if (by_plant > hold_now) hold_now = by_plant; }
+		hold_now = clampd(hold_now, 0, fmax(s->ff, in->u_max - 0.15));
 		if (s->u < hold_now) s->u = hold_now;
 	}
 	/* The coast look-ahead that used to sit here -- cut back to the feed-forward once the pit,

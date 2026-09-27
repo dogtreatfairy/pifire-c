@@ -111,3 +111,46 @@ and relay tests disagree about the time constant threefold (540 s against 1644 s
 own log), and no curve drawn from that can call the first minutes better than a few tens of percent.
 What it no longer does is lurch: no reading in the replay moved the predicted arrival later by more
 than a minute, and in the daemon the value is further smoothed over twenty seconds.
+
+## The intercept at 225 F, and what was narrowing the band (27 September 2026)
+
+Ryan: "my grill way overreacted to leveling off at 225, so the autotune is good for stabilizing
+but doing a poor job of intercepting a temp setting." The daemon's history from the restart at
+13:00 holds the approach that followed a fresh startup at 13:00:31 (feed and pit every fifteen
+seconds; the set point was 225 F from 13:03:48):
+
+| time | feed | pit F | |
+|---|---|---|---|
+| 13:04:03 | 0.90 | 115 | full feed from startup's end |
+| 13:05:33 | 0.76 | 141 | the brake begins |
+| 13:08:21 | 0.34 | 192 | |
+| 13:10:21 | 0.15 | 216 | nine degrees short, still climbing: the brake takes the feed below the 0.24 that holds the pit |
+| 13:10:36 | 0.15 | 218 | the peak of the first approach |
+| 13:11:54 | 0.35 | 215 | the pit has fallen back three degrees; the loop opens up |
+| 13:13:39 | 0.20 | 224 | the second approach arrives |
+| 13:16:09 | 0.10 | 228 | and overshoots by three, on the momentum of the 0.37 feed two minutes earlier |
+| 13:17:24 | 0.22 | 227 | then settles into a swing of ±3 F, period about five and a half minutes |
+
+Two mechanisms, one of them a bug in the learning:
+
+1. **The monitor read the climb as a sluggish hold.** The adaptive controller's monitor judges each
+   ten-minute window of Hold and narrows the band when the pit sits far from the target with a
+   free feed ("slow to reach target"). Its first window after Hold is entered from startup *is the
+   climb* -- the pit far below, the feed free most of the time -- and nothing marked that climb as
+   a step, so at 13:14:01 it logged `band 28.9 C around 107 C, refining 36.2 C (slow to reach
+   target)`: the tune's 36.2 C band narrowed by the full 20% learning is allowed, on the first
+   window of every cook. The band that had been tuned to hold was being replaced, every time, by
+   one a fifth tighter, and the intercept and the hunting after it are what a fifth tighter looks
+   like. Fixed: arriving in Hold far from the set point opens a step (so the step rules judge the
+   arrival and the slowness rule stands down for twenty minutes), the slowness rule also needs the
+   target to have been reached once, and bands learned under the old rules are dropped on load so
+   the tune stands again.
+
+2. **The brake short of the set point.** The derivative term took the feed to 0.15 at 216 F with
+   the pit climbing at about 0.12 C/s; the feed that holds the pit there is about 0.24, so the pit
+   fell back and the loop opened up, which is where the overshoot came from. A floor on the way up
+   -- never below what holds the pit -- was tried, with the plant's static gain as the estimate,
+   and overshot the simulator's capture by 18.6 F against the 8 F the test allows, for the reason
+   the brake exists: a pit fed at its hold feed until it arrives carries a dead time's rise past
+   the target. The brake stays. With the band back at the tuned width the brake is a fifth weaker
+   too (Kd = Td / PB), which is the proportion the log shows it was over-braking by.

@@ -863,8 +863,6 @@ details[open] > summary::after { transform: rotate(-90deg); }
 .pcell .n .sig { margin-right: 4px; color: var(--info-ink); }
 .pcell .n .batt.low { color: var(--warn-ink); }
 .pcell .n .batt.crit { color: var(--danger-ink); }
-.batt.unknown { opacity: .6; }
-.batt.unknown b { color: var(--muted); }
 .irow-main .t .sig, .irow-main .t .batt { margin: 0; }
 .irow-main .t .sig, .irow-main .t .batt:not(.low):not(.crit) { color: var(--muted); }
 .pcell .amb { font-size: var(--fs-xs); color: var(--muted); margin-top: -2px; }
@@ -1337,11 +1335,11 @@ main.view > :first-child { margin-top: 12px; }
 
 /* Battery: a small cell that fills in proportion, with the number beside it. A percentage on its
    own next to a probe name could be signal, doneness or duty; the cell says which. */
-/* an upright cell: the terminal is drawn above the case, so the case must not clip it -- clipped, it
-   was a rounded rectangle with a number in it. The charge stays inside the case by geometry. */
-.batt { position: relative; display: inline-block; width: 14px; height: 21px; border: 1.5px solid var(--text); border-radius: 3px; color: var(--text); vertical-align: middle; box-sizing: border-box; flex: none; margin-top: 3px; background: color-mix(in oklab, var(--text) 8%, transparent); }
-.batt::after { content: ""; position: absolute; top: -4.5px; left: 50%; transform: translateX(-50%); width: 6px; height: 3px; background: var(--text); border-radius: 1.5px 1.5px 0 0; }
-.batt i { position: absolute; left: 1px; right: 1px; bottom: 1px; max-height: calc(100% - 2px); background: currentColor; opacity: .45; border-radius: 1px; }
+/* the cell iOS draws: horizontal, the terminal at the right, the charge filling from the left
+   behind the number inside; the case must not clip the terminal */
+.batt { position: relative; display: inline-block; width: 27px; height: 13px; border: 1.5px solid var(--text); border-radius: 3.5px; color: var(--text); vertical-align: middle; box-sizing: border-box; flex: none; margin-right: 3px; background: color-mix(in oklab, var(--text) 8%, transparent); }
+.batt::after { content: ""; position: absolute; right: -4.5px; top: 50%; transform: translateY(-50%); width: 3px; height: 6px; background: var(--text); border-radius: 0 1.5px 1.5px 0; }
+.batt i { position: absolute; left: 1px; top: 1px; bottom: 1px; max-width: calc(100% - 2px); background: currentColor; opacity: .45; border-radius: 1.5px; }
 .batt.low::after, .batt.crit::after { background: currentColor; }
 .batt.low, .batt.crit { border-color: currentColor; }
 .batt b { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; line-height: 1; letter-spacing: -.03em; font-variant-numeric: tabular-nums; color: var(--text); }
