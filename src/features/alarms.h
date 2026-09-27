@@ -65,6 +65,13 @@ int  pf_alarms_ack_all(void);
 /* Silence one for a while without fixing it, and without pretending it is not there. */
 int  pf_alarms_shelve(const char *key, double seconds);
 
+/* A word the panel flashes for this one until it is acknowledged -- "TIMER", a probe's name.
+ * Only the moments that stop a cook mid-thought carry one; the rest sit in the list. */
+void pf_alarms_flash(const char *key, const char *word);
+void pf_alarms_flash_code(const char *code, const char *word);   /* the newest entry with this code */
+/* The word to flash right now: the newest unacknowledged entry carrying one. 0 = nothing. */
+int  pf_alarms_flash_word(char *out, size_t n);
+
 cJSON   *pf_alarms_json(void);
 unsigned pf_alarms_generation(void);
 int      pf_alarms_unacked(void);

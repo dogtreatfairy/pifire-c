@@ -164,35 +164,61 @@ static void test_menus_by_mode(void)
 	pf_ui_state ui = { 0 };
 	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_ROOT);
 
+	/* one order in every mode: what you can do, Stop, then Settings and Network Info */
 	cJSON *st = cJSON_Parse("{\"mode\":\"Stop\"}");
 	int n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
-	TEST_ASSERT_EQUAL_INT(6, n);
+	TEST_ASSERT_EQUAL_INT(7, n);
 	TEST_ASSERT_EQUAL_STRING("Startup", items[0].label);
 	TEST_ASSERT_EQUAL_STRING("Monitor", items[1].label);
-	TEST_ASSERT_EQUAL_STRING("Network Info", items[2].label);
+	TEST_ASSERT_EQUAL_STRING("Timer", items[2].label);
 	TEST_ASSERT_EQUAL_STRING("Settings", items[3].label);
-	TEST_ASSERT_EQUAL_STRING("Power", items[4].label);
-	TEST_ASSERT_EQUAL_STRING("Back", items[5].label);
+	TEST_ASSERT_EQUAL_STRING("Network Info", items[4].label);
+	TEST_ASSERT_EQUAL_STRING("Power", items[5].label);
+	TEST_ASSERT_EQUAL_STRING("Back", items[6].label);
 	cJSON_Delete(st);
 
-	/* the active menu offers the opposite mode, ending the cook and an emergency stop */
+	/* the active menu offers the opposite mode, the probes, a timer, shutdown and a confirmed stop */
 	st = cJSON_Parse("{\"mode\":\"Hold\"}");
 	n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
 	TEST_ASSERT_EQUAL_STRING("Smoke Mode", items[0].label);
-	TEST_ASSERT_EQUAL_STRING("End Cook", items[1].label);
-	TEST_ASSERT_EQUAL_STRING("Emergency Stop", items[n - 2].label);
-	TEST_ASSERT_TRUE(items[n - 2].danger);
+	TEST_ASSERT_EQUAL_STRING("Probe Target", items[1].label);
+	TEST_ASSERT_EQUAL_STRING("Timer", items[2].label);
+	TEST_ASSERT_EQUAL_STRING("Shutdown", items[3].label);
+	TEST_ASSERT_EQUAL_STRING("Stop Grill", items[4].label);
+	TEST_ASSERT_TRUE(items[4].danger);
+	TEST_ASSERT_EQUAL_STRING("Settings", items[5].label);
+	TEST_ASSERT_EQUAL_STRING("Network Info", items[6].label);
+	TEST_ASSERT_EQUAL_STRING("Back", items[7].label);
 	cJSON_Delete(st);
-	st = cJSON_Parse("{\"mode\":\"Smoke\"}");
+	st = cJSON_Parse("{\"mode\":\"Smoke\",\"timer\":{\"running\":true}}");
 	n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
 	TEST_ASSERT_EQUAL_STRING("Hold Mode", items[0].label);
+	TEST_ASSERT_EQUAL_STRING("Cancel Timer", items[2].label);
 	cJSON_Delete(st);
 
 	st = cJSON_Parse("{\"mode\":\"Monitor\"}");
 	n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
 	TEST_ASSERT_EQUAL_STRING("Control", items[0].label);
 	TEST_ASSERT_EQUAL_STRING("Startup", items[1].label);
-	TEST_ASSERT_EQUAL_STRING("Stop", items[2].label);
+	TEST_ASSERT_EQUAL_STRING("Timer", items[2].label);
+	TEST_ASSERT_EQUAL_STRING("Stop Grill", items[3].label);
+	cJSON_Delete(st);
+
+	/* with a recipe running the menu is the recipe's: continue or skip, back, leave, stop */
+	st = cJSON_Parse("{\"mode\":\"Hold\",\"recipe\":{\"active\":true,\"waiting\":false,\"step\":1,\"nsteps\":5}}");
+	n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
+	TEST_ASSERT_EQUAL_INT(7, n);
+	TEST_ASSERT_EQUAL_STRING("Skip Forward", items[0].label);
+	TEST_ASSERT_EQUAL_STRING("Skip Back", items[1].label);
+	TEST_ASSERT_EQUAL_STRING("Exit Recipe", items[2].label);
+	TEST_ASSERT_EQUAL_STRING("Stop Grill", items[3].label);
+	TEST_ASSERT_EQUAL_STRING("Settings", items[4].label);
+	TEST_ASSERT_EQUAL_STRING("Network Info", items[5].label);
+	cJSON_Delete(st);
+	st = cJSON_Parse("{\"mode\":\"Hold\",\"recipe\":{\"active\":true,\"waiting\":true,\"step\":1,\"nsteps\":5}}");
+	n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
+	TEST_ASSERT_EQUAL_STRING("Continue", items[0].label);
+	TEST_ASSERT_EQUAL_INT(PF_ACT_RECIPE_NEXT, items[0].act);
 	cJSON_Delete(st);
 
 	/* the Bluetooth submenu only offers Edit and Delete once something is paired */
@@ -309,16 +335,17 @@ static void test_settings_menu_offers_the_margin_editor(void)
 	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_SETTINGS);
 	cJSON *st = cJSON_Parse("{\"mode\":\"Stop\"}");
 	int n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
-	TEST_ASSERT_EQUAL_INT(4, n);
-	TEST_ASSERT_EQUAL_STRING("Screen Margins", items[0].label);
-	TEST_ASSERT_EQUAL(PF_ACT_MARGINS, items[0].act);
-	TEST_ASSERT_EQUAL_STRING("Theme", items[1].label);
+	TEST_ASSERT_EQUAL_INT(5, n);
+	TEST_ASSERT_EQUAL_STRING("Bluetooth Probes", items[0].label);
+	TEST_ASSERT_EQUAL_STRING("Screen Margins", items[1].label);
+	TEST_ASSERT_EQUAL(PF_ACT_MARGINS, items[1].act);
+	TEST_ASSERT_EQUAL_STRING("Theme", items[2].label);
 	/* Whether the panel is wired RGB or BGR is a question about the thing in front of you, so it
 	   is answered from the panel and shows its current answer beside it. */
-	TEST_ASSERT_EQUAL_STRING("Colour Order", items[2].label);
-	TEST_ASSERT_EQUAL(PF_ACT_COLOUR, items[2].act);
-	TEST_ASSERT_EQUAL_STRING("RGB", items[2].right);
-	TEST_ASSERT_EQUAL_STRING("Back", items[3].label);
+	TEST_ASSERT_EQUAL_STRING("Colour Order", items[3].label);
+	TEST_ASSERT_EQUAL(PF_ACT_COLOUR, items[3].act);
+	TEST_ASSERT_EQUAL_STRING("RGB", items[3].right);
+	TEST_ASSERT_EQUAL_STRING("Back", items[4].label);
 	cJSON_Delete(st);
 
 	/* the editor draws the drawable area, so a left or top margin has to move the picture, not
@@ -419,6 +446,39 @@ static void test_main_screen_focus_and_its_menus(void)
 	pf_gfx_free(&g);
 }
 
+/* A timer running out or a probe arriving takes the whole screen: orange, with the word, in turn
+ * with the interface. And a recipe shows its step in the banner. */
+static void test_the_flash_and_the_recipe_banner(void)
+{
+	pf_gfx g;
+	TEST_ASSERT_EQUAL_INT(0, pf_gfx_init(&g, 320, 240));
+	pf_gfx_set_theme(&g, "dark");
+	cJSON *st = cJSON_Parse(status_json);
+	pf_ui_state ui = { 0 };
+	pf_nav_reset(&ui);
+	snprintf(ui.attention, sizeof ui.attention, "Probe 1");
+	ui.blink = true;
+	render_to(&g, st, &ui, "flash_on");
+	/* the buffer holds pixels byte-swapped for the panel's SPI order */
+	uint16_t accent_px = (uint16_t)((g.th.accent << 8) | (g.th.accent >> 8));
+	TEST_ASSERT_EQUAL_UINT16_MESSAGE(accent_px, g.px[4 * g.w + 4], "the flash frame is the accent, corner to corner");
+	ui.blink = false;
+	render_to(&g, st, &ui, "flash_off");
+	TEST_ASSERT_TRUE_MESSAGE(g.px[4 * g.w + 4] != accent_px, "the other frame is the interface");
+	ui.attention[0] = 0;
+	cJSON *rc = cJSON_AddObjectToObject(st, "recipe");
+	cJSON_AddBoolToObject(rc, "active", true); cJSON_AddNumberToObject(rc, "step", 1); cJSON_AddNumberToObject(rc, "nsteps", 5); cJSON_AddBoolToObject(rc, "waiting", true);
+	render_to(&g, st, &ui, "recipe_banner");
+	cJSON *tm = cJSON_GetObjectItem(st, "timer");
+	cJSON_ReplaceItemInObject(tm, "running", cJSON_CreateTrue()); cJSON_ReplaceItemInObject(tm, "remaining", cJSON_CreateNumber(754));
+	render_to(&g, st, &ui, "timer_running");
+	ui.temp_kind = 1; ui.temp_value = 30; ui.temp_editing = true; snprintf(ui.temp_title, sizeof ui.temp_title, "TIMER"); snprintf(ui.temp_button, sizeof ui.temp_button, "Start");
+	pf_nav_push(&ui, PF_SCR_TEMP, 0);
+	render_to(&g, st, &ui, "timer_select");
+	cJSON_Delete(st);
+	pf_gfx_free(&g);
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -431,5 +491,6 @@ int main(void)
 	RUN_TEST(test_navigation_stack);
 	RUN_TEST(test_text_metrics);
 	RUN_TEST(test_main_screen_focus_and_its_menus);
+	RUN_TEST(test_the_flash_and_the_recipe_banner);
 	return UNITY_END();
 }

@@ -42,6 +42,7 @@ typedef struct {
 	 * the remedy lives on. */
 	char fix[24];
 	double snooze_s;
+	char flash[24];   /* what the panel flashes until this is acknowledged */
 } alarm_t;
 
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
@@ -275,6 +276,40 @@ int pf_alarms_unacked(void)
 	return n;
 }
 
+void pf_alarms_flash(const char *key, const char *word)
+{
+	pthread_mutex_lock(&g_mu);
+	for (int i = 0; i < PF_ALARMS_MAX; i++)
+		if (g_tab[i].used && !strcmp(g_tab[i].key, key)) { pf_strlcpy(g_tab[i].flash, word ? word : "", sizeof g_tab[i].flash); break; }
+	pthread_mutex_unlock(&g_mu);
+}
+
+void pf_alarms_flash_code(const char *code, const char *word)
+{
+	pthread_mutex_lock(&g_mu);
+	alarm_t *best = NULL;
+	for (int i = 0; i < PF_ALARMS_MAX; i++)
+		if (g_tab[i].used && !strcmp(g_tab[i].code, code) && (!best || g_tab[i].raised_ts > best->raised_ts)) best = &g_tab[i];
+	if (best) pf_strlcpy(best->flash, word ? word : "", sizeof best->flash);
+	pthread_mutex_unlock(&g_mu);
+}
+
+int pf_alarms_flash_word(char *out, size_t n)
+{
+	double now = pf_wall();
+	pthread_mutex_lock(&g_mu);
+	const alarm_t *best = NULL;
+	for (int i = 0; i < PF_ALARMS_MAX; i++) {
+		const alarm_t *a = &g_tab[i];
+		if (!a->used || a->retired || a->acked || !a->flash[0] || a->shelved_until > now) continue;
+		if (!a->active && !a->notice) continue;
+		if (!best || a->raised_ts > best->raised_ts) best = a;
+	}
+	if (best) pf_strlcpy(out, best->flash, n); else if (n) out[0] = 0;
+	pthread_mutex_unlock(&g_mu);
+	return best != NULL;
+}
+
 cJSON *pf_alarms_json(void)
 {
 	double now = pf_wall();
@@ -300,6 +335,7 @@ cJSON *pf_alarms_json(void)
 		if (a->raises > 1) cJSON_AddNumberToObject(e, "raises", a->raises);
 		if (a->shelved_until > now) cJSON_AddNumberToObject(e, "shelved_for", round(a->shelved_until - now));
 		if (a->fix[0]) cJSON_AddStringToObject(e, "fix", a->fix);
+		if (a->flash[0]) cJSON_AddStringToObject(e, "flash", a->flash);
 		if (a->snooze_s > 0) cJSON_AddNumberToObject(e, "snooze_s", a->snooze_s);
 		cJSON_AddItemToArray(arr, e);
 		if (!a->acked) unacked++;

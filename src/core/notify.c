@@ -1,4 +1,5 @@
 #include "core/notify.h"
+#include "features/alarms.h"
 #include "core/events.h"
 #include "core/settings.h"
 #include "core/log.h"
@@ -278,6 +279,7 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 		int after = n->timer.after;
 		int mins = (int)(n->timer.duration / 60), secs = (int)n->timer.duration % 60;
 		pf_events_emit("Timer_Expired", "Timer finished", "The %d:%02d timer is done.%s", mins, secs, after_text(after));
+		pf_alarms_flash_code("Timer_Expired", "TIMER");   /* the panel flashes it until somebody looks */
 		pf_notify_timer_cancel(n);
 		if (after != PF_AFTER_NONE) n->pending_action = after;
 	}

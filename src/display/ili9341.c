@@ -17,6 +17,7 @@
 #include "display/registry.h"
 #include "display/screens.h"
 #include "features/pellets.h"
+#include "features/alarms.h"
 #include "probes/ble/bluez.h"
 #include "probes/probes.h"
 #include "hal/gpio.h"
@@ -181,12 +182,25 @@ static void open_temp(tft_t *t, pf_action act, const char *title, const char *bu
 	if (value > hi) value = hi;
 	t->ui.temp_value = round(value);
 	t->ui.temp_action = act;
+	t->ui.temp_kind = 0;
 	t->ui.temp_focus = 0;
 	/* open ready to edit: the knob changes the temperature straight away, one press accepts it and
 	 * moves to the action button, so a double press starts at whatever is on screen */
 	t->ui.temp_editing = true;
 	pf_strlcpy(t->ui.temp_title, title, sizeof t->ui.temp_title);
 	pf_strlcpy(t->ui.temp_button, button, sizeof t->ui.temp_button);
+	pf_nav_push(&t->ui, PF_SCR_TEMP, 0);
+}
+
+static void open_timer(tft_t *t)
+{
+	t->ui.temp_value = 30;
+	t->ui.temp_action = PF_ACT_TIMER;
+	t->ui.temp_kind = 1;
+	t->ui.temp_focus = 0;
+	t->ui.temp_editing = true;
+	pf_strlcpy(t->ui.temp_title, "TIMER", sizeof t->ui.temp_title);
+	pf_strlcpy(t->ui.temp_button, "Start", sizeof t->ui.temp_button);
 	pf_nav_push(&t->ui, PF_SCR_TEMP, 0);
 }
 
@@ -204,12 +218,13 @@ static void spin_temp(tft_t *t, int dir, double now)
 {
 	bool c = false;
 	double step = temp_step(t, &c), lo = c ? 50 : 120, hi = c ? 300 : 570;
+	if (t->ui.temp_kind == 1) { step = 1; lo = 1; hi = 600; }   /* minutes: one a click, faster when spun */
 	if (now - t->spin_last_t < 0.5) t->spin_count++; else t->spin_count = 0;
 	t->spin_last_t = now;
-	if (t->spin_count >= 7) step *= 6; else if (t->spin_count >= 3) step *= 4;
+	if (t->spin_count >= 7) step *= t->ui.temp_kind == 1 ? 10 : 6; else if (t->spin_count >= 3) step *= t->ui.temp_kind == 1 ? 5 : 4;
 	t->ui.temp_value += dir * step;
-	if (t->ui.temp_value > hi) t->ui.temp_value = lo;
-	if (t->ui.temp_value < lo) t->ui.temp_value = hi;
+	if (t->ui.temp_kind == 1) { if (t->ui.temp_value > hi) t->ui.temp_value = hi; if (t->ui.temp_value < lo) t->ui.temp_value = lo; }
+	else { if (t->ui.temp_value > hi) t->ui.temp_value = lo; if (t->ui.temp_value < lo) t->ui.temp_value = hi; }
 	t->ui.temp_value = round(t->ui.temp_value);
 }
 
@@ -495,6 +510,27 @@ static void do_action(tft_t *t, pf_action act, int arg)
 		show_message(t, msg, 2);
 		return;
 	}
+	case PF_ACT_TIMER:
+		open_timer(t);
+		return;
+	case PF_ACT_TIMER_CANCEL:
+		c.type = PF_CMD_TIMER_CANCEL; pf_cmdq_push(&c);
+		show_message(t, "Timer cancelled", 2);
+		return;
+	case PF_ACT_RECIPE_NEXT:
+		c.type = PF_CMD_RECIPE_NEXT; pf_cmdq_push(&c); break;
+	case PF_ACT_RECIPE_SKIP:
+		open_confirm(t, PF_ACT_RECIPE_SKIP, "Skip to the next step?", "Skip", false);
+		return;
+	case PF_ACT_RECIPE_BACK:
+		open_confirm(t, PF_ACT_RECIPE_BACK, "Back to the previous step?", "Back", false);
+		return;
+	case PF_ACT_RECIPE_EXIT:
+		open_confirm(t, PF_ACT_RECIPE_EXIT, "Leave the recipe? The grill keeps its mode.", "Leave", true);
+		return;
+	case PF_ACT_STOP_GRILL:
+		open_confirm(t, PF_ACT_STOP, "Stop the grill?", "Stop", true);
+		return;
 	case PF_ACT_HOPPER_FULL:
 		open_confirm(t, PF_ACT_HOPPER_FULL, "Hopper is full now?", "Set", false);
 		return;
@@ -561,6 +597,10 @@ static void temp_confirm(tft_t *t)
 		pf_strlcpy(c.str, t->ui.temp_probe, sizeof c.str);
 		pf_cmdq_push(&c);
 		break;
+	case PF_ACT_TIMER:
+		c.type = PF_CMD_TIMER_START; c.num = t->ui.temp_value * 60; c.aux = 0;
+		pf_cmdq_push(&c);
+		break;
 	default: break;
 	}
 	pf_nav_reset(&t->ui);
@@ -583,6 +623,12 @@ static void confirm_yes(tft_t *t)
 		redraw(t);
 		pf_sleep_ms(400);
 		pf_system_power(reboot);   /* the simulator never loads this driver */
+		return;
+	}
+	if (act == PF_ACT_RECIPE_SKIP || act == PF_ACT_RECIPE_BACK || act == PF_ACT_RECIPE_EXIT) {
+		pf_cmd c = { .type = act == PF_ACT_RECIPE_SKIP ? PF_CMD_RECIPE_SKIP : act == PF_ACT_RECIPE_BACK ? PF_CMD_RECIPE_BACK : PF_CMD_RECIPE_STOP };
+		pf_cmdq_push(&c);
+		pf_nav_reset(&t->ui);
 		return;
 	}
 	if (act == PF_ACT_BT_ADD) { int i = pf_nav_top(&t->ui) ? pf_nav_top(&t->ui)->index : 0; pf_nav_pop(&t->ui); bt_add(t, i); return; }
@@ -801,6 +847,16 @@ static void handle_key(tft_t *t, pf_key k, double now)
 static void input(tft_t *t, pf_key k)
 {
 	pthread_mutex_lock(&t->mu);
+	if (t->ui.attention[0]) {
+		/* the press is the acknowledgement: the flash stops here and on the phone, and the press
+		 * does nothing else -- it was aimed at the flash, not at whatever is under it */
+		pf_alarms_ack_all();
+		t->ui.attention[0] = 0;
+		t->last_activity = pf_now();
+		redraw(t);
+		pthread_mutex_unlock(&t->mu);
+		return;
+	}
 	handle_key(t, k, pf_now());
 	redraw(t);
 	pthread_mutex_unlock(&t->mu);
@@ -851,7 +907,10 @@ static void *encoder_thread(void *arg)
 						pthread_mutex_lock(&t->mu);
 						bool on_main = t->ui.depth == 0;
 						pthread_mutex_unlock(&t->mu);
-						if (!on_main) input(t, PF_KEY_ENTER);
+						pthread_mutex_lock(&t->mu);
+						bool flashing = t->ui.attention[0] != 0;
+						pthread_mutex_unlock(&t->mu);
+						if (!on_main || flashing) input(t, PF_KEY_ENTER);
 						else if (click_pending && now - click_t <= DOUBLE_CLICK_S) { click_pending = false; input(t, PF_KEY_DOUBLE); }
 						else { click_pending = true; click_t = now; }
 					}
@@ -1012,6 +1071,12 @@ static void status(void *self, const char *json)
 	bt_collect(t);
 	if (t->ui.depth > 0 && pf_nav_screen(&t->ui) != PF_SCR_MESSAGE && !t->ui.bt_scanning && now - t->last_activity > MENU_TIMEOUT_S) pf_nav_reset(&t->ui);
 	if (t->ui.main_focus >= 0 && now > t->ui.main_focus_until) t->ui.main_focus = PF_FOCUS_NONE;
+	{
+		const char *word = pf_json_str(t->status, "attention", "");
+		bool had = t->ui.attention[0] != 0;
+		pf_strlcpy(t->ui.attention, word, sizeof t->ui.attention);
+		if (word[0] && !had) { if (!t->backlight_on) backlight(t, true); t->last_activity = now; }
+	}
 	if (!stopped && !t->backlight_on) backlight(t, true);                       /* any active mode: screen on */
 	if (stopped && t->backlight_on && t->backlight_timeout > 0 && pf_nav_screen(&t->ui) == PF_SCR_MAIN && now - t->last_activity > t->backlight_timeout) backlight(t, false);
 	redraw(t);

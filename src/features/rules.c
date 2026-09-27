@@ -575,6 +575,17 @@ static void rule_key(char *out, size_t n, const cJSON *rule, const inst *in)
 	         in && in->label ? in->label : "-");
 }
 
+/* does this condition tree test the given trait anywhere? */
+static bool when_has_trait(const cJSON *node, const char *trait)
+{
+	if (!node) return false;
+	const cJSON *tr = jget(node, "trait");
+	if (tr && cJSON_IsString(tr) && !strcmp(tr->valuestring, trait)) return true;
+	const cJSON *kids = jget(node, "conditions"), *k;
+	cJSON_ArrayForEach(k, kids) if (when_has_trait(k, trait)) return true;
+	return false;
+}
+
 /* `renotify` is a deliberate re-announcement of a condition that is still true -- the rule's own
  * repeat interval, which exists so a critical standing alarm keeps asking to be dealt with. It is
  * the one reason to speak again about something already on the list. */
@@ -592,6 +603,9 @@ static void fire(const cJSON *rule, const cJSON *status, const inst *in, const v
 	 * worth a phone buzzing, and only a new one counts as something to announce. */
 	const char *name = pf_json_str((cJSON *)rule, "name", code);
 	bool fresh = pf_alarms_raise(key, code, name, crit_of(rule), sink_mask(rule), title, body);
+	/* a probe arriving at its target is the moment the cook is waiting for: the panel flashes the
+	 * probe's name until somebody acknowledges it, on the panel or the phone */
+	if (fresh && in && in->name && when_has_trait(jget(rule, "when"), "target")) pf_alarms_flash(key, in->name);
 	if (!fresh && !renotify) return;
 	pf_events_emit_ex(code, crit_of(rule), sink_mask(rule), title, "%s", body);
 	g_fired_total++;

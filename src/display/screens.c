@@ -174,6 +174,7 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 
 	case PF_LIST_SETTINGS: {
 		/* only what is worth changing with the screen in front of you */
+		ADD(PF_ACT_LIST, PF_LIST_BT, "Bluetooth Probes");
 		ADD(PF_ACT_MARGINS, 0, "Screen Margins");
 		char th[16];
 		pf_set_str("display.theme", th, sizeof th, "dark");
@@ -307,37 +308,40 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 		break;
 	}
 
-	default:   /* PF_LIST_ROOT: the mode decides which menu this is */
-		if (!strcmp(mode, "Error")) {
+	default: {  /* PF_LIST_ROOT: what you can do now, Stop, then Settings and Network Info -- always in that order */
+		bool recipe = pf_json_bool((cJSON *)status, "recipe.active", false);
+		bool timer_on = pf_json_bool((cJSON *)status, "timer.running", false);
+		if (recipe) {
+			if (pf_json_bool((cJSON *)status, "recipe.waiting", false)) ADD(PF_ACT_RECIPE_NEXT, 0, "Continue");
+			else ADD(PF_ACT_RECIPE_SKIP, 0, "Skip Forward");
+			ADD(PF_ACT_RECIPE_BACK, 0, "Skip Back");
+			ADD(PF_ACT_RECIPE_EXIT, 0, "Exit Recipe"); DANGER();
+			ADD(PF_ACT_STOP_GRILL, 0, "Stop Grill"); DANGER();
+		} else if (!strcmp(mode, "Error")) {
 			ADD(PF_ACT_CLEAR_ERROR, 0, "Clear Error"); DANGER();
-			ADD(PF_ACT_NETINFO, 0, "Network Info");
-			ADD(PF_ACT_BACK, 0, "Back");
 		} else if (!strcmp(mode, "Monitor")) {
 			ADD(PF_ACT_MANUAL, 0, "Control");
 			ADD(PF_ACT_LIST, PF_LIST_STARTUP, "Startup");
-			ADD(PF_ACT_STOP, 0, "Stop"); DANGER();
-			ADD(PF_ACT_LIST, PF_LIST_BT, "Bluetooth Probes");
-			ADD(PF_ACT_NETINFO, 0, "Network Info");
-			ADD(PF_ACT_BACK, 0, "Back");
+			ADD(timer_on ? PF_ACT_TIMER_CANCEL : PF_ACT_TIMER, 0, timer_on ? "Cancel Timer" : "Timer");
+			ADD(PF_ACT_STOP_GRILL, 0, "Stop Grill"); DANGER();
 		} else if (!strcmp(mode, "Stop") || !strcmp(mode, "Prime")) {
 			ADD(PF_ACT_LIST, PF_LIST_STARTUP, "Startup");
 			ADD(PF_ACT_MONITOR, 0, "Monitor");
-			ADD(PF_ACT_NETINFO, 0, "Network Info");
-			ADD(PF_ACT_LIST, PF_LIST_SETTINGS, "Settings");
-			ADD(PF_ACT_LIST, PF_LIST_POWER, "Power");
-			ADD(PF_ACT_BACK, 0, "Back");
+			ADD(timer_on ? PF_ACT_TIMER_CANCEL : PF_ACT_TIMER, 0, timer_on ? "Cancel Timer" : "Timer");
 		} else {   /* the active menu: Startup, Reignite, Smoke, Hold, Shutdown, Manual */
 			if (!strcmp(mode, "Hold")) ADD(PF_ACT_SMOKE, 0, "Smoke Mode");
 			else ADD(PF_ACT_HOLD, 0, "Hold Mode");
-			ADD(PF_ACT_END_COOK, 0, "End Cook"); DANGER();   /* red: it stops the cook */
 			ADD(PF_ACT_LIST, PF_LIST_PROBE, "Probe Target");
-			ADD(PF_ACT_LIST, PF_LIST_BT, "Bluetooth Probes");
-			ADD(PF_ACT_NETINFO, 0, "Network Info");
-			ADD(PF_ACT_LIST, PF_LIST_SETTINGS, "Settings");
-			ADD(PF_ACT_ESTOP, 0, "Emergency Stop"); DANGER();
-			ADD(PF_ACT_BACK, 0, "Back");
+			ADD(timer_on ? PF_ACT_TIMER_CANCEL : PF_ACT_TIMER, 0, timer_on ? "Cancel Timer" : "Timer");
+			ADD(PF_ACT_END_COOK, 0, "Shutdown");
+			ADD(PF_ACT_STOP_GRILL, 0, "Stop Grill"); DANGER();
 		}
+		ADD(PF_ACT_LIST, PF_LIST_SETTINGS, "Settings");
+		ADD(PF_ACT_NETINFO, 0, "Network Info");
+		if (!strcmp(mode, "Stop")) ADD(PF_ACT_LIST, PF_LIST_POWER, "Power");
+		ADD(PF_ACT_BACK, 0, "Back");
 		break;
+	}
 	}
 #undef ADD
 #undef DANGER
@@ -370,6 +374,12 @@ static void draw_banner(pf_gfx *g, const cJSON *s, const char *mode, bool ring)
 		if (sp > 0 && steps > 1) snprintf(up, sizeof up, "AUTO TUNE %d  %d/%d", t, step, steps);
 		else if (sp > 0) snprintf(up, sizeof up, "AUTO TUNE %d", t);
 		else snprintf(up, sizeof up, "AUTO TUNING");
+	} else if (pf_json_bool((cJSON *)s, "recipe.active", false)) {
+		/* a recipe has the grill: which step of how many, and what it is doing -- or that it is
+		 * waiting for a hand, which is the one thing worth reading from across the yard */
+		int step = (int)pf_json_num((cJSON *)s, "recipe.step", 0) + 1, n = (int)pf_json_num((cJSON *)s, "recipe.nsteps", 0);
+		if (pf_json_bool((cJSON *)s, "recipe.waiting", false)) snprintf(up, sizeof up, "%d/%d CONTINUE?", step % 100, n % 100);
+		else snprintf(up, sizeof up, "%d/%d %.9s", step % 100, n % 100, mode);
 	} else {
 		snprintf(up, sizeof up, "%.12s", mode);
 	}
@@ -383,6 +393,13 @@ static void draw_banner(pf_gfx *g, const cJSON *s, const char *mode, bool ring)
 	if (is_timed(mode)) {
 		bool waiting = (!strcmp(mode, "Startup") || !strcmp(mode, "Reignite")) && pf_json_bool((cJSON *)s, "coldstart.active", false) && !pf_json_bool((cJSON *)s, "coldstart.reached", false) && remaining <= 0;
 		fmt_clock(clk, sizeof clk, waiting ? pf_json_num((cJSON *)s, "coldstart.remaining", 0) : remaining);
+	} else if (pf_json_bool((cJSON *)s, "timer.running", false)) {
+		/* a running timer takes the corner from the cook time: it is the one the cook set and is
+		 * waiting on. A mode's own countdown still comes first. */
+		fmt_clock(clk, sizeof clk, pf_json_num((cJSON *)s, "timer.remaining", 0));
+		pf_gfx_text_right(g, B, 9, W - 10, 1, "TIMER", tc);
+		pf_gfx_text_right(g, B, 18, W - 10, 11, clk, tc);
+		clk[0] = 0;
 	} else if (cook > 0) fmt_clock(clk, sizeof clk, cook);
 	if (clk[0]) pf_gfx_text_right(g, B, 22, W - 10, 4, clk, tc);
 }
@@ -465,7 +482,6 @@ static void draw_datablock(pf_gfx *g, const cJSON *s, const cJSON *primary, cons
 		/* Six pixels of bar is nothing at arm's length in daylight. Give it real height and an
 		 * outline, so the level reads as a level rather than as a hairline. */
 		pf_gfx_bar(g, x, ly + 2, w, 14, hop / 100.0, hc, g->th.card2);
-		pf_gfx_frame(g, x, ly + 2, w, 14, g->th.line);
 		g_hop_x = x - 4; g_hop_y = ly - l3 - 2; g_hop_w = w + 8; g_hop_h = l3 + 22;
 	}
 	if (pf_json_bool((cJSON *)s, "lid_open", false)) pf_gfx_text(g, B, p3, x, ly + 12, "LID OPEN", g->th.danger);
@@ -669,7 +685,7 @@ static void render_list(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 		 * the opposite colour, and text chosen for the fill. A slightly lighter shade of grey --
 		 * which is what this used to be in places -- disappears completely outdoors. */
 		uint16_t rowfill = items[i].danger ? g->th.danger : g->th.accent;
-		if (is) pf_sel_ring(g, 6, y + 1, W - 12, rowh - 3, 7, on_fill_text(g, rowfill), rowfill);
+		if (is) pf_gfx_rrect(g, 6, y + 1, W - 12, rowh - 3, 7, rowfill);   /* the fill is the selection; a ring around it read as a stray box */
 		int ty = y + (rowh - pf_gfx_line_height(B, px)) / 2;
 		uint16_t c = is ? on_fill_text(g, rowfill) : items[i].danger ? g->th.danger : g->th.text;
 		pf_gfx_text(g, B, px, 16, ty, items[i].label, c);
@@ -689,6 +705,7 @@ static void render_temp(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 	char v[16];
 	snprintf(v, sizeof v, "%.0f", ui->temp_value);
 	char unit[4] = { (char)0xC2, (char)0xB0, units[0], 0 };
+	if (ui->temp_kind == 1) snprintf(unit, sizeof unit, "MIN");
 	int bh = H - 34 - 46;
 	int big = W >= 320 ? 96 : 76;
 	int vw = pf_gfx_text_width(B, big, v), uw = pf_gfx_text_width(B, big / 3, unit);
@@ -914,6 +931,19 @@ void pf_screens_render(pf_gfx *g, const cJSON *status, const pf_ui_state *ui)
 {
 	pf_gfx_clear(g, g->th.bg);
 	pf_screen scr = pf_nav_screen(ui);
+	/* Something is waiting to be seen -- a timer has run out, a probe has arrived -- and the panel
+	 * says so with the whole screen: orange, with the word, alternating with the interface once a
+	 * second until a press here or a clear on the phone acknowledges it. */
+	if (ui->attention[0] && ui->blink) {
+		pf_gfx_clear(g, g->th.accent);
+		char word[24];
+		snprintf(word, sizeof word, "%.20s", ui->attention);
+		upper(word);
+		int px = 56;
+		while (px > 24 && pf_gfx_text_width(B, px, word) > g->vw - 24) px -= 4;
+		pf_gfx_text_center(g, B, px, g->vw / 2, g->vh / 2 - pf_gfx_line_height(B, px) / 2, word, g->th.accent_text);
+		return;
+	}
 	if (scr == PF_SCR_MESSAGE) {
 		int w = g->vw - 24, h = 72;
 		pf_gfx_rrect(g, 12, g->vh / 2 - h / 2, w, h, 8, g->th.card2);

@@ -697,6 +697,30 @@ as plain text ("81%") at the right -- the phone's cell with the number inside it
 at the panel's size; the reading; the time to target and the target. The signal bars and the
 ambient reading are gone from it.
 
+**The menu is one order everywhere.** Two quick presses open it, and it reads the same way in every
+mode: what you can do now first, then Stop, then Settings and Network Info. With a recipe running
+that is Continue (when a step is waiting) or Skip Forward, Skip Back, Exit Recipe, Stop Grill; in
+a cook it is the other mode, Probe Target, Timer, Shutdown, Stop Grill; stopped it is Startup,
+Monitor, Timer, then Power at the foot. Skipping in either direction, leaving a recipe and stopping
+the grill each confirm first. Bluetooth pairing lives under Settings. A selected row is the filled
+block alone -- the ring drawn around it read as a stray box on the red Stop row -- and the hopper's
+bar has no frame.
+
+**A recipe shows in the banner** as `2/5 HOLD`, the step of how many and what it is doing, and
+`2/5 CONTINUE?` while the step waits for a hand: the one thing worth reading from across the yard.
+
+**The panel can start a timer** in any mode without a recipe -- stopped and monitoring included --
+from the menu, in minutes on the same selector the temperatures use; while it runs it takes the
+banner's clock corner from the cook time (a mode's own countdown still comes first), and the menu
+offers Cancel Timer instead.
+
+**Something waiting to be seen takes the whole screen.** When a timer runs out or a probe reaches
+its target, the panel alternates its interface with a full orange frame carrying the word --
+TIMER, or the probe's name -- once a second, and wakes the backlight for it, until a press on the
+panel or a clear on the phone acknowledges it. The word comes from the daemon's alarm table (the
+`attention` field of the status), so both screens stop together; a press while it flashes does
+nothing else, since it was aimed at the flash.
+
 **No grey type.** Every word and number on the panel is white on the dark theme or black on the
 light one and on bright fills, or red, green, blue or orange where the colour carries a meaning.
 Nothing is "muted": the theme's muted colour is the text colour, and a secondary reading is drawn

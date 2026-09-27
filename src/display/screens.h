@@ -71,6 +71,13 @@ typedef enum {
 	PF_ACT_PROBE_CLEAR,   /* clear ui->probe_idx's target */
 	PF_ACT_MEAT,          /* arg = index into PF_MEATS: open its doneness list */
 	PF_ACT_DONE,          /* arg = index into that meat's doneness: set the target */
+	PF_ACT_TIMER,         /* open the minutes selector; confirmed, starts the timer */
+	PF_ACT_TIMER_CANCEL,
+	PF_ACT_RECIPE_NEXT,   /* continue past a step that is waiting */
+	PF_ACT_RECIPE_SKIP,   /* confirmed: end this step now */
+	PF_ACT_RECIPE_BACK,   /* confirmed: begin the previous step again */
+	PF_ACT_RECIPE_EXIT,   /* confirmed: leave the recipe, the grill keeps its mode */
+	PF_ACT_STOP_GRILL,    /* confirmed: stop */
 } pf_action;
 
 typedef struct {
@@ -130,6 +137,7 @@ typedef struct {
 	int temp_focus;            /* 0 = the value, 1 = the action button, 2 = Back */
 	bool temp_editing;         /* a press on the value toggles this */
 	pf_action temp_action;     /* what the action button does once pressed */
+	int temp_kind;             /* 0 = a temperature, 1 = minutes (the timer) */
 	char temp_title[20], temp_button[12], temp_probe[32];
 
 	/* confirmation */
@@ -158,6 +166,9 @@ typedef struct {
 	double main_focus_until;
 	/* the probe and meat a target is being chosen for (status index, PF_MEATS index) */
 	int probe_idx, meat_idx;
+
+	/* the word the daemon wants flashed until somebody acknowledges it: TIMER, a probe's name */
+	char attention[24];
 
 	char message[64];
 	double message_until;

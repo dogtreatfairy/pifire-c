@@ -1,5 +1,6 @@
 #include "core/status.h"
 #include "features/tuner.h"
+#include "features/alarms.h"
 #include "core/settings.h"
 #include "core/util.h"
 #include "features/learning.h"
@@ -70,6 +71,11 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 	 * climb to measure, which is why it comes from what the grill has learned rather than from a
 	 * line fitted through the last few minutes. -1 while it does not know enough to say. */
 	cJSON_AddNumberToObject(o, "setpoint_eta_s", s->setpoint_eta_s >= 0 ? round(s->setpoint_eta_s) : -1);
+	{
+		char word[24] = "";
+		pf_alarms_flash_word(word, sizeof word);
+		cJSON_AddStringToObject(o, "attention", word);   /* what the panel flashes until it is acknowledged */
+	}
 	cJSON_AddBoolToObject(o, "sim", s->sim);
 	cJSON_AddNumberToObject(o, "hopper_pct", s->hopper_pct);
 	add_num_or_null(o, "ambient", r1(conv(s->ambient_c, units)));
