@@ -674,17 +674,15 @@ export function updatedDialog(u) {
       el('button', { class: 'btn primary', type: 'button', onclick: (e) => { log.hidden = !log.hidden; e.currentTarget.textContent = log.hidden ? 'Changelog' : 'Hide changelog'; } }, 'Changelog'))));
 }
 
-/* What the last install left: shown once per device, whether the install was asked for on the
-   update page or happened on its own overnight and the app was simply opened afterwards. */
+/* What the last install left: shown once, on whichever device opens the app first afterwards,
+   whether the install was asked for on the update page or happened on its own overnight. The
+   daemon holds the record and forgets it the moment one screen has shown it. */
 async function announceInstall() {
   try {
     const u = await api('/update', { timeout: 5000 });
     const inst = u?.installed;
     if (!inst?.ts) return;
-    let seen = 0;
-    try { seen = Number(localStorage.getItem('pf.install_seen') || 0); } catch { /* private mode */ }
-    if (inst.ts <= seen) return;
-    try { localStorage.setItem('pf.install_seen', String(inst.ts)); } catch { /* private mode */ }
+    api('/update/seen', { body: {} }).catch(() => {});
     updatedDialog({ to: u.current || inst.tag, from: inst.from, notes: inst.notes });
   } catch { /* offline: next time */ }
 }

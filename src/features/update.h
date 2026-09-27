@@ -12,6 +12,8 @@ int    pf_update_install(char *err, size_t n);/* start download+verify+apply; 0 
 cJSON *pf_update_status_json(void);
 /* where the updater is, for the status: state name and download progress 0..1 */
 void   pf_update_stage(char *state, size_t n, double *progress);
+/* somebody has read the "Updated to X" announcement: it is shown once, on one device */
+void   pf_update_installed_seen(void);
 const char *pf_update_arch(void);
 /* "v1.2.3" vs "1.2.4" -> <0, 0, >0 (exposed for tests) */
 int    pf_version_compare(const char *a, const char *b);

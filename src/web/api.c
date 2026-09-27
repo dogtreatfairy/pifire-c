@@ -552,6 +552,7 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		return;
 	}
 	if (post && !strcmp(p, "/tune/stop")) { pf_tuner_stop("Stopped from the app."); reply_ok(resp); return; }
+	if (post && !strcmp(p, "/update/seen")) { pf_update_installed_seen(); reply_ok(resp); return; }
 	if (post && !strcmp(p, "/tune/remove")) {
 		/* one entry out of the library, by set point in the user's units; the rest stay */
 		cJSON *b = req->body_len ? cJSON_Parse(req->body) : NULL;

@@ -1035,8 +1035,8 @@ While the daemon updates itself the app shows one full-screen stage on every pag
 ring, then Downloading with the percentage, Updating, Rebooting once the daemon has gone away,
 Reloading when it answers running the new version -- whether the install was asked for on the
 update page or happened on its own at two in the morning with the app open. After the reload,
-and after any install the daemon made while nobody was looking, the app says once per device
-"Updated to X", with Close on the left and Changelog on the right, which unfolds the release's
+and after any install the daemon made while nobody was looking, the app says once, on whichever
+device opens it first, "Updated to X", with Close on the left and Changelog on the right, which unfolds the release's
 notes in place. The record of what was installed lives in the daemon (`installed` on `/update`),
 so an unattended install is announced exactly like a chosen one.
 

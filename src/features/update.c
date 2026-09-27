@@ -424,6 +424,15 @@ void pf_update_init(const char *data_dir, bool sim)
 	LOGI(TAG, "version %s (%s)", PF_VERSION, pf_update_arch());
 }
 
+void pf_update_installed_seen(void)
+{
+	pthread_mutex_lock(&g.mu);
+	cJSON_Delete(g.installed);
+	g.installed = NULL;
+	pthread_mutex_unlock(&g.mu);
+	if (pf_db_handle()) pf_db_kv_delete("update", "installed");
+}
+
 void pf_update_stage(char *state, size_t n, double *progress)
 {
 	pthread_mutex_lock(&g.mu);
