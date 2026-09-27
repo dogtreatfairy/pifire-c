@@ -484,6 +484,29 @@ static void test_power_loss_recovery(void)
 	TEST_ASSERT_FALSE_MESSAGE(pf_file_exists("/tmp/pf_test_checkpoint.json"), "a stopped grill has nothing to recover");
 }
 
+/* A hold temperature chosen during startup must not end startup: the fire is not lit. It is
+ * where startup goes when it finishes. Ryan changed the hold temperature while the grill was
+ * lighting and it went straight to Hold with a cold pot. */
+static void test_a_hold_request_during_startup_waits_for_ignition(void)
+{
+	pf_cmd_mode(PF_MODE_STARTUP, 0);
+	tick(30);
+	TEST_ASSERT_EQUAL(PF_MODE_STARTUP, ctrl.mode);
+	pf_cmd_mode(PF_MODE_HOLD, 250);            /* a Hold request, unforced */
+	tick(5);
+	TEST_ASSERT_EQUAL_MESSAGE(PF_MODE_STARTUP, ctrl.mode, "startup goes on until the fire is lit");
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.next_mode);
+	TEST_ASSERT_DOUBLE_WITHIN(0.5, pf_f_to_c(250), ctrl.setpoint_c);
+	pf_cmd c = { .type = PF_CMD_SETPOINT, .num = 275 };   /* and a plain set-point change likewise */
+	pf_cmdq_push(&c);
+	tick(5);
+	TEST_ASSERT_EQUAL(PF_MODE_STARTUP, ctrl.mode);
+	TEST_ASSERT_DOUBLE_WITHIN(0.5, pf_f_to_c(275), ctrl.setpoint_c);
+	tick(300);
+	TEST_ASSERT_EQUAL_MESSAGE(PF_MODE_HOLD, ctrl.mode, "and it finishes into Hold at that temperature");
+	TEST_ASSERT_DOUBLE_WITHIN(0.5, pf_f_to_c(275), ctrl.setpoint_c);
+}
+
 int main(void)
 {
 	pf_log_init(PF_LOG_WARN);
@@ -500,5 +523,6 @@ int main(void)
 	RUN_TEST(test_manual_refused_and_override_expires);
 	RUN_TEST(test_warm_restart_resumes_hold);
 	RUN_TEST(test_power_loss_recovery);
+	RUN_TEST(test_a_hold_request_during_startup_waits_for_ignition);
 	return UNITY_END();
 }

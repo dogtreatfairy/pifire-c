@@ -147,14 +147,100 @@ int pf_main_focus_step(const cJSON *status, int cur, int dir)
 	const cJSON *food[3];
 	int nf = main_food(status, food, 3);
 	bool hopper = pf_json_num((cJSON *)status, "hopper_pct", -1) >= 0;
+	bool timer = pf_json_bool((cJSON *)status, "timer.running", false);
 	int n = PF_FOCUS_PROBE0 + nf;
-	if (cur < 0) return PF_FOCUS_PIT;
+	if (cur < 0) return PF_FOCUS_SETPOINT;
 	for (int k = 0; k < n; k++) {
 		cur = ((cur + (dir > 0 ? 1 : -1)) % n + n) % n;
 		if (cur == PF_FOCUS_HOPPER && !hopper) continue;
+		if (cur == PF_FOCUS_TIMER && !timer) continue;
 		return cur;
 	}
-	return PF_FOCUS_PIT;
+	return PF_FOCUS_SETPOINT;
+}
+
+/* ---- the marks on menu rows: lines, discs and arcs, nothing typed ---- */
+static void draw_icon(pf_gfx *g, pf_icon ic, int x, int y, uint16_t c)
+{
+	/* a 16-pixel box with its top-left at (x, y) */
+	double cx = x + 8, cy = y + 8, t = 1.8;
+	switch (ic) {
+	case PF_ICON_PLAY:
+		pf_gfx_line(g, x + 4, y + 2, x + 4, y + 14, t, c); pf_gfx_line(g, x + 4, y + 2, x + 14, y + 8, t, c); pf_gfx_line(g, x + 4, y + 14, x + 14, y + 8, t, c); break;
+	case PF_ICON_HOLD:
+		pf_gfx_arc(g, (int)cx, (int)cy, 5, 7, 0, 360, c);
+		pf_gfx_line(g, cx, y + 0.5, cx, y + 4, t, c); pf_gfx_line(g, cx, y + 12, cx, y + 15.5, t, c);
+		pf_gfx_line(g, x + 0.5, cy, x + 4, cy, t, c); pf_gfx_line(g, x + 12, cy, x + 15.5, cy, t, c); break;
+	case PF_ICON_SMOKE:
+		pf_gfx_disc(g, x + 5, y + 10, 4, c); pf_gfx_disc(g, x + 9, y + 7, 5, c); pf_gfx_disc(g, x + 12, y + 10, 3, c);
+		pf_gfx_rect(g, x + 4, y + 10, 10, 4, c); break;
+	case PF_ICON_STOP:
+		pf_gfx_rrect(g, x + 2, y + 2, 12, 12, 2, c); break;
+	case PF_ICON_POWER:
+		pf_gfx_arc(g, (int)cx, (int)cy + 1, 5, 7, 300, 600, c); pf_gfx_line(g, cx, y + 1, cx, y + 8, t, c); break;   /* degrees, 0 = right, 90 = down */
+	case PF_ICON_TIMER:
+		pf_gfx_arc(g, (int)cx, (int)cy, 5, 7, 0, 360, c); pf_gfx_line(g, cx, cy, cx, cy - 4, t, c); pf_gfx_line(g, cx, cy, cx + 3, cy, t, c); break;
+	case PF_ICON_PROBE:
+		pf_gfx_line(g, x + 8, y + 2, x + 8, y + 9, 3.2, c); pf_gfx_disc(g, x + 8, y + 12, 3, c); break;
+	case PF_ICON_GEAR:
+		pf_gfx_arc(g, (int)cx, (int)cy, 3, 6, 0, 360, c);
+		for (int i = 0; i < 8; i++) { double a = i * 0.7854; pf_gfx_line(g, cx + 5 * cos(a), cy + 5 * sin(a), cx + 7.5 * cos(a), cy + 7.5 * sin(a), 2.2, c); } break;
+	case PF_ICON_WIFI:
+		pf_gfx_arc(g, (int)cx, y + 15, 10, 12, 225, 315, c); pf_gfx_arc(g, (int)cx, y + 15, 5, 7, 220, 320, c); pf_gfx_disc(g, (int)cx, y + 14, 2, c); break;
+	case PF_ICON_BACK:
+		pf_gfx_line(g, x + 3, cy, x + 14, cy, t, c); pf_gfx_line(g, x + 3, cy, x + 8, cy - 5, t, c); pf_gfx_line(g, x + 3, cy, x + 8, cy + 5, t, c); break;
+	case PF_ICON_EYE:
+		pf_gfx_arc(g, (int)cx, y + 13, 9, 11, 215, 325, c); pf_gfx_arc(g, (int)cx, y + 3, 9, 11, 35, 145, c); pf_gfx_disc(g, (int)cx, (int)cy, 2.5, c); break;
+	case PF_ICON_SLIDERS:
+		pf_gfx_line(g, x + 2, y + 4, x + 14, y + 4, t, c); pf_gfx_line(g, x + 2, y + 12, x + 14, y + 12, t, c);
+		pf_gfx_disc(g, x + 6, y + 4, 2.4, c); pf_gfx_disc(g, x + 11, y + 12, 2.4, c); break;
+	case PF_ICON_BT:
+		pf_gfx_bt_rune(g, x + 4, y + 2, c); break;
+	case PF_ICON_NEXT:
+		pf_gfx_line(g, x + 3, y + 3, x + 8, cy, t, c); pf_gfx_line(g, x + 8, cy, x + 3, y + 13, t, c);
+		pf_gfx_line(g, x + 9, y + 3, x + 14, cy, t, c); pf_gfx_line(g, x + 14, cy, x + 9, y + 13, t, c); break;
+	case PF_ICON_PREV:
+		pf_gfx_line(g, x + 8, y + 3, x + 3, cy, t, c); pf_gfx_line(g, x + 3, cy, x + 8, y + 13, t, c);
+		pf_gfx_line(g, x + 14, y + 3, x + 9, cy, t, c); pf_gfx_line(g, x + 9, cy, x + 14, y + 13, t, c); break;
+	case PF_ICON_EXIT:
+		pf_gfx_line(g, x + 3, y + 3, x + 13, y + 13, t, c); pf_gfx_line(g, x + 13, y + 3, x + 3, y + 13, t, c); break;
+	case PF_ICON_HOPPER:
+		pf_gfx_line(g, x + 2, y + 3, x + 4, y + 14, t, c); pf_gfx_line(g, x + 14, y + 3, x + 12, y + 14, t, c);
+		pf_gfx_line(g, x + 2, y + 3, x + 14, y + 3, t, c); pf_gfx_line(g, x + 4, y + 14, x + 12, y + 14, t, c);
+		pf_gfx_rect(g, x + 5, y + 9, 6, 4, c); break;
+	case PF_ICON_CHECK:
+		pf_gfx_line(g, x + 3, cy, x + 7, y + 13, t, c); pf_gfx_line(g, x + 7, y + 13, x + 14, y + 3, t, c); break;
+	default: break;
+	}
+}
+
+static pf_icon icon_for(pf_action act, int arg)
+{
+	switch (act) {
+	case PF_ACT_STARTUP: case PF_ACT_STARTUP_HOLD: case PF_ACT_STARTUP_SMOKE: return PF_ICON_PLAY;
+	case PF_ACT_HOLD: return PF_ICON_HOLD;
+	case PF_ACT_SMOKE: return PF_ICON_SMOKE;
+	case PF_ACT_STOP: case PF_ACT_STOP_GRILL: case PF_ACT_ESTOP: return PF_ICON_STOP;
+	case PF_ACT_END_COOK: case PF_ACT_RESTART: case PF_ACT_POWEROFF: return PF_ICON_POWER;
+	case PF_ACT_TIMER: case PF_ACT_TIMER_CANCEL: case PF_ACT_TIMER_CHANGE: return PF_ICON_TIMER;
+	case PF_ACT_PROBE_TARGET: case PF_ACT_PROBE_PICK: case PF_ACT_PROBE_CUSTOM: case PF_ACT_PROBE_CLEAR: case PF_ACT_MEAT: case PF_ACT_DONE: return PF_ICON_PROBE;
+	case PF_ACT_MARGINS: case PF_ACT_THEME: case PF_ACT_COLOUR: return PF_ICON_GEAR;
+	case PF_ACT_NETINFO: return PF_ICON_WIFI;
+	case PF_ACT_BACK: return PF_ICON_BACK;
+	case PF_ACT_MONITOR: return PF_ICON_EYE;
+	case PF_ACT_MANUAL: return PF_ICON_SLIDERS;
+	case PF_ACT_BT_SCAN: case PF_ACT_BT_ADD: case PF_ACT_BT_TOGGLE: case PF_ACT_BT_DELETE: return PF_ICON_BT;
+	case PF_ACT_RECIPE_NEXT: case PF_ACT_RECIPE_SKIP: return PF_ICON_NEXT;
+	case PF_ACT_RECIPE_BACK: return PF_ICON_PREV;
+	case PF_ACT_RECIPE_EXIT: return PF_ICON_EXIT;
+	case PF_ACT_HOPPER_FULL: case PF_ACT_HOPPER_EMPTY: return PF_ICON_HOPPER;
+	case PF_ACT_CLEAR_ERROR: return PF_ICON_CHECK;
+	case PF_ACT_LIST:
+		return arg == PF_LIST_STARTUP ? PF_ICON_PLAY : arg == PF_LIST_PROBE ? PF_ICON_PROBE : arg == PF_LIST_SETTINGS ? PF_ICON_GEAR
+		     : arg == PF_LIST_POWER ? PF_ICON_POWER : arg == PF_LIST_BT || arg == PF_LIST_BTKIND || arg == PF_LIST_BTEDIT || arg == PF_LIST_BTDEL ? PF_ICON_BT
+		     : arg == PF_LIST_HOPPER ? PF_ICON_HOPPER : arg == PF_LIST_TIMER ? PF_ICON_TIMER : PF_ICON_NONE;
+	default: return PF_ICON_NONE;
+	}
 }
 
 int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out, int max)
@@ -203,6 +289,12 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 			if (strcmp(mode, "Shutdown")) ADD(PF_ACT_END_COOK, 0, "Shutdown");
 			ADD(PF_ACT_STOP, 0, "Stop"); DANGER();
 		}
+		ADD(PF_ACT_BACK, 0, "Back");
+		break;
+
+	case PF_LIST_TIMER:
+		ADD(PF_ACT_TIMER_CHANGE, 0, "Change Time");
+		ADD(PF_ACT_TIMER_CANCEL, 0, "Cancel Timer"); DANGER();
 		ADD(PF_ACT_BACK, 0, "Back");
 		break;
 
@@ -345,19 +437,21 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 	}
 #undef ADD
 #undef DANGER
+	for (int i = 0; i < n; i++) out[i].icon = icon_for(out[i].act, out[i].arg);
 	return n;
 }
 
 /* --------------------------------------------------------------- pieces */
 
-static void draw_banner(pf_gfx *g, const cJSON *s, const char *mode, bool ring)
+static void draw_banner(pf_gfx *g, const cJSON *s, const char *mode, int ring)   /* 0 none, 1 the mode, 2 the timer corner */
 {
 	int W = g->vw;
 	bool tuning_fill = pf_json_bool((cJSON *)s, "tuning.running", false) || pf_json_bool((cJSON *)s, "autotune.active", false);
 	uint16_t fill = tuning_fill ? g->th.info : mode_fill(g, mode), tc = on_fill_text(g, fill);
 	pf_gfx_rect(g, 0, 0, g->w, 34, fill);
 	/* picked out by the knob: a two-pixel ring in the banner's own text colour, under the words */
-	if (ring) { pf_gfx_rrect(g, 2, 2, W - 4, 30, 5, tc); pf_gfx_rrect(g, 4, 4, W - 8, 26, 3, fill); }
+	if (ring == 1) { pf_gfx_rrect(g, 2, 2, W - 96, 30, 5, tc); pf_gfx_rrect(g, 4, 4, W - 100, 26, 3, fill); }
+	if (ring == 2) { pf_gfx_rrect(g, W - 92, 2, 90, 30, 5, tc); pf_gfx_rrect(g, W - 90, 4, 86, 26, 3, fill); }
 	/* A tuning run holds set points like any cook, so "HOLD" tells you nothing about why the pit is
 	 * deliberately swinging either side of its target. Say what it is doing, and what it is aiming
 	 * at, because during a run the set point is the thing that keeps changing. */
@@ -427,6 +521,7 @@ static void draw_tiles(pf_gfx *g, const cJSON *s, int y, int h, int px)
 /* right-hand data block: set point, error, and one status line */
 /* where the hopper was drawn on the last main screen, so the focus ring can find it */
 static int g_hop_x, g_hop_y, g_hop_w, g_hop_h;
+static int g_sp_x, g_sp_y, g_sp_w, g_sp_h;   /* and the set point, likewise */
 
 static void draw_datablock(pf_gfx *g, const cJSON *s, const cJSON *primary, const char *mode, const char *units, int x, int y, int w, bool compact)
 {
@@ -438,11 +533,16 @@ static void draw_datablock(pf_gfx *g, const cJSON *s, const cJSON *primary, cons
 	bool hold_like = !strcmp(mode, "Hold") || (!strcmp(mode, "Startup") && !strcmp(pf_json_str((cJSON *)s, "next_mode", ""), "Hold")) || !strcmp(mode, "Reignite");
 	char line[32];
 	int ly = y;
+	g_sp_h = 0;
 	if (hold_like && sp > 0) {
-		pf_gfx_text(g, B, p3, x, ly, "SET", g->th.muted); ly += l3;
+		/* the set point is the thing you select to change the temperature, so it stands on its
+		 * own, large, in the accent, with no label over it: the number is the label */
+		int sz = compact ? 34 : 38;
 		snprintf(line, sizeof line, "%.0f" DEG, sp);
-		pf_gfx_text(g, B, p1, x, ly, line, g->th.accent);
-		ly += l1;
+		while (sz > 24 && pf_gfx_text_width(B, sz, line) > w - 4) sz -= 2;
+		pf_gfx_text(g, B, sz, x, ly, line, g->th.accent);
+		g_sp_x = x - 4; g_sp_y = ly - 2; g_sp_w = w + 8; g_sp_h = pf_gfx_line_height(B, sz) + 4;
+		ly += pf_gfx_line_height(B, sz) + 2;
 		if (valid && !strcmp(mode, "Hold")) {
 			double e = pit - sp, tight = units[0] == 'C' ? 4 : 7, wide = units[0] == 'C' ? 8 : 15;
 			uint16_t c = fabs(e) <= tight ? g->th.ok : fabs(e) <= wide ? g->th.accent : e < 0 ? g->th.info : g->th.danger;
@@ -498,11 +598,11 @@ static void draw_pit(pf_gfx *g, const cJSON *primary, const char *units, const c
 	uint16_t c = valid ? g->th.text : g->th.muted;
 	char u[4];
 	snprintf(u, sizeof u, DEG "%c", units[0]);
-	while (big > 40 && pf_gfx_number_width(B, big, v) + 2 + pf_gfx_text_width(B, big / 2, u) > maxw) big -= 4;   /* shrink to fit */
-	int small = big / 2;
-	int adv = pf_gfx_text(g, B, big, x - 4, y, v, c);
-	int uy = y + pf_gfx_ascent(B, big) - pf_gfx_ascent(B, small);   /* baselines aligned */
-	pf_gfx_text(g, B, small, x - 4 + adv + 2, uy, u, c);
+	int small = big / 3;
+	while (big > 40 && pf_gfx_number_width(B, big, v) + 6 + pf_gfx_text_width(B, small, u) > maxw) big -= 4;   /* shrink to fit */
+	pf_gfx_text(g, B, big, x - 4, y, v, c);
+	/* the unit sits at the top right of the reading's box, out of the number's way */
+	pf_gfx_text_right(g, B, small, x + maxw - 4, y + 2, u, c);
 }
 
 /* food probe card: name + Bluetooth signal, big temperature, target and time-to-target.
@@ -597,7 +697,7 @@ static void render_main(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 	const char *units = pf_json_str((cJSON *)s, "units", "F");
 	int W = g->vw, H = g->vh;
 	bool landscape = g->w > g->h;
-	draw_banner(g, s, mode, ui->main_focus == PF_FOCUS_MODE);
+	draw_banner(g, s, mode, ui->main_focus == PF_FOCUS_MODE ? 1 : ui->main_focus == PF_FOCUS_TIMER ? 2 : 0);
 
 	const cJSON *probes = cJSON_GetObjectItem((cJSON *)s, "probes");
 	const cJSON *primary = NULL, *food[3] = { 0 }, *p;
@@ -616,7 +716,7 @@ static void render_main(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 	int pit_x, pit_y, pit_w, pit_h, col = W - 100;
 	if (landscape) { pit_x = 4; pit_y = 76; pit_w = col - 10; pit_h = 84; }
 	else { pit_x = 6; pit_y = 78; pit_w = W - 12; pit_h = 100; }
-	if (f == PF_FOCUS_PIT) { pf_gfx_rrect(g, pit_x, pit_y, pit_w, pit_h, 6, g->th.accent); pf_gfx_rrect(g, pit_x + 2, pit_y + 2, pit_w - 4, pit_h - 4, 4, g->th.bg); }
+	bool sp_box = false;   /* set once the block has drawn; the ring around the pit is the fallback */
 	if (landscape) {
 		draw_tiles(g, s, 39, 36, 20);
 		draw_pit(g, primary, units, mode, 8, 78, 100, col - 12);
@@ -626,6 +726,18 @@ static void render_main(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 		draw_tiles(g, s, 39, 36, 18);
 		draw_pit(g, primary, units, mode, 10, 80, 118, W - 16);
 		draw_datablock(g, s, primary, mode, units, 10, 190, W - 20, true);
+	}
+	sp_box = g_sp_h > 0;
+	if (f == PF_FOCUS_SETPOINT) {
+		if (sp_box) {
+			pf_gfx_rrect(g, g_sp_x, g_sp_y, g_sp_w, g_sp_h, 5, g->th.accent);
+			pf_gfx_rrect(g, g_sp_x + 2, g_sp_y + 2, g_sp_w - 4, g_sp_h - 4, 3, g->th.bg);
+			if (landscape) draw_datablock(g, s, primary, mode, units, col, 80, W - col - 6, true);
+			else draw_datablock(g, s, primary, mode, units, 10, 190, W - 20, true);
+		} else {
+			pf_gfx_rrect(g, pit_x, pit_y, pit_w, pit_h, 6, g->th.accent); pf_gfx_rrect(g, pit_x + 2, pit_y + 2, pit_w - 4, pit_h - 4, 4, g->th.bg);
+			if (landscape) draw_pit(g, primary, units, mode, 8, 78, 100, col - 12); else draw_pit(g, primary, units, mode, 10, 80, 118, W - 16);
+		}
 	}
 	if (f == PF_FOCUS_HOPPER && g_hop_h > 0) {
 		/* the hopper's place is known once the block has drawn; ring it and draw the block again */
@@ -677,19 +789,28 @@ static void render_list(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 	int px = rowh - 8 < 24 ? (rowh - 8 < 13 ? 13 : rowh - 8) : 24;
 	int y = 38 + ((H - 40) - rowh * vis) / 2;
 	/* drawn, not typed: the panel font has no arrow glyphs */
-	if (first > 0) { pf_gfx_line(g, W - 14, 44, W - 9, 39, 1.5, g->th.muted); pf_gfx_line(g, W - 9, 39, W - 4, 44, 1.5, g->th.muted); }
-	if (first + vis < n) { pf_gfx_line(g, W - 14, H - 10, W - 9, H - 5, 1.5, g->th.muted); pf_gfx_line(g, W - 9, H - 5, W - 4, H - 10, 1.5, g->th.muted); }
+	/* a scroll bar when there is more than fits: the track down the right edge, the thumb sized
+	 * and placed by where the window is in the list, so the eye knows how much menu there is */
+	int bar_w = n > vis ? 8 : 0;
+	if (bar_w) {
+		int tx = W - 10, ty0 = 40, th = H - 46;
+		pf_gfx_rrect(g, tx, ty0, 4, th, 2, g->th.card2);
+		int thumb = th * vis / n; if (thumb < 12) thumb = 12;
+		int pos = ty0 + (th - thumb) * first / (n - vis);
+		pf_gfx_rrect(g, tx, pos, 4, thumb, 2, g->th.text);
+	}
 	for (int i = first; i < first + vis && i < n; i++) {
 		bool is = i == sel;
-		/* Selection has to survive sunlight on a dim panel: a filled block, an outline around it in
-		 * the opposite colour, and text chosen for the fill. A slightly lighter shade of grey --
-		 * which is what this used to be in places -- disappears completely outdoors. */
+		/* Selection has to survive sunlight on a dim panel: a filled block and text chosen for the
+		 * fill. A slightly lighter shade of grey disappears completely outdoors. */
 		uint16_t rowfill = items[i].danger ? g->th.danger : g->th.accent;
-		if (is) pf_gfx_rrect(g, 6, y + 1, W - 12, rowh - 3, 7, rowfill);   /* the fill is the selection; a ring around it read as a stray box */
+		if (is) pf_gfx_rrect(g, 6, y + 1, W - 12 - bar_w - 2, rowh - 3, 7, rowfill);   /* the fill is the selection; a ring around it read as a stray box */
 		int ty = y + (rowh - pf_gfx_line_height(B, px)) / 2;
 		uint16_t c = is ? on_fill_text(g, rowfill) : items[i].danger ? g->th.danger : g->th.text;
-		pf_gfx_text(g, B, px, 16, ty, items[i].label, c);
-		if (items[i].right[0]) pf_gfx_text_right(g, B, px - 4 < 12 ? 12 : px - 4, W - 14, ty + 2, items[i].right, is ? c : g->th.muted);
+		int tx = 16;
+		if (items[i].icon != PF_ICON_NONE) { draw_icon(g, items[i].icon, 14, y + (rowh - 16) / 2 - 1, c); tx = 40; }
+		pf_gfx_text(g, B, px, tx, ty, items[i].label, c);
+		if (items[i].right[0]) pf_gfx_text_right(g, B, px - 4 < 12 ? 12 : px - 4, W - 14 - bar_w, ty + 2, items[i].right, is ? c : g->th.muted);
 		y += rowh;
 	}
 }

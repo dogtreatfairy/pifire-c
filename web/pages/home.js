@@ -294,14 +294,17 @@ export function renderHome(view) {
         /* spans, not divs: the cell is a <button> so that it focuses, answers the keyboard and
            takes the app's press layer like every other control, and a button may only contain
            phrasing content. The CSS gives each line its own row. */
-        /* three lines and no more: the mark, the name and the battery; the reading; the target.
-           The link bars and the ambient reading were here too, and a card read at a glance across
-           a garden cannot carry five things -- they live on the probe's sheet. */
-        el('span', { class: `n ${p.wireless ? 'wl' : ''}` }, p.wireless ? btIcon() : null, el('span', { class: 'nm' }, p.name), p.wireless ? battIcon(p.battery) : null), el('span', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
-        /* what the target was chosen for, above the number: "Beef · Medium rare" is what the cook
-           remembers setting; 130° is what it came to */
-        p.target > 0 && p.meat ? el('span', { class: 'meat' }, `${p.meat}${p.done ? ` \u00b7 ${p.done}` : ''}`) : null,
-        el('span', { class: `tg ${p.target > 0 ? '' : 'muted'}` }, p.target > 0 ? `Target ${fmtTemp(p.target)}°${!hit && p.eta_s > 0 ? ` · ${fmtEta(p.eta_s)}` : ''}` : 'Set target')));
+        /* Three fixed rows, whatever is set: the mark, the name and the battery on top; the
+           reading in the middle; a two-line block at the foot for what the target is for and the
+           target with its time remaining. The rows do not move when a target is set or cleared --
+           a card whose reading jumped up and down as targets came and went read as three
+           different cards. Nothing else is on it; the link bars and the ambient reading live on
+           the probe's sheet. */
+        el('span', { class: `n ${p.wireless ? 'wl' : ''}` }, p.wireless ? btIcon() : null, el('span', { class: 'nm' }, p.name), p.wireless ? battIcon(p.battery) : null),
+        el('span', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
+        el('span', { class: 'foot' },
+          el('span', { class: 'meat' }, p.target > 0 && p.meat ? `${p.meat}${p.done ? ` \u00b7 ${p.done}` : ''}` : '\u00a0'),
+          el('span', { class: `tg ${p.target > 0 ? '' : 'muted'}` }, p.target > 0 ? `${fmtTemp(p.target)}°${!hit && p.eta_s > 0 ? ` \u00b7 ${fmtEta(p.eta_s)}` : hit ? ' \u00b7 done' : ''}` : 'Set target'))));
     }
     probes.hidden = !food.length;
 

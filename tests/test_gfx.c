@@ -401,18 +401,29 @@ static void test_main_screen_focus_and_its_menus(void)
 	render_to(&g, st, &ui, "main_cards");
 	/* from nothing, the first turn picks the pit; then it walks the ring */
 	ui.main_focus = pf_main_focus_step(st, PF_FOCUS_NONE, +1);
-	TEST_ASSERT_EQUAL_INT(PF_FOCUS_PIT, ui.main_focus);
-	render_to(&g, st, &ui, "focus_pit");
+	TEST_ASSERT_EQUAL_INT(PF_FOCUS_SETPOINT, ui.main_focus);
+	render_to(&g, st, &ui, "focus_setpoint");
 	ui.main_focus = pf_main_focus_step(st, ui.main_focus, -1);
-	TEST_ASSERT_EQUAL_INT(PF_FOCUS_MODE, ui.main_focus);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(PF_FOCUS_MODE, ui.main_focus, "no timer running: its corner is skipped");
 	render_to(&g, st, &ui, "focus_mode");
-	ui.main_focus = pf_main_focus_step(st, PF_FOCUS_PIT, +1);
+	ui.main_focus = pf_main_focus_step(st, PF_FOCUS_SETPOINT, +1);
 	TEST_ASSERT_EQUAL_INT(PF_FOCUS_HOPPER, ui.main_focus);
 	render_to(&g, st, &ui, "focus_hopper");
 	ui.main_focus = pf_main_focus_step(st, ui.main_focus, +1);
 	TEST_ASSERT_EQUAL_INT(PF_FOCUS_PROBE0, ui.main_focus);
 	render_to(&g, st, &ui, "focus_probe");
 	TEST_ASSERT_EQUAL_INT(1, pf_main_probe_index(st, 0));   /* Probe 1 is the second probe in the status */
+	/* with a timer running, the banner's corner is a stop of its own, between the mode and the set point */
+	cJSON *tm = cJSON_GetObjectItem(st, "timer");
+	cJSON_ReplaceItemInObject(tm, "running", cJSON_CreateTrue()); cJSON_ReplaceItemInObject(tm, "remaining", cJSON_CreateNumber(754));
+	ui.main_focus = pf_main_focus_step(st, PF_FOCUS_MODE, +1);
+	TEST_ASSERT_EQUAL_INT(PF_FOCUS_TIMER, ui.main_focus);
+	render_to(&g, st, &ui, "focus_timer");
+	cJSON_ReplaceItemInObject(tm, "running", cJSON_CreateFalse());
+	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_TIMER);
+	{ pf_menu_item it[PF_MENU_MAX]; int k = pf_menu_build(st, &ui, it, PF_MENU_MAX); TEST_ASSERT_EQUAL_INT(3, k); TEST_ASSERT_EQUAL_STRING("Change Time", it[0].label); TEST_ASSERT_EQUAL_INT(PF_ICON_TIMER, it[0].icon); }
+	pf_nav_pop(&ui);
+	ui.main_focus = PF_FOCUS_NONE;
 	/* the menus the rings open */
 	pf_menu_item items[PF_MENU_MAX];
 	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_MODE);

@@ -545,6 +545,14 @@ static void apply_request(pf_control *c, double now)
 		learn_reset_window(c, now);
 		return;
 	}
+	if ((c->mode == PF_MODE_STARTUP || c->mode == PF_MODE_REIGNITE) && (m == PF_MODE_HOLD || m == PF_MODE_SMOKE)) {
+		/* The fire is not lit yet. A hold temperature chosen now is where startup goes when it
+		 * finishes, not a way out of startup: leaving early put an unlit grill into Hold, where
+		 * the controller fed a cold pot. Forcing the end of startup is its own, flagged command. */
+		if (c->mode == PF_MODE_REIGNITE) c->safety.reignite_last = m; else c->next_mode = m;
+		LOGI(TAG, "%s requested during %s: kept as what startup finishes into", pf_mode_name(m), pf_mode_name(c->mode));
+		return;
+	}
 	enter_mode(c, m, now);
 }
 
@@ -581,6 +589,9 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 	case PF_CMD_SETPOINT:
 		if (cmd->num > 0) {
 			c->setpoint_c = pf_to_c(cmd->num, u);
+			/* a hold temperature chosen while lighting is where startup finishes */
+			if (c->mode == PF_MODE_STARTUP) c->next_mode = PF_MODE_HOLD;
+			else if (c->mode == PF_MODE_REIGNITE) c->safety.reignite_last = PF_MODE_HOLD;
 			c->target_reached = false;
 			c->aim_since = now;
 			c->aim_pit_c = c->pit_valid ? c->pit_c : NAN;

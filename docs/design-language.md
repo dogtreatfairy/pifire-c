@@ -721,6 +721,24 @@ panel or a clear on the phone acknowledges it. The word comes from the daemon's 
 `attention` field of the status), so both screens stop together; a press while it flashes does
 nothing else, since it was aimed at the flash.
 
+**The menu wears marks and a scroll bar.** Every row carries its icon at the left -- play for
+startup, crosshairs for hold, a cloud for smoke, a square for stop, a power sign for shutdown, a
+clock for the timer, a thermometer for probes, a gear for settings, wifi for the network, an arrow
+for back -- drawn from lines and discs at the panel's own resolution. A list longer than the screen
+shows a bar down its right edge whose thumb says where the window is in the whole.
+
+**Two corners, two stops.** The banner's left, the mode, opens the modes; its right, while a timer
+runs, opens the timer (change the time, cancel). The temperature is set from the set-point box on
+the right of the reading -- the number stands alone, large, in the accent, with no "SET" over it;
+the number is the label -- and the ring goes around that box, not around the reading; when there
+is no set point on screen the reading takes the ring instead. The unit sits at the top right of
+the reading's box, out of the number's way.
+
+**A Home probe card has three fixed rows.** The name and battery on top, the reading in the middle,
+and a two-line foot for what the target is for and the target with its time remaining. The rows
+do not move when a target is set or cleared: a reading that jumped up and down as targets came
+and went read as three different cards.
+
 **No grey type.** Every word and number on the panel is white on the dark theme or black on the
 light one and on bright fills, or red, green, blue or orange where the colour carries a meaning.
 Nothing is "muted": the theme's muted colour is the text colour, and a secondary reading is drawn

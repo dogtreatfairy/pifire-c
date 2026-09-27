@@ -513,6 +513,13 @@ static void do_action(tft_t *t, pf_action act, int arg)
 	case PF_ACT_TIMER:
 		open_timer(t);
 		return;
+	case PF_ACT_TIMER_CHANGE: {
+		/* the selector, loaded with what is left; Start replaces the running timer */
+		open_timer(t);
+		double left = pf_json_num(t->status, "timer.remaining", 0);
+		if (left > 0) t->ui.temp_value = ceil(left / 60.0);
+		return;
+	}
 	case PF_ACT_TIMER_CANCEL:
 		c.type = PF_CMD_TIMER_CANCEL; pf_cmdq_push(&c);
 		show_message(t, "Timer cancelled", 2);
@@ -587,11 +594,13 @@ static void temp_confirm(tft_t *t)
 		/* from Stop this routes through Startup and lands in Hold at the chosen target */
 		c.type = PF_CMD_MODE; c.mode = PF_MODE_HOLD; c.num = t->ui.temp_value; pf_cmdq_push(&c);
 		break;
-	case PF_ACT_HOLD:
-		if (!strcmp(pf_json_str(t->status, "mode", ""), "Hold")) { c.type = PF_CMD_SETPOINT; c.num = t->ui.temp_value; }
+	case PF_ACT_HOLD: {
+		const char *m = pf_json_str(t->status, "mode", "");
+		if (!strcmp(m, "Hold") || !strcmp(m, "Startup") || !strcmp(m, "Reignite")) { c.type = PF_CMD_SETPOINT; c.num = t->ui.temp_value; }
 		else { c.type = PF_CMD_MODE; c.mode = PF_MODE_HOLD; c.num = t->ui.temp_value; }
 		pf_cmdq_push(&c);
 		break;
+	}
 	case PF_ACT_PROBE_TARGET:
 		c.type = PF_CMD_NOTIFY_TARGET; c.num = t->ui.temp_value;
 		pf_strlcpy(c.str, t->ui.temp_probe, sizeof c.str);
@@ -721,7 +730,8 @@ static void focus_act(tft_t *t, const char *mode)
 	int f = t->ui.main_focus;
 	t->ui.main_focus = PF_FOCUS_NONE;
 	if (f == PF_FOCUS_MODE) { pf_nav_push(&t->ui, PF_SCR_LIST, PF_LIST_MODE); return; }
-	if (f == PF_FOCUS_PIT) {
+	if (f == PF_FOCUS_TIMER) { pf_nav_push(&t->ui, PF_SCR_LIST, PF_LIST_TIMER); return; }
+	if (f == PF_FOCUS_SETPOINT) {
 		/* the pit's number is the set point: in Hold it changes it, from anywhere else it starts
 		 * a hold there */
 		open_temp(t, PF_ACT_HOLD, "HOLD", !strcmp(mode, "Hold") ? "Set" : "Start",

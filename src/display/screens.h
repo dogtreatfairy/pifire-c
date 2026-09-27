@@ -35,6 +35,7 @@ typedef enum {
 	PF_LIST_PROBE_ACT, /* a probe with a target: change it, a custom temperature, or clear it */
 	PF_LIST_MEAT,      /* a probe without one: what is on it */
 	PF_LIST_DONE,      /* ...and how done, which sets the target with its name */
+	PF_LIST_TIMER,     /* from the banner's corner while a timer runs: change it or cancel it */
 } pf_list_id;
 
 /* What a row does when it is pressed. */
@@ -78,11 +79,20 @@ typedef enum {
 	PF_ACT_RECIPE_BACK,   /* confirmed: begin the previous step again */
 	PF_ACT_RECIPE_EXIT,   /* confirmed: leave the recipe, the grill keeps its mode */
 	PF_ACT_STOP_GRILL,    /* confirmed: stop */
+	PF_ACT_TIMER_CHANGE,  /* the minutes selector, loaded with what is left */
 } pf_action;
+
+/* The marks a menu row wears: drawn from lines and discs at the panel's own resolution. */
+typedef enum {
+	PF_ICON_NONE = 0, PF_ICON_PLAY, PF_ICON_HOLD, PF_ICON_SMOKE, PF_ICON_STOP, PF_ICON_POWER, PF_ICON_TIMER,
+	PF_ICON_PROBE, PF_ICON_GEAR, PF_ICON_WIFI, PF_ICON_BACK, PF_ICON_EYE, PF_ICON_SLIDERS, PF_ICON_BT,
+	PF_ICON_NEXT, PF_ICON_PREV, PF_ICON_EXIT, PF_ICON_HOPPER, PF_ICON_CHECK,
+} pf_icon;
 
 typedef struct {
 	pf_action act;
 	int arg;
+	pf_icon icon;
 	char label[26];
 	char right[12];    /* optional right-hand column, e.g. a probe's current reading */
 	bool danger;
@@ -121,9 +131,10 @@ extern const pf_meat PF_MEATS[];
 extern const int PF_MEAT_COUNT;
 
 /* The main screen's focus: what a turn of the knob has picked out, and what a press acts on.
- * The banner, the pit, the hopper, then the food probes left to right. */
-enum { PF_FOCUS_NONE = -1, PF_FOCUS_MODE = 0, PF_FOCUS_PIT, PF_FOCUS_HOPPER, PF_FOCUS_PROBE0 };
-/* The next focus in that direction, skipping what the status has no card for; from none, the pit. */
+ * The banner's mode, its timer corner (while one runs), the set point, the hopper, then the food
+ * probes left to right. */
+enum { PF_FOCUS_NONE = -1, PF_FOCUS_MODE = 0, PF_FOCUS_TIMER, PF_FOCUS_SETPOINT, PF_FOCUS_HOPPER, PF_FOCUS_PROBE0 };
+/* The next focus in that direction, skipping what the status has nothing for; from none, the set point. */
 int pf_main_focus_step(const cJSON *status, int cur, int dir);
 /* The status index of the food probe shown in card `card` (0..2), or -1. */
 int pf_main_probe_index(const cJSON *status, int card);

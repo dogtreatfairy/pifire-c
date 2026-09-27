@@ -473,9 +473,13 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .hero .line1.ok { color: var(--ok-ink); } .hero .line1.accent { color: var(--accent-ink); } .hero .line1.info { color: var(--info-ink); } .hero .line1.warn { color: var(--warn-ink); } .hero .line1.danger { color: var(--danger-ink); } .hero .line1.muted { color: var(--muted); cursor: default; }
 .hero .line2 { font-size: var(--fs-sm); color: var(--muted); margin: 3px 0 10px; min-height: 1.2em; }
 .pgrid { display: grid; gap: 8px; margin-bottom: 12px; }
-.pcell { background: var(--surface); border: var(--bw) solid var(--line); border-radius: var(--r-md); padding: var(--sp-3) 6px;
-  text-align: center; cursor: pointer; min-width: 0; width: 100%; font: inherit; color: inherit; display: block; }
+.pcell { background: var(--surface); border: var(--bw) solid var(--line); border-radius: var(--r-md); padding: var(--sp-2) 6px;
+  text-align: center; cursor: pointer; min-width: 0; width: 100%; font: inherit; color: inherit;
+  /* fixed rows: name, reading, foot -- the reading stays put whatever the foot says */
+  display: grid; grid-template-rows: 24px 1fr 36px; align-items: center; height: 124px; }
 .pcell .n, .pcell .t, .pcell .tg, .pcell .amb, .pcell .meat { display: block; }
+.pcell .foot { display: flex; flex-direction: column; justify-content: flex-end; line-height: 1.25; min-width: 0; }
+.pcell .foot .meat, .pcell .foot .tg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pcell .meat { font-size: var(--fs-xs); color: var(--text); }
 .pcell .n { font-size: var(--fs-sm); color: var(--muted); display: flex; align-items: center; justify-content: center; gap: 3px; min-height: 22px; }
 .pcell .n .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -483,7 +487,7 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .pcell .n.wl .nm { flex: 1; text-align: left; }
 .pcell .n .ic.bt { width: 14px; height: 14px; color: var(--info-ink); flex: none; }
 .pcell .n .batt { margin-left: auto; }
-.pcell .t { font-size: 2.25rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.15; margin: 4px 0 2px; }
+.pcell .t { font-size: 2.25rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; margin: 0; align-self: center; }
 .pcell .tg { font-size: var(--fs-sm); color: var(--accent-ink); }
 /* A probe that has arrived flashes, exactly as it does on the panel: the whole card fills with the
    colour of how far past its target it is -- done, five degrees over, ten -- half a beat in every
