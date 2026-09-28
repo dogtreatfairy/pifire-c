@@ -4,6 +4,7 @@
 #include "core/settings.h"
 #include "core/log.h"
 #include "core/util.h"
+#include "core/db.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -52,6 +53,7 @@ int pf_notify_set_target(pf_notify *n, const char *label, double target_c, int a
 	p->eta_hits = 0;
 	p->target_c = target_c > 0 ? target_c : 0;
 	p->rest_c = 0;   /* a plain target is a take-off; pf_notify_set_rest makes it a rest-to */
+	p->rest_watch = false;
 	if (p->target_c <= 0) { p->meat[0] = p->done[0] = 0; p->finish_c = 0; }
 	p->after = after;
 	p->eta_s = -1;
@@ -75,17 +77,70 @@ double pf_notify_rest_margin_c(void)
 	return pf_settings_units() == PF_UNITS_C ? v : v * 5.0 / 9.0;
 }
 
-double pf_notify_rest_pull_c(double rest_c, double rate_c_s)
+#define CARRY_LEARNED_MAX_C 8.0
+
+static void carry_key(char *out, size_t n, const char *meat)
+{
+	snprintf(out, n, "carry:%.20s", meat && meat[0] ? meat : "any");
+}
+
+double pf_carryover_k(const char *meat)
+{
+	if (!pf_db_handle()) return 1;
+	char key[32], buf[96];
+	carry_key(key, sizeof key, meat);
+	if (pf_db_kv_get("notify", key, buf, sizeof buf) != 0) return 1;
+	cJSON *j = cJSON_Parse(buf);
+	double k = pf_json_num(j, "k", 1);
+	cJSON_Delete(j);
+	return k > 0.2 && k < 5 ? k : 1;
+}
+
+void pf_carryover_learn(const char *meat, double predicted_c, double actual_c)
+{
+	if (!pf_db_handle() || !(predicted_c > 0.3) || !(actual_c >= 0)) return;
+	char key[32], buf[96];
+	carry_key(key, sizeof key, meat);
+	double k = 1; int n = 0;
+	if (pf_db_kv_get("notify", key, buf, sizeof buf) == 0) {
+		cJSON *j = cJSON_Parse(buf);
+		k = pf_json_num(j, "k", 1); n = (int)pf_json_num(j, "n", 0);
+		cJSON_Delete(j);
+	}
+	double ratio = actual_c / predicted_c;
+	if (ratio < 0.3) ratio = 0.3;
+	if (ratio > 3.0) ratio = 3.0;
+	/* recency-weighted: each rest counts a fifth once there are five, so the grill follows a
+	 * change of cut or habit without one odd rest throwing it */
+	int w = n + 1 < 5 ? n + 1 : 5;
+	k += (ratio - k) / w;
+	snprintf(buf, sizeof buf, "{\"k\":%.3f,\"n\":%d}", k, n + 1);
+	pf_db_kv_put("notify", key, buf);
+	LOGI("notify", "carry-over for %s: predicted %.1f C, rested %.1f C; correction now x%.2f over %d rest%s",
+	     meat && meat[0] ? meat : "custom", predicted_c, actual_c, k, n + 1, n ? "s" : "");
+}
+
+double pf_carryover_learned_c(double rate_c_s, const char *meat)
+{
+	double base = rate_c_s * PF_CARRYOVER_TAU_S;
+	if (base < 0) base = 0;
+	double k = pf_carryover_k(meat), c = base * k;
+	double cap = k > 1 ? CARRY_LEARNED_MAX_C : PF_CARRYOVER_MAX_C;
+	return c > cap ? cap : c;
+}
+
+double pf_notify_rest_pull_c(double rest_c, double rate_c_s, const char *meat)
 {
 	double aim = rest_c + PF_REST_MARGIN_C;
-	return aim - pf_carryover_c(rate_c_s);
+	return aim - pf_carryover_learned_c(rate_c_s, meat);
 }
 
 int pf_notify_set_rest(pf_notify *n, const char *label, double rest_c, int after)
 {
 	if (!(rest_c > 0)) return pf_notify_set_target(n, label, 0, after);
 	double rate = pf_notify_probe_rate(n, label);
-	if (pf_notify_set_target(n, label, pf_notify_rest_pull_c(rest_c, rate), after)) return -1;
+	pf_notify_probe *p0 = find_mut(n, label);
+	if (pf_notify_set_target(n, label, pf_notify_rest_pull_c(rest_c, rate, p0 ? p0->meat : ""), after)) return -1;
 	pf_notify_probe *p = find_mut(n, label);
 	p->rest_c = rest_c;
 	p->finish_c = rest_c;
@@ -275,9 +330,23 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 		/* A rest-to target moves with the climb: the faster the meat is still rising, the more it
 		 * will carry on rising off the heat, so the earlier it has to come off. Until there is a
 		 * rate to go on the take-off sits at the aim itself, which errs on the late side. */
-		if (p->rest_c > 0 && !p->reached) p->target_c = pf_notify_rest_pull_c(p->rest_c, pf_notify_probe_rate(n, p->label));
+		if (p->rest_c > 0 && !p->reached) p->target_c = pf_notify_rest_pull_c(p->rest_c, pf_notify_probe_rate(n, p->label), p->meat);
+		/* the rest after a rest-to alert: a real rest peaks and falls away; a probe still climbing
+		 * after half an hour stayed on the grill, and teaches nothing about resting */
+		if (p->rest_watch) {
+			if (t > p->rest_peak_c) { p->rest_peak_c = t; p->rest_peak_t = now; }
+			if (p->rest_peak_c - t >= 1.1) {
+				double predicted = pf_carryover_c(p->pull_rate), actual = p->rest_peak_c - p->pull_c;
+				pf_carryover_learn(p->meat, predicted, actual);
+				p->rest_watch = false;
+			} else if (now - p->rest_watch_t > 1800) p->rest_watch = false;
+		}
 		if (p->target_c > 0 && !p->reached) {
 			if (t >= p->target_c) {
+				if (p->rest_c > 0) {
+					p->rest_watch = true; p->pull_c = t; p->pull_rate = pf_notify_probe_rate(n, p->label);
+					p->rest_peak_c = t; p->rest_peak_t = now; p->rest_watch_t = now;
+				}
 				p->reached = true;
 				p->eta_s = -1;
 				if (p->after != PF_AFTER_NONE) { n->pending_action = p->after; p->after = PF_AFTER_NONE; }

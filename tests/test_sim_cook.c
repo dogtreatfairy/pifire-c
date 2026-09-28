@@ -512,7 +512,7 @@ static void test_a_hold_request_during_startup_waits_for_ignition(void)
 static void test_a_rest_target_comes_off_early_by_the_climb(void)
 {
 	double rest = pf_f_to_c(145);
-	double still = pf_notify_rest_pull_c(rest, 0), slow = pf_notify_rest_pull_c(rest, 0.002), fast = pf_notify_rest_pull_c(rest, 0.01);
+	double still = pf_notify_rest_pull_c(rest, 0, ""), slow = pf_notify_rest_pull_c(rest, 0.002, ""), fast = pf_notify_rest_pull_c(rest, 0.01, "");
 	printf("rest to 145 F: take off at %.1f F still, %.1f F slow climb, %.1f F fast climb\n", pf_c_to_f(still), pf_c_to_f(slow), pf_c_to_f(fast));
 	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.05, 147.0, pf_c_to_f(still), "with no climb it aims 2 F over the rest");
 	TEST_ASSERT_TRUE_MESSAGE(slow < still && fast < slow, "the faster it climbs, the earlier it comes off");
@@ -526,6 +526,23 @@ static void test_a_rest_target_comes_off_early_by_the_climb(void)
 	TEST_ASSERT_NOT_NULL(np);
 	TEST_ASSERT_DOUBLE_WITHIN(0.05, rest, np->rest_c);
 	TEST_ASSERT_TRUE(np->target_c <= rest + PF_REST_MARGIN_C + 1e-6);
+}
+
+/* Carry-over learns from rests: a meat whose rests keep carrying further than predicted comes off
+ * earlier next time, and past the base cap once it has shown it needs to. */
+static void test_carryover_learns_from_rests(void)
+{
+	double rate = 0.008;                                   /* C per second at the pull */
+	double base = pf_carryover_learned_c(rate, "Roast");
+	TEST_ASSERT_DOUBLE_WITHIN(0.01, 3.36, base);           /* 0.008 x 420 s */
+	for (int i = 0; i < 5; i++) pf_carryover_learn("Roast", base, base * 2.0);   /* it rested twice as far, every time */
+	double learned = pf_carryover_learned_c(rate, "Roast");
+	printf("carry-over at 0.008 C/s: base %.2f C, after five rests of twice that %.2f C (x%.2f)\n", base, learned, pf_carryover_k("Roast"));
+	TEST_ASSERT_TRUE_MESSAGE(learned > base * 1.7, "five rests of twice the prediction move the estimate most of the way");
+	TEST_ASSERT_TRUE_MESSAGE(pf_carryover_learned_c(0.03, "Roast") <= 8.0 + 1e-9 && pf_carryover_learned_c(0.03, "Roast") > 5.0, "a meat that carries far may pass the base cap, up to 8 C");
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.001, 1.0, pf_carryover_k("Fish"), "another meat is untouched");
+	/* and the take-off moves earlier for it */
+	TEST_ASSERT_TRUE(pf_notify_rest_pull_c(pf_f_to_c(135), rate, "Roast") < pf_notify_rest_pull_c(pf_f_to_c(135), rate, "Fish"));
 }
 
 int main(void)
@@ -546,5 +563,6 @@ int main(void)
 	RUN_TEST(test_power_loss_recovery);
 	RUN_TEST(test_a_hold_request_during_startup_waits_for_ignition);
 	RUN_TEST(test_a_rest_target_comes_off_early_by_the_climb);
+	RUN_TEST(test_carryover_learns_from_rests);
 	return UNITY_END();
 }

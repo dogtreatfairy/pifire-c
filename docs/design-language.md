@@ -1090,6 +1090,14 @@ carry on rising off the heat, so the earlier it comes off, never by more than th
 The presets that come off early (beef, pork chops, lamb) are rest-to targets; the card reads
 `off 142° -> 140°`, the take-off and the rest.
 
+The carry-over estimate starts from the centre's rate of climb (rate x 7 minutes, capped at 5 C)
+and is corrected by the grill's own rests: after a rest-to alert the probe is watched, and a rest
+that peaks and falls away within half an hour is compared with what was predicted. The ratio is
+kept per meat, recency-weighted, and a meat that has shown it carries further may pass the base
+cap, up to 8 C. Thickness is never asked: it is the biggest single factor (the time the heat takes
+to even out goes with the thickness squared), but the climb rate already carries most of it and
+the learned correction carries the rest, without a ruler at the grill.
+
 ## A recipe starts by saying which probes are in the food; Start asks Smoke or Hold
 
 Which probes are in the meat is a fact only the cook has. A probe on the counter reads perfectly

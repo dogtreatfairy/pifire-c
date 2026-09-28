@@ -29,6 +29,9 @@ typedef struct {
 	 * then worked out as the probe climbs -- the rest temperature plus a small margin, less the
 	 * carry-over its rate of climb predicts -- rather than fixed. 0 = target_c is a take-off. */
 	double rest_c;
+	/* After a rest-to alert, the rest itself is watched: the temperature and climb at the alert,
+	 * then the peak, so the carry-over that actually happened can correct the next estimate. */
+	bool rest_watch; double pull_c, pull_rate, rest_peak_c, rest_peak_t, rest_watch_t;
 	pf_notify_step steps[PF_MAX_STEPS];
 	int nsteps;
 	int after;              /* PF_AFTER_* */
@@ -79,7 +82,7 @@ double pf_notify_rest_margin_c(void);
 #define PF_REST_MARGIN_C pf_notify_rest_margin_c()
 int  pf_notify_set_rest(pf_notify *n, const char *label, double rest_c, int after);
 /* the take-off point for a rest-to target at this rate of climb */
-double pf_notify_rest_pull_c(double rest_c, double rate_c_s);
+double pf_notify_rest_pull_c(double rest_c, double rate_c_s, const char *meat);
 int  pf_notify_set_limits(pf_notify *n, const char *label, double high_c, double low_c);
 void pf_notify_timer_start(pf_notify *n, double seconds, int after, double now);
 void pf_notify_timer_pause(pf_notify *n, double now);
@@ -105,3 +108,18 @@ static inline double pf_carryover_c(double rate_c_s)
 	double c = rate_c_s * PF_CARRYOVER_TAU_S;
 	return c < 0 ? 0 : c > PF_CARRYOVER_MAX_C ? PF_CARRYOVER_MAX_C : c;
 }
+/* The same estimate corrected by what this grill's rests of this meat have actually done.
+ *
+ * Carry-over is heat already inside the meat moving inward after it comes off: how much there
+ * is depends on how steep the gradient is between the surface and the centre, and how long it
+ * takes to even out goes with the thickness squared. The centre's rate of climb at the pull
+ * carries both of those, which is why it is the base; what it cannot carry is the thickness on
+ * its own -- a thick roast climbs slowly and still coasts a long way -- and nobody should have to
+ * measure a steak to cook it. So each rest-to target that ends in a real rest (the probe peaks
+ * and falls away within the half hour) is compared with what was predicted, and the ratio is
+ * kept per meat, recency-weighted. The cap widens to 8 C (about 15 F) once a meat has shown it
+ * carries more than the base allows, which is where thick roasts off a hot grill land. */
+double pf_carryover_learned_c(double rate_c_s, const char *meat);
+/* the learned correction for a meat, 1 when nothing has been learned; and one observation of it */
+double pf_carryover_k(const char *meat);
+void   pf_carryover_learn(const char *meat, double predicted_c, double actual_c);
