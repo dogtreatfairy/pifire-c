@@ -302,8 +302,9 @@ small, .muted { color: var(--muted); }
 .ios-list .row.off { opacity: .55; cursor: default; }
 .ios-list .row-check { width: 22px; height: 22px; margin: 2px; flex: none; accent-color: var(--accent); }
 .ios-list .row select { flex: none; max-width: 50%; }
-.day-chips { display: flex; gap: 4px; }
-.day-chip { width: 32px; height: 32px; border-radius: 50%; border: var(--bw) solid var(--line); background: transparent; color: var(--muted); font-weight: 600; font-size: var(--fs-sm); padding: 0; }
+/* seven days across the whole row, evenly: a row of controls fills its row */
+.day-chips { display: flex; justify-content: space-between; gap: 4px; width: 100%; }
+.day-chip { width: 36px; height: 36px; flex: none; border-radius: 50%; border: var(--bw) solid var(--line); background: transparent; color: var(--muted); font-weight: 600; font-size: var(--fs-sm); padding: 0; }
 .day-chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
 .con-head { margin-bottom: 0; }
 .spin-tile { background: transparent !important; }
@@ -1521,3 +1522,11 @@ main.view:has(> .screen-actions) { padding-bottom: calc(var(--tab-h) + env(safe-
 }
 .field.inline.time input[type="time"]::-webkit-date-and-time-value { text-align: right; margin: 0; }
 .field.inline.time input[type="time"]::-webkit-calendar-picker-indicator { display: none; }
+
+/* the days field on every width: label above, the seven days spread across the row */
+.field.inline.days { flex-direction: column; align-items: stretch; gap: var(--sp-2); }
+.ios-list .row .row-input { flex: 0 1 55%; min-width: 0; height: 32px; padding: 0 10px; border-radius: var(--r-md);
+  border: var(--bw) solid var(--line); background: var(--surface2); color: var(--text); font: inherit; font-size: var(--fs-sm); text-align: right; }
+.field.inline.time input:not([type="time"]):not([type="checkbox"]) {
+  flex: none; width: 96px; height: 34px; box-sizing: border-box; padding: 0 10px; margin: 0; text-align: right;
+  border-radius: var(--r-md); border: var(--bw) solid var(--line); background: var(--surface2); color: var(--text); font: inherit; font-size: var(--fs-md); font-variant-numeric: tabular-nums; }

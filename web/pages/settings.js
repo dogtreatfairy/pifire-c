@@ -179,21 +179,17 @@ const PAGES = [
   ] }] },
   { key: 'backup', title: 'Backup', sub: 'Settings, tuning, recipes and cooks, off the grill', section: 'System', icon: 'archive', color: '#30d158', custom: (v) => import('./backup.js').then((m) => m.renderBackup(v)) },
   { key: 'updates', title: 'Software Updates', sub: 'PiFire and system packages', section: 'System', icon: 'refresh-cw', color: '#0a84ff', before: (v) => import('./updates.js').then((m) => m.renderUpdates(v)), sections: [
-    { id: 'update', title: 'Automatic', fields: [
-      B('auto_check', 'Check automatically', 'Daily. System packages only while idle'),
+    /* One form for the page. The update source is not here: it is part of what PiFire installs
+       from, so it sits in the PiFire list above, beside the branch and the release. */
+    { id: 'update', title: 'Settings', fields: [
+      B('auto_check', 'Check automatically', 'System packages only while idle'),
+      I('check_interval_h', 'Check every', 'Hours', { min: 1, max: 720, compact: true }),
       B('auto_install', 'Install automatically', 'Stop or Monitor only; no timer, recipe or tune running'),
       TM('auto_install_time', 'Install at', 'Local time'),
       DAYS('auto_install_days', 'Days'),
       B('auto_install_system', 'Include system updates', ''),
       B('hot_update', 'Update while cooking', 'Manual PiFire installs; the cook resumes'),
-    ] },
-    { id: 'update', title: 'Status Bar', fields: [
-      B('show_in_header', 'Show Update Available', 'Ignore hides one release'),
-    ] },
-    { id: 'update', title: 'Source', sub: 'Repository and check interval', collapsible: true, icon: 'git-branch', color: '#636366', summary: () => ({ on: false, label: '' }), fields: [
-      X('repo', 'GitHub repository', 'owner/name'),
-      B('include_prerelease', 'Include pre-releases', 'main only'),
-      I('check_interval_h', 'Check every (hours)', '', { min: 1, max: 720 }),
+      B('show_in_header', 'Show Update Available', 'In the status bar. Ignore hides one release'),
     ] },
   ] },
 ];
@@ -335,7 +331,7 @@ export function fieldInput(f, value) {
         store.value = JSON.stringify([...on].sort());
         store.dispatchEvent(new Event('input', { bubbles: true }));
       } }, d));
-    return el('div', { class: 'field inline' }, el('div', {}, el('label', {}, f.label), f.help ? el('div', { class: 'help' }, f.help) : null), el('div', { class: 'day-chips' }, chips, store));
+    return el('div', { class: 'field inline days' }, el('div', {}, el('label', {}, f.label), f.help ? el('div', { class: 'help' }, f.help) : null), el('div', { class: 'day-chips' }, chips, store));
   }
   let input;
   switch (f.type) {
@@ -352,7 +348,7 @@ export function fieldInput(f, value) {
     return el('label', { class: 'toggle', for: id }, el('div', {}, el('div', {}, f.label), f.help ? el('div', { class: 'help' }, f.help) : null), el('span', { class: 'switch' }, input, el('span')));
   }
   /* a time of day sits at the right of its own row, as a time does in iOS Settings */
-  const cls = f.type === 'time' ? 'field inline time' : 'field inline';
+  const cls = f.type === 'time' || f.compact ? 'field inline time' : 'field inline';
   return el('div', { class: cls }, el('div', {}, el('label', { for: id }, f.label + unit), f.help ? el('div', { class: 'help' }, f.help) : null), input);
 }
 

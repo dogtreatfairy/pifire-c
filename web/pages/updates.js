@@ -93,6 +93,18 @@ export function renderUpdates(view) {
               catch (err) { toast(err.message, true); }
             } })
         : null,
+      /* where PiFire comes from: part of this list, saved the moment it changes */
+      el('div', { class: 'row static' }, tile('link-2', '#636366'), el('span', { class: 'body' }, el('span', { class: 't' }, 'Repository')),
+        el('input', { type: 'text', class: 'row-input', value: u.repo || '', autocapitalize: 'off', autocorrect: 'off', spellcheck: false, 'aria-label': 'GitHub repository', enterkeyhint: 'done',
+          onchange: async (e) => {
+            const v = e.target.value.trim();
+            if (!/^[\w.-]+\/[\w.-]+$/.test(v)) { toast('owner/name', true); e.target.value = u.repo || ''; return; }
+            try { await patchSettings('update', { repo: v }); check('pifire'); } catch (err) { toast(err.message, true); }
+          } })),
+      el('label', { class: 'row static' }, tile('flask-conical', '#636366'), el('span', { class: 'body' }, el('span', { class: 't' }, 'Pre-releases')),
+        el('span', { class: 'switch' }, el('input', { type: 'checkbox', checked: PF.settings?.update?.include_prerelease !== false, onchange: async (e) => {
+          try { await patchSettings('update', { include_prerelease: e.target.checked }); check('pifire'); } catch (err) { toast(err.message, true); }
+        } }), el('span'))),
       row({ lead: tile('refresh-cw', '#0a84ff'), title: 'Check for Updates', value: checkedAt(u.checked_at, 'pifire'), onclick: busy ? null : () => check('pifire'), cls: busy ? 'off' : '' }),
     ];
     /* ---- System ---- */
