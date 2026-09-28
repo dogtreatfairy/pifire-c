@@ -35,6 +35,13 @@
  * evidence; learning is a correction to it, not a licence to replace it. */
 #define LEARN_MIN     0.7
 #define LEARN_MAX     1.6
+/* ...and the integral time: shortened as far as 0.4 of the tune when the grill keeps settling off
+ * target, lengthened as far as 1.25 when it hunts */
+#define TI_LEARN_MIN  0.4
+#define TI_LEARN_MAX  1.25
+/* a window whose average error stays on one side by more than this, with no crossing, is a grill
+ * holding off its set point rather than holding it (1.8 F) */
+#define OFFSET_C      1.0
 /* An approach floor -- never feed less than what holds the pit where it is while climbing to a
  * set point not yet reached -- was tried against the sag this grill showed at 250 F. On the
  * simulator, whose fire dies back no faster than it grows, it turned the sag into three degrees
@@ -87,6 +94,12 @@ typedef struct {
 	 * fraction of whatever was measured, and that fraction still holds when the measurement moves. */
 	double band_anchor[PF_SCALE_BANDS];
 	double band_PB_c;   /* the lesson for the band being held right now, re-anchored; 0 when there is none */
+	/* The integral time learned per range, the same way: seconds, with the Ti it was learned
+	 * against, so a later tune inherits the proportion. A grill that settles a few degrees off its
+	 * set point and stays there has an integrator too slow to finish the job; that is the lesson. */
+	double ti_learned[PF_SCALE_BANDS], ti_anchor[PF_SCALE_BANDS];
+	double band_Ti;     /* the Ti lesson for the band being held, re-anchored; 0 when there is none */
+	bool arrived;       /* the pit has reached the set point since the last step */
 	/* tuning autotune measured at this set point, handed over fresh each cycle */
 	double sch_PB_c, sch_Ti, sch_Td; bool sch_valid;
 	/* effective */
@@ -97,7 +110,7 @@ typedef struct {
 	bool have_last;
 	double setpoint_c;
 	/* performance monitor */
-	double win_start, win_abs_sum, win_peak; int win_n, win_changes, win_sat, last_sign;
+	double win_start, win_abs_sum, win_sum, win_sum1, win_sum2, win_peak; int win_n, win_n1, win_n2, win_changes, win_sat, last_sign;
 	double step_t, step_size, step_peak; bool step_open;
 	int settled_n;
 	/* The grill as a first-order lag with a dead time, which is what a pellet grill is: fuel goes
@@ -131,6 +144,7 @@ static const double BAND_EDGE_C[PF_SCALE_BANDS - 1] = { 93.3, 135.0, 204.4 };
 
 static void use_band(ad_t *s, double setpoint_c);
 static double anchor_PB(const ad_t *s);
+static double anchor_Ti(const ad_t *s);
 
 static int band_of(double setpoint_c)
 {
@@ -157,6 +171,7 @@ static void recompute(ad_t *s)
 	double anchor = anchor_PB(s);
 	s->PB_c = s->auto_tune && s->band_PB_c > 0 ? s->band_PB_c : anchor;
 	s->Ti = use_sched ? s->sch_Ti : use_learned ? s->l_Ti : s->cfg_Ti;
+	if (s->auto_tune && s->band_Ti > 0) s->Ti = s->band_Ti;
 	s->Td = use_sched ? s->sch_Td : use_learned ? s->l_Td : s->cfg_Td;
 	double ki_was = s->ki;
 	s->kp = s->PB_c > 0 ? -1.0 / s->PB_c : 0;
@@ -173,13 +188,16 @@ static void recompute(ad_t *s)
 static void save_learned(ad_t *s)
 {
 	if (!s->env || !s->env->kv_put) return;
-	char buf[512];
+	char buf[768];
 	snprintf(buf, sizeof buf, "{\"PB_c\":%.2f,\"Ti\":%.1f,\"Td\":%.1f,\"band_learned\":[%.2f,%.2f,%.2f,%.2f],"
-	         "\"band_anchor\":[%.2f,%.2f,%.2f,%.2f],\"valid\":%s,\"ts\":%.0f,\"src\":\"%s\","
+	         "\"band_anchor\":[%.2f,%.2f,%.2f,%.2f],\"ti_learned\":[%.1f,%.1f,%.1f,%.1f],\"ti_anchor\":[%.1f,%.1f,%.1f,%.1f],"
+	         "\"valid\":%s,\"ts\":%.0f,\"src\":\"%s\","
 	         "\"theta\":%.0f,\"K\":%.1f,\"tau\":%.0f,\"m\":%d}",
 	         s->l_PB_c, s->l_Ti, s->l_Td,
 	         s->band_learned[0], s->band_learned[1], s->band_learned[2], s->band_learned[3],
 	         s->band_anchor[0], s->band_anchor[1], s->band_anchor[2], s->band_anchor[3],
+	         s->ti_learned[0], s->ti_learned[1], s->ti_learned[2], s->ti_learned[3],
+	         s->ti_anchor[0], s->ti_anchor[1], s->ti_anchor[2], s->ti_anchor[3],
 	         s->l_valid ? "true" : "false", s->l_ts, s->l_src, s->theta, s->K, s->tau, LEARNED_REC_GEN);
 	/* bg: the generation of the band rules. Bands learned under older rules are not carried. */
 	size_t L = strlen(buf);
@@ -189,9 +207,9 @@ static void save_learned(ad_t *s)
 
 static void load_learned(ad_t *s)
 {
-	for (int i = 0; i < PF_SCALE_BANDS; i++) { s->band_learned[i] = 0; s->band_anchor[i] = 0; }
+	for (int i = 0; i < PF_SCALE_BANDS; i++) { s->band_learned[i] = 0; s->band_anchor[i] = 0; s->ti_learned[i] = 0; s->ti_anchor[i] = 0; }
 	if (!s->env || !s->env->kv_get) return;
-	char buf[512];
+	char buf[768];
 	if (s->env->kv_get(s->env, "learned", buf, sizeof buf) != 0) return;
 	cJSON *j = cJSON_Parse(buf);
 	if (!j) return;
@@ -208,6 +226,9 @@ static void load_learned(ad_t *s)
 		cJSON *an = cJSON_IsArray(ba) ? cJSON_GetArrayItem(ba, i) : NULL;
 		s->band_learned[i] = cJSON_IsNumber(it) && it->valuedouble > 0 ? it->valuedouble : 0;
 		s->band_anchor[i] = cJSON_IsNumber(an) && an->valuedouble > 0 ? an->valuedouble : 0;
+		cJSON *tl = cJSON_GetArrayItem(cJSON_GetObjectItem(j, "ti_learned"), i), *ta = cJSON_GetArrayItem(cJSON_GetObjectItem(j, "ti_anchor"), i);
+		s->ti_learned[i] = cJSON_IsNumber(tl) && tl->valuedouble > 0 ? tl->valuedouble : 0;
+		s->ti_anchor[i] = cJSON_IsNumber(ta) && ta->valuedouble > 0 ? ta->valuedouble : 0;
 	}
 	s->l_ts = pf_pid_cfg_num(j, "ts", 0);
 	/* The plant is only restored when it was fitted by a method still in use. What the two-point
@@ -256,7 +277,7 @@ static void destroy(void *self) { free(self); }
 
 static void window_reset(ad_t *s, double now)
 {
-	s->win_start = now; s->win_abs_sum = 0; s->win_peak = 0; s->win_n = 0; s->win_changes = 0; s->win_sat = 0; s->last_sign = 0;
+	s->win_start = now; s->win_abs_sum = 0; s->win_sum = 0; s->win_sum1 = s->win_sum2 = 0; s->win_n1 = s->win_n2 = 0; s->win_peak = 0; s->win_n = 0; s->win_changes = 0; s->win_sat = 0; s->last_sign = 0;
 }
 
 static void reset(void *self, const pf_ctrl_in *in)
@@ -270,6 +291,8 @@ static void reset(void *self, const pf_ctrl_in *in)
 	bool sp_change = s->have_last && s->setpoint_c != in->setpoint_c;
 	bool far = fabs(in->pit_c - in->setpoint_c) > IBAND_C;
 	if (sp_change || far) { s->step_t = in->now_s; s->step_size = in->setpoint_c - (sp_change ? s->setpoint_c : in->pit_c); s->step_peak = 0; s->step_open = true; s->settled_n = 0; }
+	/* a step has somewhere to arrive; a nudge or a restart near the target has already arrived */
+	s->arrived = !(far || (sp_change && fabs(in->setpoint_c - s->setpoint_c) > IBAND_C));
 	s->setpoint_c = in->setpoint_c;
 	use_band(s, in->setpoint_c);      /* the correction learned around this temperature, not the last one */
 	s->last_t = in->now_s;
@@ -312,6 +335,8 @@ static void use_band(ad_t *s, double setpoint_c)
 	double want = 0;
 	if (v > 0) want = a0 > 0 && a > 0 ? clampd(a * (v / a0), a * LEARN_MIN, a * LEARN_MAX) : v;
 	s->band_PB_c = want;
+	double tv = s->ti_learned[b], ta0 = s->ti_anchor[b], ta = anchor_Ti(s);
+	s->band_Ti = tv > 0 && ta0 > 0 && ta > 0 ? clampd(ta * (tv / ta0), ta * TI_LEARN_MIN, ta * TI_LEARN_MAX) : 0;
 	recompute(s);
 }
 
@@ -322,6 +347,32 @@ static double anchor_PB(const ad_t *s)
 	if (s->sch_valid && s->sch_PB_c > 0) return s->sch_PB_c;
 	if (s->auto_tune && s->l_valid && s->l_PB_c > 0) return s->l_PB_c;
 	return s->cfg_PB_c > 0 ? s->cfg_PB_c : s->l_PB_c;
+}
+
+static double anchor_Ti(const ad_t *s)
+{
+	if (s->sch_valid && s->sch_Ti > 0) return s->sch_Ti;
+	if (s->auto_tune && s->l_valid && s->l_Ti > 0) return s->l_Ti;
+	return s->cfg_Ti > 0 ? s->cfg_Ti : s->l_Ti;
+}
+
+/* `faster` above 1 shortens the integral time: the integrator finishes the job sooner. Kept within
+ * a proportion of the tuned Ti, per temperature range, like the band. */
+static void adjust_ti(ad_t *s, double faster, const char *why)
+{
+	double a = anchor_Ti(s);
+	double base = s->Ti > 0 ? s->Ti : a;
+	if (!(base > 0) || !(a > 0) || !(faster > 0)) return;
+	double want = clampd(base / faster, a * TI_LEARN_MIN, a * TI_LEARN_MAX);
+	if (fabs(want - s->Ti) < 0.5) return;
+	int b = band_of(s->setpoint_c);
+	s->ti_learned[b] = want;
+	s->ti_anchor[b] = a;
+	s->band_Ti = want;
+	recompute(s);
+	save_learned(s);
+	if (s->env && s->env->log)
+		s->env->log(PF_LVL_INFO, "adaptive", "Ti %.0f s around %.0f C, refining %.0f s (%s)", want, s->setpoint_c, a, why);
 }
 
 /* `tighter` above 1 makes the loop more aggressive, which means a narrower band. The result is
@@ -356,7 +407,8 @@ static void monitor(ad_t *s, const pf_ctrl_in *in, double e)
 	 * grill -- clouding the very measurement it is standing next to. */
 	if (in->tuning) { window_reset(s, in->now_s); return; }
 	double a = fabs(e);
-	s->win_abs_sum += a; s->win_n++;
+	s->win_abs_sum += a; s->win_sum += e; s->win_n++;
+	if (in->now_s - s->win_start < WINDOW_S / 2) { s->win_sum1 += e; s->win_n1++; } else { s->win_sum2 += e; s->win_n2++; }
 	if (a > s->win_peak) s->win_peak = a;
 	if (in->saturated) s->win_sat++;
 	int sign = e > DEADBAND_C ? 1 : e < -DEADBAND_C ? -1 : 0;
@@ -377,10 +429,26 @@ static void monitor(ad_t *s, const pf_ctrl_in *in, double e)
 	double mean_abs = s->win_abs_sum / s->win_n;
 	bool mostly_free = s->win_sat < s->win_n / 4;
 	bool step_recent = s->step_open || in->now_s - s->step_t < 1200;
-	if (s->win_changes >= 3 && s->win_peak >= 3.0) adjust_band(s, 0.85, "sustained oscillation");
+	double mean_signed = s->win_sum / s->win_n;
+	if (s->win_changes >= 3 && s->win_peak >= 3.0) {
+		adjust_band(s, 0.85, "sustained oscillation");
+		/* hunting is also what an integrator taken too far does: give back some of the speed */
+		if (s->band_Ti > 0) adjust_ti(s, 1 / 1.15, "sustained oscillation");
+	}
 	/* "slow to reach target" is a judgement about holding, so it needs the pit to have reached
 	 * the target once: until then the window is the approach, which is the step's business */
 	else if (mean_abs > 3.0 && s->win_changes <= 1 && mostly_free && !step_recent && in->target_reached) adjust_band(s, mean_abs > 6.0 ? 1.25 : 1.15, "slow to reach target");
+	/* Settled, but off to one side for the whole window: the pit has arrived and the loop is not
+	 * finishing the correction. The last cook at 225 F sat 2 to 8 F high for eighteen minutes with
+	 * the integrator bleeding at 0.00004 duty a second, and nothing noticed, because the rule above
+	 * only looks at errors over 3 C. The integral is what removes a steady offset, so it is the
+	 * integral time that learns. */
+	/* Stuck, not recovering: a pit walking back from an overshoot is off to one side too, but it is
+	 * the fire's own time constant at work, and a faster integrator only buys the next overshoot.
+	 * So the second half of the window must be no closer to the target than the first. */
+	else if (fabs(mean_signed) > OFFSET_C && s->win_changes == 0 && mostly_free && !step_recent && in->target_reached && s->arrived &&
+	         s->win_n1 > 0 && s->win_n2 > 0 && fabs(s->win_sum2 / s->win_n2) >= fabs(s->win_sum1 / s->win_n1))
+		adjust_ti(s, fabs(mean_signed) > 2.5 ? 1.5 : 1.3, mean_signed > 0 ? "settled above target" : "settled below target");
 	window_reset(s, in->now_s);
 }
 
@@ -473,6 +541,14 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 		s->tau = clampd(in->sched_tau, TAU_MIN, TAU_MAX);
 		if (in->sched_theta > 0) s->theta = clampd(in->sched_theta, THETA_MIN, THETA_MAX);
 	}
+	/* The gain the prediction runs on. A capture fit and a relay measure it from how the pit moved
+	 * during a climb or a test; the settled holds measure it directly, every cook, at the set points
+	 * actually cooked at. On this grill the two disagreed by 1.7 times -- 839 C per unit of feed from
+	 * the fit, 485 from the holds -- and the high one had the predictor expecting cooling that never
+	 * came: it kept feeding on arrival, the pit went five degrees past 225 and then spent the rest
+	 * of the cook creeping back at the pit's own time constant. When there is enough hold evidence
+	 * near this set point, it decides. */
+	if (in->hold_K > 0 && !in->tuning) s->K = clampd(in->hold_K, K_MIN, K_MAX);
 	double dt = in->now_s - s->last_t;
 	if (dt <= 0) dt = in->cycle_time_s > 0 ? in->cycle_time_s : 1;
 	/* What the loop acts on is the pit plus what is already on its way to it. */
@@ -493,6 +569,16 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 		if (s->inter < -lim) s->inter = -lim;
 	}
 	s->in_band = in_band;
+	/* Arriving. The first time the pit reaches its set point after a climb (or a fall), the
+	 * integrator starts over. At that moment the feed-forward is the best estimate there is of the
+	 * feed that holds the set point, and whatever the integrator gathered on the way describes the
+	 * approach. Kept, it was the +0.029 duty that held the last 225 F cook several degrees high for
+	 * as long as the integrator took to unlearn it -- the rest of the cook. */
+	if (!s->arrived) {
+		bool crossed = (s->step_size >= 0 && e_true >= 0) || (s->step_size < 0 && e_true <= 0);
+		if (crossed) { s->arrived = true; s->inter = 0; }
+		else if (!s->step_open) s->arrived = true;   /* settled short of it: that is where it holds */
+	}
 	/* A probe that drops out for a moment hands the controller a reading that is not a number. One
 	 * addition of it to the integrator poisons the integrator for ever, because every later
 	 * comparison against it is false and nothing clears it, so the loop never recovers even after
@@ -506,7 +592,17 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 	 * prediction, it stops accumulating as soon as enough fuel is committed to close the gap, which
 	 * is the moment the deficit stops being real. The prediction is zero at steady state, so this
 	 * costs no accuracy where the integrator actually earns its keep. */
-	if (!sat_push && isfinite(e) && isfinite(dt)) s->inter += e * dt;
+	/* Once arrived, a pit ABOVE its set point is integrated where it really is. The prediction was
+	 * for the climb: it stops the integrator banking the deficit of the way in. Held, it hid a real
+	 * overtemperature -- a pit resting two degrees high with the feed already cut reads as "on
+	 * target" to the prediction, because the prediction is busy expecting the cooling that cut will
+	 * bring, and the integrator waited for the pit's own half-hour time constant to finish the job.
+	 * A grill cannot cool itself, so an overtemperature is only ever removed by feeding less, and
+	 * the integrator has to see it. Below the set point it is the other way round: after arrival a
+	 * short sag usually has fire already committed behind it, and integrating the sag is the
+	 * wind-up that throws the pit over on the second approach. There the prediction stays. */
+	double e_int = s->arrived && e_true > 0 && e_true > e ? e_true : e;
+	if (!sat_push && isfinite(e_int) && isfinite(dt)) s->inter += e_int * dt;
 	/* The integral never opposes a large error: a negative integral while the pit is far below the
 	 * target (or positive while far above) is left-over wind-down, not a steady-state correction.
 	 * This too is about where the pit REALLY is -- a pit sitting on its set point with fuel still on

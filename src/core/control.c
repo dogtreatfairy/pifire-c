@@ -1195,7 +1195,13 @@ static void learn_track_steady(pf_control *c, double now)
 		double mean = c->learn.pit_sum / c->learn.n;
 		double var = c->learn.pit_sq / c->learn.n - mean * mean;
 		double amb = isnan(c->ambient_c) ? 20 : c->ambient_c;
-		pf_learning_observe(c->cops ? c->cops->id : "?", c->setpoint_c, amb, c->learn.u_sum / c->learn.n, sqrt(fmax(0, var)), "");
+		/* The feed that held the pit where it WAS is not the feed for the set point: a window that
+		 * sat 3 F high recorded the feed for 228 and filed it under 225, so the grill learned to run
+		 * high. Heat loss goes with the difference from the air, so the feed carries over by that
+		 * ratio -- the feed that would have held the set point itself. */
+		double u = c->learn.u_sum / c->learn.n;
+		if (mean - amb > 10 && c->setpoint_c - amb > 10) u *= (c->setpoint_c - amb) / (mean - amb);
+		pf_learning_observe(c->cops ? c->cops->id : "?", c->setpoint_c, amb, u, sqrt(fmax(0, var)), "");
 		c->learn.last_obs_t = now;
 		c->learn.u_sum = c->learn.pit_sum = c->learn.pit_sq = 0; c->learn.n = 0;
 	}
@@ -2192,6 +2198,8 @@ static void run_hold_cycle(pf_control *c, double now)
 			.target_reached = c->target_reached, .fan_on = pf_outputs_get(PF_OUT_FAN), .fan_pct = pf_outputs_get_fan_pct(),
 			.tuning = c->autotune.active || pf_tuner_active(NULL, NULL, NULL),
 			.hist = pf_history_ctrl_view(),
+			/* three observations' worth of settled holds near this set point before it counts */
+			.hold_K = pf_learning_hold_gain(c->setpoint_c, 3.0),
 		};
 		if (c->ctrl_reset_needed) { c->cops->reset(c->cinst, &in); c->ctrl_reset_needed = false; }
 		u = c->cops->update(c->cinst, &in, &c->dbg);

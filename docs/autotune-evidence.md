@@ -154,3 +154,41 @@ Two mechanisms, one of them a bug in the learning:
    the brake exists: a pit fed at its hold feed until it arrives carries a dead time's rise past
    the target. The brake stays. With the band back at the tuned width the brake is a fifth weaker
    too (Kd = Td / PB), which is the proportion the log shows it was over-braking by.
+
+## 2026-09-28: a 225 F hold that settled high and stayed there (cook 19)
+
+Hold at 225 F on a 72 F afternoon (PB 65 C, Ti 661 s, Td 48 s from the 250 F library entry). The
+pit arrived at about 14 minutes and then sat at 227-233 F for the remaining 18 minutes; it never
+came back to 225. From the cook's own controller log:
+
+- The feed-forward was 0.192, which is what learning predicted for 225 F at 72 F. The grill needed
+  about 0.175 that afternoon (the three settled windows averaged 0.179-0.188 with the pit high).
+- The integrator arrived at **+0.029 duty**, gathered on the climb, pushing the wrong way. At PB 65 C
+  it bled off at about 0.00004 duty a second, so the correction took the rest of the cook.
+- The Smith predictor ran on a plant gain of about 800 C per unit duty (capture fit 839, relay
+  anchors 768/779). The settled holds put it at 85 C above ambient on 0.175, **485**. Overstated,
+  the predictor expected cooling that did not come: at 720 s the pit was 2.3 C above the set point
+  while the controller's error read -0.68 C, and it kept feeding.
+- The integrator acted on the predicted error after arrival as well, which reads "on target" while
+  the pit rests a degree or two high with the feed already cut and waits on the pit's own 1350 s
+  time constant.
+- Learning's only rule for a sluggish hold needs a mean error over 3 C; a steady 1-4 C offset
+  taught it nothing. The observations were recorded with the pit high, so they filed the feed that
+  holds 228 F under 225 F.
+
+Replayed closed loop (tests/test_adaptive.c, `test_a_cook_that_settles_high_is_corrected...`):
+same tune and model, a plant needing 0.175, feed-forward 0.192, four 40 minute cooks.
+
+| | overshoot | last 15 min mean | worst |
+|---|---|---|---|
+| before | +6.6 F | +3.4 F | 5.2 F |
+| after, cook 1 | +3.8 F | +0.1 F | 1.1 F |
+| after, cook 4 | +2.5 F | +0.0 F | 0.3 F |
+
+What changed: the integrator starts from zero when the pit first reaches the set point; after
+arrival an overtemperature is integrated as it really is (below the set point the prediction stays,
+which is what keeps the simulator's capture at +6.6 F rather than the +10.6 F that integrating the
+sag gave); the predictor's gain comes from the settled holds once three observations' worth are near
+the set point; observations are carried to the set point by the heat-loss ratio; and a window stuck
+off target (mean over 1 C, no crossing, not recovering) shortens the integral time for that
+temperature range, with sustained oscillation giving some back.

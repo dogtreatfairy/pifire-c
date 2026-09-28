@@ -22,6 +22,9 @@ bool pf_learning_enabled(void);
 void pf_learning_observe(const char *controller, double setpoint_c, double ambient_c, double u_mean, double pit_stdev_c, const char *pellet);
 /* Feed-forward for a set point / ambient; returns clamped u_ff (or fallback when n < 3). */
 double pf_learning_uff(double setpoint_c, double ambient_c, double u_min, double u_max, int *n_out);
+/* degrees C above ambient per unit of feed at this set point, from the learned heat loss (1/g);
+ * 0 when fewer than `min_support` observations' worth of evidence is near it */
+double pf_learning_hold_gain(double setpoint_c, double min_support);
 pf_ff_fit pf_learning_fit(void);
 void pf_learning_store_fopdt(double K, double tau, double theta);
 pf_fopdt pf_learning_fopdt(void);

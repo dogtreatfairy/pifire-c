@@ -7,15 +7,16 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 void setUp(void) {}
 void tearDown(void) {}
 
 /* in-memory env: one kv slot, quiet log */
-static char g_kv[512];
+static char g_kv[1024];
 static int kv_get(const pf_env *e, const char *key, char *out, size_t n) { (void)e; (void)key; if (!g_kv[0]) return 1; snprintf(out, n, "%s", g_kv); return 0; }
 static int kv_put(const pf_env *e, const char *key, const char *json) { (void)e; (void)key; snprintf(g_kv, sizeof g_kv, "%s", json); return 0; }
-static void logf_(int level, const char *tag, const char *fmt, ...) { (void)level; (void)tag; (void)fmt; }
+static void logf_(int level, const char *tag, const char *fmt, ...) { (void)level; (void)tag; if (!getenv("PF_LOG")) return; va_list ap; va_start(ap, fmt); vprintf(fmt, ap); va_end(ap); printf("\n"); }
 static pf_env env = { .log = logf_, .kv_get = kv_get, .kv_put = kv_put };
 
 static double state_num(const pf_controller_ops *ops, void *c, const char *key)
@@ -364,10 +365,80 @@ static void test_the_first_approach_is_not_slowness(void)
 	ops->destroy(c);
 }
 
+/* Ryan's 225 F cook of 2026-09-28, closed loop. The grill's own tune (PB 65 C, Ti 661 s, Td 48 s,
+ * its fitted model K 839 / tau 1350 / theta 40) holding 107.2 C on a 22 C afternoon, with a plant
+ * that needs 0.175 duty while the learned feed-forward says 0.192. On the grill the pit arrived
+ * carrying +0.029 of approach integral and sat 2 to 8 F high for the rest of the cook. Each cook
+ * here is 40 minutes of Hold from 44 C; the controller persists between them, as it does. */
+typedef struct { double pit, fire; double hist[64]; int hn; } plant_t;
+static double run_cook(const pf_controller_ops *ops, void *c, double *t, double *late_mean_f, double *late_absmax_f, double *ff, double hold_K)
+{
+	const double amb = 22, sp = 107.2, g_true = 0.175 / (sp - amb), tau = 1350, theta = 60, dt = 20;
+	plant_t pl = { .pit = 44 };
+	double u = 0.3, late_sum = 0, late_max = 0, late_u = 0, late_pit = 0; int late_n = 0; double peak = -1e9;
+	/* entering Hold, as the daemon does */
+	pf_ctrl_in in0 = { .now_s = *t, .pit_c = pl.pit, .setpoint_c = sp, .ambient_c = amb, .u_prev_applied = u, .u_ff = *ff, .hold_K = hold_K, .cycle_time_s = dt, .u_min = 0.1, .u_max = 0.9,
+	                   .sched_PB_c = 65, .sched_Ti = 661, .sched_Td = 48, .sched_K = 839, .sched_tau = 1350, .sched_theta = 40 };
+	ops->reset(c, &in0);
+	for (int k = 0; k < (getenv("PF_MIN") ? atoi(getenv("PF_MIN")) : 40) * 3; k++) {
+		*t += dt;
+		/* the fire answers the feed a dead time late; the pit follows it with a long lag */
+		pl.hist[pl.hn++ % 64] = u;
+		int lag = (int)(theta / dt);
+		double u_del = pl.hn > lag ? pl.hist[(pl.hn - 1 - lag) % 64] : 0.3;
+		double target = amb + u_del / g_true;
+		pl.pit += (target - pl.pit) * dt / tau;
+		pf_ctrl_in in = { .now_s = *t, .pit_c = pl.pit, .setpoint_c = sp, .ambient_c = amb, .u_prev_raw = u, .u_prev_applied = u,
+		                  .u_ff = *ff, .hold_K = hold_K, .target_reached = pl.pit >= sp - 1, .cycle_time_s = dt, .u_min = 0.1, .u_max = 0.9,
+		                  .sched_PB_c = 65, .sched_Ti = 661, .sched_Td = 48, .sched_K = 839, .sched_tau = 1350, .sched_theta = 40 };
+		pf_ctrl_dbg dbg = { 0 };
+		u = ops->update(c, &in, &dbg);
+		if (getenv("PF_TRACE") && k % 6 == 0) printf("  %4.0fs pit %.1fF u %.3f p %+.3f i %+.3f d %+.3f e %+.2f\n", k * dt, pl.pit * 1.8 + 32, u, dbg.p, dbg.i, dbg.d, dbg.error);
+		if (u < 0.1) u = 0.1;
+		if (u > 0.9) u = 0.9;
+		if (pl.pit > peak) peak = pl.pit;
+		if (k >= 25 * 3) { double e = (pl.pit - sp) * 1.8; late_sum += e; late_n++; late_u += u; late_pit += pl.pit; if (fabs(e) > late_max) late_max = fabs(e); }
+	}
+	*late_mean_f = late_sum / late_n;
+	/* what the daemon learns from the settled part: the feed that held the pit, carried to the set
+	 * point by the heat-loss ratio, blended into the feed-forward like the kernel average does */
+	double u_obs = late_u / late_n * (sp - amb) / (late_pit / late_n - amb);
+	*ff = 0.5 * *ff + 0.5 * u_obs;
+	*late_absmax_f = late_max;
+	return (peak - sp) * 1.8;
+}
+
+static void test_a_cook_that_settles_high_is_corrected_and_the_next_one_starts_better(void)
+{
+	g_kv[0] = 0;
+	const pf_controller_ops *ops = pf_controller_find("adaptive");
+	void *c = ops->create("{\"_units\":\"C\",\"PB\":65,\"Ti\":661,\"Td\":48}", &env);
+	double t = 1000, mean, absmax, first_mean = 0, ff = 0.192, last_over = 0;
+	/* the heat loss the holds have measured: 85.2 C above the air on 0.175 of feed */
+	double hold_K = getenv("PF_K") ? atof(getenv("PF_K")) : (107.2 - 22) / 0.175;
+	for (int cook = 0; cook < 4; cook++) {
+		double ff_was = ff;
+		double over = run_cook(ops, c, &t, &mean, &absmax, &ff, hold_K);
+		last_over = over;
+		printf("cook %d: ff %.3f, overshoot %+.1f F, last 15 min mean %+.2f F, worst %.1f F, Ti %.0f\n", cook + 1, ff_was, over, mean, absmax, state_num(ops, c, "Ti"));
+		if (cook == 0) first_mean = mean;
+		t += 3600;
+	}
+	/* On the grill this cook sat +2 to +8 F for its last quarter hour, and the replay of it with the
+	 * old controller +3.5 F. The first cook now holds within a degree over its last quarter hour... */
+	TEST_ASSERT_TRUE(fabs(first_mean) < 1.0);
+	/* ...and once learning has had a few cooks, it holds on the set point and arrives cleanly */
+	TEST_ASSERT_TRUE(fabs(mean) < 0.8);
+	TEST_ASSERT_TRUE(absmax < 1.5);
+	TEST_ASSERT_TRUE(last_over < 4.0);
+	ops->destroy(c);
+}
+
 int main(void)
 {
 	pf_controllers_init(NULL);
 	UNITY_BEGIN();
+	RUN_TEST(test_a_cook_that_settles_high_is_corrected_and_the_next_one_starts_better);
 	RUN_TEST(test_model_tuning_and_persistence);
 	RUN_TEST(test_monitor_adjusts_the_band);
 	RUN_TEST(test_the_first_approach_is_not_slowness);

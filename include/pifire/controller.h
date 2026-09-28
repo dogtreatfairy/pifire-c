@@ -62,6 +62,12 @@ typedef struct {
 	 * learn is the shape of the test, not the grill. */
 	bool   tuning;
 	const pf_history *hist;
+	/* How many degrees above ambient one unit of feed holds the pit at this set point, measured from
+	 * settled holds (the grill's own heat loss, see features/learning.c); 0 until enough of them
+	 * have been seen near this set point. It is the gain a feed change finally delivers here, from
+	 * many direct measurements, and a controller that models the plant should prefer it to a gain
+	 * fitted across a cold start. Added at the end: older plugins never read it. */
+	double hold_K;
 } pf_ctrl_in;
 
 typedef struct {

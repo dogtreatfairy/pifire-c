@@ -255,6 +255,15 @@ double pf_learning_uff(double setpoint_c, double ambient_c, double u_min, double
 	return pf_clamp(u, u_min, fmax(u_min, u_max - 0.15));
 }
 
+double pf_learning_hold_gain(double setpoint_c, double min_support)
+{
+	pf_learning_fit();
+	pthread_mutex_lock(&g_mu);
+	double sup = 0, g = g_npts ? loss_at(setpoint_c, &sup) : 0;
+	pthread_mutex_unlock(&g_mu);
+	return g > 1e-5 && sup >= min_support ? 1.0 / g : 0;
+}
+
 void pf_learning_store_fopdt(double K, double tau, double theta)
 {
 	pthread_mutex_lock(&g_mu);
