@@ -351,7 +351,9 @@ export function fieldInput(f, value) {
   if (f.type === 'bool') {
     return el('label', { class: 'toggle', for: id }, el('div', {}, el('div', {}, f.label), f.help ? el('div', { class: 'help' }, f.help) : null), el('span', { class: 'switch' }, input, el('span')));
   }
-  return el('div', { class: 'field inline' }, el('div', {}, el('label', { for: id }, f.label + unit), f.help ? el('div', { class: 'help' }, f.help) : null), input);
+  /* a time of day sits at the right of its own row, as a time does in iOS Settings */
+  const cls = f.type === 'time' ? 'field inline time' : 'field inline';
+  return el('div', { class: cls }, el('div', {}, el('label', { for: id }, f.label + unit), f.help ? el('div', { class: 'help' }, f.help) : null), input);
 }
 
 export function readField(f, form) {

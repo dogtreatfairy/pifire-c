@@ -1506,3 +1506,18 @@ main.view:has(> .screen-actions) { padding-bottom: calc(var(--tab-h) + env(safe-
       --tile-ink: #fff;
   }
 }
+
+/* A time of day: label on the left, the time on the right, one row. iOS draws its own time control
+   at its own width and centres the text, so as a full-width field it spilled out of the card. It is
+   reset to a plain compact value that opens the phone's time wheel when tapped. */
+.field.inline.time { flex-direction: row; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.field.inline.time > div:first-child { flex: 1; min-width: 0; }
+.field.inline.time input[type="time"] {
+  -webkit-appearance: none; appearance: none; flex: none;
+  width: auto; min-width: 96px; max-width: 45%; height: 34px; box-sizing: border-box;
+  padding: 0 10px; margin: 0; border-radius: var(--r-md); border: var(--bw) solid var(--line);
+  background: var(--surface2); color: var(--text); font: inherit; font-size: var(--fs-md);
+  font-variant-numeric: tabular-nums; text-align: right; line-height: 34px;
+}
+.field.inline.time input[type="time"]::-webkit-date-and-time-value { text-align: right; margin: 0; }
+.field.inline.time input[type="time"]::-webkit-calendar-picker-indicator { display: none; }
