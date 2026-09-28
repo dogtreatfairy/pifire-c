@@ -103,6 +103,7 @@ function connect() {
     if (sock !== ws) return;
     lastMsgAt = Date.now();
     const m = JSON.parse(ev.data);
+    if (m.type === 'pong') return;
     if (m.type === 'status') { PF.status = m; PF.units = m.units; emit(); }
     else if (m.type === 'error') toast(m.msg, true);
     else if (m.type === 'event') { PF.alertGen = (PF.alertGen || 0) + 1; alert(m); emit(); }
@@ -129,13 +130,26 @@ setInterval(() => {
   else if (ws.readyState === WebSocket.OPEN && now - lastMsgAt > 8000) reconnectNow();   /* the daemon pushes at least every 5 s */
   else if (ws.readyState === WebSocket.CLOSED) reconnectNow();
 }, 2000);
-/* Coming back from a sleeping phone, the socket has to be rebuilt and the tunnel underneath it may
-   still be waking. Ask for the status over plain HTTP at the same time, so the screen is right as
-   soon as anything gets through rather than only once the socket is up. */
+/* Coming back from a sleeping phone. A wake fires several events at once (visibilitychange,
+   pageshow, focus, online), and each used to close the socket and open another. Every one of those
+   left a socket behind on the grill that it could not tell was dead, each holding a server thread,
+   and over Tailscale a handful of wakes used them all up. So: one resume at a time, and the socket
+   is asked whether it is alive before it is replaced -- a live one answers within a moment and is
+   kept. The status is fetched over plain HTTP alongside, so the screen is right as soon as anything
+   gets through. */
+let resumeAt = 0, probeTimer = null;
 function resumeNow() {
-  setTimeout(reconnectNow, 150);
+  const now = Date.now();
+  if (now - resumeAt < 3000) return;
+  resumeAt = now;
   pollStatus();
   checkVersion();
+  clearTimeout(probeTimer);
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    const asked = Date.now();
+    try { ws.send('"ping"'); } catch { reconnectNow(); return; }
+    probeTimer = setTimeout(() => { if (lastMsgAt < asked) reconnectNow(); }, 2500);
+  } else if (!ws || ws.readyState !== WebSocket.CONNECTING || now - connectingAt > 6000) reconnectNow();
 }
 
 /* The daemon can be updated while this app is sitting in the background -- on a phone it may not be
@@ -627,41 +641,23 @@ export function screenActions({ onDelete, deleteTitle = 'Delete', onCancel, onSa
      save]);
 }
 
-/* While the daemon installs an update -- from the update page or on its own at two in the morning
-   with the app open -- every page shows the same full-screen stage: a turning ring, Updating, then
-   Rebooting once the daemon has gone away, until it answers again running the new version, when
-   the app reloads itself. The download before it does not take the screen. */
-let updOverlay = null, updWasBusy = false, updBootVersion = null;
-export function showUpdateOverlay(stage, detail) {
-  if (!updOverlay) {
-    updOverlay = el('div', { class: 'upd-overlay', role: 'status' }, el('div', { class: 'upd-ring' }), el('div', { class: 'upd-stage' }), el('div', { class: 'upd-detail muted' }));
-    document.body.append(updOverlay);
-  }
-  updOverlay.querySelector('.upd-stage').textContent = stage;
-  updOverlay.querySelector('.upd-detail').textContent = detail || '';
-  updOverlay.hidden = false;
-}
-function hideUpdateOverlay() { if (updOverlay) updOverlay.hidden = true; }
+/* An install that restarts PiFire is followed on the console page (Settings > Software Updates),
+   never behind a full-screen cover. What every page still does: notice the daemon coming back on a
+   newer version after an install and reload itself, so nobody runs the old interface against the
+   new daemon, landing back on whatever page it was on. `PF.updating` lets the connection banner say
+   what the gap is. */
+let updWasBusy = false, updBootVersion = null;
 function watchUpdate(s) {
   const st = s?.update?.state;
   if (updBootVersion == null && s?.version) updBootVersion = s.version;
-  /* Rebooting is only ever what follows an install: the daemon said it was installing, and then it
-     went away. A routine check, or a download, followed by the phone putting the page to sleep and
-     the link dropping, is not a reboot -- that was the full-screen "Rebooting" on opening the app
-     long after an update had finished. The flag is set by the install alone and cleared the moment
-     the daemon answers idle on the same version. */
-  if (st === 'verifying' || st === 'installing') { updWasBusy = true; showUpdateOverlay('Updating…', ''); return; }
+  /* only an install leads to a restart: a routine check followed by a sleeping phone is not one */
+  if (st === 'verifying' || st === 'installing') updWasBusy = true;
   if (updWasBusy && s?.version && updBootVersion && s.version !== updBootVersion) {
-    /* the daemon is back, running something newer: fetch the new shell and start again */
-    showUpdateOverlay('Reloading…', s.version);
     updWasBusy = false;
     (async () => { try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); } catch { /* no worker */ } setTimeout(() => location.reload(), 1200); })();
-    return;
   }
-  if (updWasBusy && !PF.connected) { showUpdateOverlay('Rebooting…', ''); return; }
-  if (updWasBusy && st === 'error') { updWasBusy = false; hideUpdateOverlay(); toast(s.update.message || 'The update failed', true); return; }
-  if (updWasBusy && PF.connected && (st === 'idle' || !st) && s?.version === updBootVersion) updWasBusy = false;   /* nothing was installed */
-  if (!updWasBusy) hideUpdateOverlay();
+  if (updWasBusy && PF.connected && (st === 'idle' || st === 'error' || !st) && s?.version === updBootVersion) updWasBusy = false;
+  PF.updating = updWasBusy;
 }
 onStatus(watchUpdate);
 
@@ -685,6 +681,8 @@ export function updatedDialog(u) {
    whether the install was asked for on the update page or happened on its own overnight. The
    daemon holds the record and forgets it the moment one screen has shown it. */
 async function announceInstall() {
+  /* on the console the install's story is the announcement */
+  if (location.hash.startsWith('#/settings/updates/console')) return;
   try {
     const u = await api('/update', { timeout: 5000 });
     const inst = u?.installed;
@@ -1156,6 +1154,7 @@ onStatus((s) => {
   rdVal.hidden = !value;
   readout.dataset.mode = tuning ? 'Tuning' : rc?.active && rc.waiting ? 'Waiting' : s.mode;
 
+  if (PF.lost && PF.updating) { b.hidden = false; b.className = 'banner warn'; b.textContent = 'PiFire is restarting after an update…'; return; }
   if (PF.lost) { b.hidden = false; b.className = 'banner warn'; b.textContent = 'Connection lost — reconnecting…'; return; }
   if (s.safety.error_code) {
     b.hidden = false; b.className = 'banner';

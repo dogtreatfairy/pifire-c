@@ -22,7 +22,10 @@
 #include <string.h>
 
 #define TAG "web"
-#define MAX_WS 16
+/* Each WebSocket holds a civetweb worker thread for as long as it is open. The cap sits well below
+ * the worker count, so however many sockets a phone leaves behind, the API still has threads. */
+#define MAX_WS 8
+#define NUM_THREADS "20"
 
 extern const pf_embedded_file pf_web_files[];
 extern const size_t pf_web_count;
@@ -30,6 +33,9 @@ extern const size_t pf_web_count;
 static struct mg_context *g_ctx;
 static pthread_mutex_t g_ws_mu = PTHREAD_MUTEX_INITIALIZER;
 static struct mg_connection *g_ws[MAX_WS];
+/* sockets whose worker thread is still running, whether or not they still get updates: a socket
+ * dropped from g_ws for not taking data keeps its thread until civetweb notices it is dead */
+static int g_ws_open;
 
 /* Write to every live client, and let go of any that will not take it.
  *
@@ -128,11 +134,13 @@ static int serve_embedded(struct mg_connection *conn, const char *path)
 static int ws_connect(const struct mg_connection *conn, void *cbdata)
 {
 	(void)conn; (void)cbdata;
-	int n = 0;
+	/* counted by thread, not by table slot: a ghost that was dropped from the table still holds a
+	 * worker, and counting slots let reconnects pile ghosts up until no thread was left for HTTP */
 	pthread_mutex_lock(&g_ws_mu);
-	for (int i = 0; i < MAX_WS; i++) if (g_ws[i]) n++;
+	bool full = g_ws_open >= MAX_WS;
+	if (!full) g_ws_open++;
 	pthread_mutex_unlock(&g_ws_mu);
-	if (n >= MAX_WS) { LOGW(TAG, "websocket client limit (%d) reached, rejecting", MAX_WS); return 1; }
+	if (full) { LOGW(TAG, "websocket client limit (%d) reached, rejecting", MAX_WS); return 1; }
 	return 0;
 }
 
@@ -153,6 +161,12 @@ static int ws_data(struct mg_connection *conn, int bits, char *data, size_t len,
 	 * the broadcaster writes from the push thread while a pong or an error reply is written from
 	 * this one. */
 	if ((bits & 0x0f) == MG_WEBSOCKET_OPCODE_PING) { ws_send(conn, MG_WEBSOCKET_OPCODE_PONG, data, len); return 1; }
+	/* the app's "are you there" after the phone wakes: answered at once, on this socket, so it can
+	 * tell a live socket from one the tunnel has lost without tearing either down first */
+	if ((bits & 0x0f) == MG_WEBSOCKET_OPCODE_TEXT && len == 6 && !memcmp(data, "\"ping\"", 6)) {
+		ws_send(conn, MG_WEBSOCKET_OPCODE_TEXT, "{\"type\":\"pong\"}", 15);
+		return 1;
+	}
 	if ((bits & 0x0f) == MG_WEBSOCKET_OPCODE_TEXT && len < 4096) {
 		/* commands over WS use the same handler as POST /api/v1/cmd */
 		char body[4096];
@@ -173,6 +187,7 @@ static void ws_close(const struct mg_connection *conn, void *cbdata)
 	(void)cbdata;
 	pthread_mutex_lock(&g_ws_mu);
 	for (int i = 0; i < MAX_WS; i++) if (g_ws[i] == conn) g_ws[i] = NULL;
+	if (g_ws_open > 0) g_ws_open--;
 	pthread_mutex_unlock(&g_ws_mu);
 }
 
@@ -338,12 +353,17 @@ int pf_web_start(const char *bind_addr, int port)
 		/* every worker thread is pinned for the life of a keep-alive or WebSocket connection, so
 		 * keep-alive stays off (browsers open 6+ sockets) and WebSocket clients are capped below
 		 * the worker count */
-		"num_threads", "12",
+		"num_threads", NUM_THREADS,
 		"enable_keep_alive", "no",
 		/* how long a write to a client may stall before it is given up on: a sleeping phone must
 		 * not hold the broadcaster for longer than the gap between two updates is worth */
 		"request_timeout_ms", "4000",
-		"websocket_timeout_ms", "60000",
+		/* A socket whose phone has gone to sleep never closes by itself: civetweb's reader just
+		 * times out and waits again, for ever, holding its thread. With ping/pong on, every quiet
+		 * interval sends a ping, and a socket that leaves five unanswered is closed. A live
+		 * browser answers pings on its own. Ten seconds puts a dead socket down within a minute. */
+		"websocket_timeout_ms", "10000",
+		"enable_websocket_ping_pong", "yes",
 		"enable_directory_listing", "no",
 		"tcp_nodelay", "1",
 		NULL

@@ -7,7 +7,11 @@
 #   up [hostname]     join the tailnet as <hostname> (default pifire); when a login is needed the auth
 #                     URL appears in `status` (AuthURL) - open it on the phone
 #   down | logout     leave / forget the tailnet
-#   serve [port]      publish the web app over HTTPS on the tailnet (tailscale serve, valid certificate)
+#   serve [port]      publish the web app over HTTPS on the tailnet (valid certificate). Tailscale
+#                     terminates TLS and passes plain TCP through, so the phone speaks HTTP/1.1 with a
+#                     connection per request, exactly as on the local network. Its HTTP proxy speaks
+#                     HTTP/2, and iOS then puts every request on one connection that a phone waking
+#                     from sleep finds half-dead: the app froze for minutes until iOS gave up on it.
 #   unserve           stop the HTTPS publish
 set -euo pipefail
 cmd="${1:-status}"
@@ -48,8 +52,14 @@ case "$cmd" in
 	logout) tailscale logout ;;
 	serve)
 		port="${2:-80}"
-		tailscale serve --bg "http://127.0.0.1:$port"
-		echo "serving"
+		tailscale serve reset >/dev/null 2>&1 || true
+		if tailscale serve --bg --yes --tls-terminated-tcp=443 "tcp://127.0.0.1:$port" >/dev/null 2>&1; then
+			echo "serving (tls-terminated tcp)"
+		else
+			# an older Tailscale without TCP forwarding: the HTTP proxy is better than nothing
+			tailscale serve --bg "http://127.0.0.1:$port"
+			echo "serving (http proxy)"
+		fi
 		;;
 	unserve) tailscale serve reset; echo "stopped" ;;
 	*) echo "usage: pifire-tailscale status|install|up [hostname]|down|logout|serve [port]|unserve" >&2; exit 2 ;;

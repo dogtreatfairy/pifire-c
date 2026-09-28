@@ -38,7 +38,10 @@ static void *runner(void *arg)
 	g_have_result = true;
 	pf_strlcpy(g_output, out, sizeof g_output);
 	pthread_mutex_unlock(&g_mu);
-	if (rc == 0 && !strcmp(verb, "serve")) pf_set_put_bool("network.tailscale_https", true);
+	if (rc == 0 && !strcmp(verb, "serve")) {
+		pf_set_put_bool("network.tailscale_https", true);
+		pf_set_put_str("network.tailscale_serve_mode", strstr(out, "tls-terminated") ? "tcp" : "http");
+	}
 	if (rc == 0 && !strcmp(verb, "unserve")) pf_set_put_bool("network.tailscale_https", false);
 	free(verb);
 	atomic_store(&g_busy, false);
@@ -104,7 +107,25 @@ void pf_tailscale_brief(bool *configured, bool *online, char *name, size_t n)
 	if (configured) *configured = g_brief_configured;
 	if (online) *online = g_brief_online;
 	if (name) pf_strlcpy(name, g_brief_name, n);
+	bool on = g_brief_online;
 	pthread_mutex_unlock(&g_brief_mu);
+	/* A grill published before the serve mode changed is still behind the HTTP/2 proxy. Once, a
+	 * minute after start and with the tailnet up, publish it again the new way. */
+	static bool reserved;
+	static double first;
+	if (first == 0) first = pf_now();
+	if (!reserved && on && pf_now() - first > 60) {
+		reserved = true;
+		char mode[16];
+		pf_set_str("network.tailscale_serve_mode", mode, sizeof mode, "");
+		pf_status st;
+		pf_status_get(&st);
+		char err[80];
+		if (!st.sim && pf_set_bool("network.tailscale_https", false) && strcmp(mode, "tcp") && strcmp(mode, "http")) {
+			LOGI(TAG, "publishing the web app again as TLS-terminated TCP (was the HTTP/2 proxy)");
+			pf_tailscale_action("serve", err, sizeof err);
+		}
+	}
 	if (!stale || atomic_exchange(&g_brief_busy, true)) return;
 	pthread_t t;
 	pthread_attr_t at;
