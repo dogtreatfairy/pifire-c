@@ -7,8 +7,9 @@ import { icon as lucide, MODE_ICON } from '../icons.js';
 // target line, run timer + hopper, the PiFire-style control bar, probe cells, and manual output switches
 // while monitoring. The mode with its countdown or target lives in the app header (app.js).
 
-const presetsF = [160, 180, 200, 225, 250, 275, 300, 350, 400];
-const presetsC = [70, 80, 95, 107, 120, 135, 150, 175, 205];
+/* the hold temperatures offered on the dial pad, in Ryan's order: low and slow to searing */
+const presetsF = [180, 225, 250, 275, 300, 350, 400, 450, 500];
+const presetsC = [80, 107, 120, 135, 150, 175, 205, 230, 260];
 const presets = () => (PF.units === 'C' ? presetsC : presetsF);
 const gaugeMax = () => (PF.units === 'C' ? 320 : 600);
 
