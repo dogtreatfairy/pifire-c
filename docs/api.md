@@ -72,6 +72,8 @@ Recipe step: `{"mode":"Startup|Smoke|Hold|Shutdown","setpoint":225,"s_plus":fals
 
 ## Admin
 
+**Retries.** A POST, PUT, PATCH or DELETE may carry `X-Request-Id`. The same id again within the last 48 commands gets the first answer instead of running twice, and one that arrives while the first is still running waits for it. The app sends one with every command and retries a request that misses its deadline (5, 7, then 10 s), each attempt on a new connection, which is what carries it through a Tailscale tunnel that is still waking.
+
 `GET /update` — PiFire and system updates: `{current, current_branch, arch, repo, branch, branches[], releases: [{tag, version, prerelease, asset, url, sums, notes, html_url}] (newest first), latest, available, switching, installable, asset, notes, html_url, state, message, progress, checked_at, busy, system: {packages: [{name, from, to}], checked_at, message, reboot_required}, installed?}`. `state` is idle, checking, downloading, verifying, installing, upgrading or error.
 
 PiFire builds come from GitHub Releases of `settings.update.repo`. On `update.branch` = `main` that is the tagged releases (pre-releases with `update.include_prerelease`); any other branch is the rolling pre-release `branch-<name>` that CI publishes for that branch's head on every push, and `branches` lists the ones that exist. A build from a different branch than the running one is offered as a switch (`switching`). System packages come from apt through `pifire-system-update` (sudo): `refresh` (apt-get update), `list`, `upgrade PKG...`.

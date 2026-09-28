@@ -90,6 +90,20 @@ static void con(const char *fmt, ...)
 
 static void con_line_cb(const char *text, void *ud) { (void)ud; con_put(text); }
 
+/* apt's status lines ("pmstatus:pkg:42.5:Unpacking pkg") are for machines: they become the
+ * progress bar, and the console keeps the words people read */
+static void apt_line_cb(const char *text, void *ud)
+{
+	(void)ud;
+	if (!strncmp(text, "pmstatus:", 9) || !strncmp(text, "dlstatus:", 9)) {
+		const char *p = strchr(text + 9, ':');
+		double pct = p ? strtod(p + 1, NULL) : -1;
+		if (pct >= 0 && pct <= 100) { pthread_mutex_lock(&g.mu); g.progress = pct / 100.0; pthread_mutex_unlock(&g.mu); }
+		return;
+	}
+	con_put(text);
+}
+
 /* a new story: the page following along sees the id change and starts again */
 static void con_begin(void)
 {
@@ -663,7 +677,8 @@ static bool upgrade_system(job_t *jb)
 		argv[a++] = "sudo"; argv[a++] = "-n"; argv[a++] = SYS_HELPER; argv[a++] = "upgrade";
 		for (int i = 0; i < jb->npk; i++) argv[a++] = jb->pk[i];
 		argv[a] = NULL;
-		rc = pf_run_stream(argv, 3600, con_line_cb, NULL);
+		pthread_mutex_lock(&g.mu); g.progress = 0; pthread_mutex_unlock(&g.mu);
+		rc = pf_run_stream(argv, 3600, apt_line_cb, NULL);
 		free(argv);
 	}
 	if (rc != 0) { fail("system upgrade failed (%d)", rc); return false; }

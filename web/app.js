@@ -26,15 +26,42 @@ export const PF = {
  * allows about six connections to one host, and once they are all held by requests that will never
  * answer, nothing else can get out either. That is how a link that is actually back in a second or
  * two leaves the app unusable for minutes. A short deadline frees the connection instead. */
+/* ...and a request that misses its deadline is tried again, on a new connection.
+ *
+ * Every response closes its connection, so each attempt is a fresh TCP and TLS handshake. Through
+ * a Tailscale tunnel that is still waking (the first seconds after the phone unlocks, or after it
+ * has been idle), the first packets of a new connection are often simply lost, and one long wait
+ * on that connection is a wait on nothing. Several short attempts ride it out: the tunnel is
+ * usually through by the second. A command that changes something carries an id, and the grill
+ * answers a repeat of the same id with the first answer instead of doing it twice -- so a retry
+ * is safe even when the first attempt did arrive and only its answer was lost. */
+const ATTEMPT_MS = [5000, 7000, 10000];
+let reqSeq = 0;
 export async function api(path, opts = {}) {
-  const ms = opts.timeout ?? 8000;
+  const method = opts.method || (opts.body ? 'POST' : 'GET');
+  const rid = method === 'GET' ? null : `${Date.now().toString(36)}-${(++reqSeq).toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const plan = opts.timeout ? [opts.timeout] : ATTEMPT_MS;
+  let last;
+  for (let i = 0; i < plan.length; i++) {
+    try { return await apiOnce(path, opts, method, rid, plan[i]); }
+    catch (e) {
+      last = e;
+      if (!e.retry || document.hidden) break;   /* the grill answered, or nobody is looking */
+    }
+  }
+  throw last;
+}
+async function apiOnce(path, opts, method, rid, ms) {
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), ms);
   let r, j;
   try {
+    const headers = {};
+    if (opts.body) headers['Content-Type'] = 'application/json';
+    if (rid) headers['X-Request-Id'] = rid;
     r = await fetch('/api/v1' + path, {
-      method: opts.method || (opts.body ? 'POST' : 'GET'),
-      headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
+      method,
+      headers,
       body: opts.body ? JSON.stringify(opts.body) : undefined,
       signal: ac.signal,
       cache: 'no-store',
@@ -44,8 +71,12 @@ export async function api(path, opts = {}) {
        timer that was meant to prevent exactly that had already been cleared. */
     j = await r.json().catch(() => ({}));
   } catch (e) {
-    throw new Error(e.name === 'AbortError' ? 'The grill did not answer in time' : 'Could not reach the grill');
+    const err = new Error(e.name === 'AbortError' ? 'The grill did not answer in time' : 'Could not reach the grill');
+    err.retry = true;
+    throw err;
   } finally { clearTimeout(t); }
+  /* a gateway error is the tunnel talking, not the grill: worth another try */
+  if (r.status === 502 || r.status === 503 || r.status === 504) { const err = new Error(j.message || `HTTP ${r.status}`); err.retry = true; throw err; }
   if (!r.ok) throw new Error(j.message || `HTTP ${r.status}`);
   return j;
 }
@@ -137,7 +168,8 @@ setInterval(() => {
    is asked whether it is alive before it is replaced -- a live one answers within a moment and is
    kept. The status is fetched over plain HTTP alongside, so the screen is right as soon as anything
    gets through. */
-let resumeAt = 0, probeTimer = null;
+let resumeAt = 0, probeTimer = null, hiddenAt = 0;
+document.addEventListener('visibilitychange', () => { if (document.hidden) hiddenAt = Date.now(); });
 function resumeNow() {
   const now = Date.now();
   if (now - resumeAt < 3000) return;
@@ -145,6 +177,12 @@ function resumeNow() {
   pollStatus();
   checkVersion();
   clearTimeout(probeTimer);
+  /* After more than a few seconds away the socket is not worth asking: iOS suspends the page and
+     the tunnel, and a socket that comes back "open" is as likely dead as alive, with no close ever
+     reported. A new one costs a second; waiting on a dead one cost the whole screen. */
+  const away = hiddenAt ? now - hiddenAt : 0;
+  hiddenAt = 0;
+  if (away > 15000) { reconnectNow(); return; }
   if (ws && ws.readyState === WebSocket.OPEN) {
     const asked = Date.now();
     try { ws.send('"ping"'); } catch { reconnectNow(); return; }

@@ -232,6 +232,6 @@ int main(int argc, char **argv)
 	pf_db_close();
 	pf_settings_shutdown();
 	unlink(marker);
-	if (pf_threads_power_off_requested() && !sim) execlp("systemctl", "systemctl", "poweroff", (char *)NULL);
+	if (pf_threads_power_off_requested() && !sim) execl("/bin/sh", "sh", "-c", "sudo -n /usr/bin/systemctl poweroff || systemctl poweroff", (char *)NULL);
 	return 0;
 }

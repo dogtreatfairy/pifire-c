@@ -65,6 +65,10 @@ const NET_PATIENCE_MS = 2500;
    request until the operating system times it out. */
 const NO_CACHE_PATIENCE_MS = 6000;
 const sleep = (ms) => new Promise((res) => setTimeout(() => res(null), ms));
+/* Every fetch this worker makes has an end. A request the page has stopped waiting for is still
+   this worker's, and through a waking tunnel it can sit on one of the handful of connections the
+   browser allows the grill, starving the API calls the page is making meanwhile. */
+const netFetch = (req, init = {}) => fetch(req, { ...init, signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined });
 
 /* A response is not an answer just because it arrived. Tailscale's proxy answers a request made
    while the tunnel is still coming up with a gateway error, and this used to hand that straight to
@@ -82,7 +86,7 @@ self.addEventListener('fetch', (e) => {
   if (url.pathname.startsWith('/api/') || url.pathname === '/ws') return;
   e.respondWith((async () => {
     const cached = await caches.match(e.request);
-    const fromNet = fetch(e.request).then((r) => {
+    const fromNet = netFetch(e.request).then((r) => {
       if (r && r.ok) caches.open(VERSION).then((c) => c.put(e.request, r.clone())).catch(() => {});
       return usable(r) ? r : null;
     }).catch(() => null);
@@ -105,7 +109,7 @@ self.addEventListener('fetch', (e) => {
     for (let i = 0; !net && i < 2; i++) {
       try {
         const again = await Promise.race([
-          fetch(e.request, { cache: 'reload' }),
+          netFetch(e.request, { cache: 'reload' }),
           sleep(NO_CACHE_PATIENCE_MS),
         ]);
         if (usable(again)) {

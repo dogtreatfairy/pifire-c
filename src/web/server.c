@@ -32,45 +32,95 @@ extern const size_t pf_web_count;
 
 static struct mg_context *g_ctx;
 static pthread_mutex_t g_ws_mu = PTHREAD_MUTEX_INITIALIZER;
-static struct mg_connection *g_ws[MAX_WS];
-/* sockets whose worker thread is still running, whether or not they still get updates: a socket
- * dropped from g_ws for not taking data keeps its thread until civetweb notices it is dead */
+/* One writer per client.
+ *
+ * Every write to a client used to happen on the push thread, one client after another, under one
+ * lock. A phone whose screen has gone off leaves a socket that accepts nothing and never closes:
+ * writing to it fills the kernel buffer and then blocks until civetweb's request timeout, and for
+ * that long nobody else got an update. That is also what kept the request timeout at four seconds,
+ * which was too short for a request arriving through a Tailscale tunnel that is still waking: the
+ * tunnel opens its connection to us before the phone has finished its TLS handshake, and we gave
+ * up on it before the request arrived.
+ *
+ * Now each client has a mailbox and a thread that writes it out. Posting is instant; a client
+ * that will not take data stalls only its own thread, and is let go of on the first failed write.
+ * The newest status replaces an unsent one (only the latest matters); events and alarm notices
+ * queue in order. */
+typedef struct {
+	struct mg_connection *conn;
+	pthread_t tid;
+	pthread_mutex_t mu;
+	pthread_cond_t cv;
+	char *status; size_t status_len;
+	char *q[16]; size_t qlen[16]; int qn;
+	bool stop, dead;
+} wsc;
+static wsc *g_cl[MAX_WS];
+/* sockets whose worker thread is still running: civetweb gives each its own thread for as long as
+ * it is open, so this is what is capped, not the table above */
 static int g_ws_open;
 
-/* Write to every live client, and let go of any that will not take it.
- *
- * A phone whose screen has gone off leaves a socket that accepts nothing and never closes. Writing
- * to it fills the kernel buffer and then blocks until civetweb's request timeout, and because that
- * happens while this lock is held, one sleeping phone stops the updates reaching every other
- * client, and keeps stopping them on every push. That is what made the live view unreliable
- * whenever a phone was asleep, and what left it minutes behind when the phone came back.
- *
- * A short write means the client is not taking data. Drop it from the table straight away: its own
- * thread will notice the connection is finished and clean it up, the next push skips it, and the
- * app that reconnects gets a fresh slot instead of finding all sixteen occupied by ghosts. */
-/* one connection, one writer at a time */
-static int ws_send(struct mg_connection *conn, int op, const char *data, size_t len)
+static void *ws_writer(void *arg)
 {
-	pthread_mutex_lock(&g_ws_mu);
-	int n = mg_websocket_write(conn, op, data, len);
-	pthread_mutex_unlock(&g_ws_mu);
-	return n;
+	wsc *c = arg;
+	pthread_setname_np(pthread_self(), "pf-wsw");
+	pthread_mutex_lock(&c->mu);
+	for (;;) {
+		while (!c->stop && !c->status && !c->qn) pthread_cond_wait(&c->cv, &c->mu);
+		if (c->stop) break;
+		char *q[16]; size_t ql[16]; int qn = c->qn;
+		memcpy(q, c->q, sizeof q); memcpy(ql, c->qlen, sizeof ql);
+		c->qn = 0;
+		char *st = c->status; size_t sl = c->status_len;
+		c->status = NULL;
+		bool dead = c->dead;
+		pthread_mutex_unlock(&c->mu);
+		for (int i = 0; i < qn; i++) {
+			if (!dead) { int n = mg_websocket_write(c->conn, MG_WEBSOCKET_OPCODE_TEXT, q[i], ql[i]); if (n <= 0 || (size_t)n < ql[i]) dead = true; }
+			free(q[i]);
+		}
+		if (st) {
+			if (!dead) { int n = mg_websocket_write(c->conn, MG_WEBSOCKET_OPCODE_TEXT, st, sl); if (n <= 0 || (size_t)n < sl) dead = true; }
+			free(st);
+		}
+		pthread_mutex_lock(&c->mu);
+		if (dead && !c->dead) { c->dead = true; LOGW(TAG, "websocket client would not take an update, dropping it"); }
+	}
+	pthread_mutex_unlock(&c->mu);
+	return NULL;
 }
 
-static void ws_broadcast(const char *txt, size_t len)
+/* hand a message to every client's writer; `latest` replaces an unsent message of its kind */
+static void ws_broadcast_ex(const char *txt, size_t len, bool latest)
 {
 	if (!txt || !len) return;
 	pthread_mutex_lock(&g_ws_mu);
 	for (int i = 0; i < MAX_WS; i++) {
-		if (!g_ws[i]) continue;
-		int n = mg_websocket_write(g_ws[i], MG_WEBSOCKET_OPCODE_TEXT, txt, len);
-		if (n <= 0 || (size_t)n < len) {
-			LOGW(TAG, "websocket client %d would not take an update, dropping it", i);
-			g_ws[i] = NULL;
+		wsc *c = g_cl[i];
+		if (!c) continue;
+		pthread_mutex_lock(&c->mu);
+		if (!c->dead) {
+			char *copy = malloc(len);
+			if (copy) {
+				memcpy(copy, txt, len);
+				if (latest) { free(c->status); c->status = copy; c->status_len = len; }
+				else if (c->qn < 16) { c->q[c->qn] = copy; c->qlen[c->qn] = len; c->qn++; }
+				else free(copy);   /* a client sixteen messages behind is not reading */
+				pthread_cond_signal(&c->cv);
+			}
 		}
+		pthread_mutex_unlock(&c->mu);
 	}
 	pthread_mutex_unlock(&g_ws_mu);
 }
+static void ws_broadcast(const char *txt, size_t len) { ws_broadcast_ex(txt, len, false); }
+
+/* a direct answer on the client's own thread: civetweb serialises writes to one connection */
+static int ws_send(struct mg_connection *conn, int op, const char *data, size_t len)
+{
+	return mg_websocket_write(conn, op, data, len);
+}
+
 static pthread_t g_push_tid;
 static atomic_bool g_run;
 
@@ -147,9 +197,22 @@ static int ws_connect(const struct mg_connection *conn, void *cbdata)
 static void ws_ready(struct mg_connection *conn, void *cbdata)
 {
 	(void)cbdata;
+	wsc *c = calloc(1, sizeof *c);
+	if (!c) return;
+	c->conn = conn;
+	pthread_mutex_init(&c->mu, NULL);
+	pthread_cond_init(&c->cv, NULL);
+	if (pthread_create(&c->tid, NULL, ws_writer, c)) { free(c); return; }
 	pthread_mutex_lock(&g_ws_mu);
-	for (int i = 0; i < MAX_WS; i++) if (!g_ws[i]) { g_ws[i] = conn; break; }
+	bool placed = false;
+	for (int i = 0; i < MAX_WS && !placed; i++) if (!g_cl[i]) { g_cl[i] = c; placed = true; }
 	pthread_mutex_unlock(&g_ws_mu);
+	if (!placed) {
+		pthread_mutex_lock(&c->mu); c->stop = true; pthread_cond_signal(&c->cv); pthread_mutex_unlock(&c->mu);
+		pthread_join(c->tid, NULL);
+		free(c);
+		return;
+	}
 	pf_web_push_status();
 }
 
@@ -185,10 +248,20 @@ static int ws_data(struct mg_connection *conn, int bits, char *data, size_t len,
 static void ws_close(const struct mg_connection *conn, void *cbdata)
 {
 	(void)cbdata;
+	wsc *c = NULL;
 	pthread_mutex_lock(&g_ws_mu);
-	for (int i = 0; i < MAX_WS; i++) if (g_ws[i] == conn) g_ws[i] = NULL;
+	for (int i = 0; i < MAX_WS; i++) if (g_cl[i] && g_cl[i]->conn == conn) { c = g_cl[i]; g_cl[i] = NULL; }
 	if (g_ws_open > 0) g_ws_open--;
 	pthread_mutex_unlock(&g_ws_mu);
+	if (!c) return;
+	/* the connection is about to go: its writer must be finished with it first */
+	pthread_mutex_lock(&c->mu); c->stop = true; pthread_cond_signal(&c->cv); pthread_mutex_unlock(&c->mu);
+	pthread_join(c->tid, NULL);
+	free(c->status);
+	for (int i = 0; i < c->qn; i++) free(c->q[i]);
+	pthread_mutex_destroy(&c->mu);
+	pthread_cond_destroy(&c->cv);
+	free(c);
 }
 
 void pf_web_push_status(void)
@@ -201,7 +274,7 @@ void pf_web_push_status(void)
 	cJSON_Delete(j);
 	if (!txt) return;
 	size_t len = strlen(txt);
-	ws_broadcast(txt, len);
+	ws_broadcast_ex(txt, len, true);
 	free(txt);
 }
 
@@ -266,6 +339,56 @@ static void send_json(struct mg_connection *conn, int status, const char *json)
 	mg_write(conn, json, strlen(json));
 }
 
+/* Retried commands.
+ *
+ * Over a tunnel that is waking up, a request can reach us and its answer never make it back. The
+ * app then tries again -- and without this, "start the grill" or "install" would run twice. A
+ * request that carries X-Request-Id is remembered for a few minutes: the same id again gets the
+ * first answer instead of running a second time, and one that arrives while the first is still
+ * running waits for it. */
+#define REPLAY_MAX 48
+static struct { char id[48]; bool done; int status; char *json; double ts; } g_replay[REPLAY_MAX];
+static pthread_mutex_t g_replay_mu = PTHREAD_MUTEX_INITIALIZER;
+
+/* -1: new, go ahead (a slot is reserved); otherwise the index of a finished answer to repeat */
+static int replay_begin(const char *id)
+{
+	double now = pf_now();
+	for (int tries = 0; tries < 300; tries++) {
+		pthread_mutex_lock(&g_replay_mu);
+		int oldest = 0, found = -1;
+		for (int i = 0; i < REPLAY_MAX; i++) {
+			if (g_replay[i].id[0] && !strcmp(g_replay[i].id, id)) { found = i; break; }
+			if (g_replay[i].ts < g_replay[oldest].ts) oldest = i;
+		}
+		if (found >= 0 && g_replay[found].done) { pthread_mutex_unlock(&g_replay_mu); return found; }
+		if (found < 0) {
+			free(g_replay[oldest].json);
+			memset(&g_replay[oldest], 0, sizeof g_replay[oldest]);
+			pf_strlcpy(g_replay[oldest].id, id, sizeof g_replay[oldest].id);
+			g_replay[oldest].ts = now;
+			pthread_mutex_unlock(&g_replay_mu);
+			return -1;
+		}
+		pthread_mutex_unlock(&g_replay_mu);
+		pf_sleep_ms(50);   /* the first copy is still running */
+	}
+	return -2;
+}
+
+static void replay_end(const char *id, int status, const char *json)
+{
+	pthread_mutex_lock(&g_replay_mu);
+	for (int i = 0; i < REPLAY_MAX; i++) if (!strcmp(g_replay[i].id, id)) {
+		g_replay[i].done = true;
+		g_replay[i].status = status;
+		free(g_replay[i].json);
+		g_replay[i].json = strdup(json ? json : "{}");
+		break;
+	}
+	pthread_mutex_unlock(&g_replay_mu);
+}
+
 static int api_handler(struct mg_connection *conn, void *cbdata)
 {
 	(void)cbdata;
@@ -305,7 +428,25 @@ static int api_handler(struct mg_connection *conn, void *cbdata)
 		.body_len = (size_t)blen,
 	};
 	pf_api_resp resp = { 0 };
+	char rid[48] = "";
+	const char *hid = strcmp(ri->request_method, "GET") ? mg_get_header(conn, "X-Request-Id") : NULL;
+	if (hid && *hid && strlen(hid) < sizeof rid) pf_strlcpy(rid, hid, sizeof rid);
+	if (rid[0]) {
+		int r = replay_begin(rid);
+		if (r >= 0) {
+			pthread_mutex_lock(&g_replay_mu);
+			int st = g_replay[r].status;
+			char *copy = strdup(g_replay[r].json ? g_replay[r].json : "{}");
+			pthread_mutex_unlock(&g_replay_mu);
+			send_json(conn, st, copy ? copy : "{}");
+			free(copy);
+			free(body);
+			return st;
+		}
+		if (r == -2) { free(body); send_json(conn, 503, "{\"result\":\"ERROR\",\"message\":\"still working on it\"}"); return 503; }
+	}
 	pf_api_dispatch(&req, &resp);
+	if (rid[0]) replay_end(rid, resp.status, resp.json);
 	send_json(conn, resp.status, resp.json ? resp.json : "{}");
 	free(resp.json);
 	free(body);
@@ -355,9 +496,11 @@ int pf_web_start(const char *bind_addr, int port)
 		 * the worker count */
 		"num_threads", NUM_THREADS,
 		"enable_keep_alive", "no",
-		/* how long a write to a client may stall before it is given up on: a sleeping phone must
-		 * not hold the broadcaster for longer than the gap between two updates is worth */
-		"request_timeout_ms", "4000",
+		/* How long a request may take to arrive, and a write may stall. Through Tailscale the
+		 * connection to us opens when the phone connects, before its TLS handshake -- over a tunnel
+		 * still waking up that can take seconds, and four was not enough. Writes to WebSocket
+		 * clients have their own threads now (see ws_writer), so a stall costs only that client. */
+		"request_timeout_ms", "15000",
 		/* A socket whose phone has gone to sleep never closes by itself: civetweb's reader just
 		 * times out and waits again, for ever, holding its thread. With ping/pong on, every quiet
 		 * interval sends a ping, and a socket that leaves five unanswered is closed. A live

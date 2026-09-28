@@ -196,10 +196,11 @@ export function renderConsole(view) {
     for (const l of r.lines) box.append(el('div', { class: `con-line ${/^(Error|E:|W:)/.test(l) ? 'bad' : /^==/.test(l) ? 'head' : ''}` }, l));
     seq = r.seq;
     if (atEnd && r.lines.length) main.scrollTop = main.scrollHeight;
-    if (r.busy) setStage(WORDS[r.state] || 'Working', true, r.state === 'downloading' ? `${Math.round((r.progress || 0) * 100)}%` : null);
+    const showPct = r.busy && (r.state === 'downloading' || r.state === 'upgrading') && r.progress > 0;
+    if (r.busy) setStage(WORDS[r.state] || 'Working', true, showPct ? `${Math.round(r.progress * 100)}%` : null);
     else if (r.state === 'error') setStage(`Failed: ${r.message}`, false);
     else setStage(r.lines.length || seq ? 'Finished' : 'Nothing running', false);
-    bar.hidden = !(r.busy && r.state === 'downloading');
+    bar.hidden = !showPct;
     bar.firstChild.style.width = `${Math.round((r.progress || 0) * 100)}%`;
     rb.hidden = !r.reboot_required;
     /* back on a new version: the announcement is this page, so it is not shown again elsewhere */

@@ -236,8 +236,13 @@ const char *pf_output_name(pf_output o) { return (unsigned)o < PF_OUT_COUNT ? ou
 
 void pf_system_power(bool reboot)
 {
+	/* The daemon is not root, and systemd asks an unprivileged caller to authenticate, which nobody
+	 * can: "Interactive authentication required", and the Reboot button did nothing. install.sh's
+	 * sudoers rule allows exactly these two commands; plain systemctl stays as the fallback for a
+	 * system with a polkit rule instead. */
 	if (fork() == 0) {
-		execlp("systemctl", "systemctl", reboot ? "reboot" : "poweroff", (char *)NULL);
+		execl("/bin/sh", "sh", "-c", reboot ? "sudo -n /usr/bin/systemctl reboot || systemctl reboot"
+		                                    : "sudo -n /usr/bin/systemctl poweroff || systemctl poweroff", (char *)NULL);
 		_exit(1);
 	}
 }
