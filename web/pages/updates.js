@@ -26,7 +26,7 @@ const group = (title, rows) => el('section', { class: 'ios-group' }, el('h2', {}
 const notesOf = (u) => String(u.notes || '').split(/\r?\n/).map((l) => l.replace(/^\s*[-*]\s+/, '').trim()).filter((l) => l && !/^#/.test(l));
 
 export function renderUpdates(view) {
-  let u = null, pifireOn = null, busyCheck = '', pickTag = null;
+  let u = null, pifireOn = null, busyCheck = '', pickTag = null, seenNewest = null;
   const sel = new Set();          // system packages ticked
   const known = new Set();        // every name ever listed, so a new one arrives ticked
   const slot = el('div');
@@ -58,7 +58,10 @@ export function renderUpdates(view) {
        beside it says whether to install it at all; picking another release ticks it, picking the
        one already installed unticks it. */
     const rels = u.releases || [];
-    if (!rels.some((r) => r.tag === pickTag)) pickTag = rels[0]?.tag || null;
+    /* The newest is the default, and a check that finds a newer one makes that the choice again: a
+       pick only stands for as long as the list it was picked from. */
+    if (rels[0]?.tag !== seenNewest) { seenNewest = rels[0]?.tag || null; pickTag = seenNewest; pifireOn = null; }
+    if (!rels.some((r) => r.tag === pickTag)) { pickTag = rels[0]?.tag || null; pifireOn = null; }
     const chosen = rels.find((r) => r.tag === pickTag);
     const isCurrent = (r) => r && bare(r.version) === bare(u.current) && !u.switching;
     const installable = (r) => r && r.url && !isCurrent(r);
