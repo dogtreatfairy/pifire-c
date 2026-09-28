@@ -691,6 +691,49 @@ static void test_the_climb_estimate_is_a_countdown(void)
 	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(1.0, 60, a - b, "the dead time is paid once, from the step");
 }
 
+/* Ryan's grill, 2026-09-28: two tuned loads and his settled holds. The starting feed at 225 F must
+ * come from the holds cooked at 225 F, carried to the day's ambient by the physics, not from the
+ * 250 F tune extrapolated along a fitted slope. */
+static void anchor_at(double sp_f, double amb_f, double load)
+{
+	pf_tune_anchor a;
+	memset(&a, 0, sizeof a);
+	a.setpoint_c = pf_f_to_c(sp_f); a.ambient_c = pf_f_to_c(amb_f); a.load = load;
+	a.PB_c = 20; a.Ti = 300; a.Td = 30; a.Ku = 1; a.Pu = 600; a.runs = 1; a.valid = true;
+	pf_learning_put_anchor(&a);
+}
+static void hold_at(double sp_f, double amb_f, double loss)
+{
+	double sp = pf_f_to_c(sp_f), amb = pf_f_to_c(amb_f);
+	pf_learning_observe("adaptive", sp, amb, loss * (sp - amb), 0.5, "");
+}
+static double uff_f(double sp_f, double amb_f) { return pf_learning_uff(pf_f_to_c(sp_f), pf_f_to_c(amb_f), 0.05, 1.0, NULL); }
+
+static void test_the_start_feed_comes_from_holds_at_that_set_point(void)
+{
+	anchor_at(250, 54, 0.256);
+	anchor_at(300, 51, 0.319);
+	hold_at(225, 67, 0.00220); hold_at(225, 67, 0.00220);
+	hold_at(225, 60, 0.00223); hold_at(225, 60, 0.00223);
+	hold_at(250, 54, 0.00235); hold_at(250, 53, 0.00233); hold_at(250, 49, 0.00248); hold_at(250, 62, 0.00208);
+	hold_at(300, 51, 0.00231); hold_at(350, 67, 0.00239);
+	double u60 = uff_f(225, 60), u67 = uff_f(225, 67);
+	printf("225/60 -> %.3f, 225/67 -> %.3f\n", u60, u67);
+	TEST_ASSERT_FLOAT_WITHIN(0.010, 0.204, u60);
+	TEST_ASSERT_FLOAT_WITHIN(0.010, 0.194, u67);
+	TEST_ASSERT_TRUE(u60 > u67);   /* colder needs more */
+}
+
+static void test_a_hold_on_one_day_teaches_every_other_day(void)
+{
+	for (int i = 0; i < 3; i++) hold_at(225, 60, 0.00223);
+	double warm = uff_f(225, 60), cold = uff_f(225, 20);
+	double want = (pf_f_to_c(225) - pf_f_to_c(20)) / (pf_f_to_c(225) - pf_f_to_c(60));
+	TEST_ASSERT_FLOAT_WITHIN(0.01, want, cold / warm);
+	/* and it is close to what was measured, not the built-in prior */
+	TEST_ASSERT_FLOAT_WITHIN(0.012, 0.00223 * (pf_f_to_c(225) - pf_f_to_c(60)), warm);
+}
+
 int main(void)
 {
 	pf_log_init(PF_LOG_ERROR);
@@ -714,5 +757,7 @@ int main(void)
 	RUN_TEST(test_a_repeat_run_refines_that_set_point_only);
 	RUN_TEST(test_an_untuned_set_point_interpolates_between_its_neighbours);
 	RUN_TEST(test_a_full_library_gives_up_its_most_redundant_entry);
+	RUN_TEST(test_the_start_feed_comes_from_holds_at_that_set_point);
+	RUN_TEST(test_a_hold_on_one_day_teaches_every_other_day);
 	return UNITY_END();
 }

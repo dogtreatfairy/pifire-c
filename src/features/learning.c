@@ -13,8 +13,30 @@
 #define TAG "learning"
 #define PRIOR_B 0.004        /* feed ratio per degree C of (setpoint - ambient), roughly 0.35 at 225F/70F */
 #define PRIOR_A 0.0
-#define RIDGE   5.0          /* strength of the prior, in "virtual observations" */
+/* Strength of the line's prior, in "virtual observations". It was 5 (ten points at full weight
+ * against real ones that recency had already discounted), and on a grill with eleven cooks it still
+ * pulled the slope 18% steeper than the cooks themselves said. */
+#define RIDGE   1.0
 #define MAX_OBS 2000
+
+/* The feed-forward model: the heat the pit loses per degree of difference from the outside air,
+ * as a feed ratio -- g = u / (setpoint - ambient) -- learned as a function of the set point.
+ *
+ * A cook at one outdoor temperature teaches every other, because the ambient is carried by the
+ * physics rather than by the data: the grill at 225 F on a 60 F day and on a 20 F day loses heat
+ * at the same rate per degree, and needs feed in proportion to the difference. What changes with
+ * the set point (radiation grows with temperature) is learned from the set points actually cooked
+ * at, each one counting for the ones near it: a kernel-weighted average in set point. Hold
+ * observations and the loads measured by tuning runs are both points of that curve; a tune is a
+ * designed measurement and counts for three. Far from anything measured, the grill's own average
+ * applies; with nothing measured at all, the built-in prior does. */
+#define LOSS_BW_C   25.0     /* how far a set point's evidence reaches, degrees C (one sigma) */
+#define ANCHOR_W    3.0      /* a tuning run's measured load, in observations */
+#define LOSS_PRIOR_W 1.0     /* the grill's overall average, as a pull towards it, in observations */
+typedef struct { double sp, g, w; } loss_pt;
+static loss_pt g_pts[MAX_OBS + PF_TUNE_ANCHORS];
+static int g_npts;
+static double g_gmean;
 
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 static pf_ff_fit g_fit;
@@ -133,18 +155,32 @@ static void refit(void)
 	sw += RIDGE; sx += RIDGE * xp; sy += RIDGE * (PRIOR_A + PRIOR_B * xp); sxx += RIDGE * xp * xp; sxy += RIDGE * xp * (PRIOR_A + PRIOR_B * xp);
 	int n = 0;
 	double ss = 0;
+	g_npts = 0;
 	sqlite3_stmt *st;
-	if (sqlite3_prepare_v2(pf_db_handle(), "SELECT setpoint_c-ambient_c, u_mean FROM observations ORDER BY id DESC LIMIT ?", -1, &st, NULL) == SQLITE_OK) {
+	if (sqlite3_prepare_v2(pf_db_handle(), "SELECT setpoint_c-ambient_c, u_mean, setpoint_c FROM observations ORDER BY id DESC LIMIT ?", -1, &st, NULL) == SQLITE_OK) {
 		sqlite3_bind_int(st, 1, MAX_OBS);
 		int rank = 0;
 		while (sqlite3_step(st) == SQLITE_ROW) {
 			double x = sqlite3_column_double(st, 0), y = sqlite3_column_double(st, 1);
 			double w = pow(0.5, rank / half);
 			sw += w; sx += w * x; sy += w * y; sxx += w * x * x; sxy += w * x * y;
+			/* a point of the loss curve, when the difference is big enough to divide by */
+			if (x > 15 && y > 0 && y < 1 && g_npts < MAX_OBS)
+				g_pts[g_npts++] = (loss_pt){ sqlite3_column_double(st, 2), y / x, w };
 			rank++; n++;
 		}
 		sqlite3_finalize(st);
 	}
+	for (int i = 0; i < PF_TUNE_ANCHORS; i++) {
+		const pf_tune_anchor *a = &g_anchors[i];
+		if (!a->valid || !(a->load > 0)) continue;
+		double amb = (isnan(a->ambient_c) || a->ambient_c < -30 || a->ambient_c > 60) ? 20 : a->ambient_c;
+		double dT = a->setpoint_c - amb;
+		if (dT > 15) g_pts[g_npts++] = (loss_pt){ a->setpoint_c, a->load / dT, ANCHOR_W };
+	}
+	double gw = 0, gs = 0;
+	for (int i = 0; i < g_npts; i++) { gw += g_pts[i].w; gs += g_pts[i].w * g_pts[i].g; }
+	g_gmean = gw > 0 ? gs / gw : PRIOR_B;
 	/* The determinant of a two-by-two normal-equation system, which is the weighted variance of x
 	 * times the total weight. Observations clustered at one set point make it the difference of two
 	 * nearly equal large numbers, so testing it against exactly zero is no test at all: it comes
@@ -176,63 +212,46 @@ pf_ff_fit pf_learning_fit(void)
 	return f;
 }
 
-/* The feed a tuning run measured at a set point, carried to the set point being asked about.
- *
- * A relay run's settled cycles average to the feed that holds that set point, and that is the one
- * number a feed-forward exists to supply. It is a designed measurement of this grill, so it
- * outranks a line fitted through whatever earlier cooks happened to do, and it outranks by miles
- * the built-in prior -- which on this grill said 0.37 at 250 F where the relay measured 0.25, so
- * every arrival over-fed by two fifths and the integrator spent a quarter of an hour taking it
- * back. Between two measured set points the load is interpolated; beyond the last one it is
- * carried along the fitted slope. Ambient is allowed for with the same slope, because a colder
- * day needs more feed for the same pit and the library was measured on one particular day. */
-static bool anchor_uff(double setpoint_c, double ambient_c, double slope_per_c, double *u_out)
+/* The loss coefficient at a set point: the nearby points, each by its weight and its distance, and
+ * the grill's own average as a gentle pull. `support` is how much measured evidence was near.
+ * Caller holds the lock and has refitted. */
+static double loss_at(double setpoint_c, double *support)
 {
-	const pf_tune_anchor *lo = NULL, *hi = NULL;
-	for (int i = 0; i < PF_TUNE_ANCHORS; i++) {
-		const pf_tune_anchor *a = &g_anchors[i];
-		if (!a->valid || !(a->load > 0)) continue;
-		if (a->setpoint_c <= setpoint_c && (!lo || a->setpoint_c > lo->setpoint_c)) lo = a;
-		if (a->setpoint_c >= setpoint_c && (!hi || a->setpoint_c < hi->setpoint_c)) hi = a;
+	double sw = LOSS_PRIOR_W, s = LOSS_PRIOR_W * (g_npts ? g_gmean : PRIOR_B), sup = 0;
+	for (int i = 0; i < g_npts; i++) {
+		double d = (setpoint_c - g_pts[i].sp) / LOSS_BW_C;
+		double w = g_pts[i].w * exp(-0.5 * d * d);
+		sw += w; s += w * g_pts[i].g; sup += w;
 	}
-	if (!lo && !hi) return false;
-	double u, amb_ref;
-	if (lo && hi && hi != lo) {
-		double f = (setpoint_c - lo->setpoint_c) / (hi->setpoint_c - lo->setpoint_c);
-		u = lo->load + f * (hi->load - lo->load);
-		amb_ref = lo->ambient_c + f * (hi->ambient_c - lo->ambient_c);
-	} else {
-		const pf_tune_anchor *a = lo ? lo : hi;
-		u = a->load + slope_per_c * (setpoint_c - a->setpoint_c);
-		amb_ref = a->ambient_c;
-	}
-	if (isnan(amb_ref) || amb_ref < -30 || amb_ref > 60) amb_ref = 20;
-	*u_out = u + slope_per_c * (amb_ref - ambient_c);
-	return true;
+	if (support) *support = sup;
+	return s / sw;
+}
+
+/* the feed that holds a set point on a day, before any limits: the model's own answer */
+static double uff_raw(double setpoint_c, double ambient_c)
+{
+	double dT = setpoint_c - ambient_c;
+	if (dT < 0) dT = 0;
+	/* Until anything has been measured on this grill, the prior is a guess about pellet grills in
+	 * general, and on a real one it came out about twice what the grill needed. The two directions
+	 * of error are not equal: feeding too much sends the pit past the target and a grill has no way
+	 * to cool itself, while feeding too little is corrected by the integrator within minutes. So an
+	 * unproven feed-forward errs low, and earns its full weight from the evidence near the set point. */
+	if (!g_npts) return PRIOR_B * dT * 0.85;
+	double sup;
+	double g = loss_at(setpoint_c, &sup);
+	double trust = sup / (sup + 0.5);
+	return g * dT * (0.85 + 0.15 * trust);
 }
 
 double pf_learning_uff(double setpoint_c, double ambient_c, double u_min, double u_max, int *n_out)
 {
-	pf_ff_fit f = pf_learning_fit();
+	pf_ff_fit f = pf_learning_fit();   /* refits the model when anything new has been learned */
 	if (n_out) *n_out = f.n;
 	if (isnan(ambient_c)) ambient_c = 20;
-	double measured;
 	pthread_mutex_lock(&g_mu);
-	bool have = anchor_uff(setpoint_c, ambient_c, f.b > 0 ? f.b : PRIOR_B, &measured);
+	double u = uff_raw(setpoint_c, ambient_c);
 	pthread_mutex_unlock(&g_mu);
-	if (have) return pf_clamp(measured, u_min, fmax(u_min, u_max - 0.15));
-	double u = f.a + f.b * (setpoint_c - ambient_c);
-
-	/* Until the fit has seen this grill, that number is the built-in prior: a guess about pellet
-	 * grills in general, and on a real one it came out about twice what the grill actually needed.
-	 * The two directions of error are not equal. Feeding too much sends the pit past the target
-	 * and a grill has no way to cool itself, so it sits there for as long as the integrator takes
-	 * to unwind. Feeding too little is corrected by the integrator within minutes. So an unproven
-	 * feed-forward deliberately errs low, and earns its full weight as observations accumulate. */
-	int n = f.n < 0 ? 0 : f.n;
-	double trust = (double)n / (n + 4.0);              /* 0 with nothing, 0.6 by six cooks' worth */
-	u *= 0.85 + 0.15 * trust;
-
 	return pf_clamp(u, u_min, fmax(u_min, u_max - 0.15));
 }
 
@@ -282,6 +301,7 @@ void pf_learning_store_autotune(const pf_autotune_result *r)
 /* caller holds g_mu */
 static void anchors_save(void)
 {
+	g_fit_dirty = true;   /* a tune's load is a point of the feed-forward model */
 	cJSON *arr = cJSON_CreateArray();
 	for (int i = 0; i < PF_TUNE_ANCHORS; i++) {
 		if (!g_anchors[i].valid) continue;
@@ -834,7 +854,12 @@ cJSON *pf_learning_json(void)
 		cJSON *e = cJSON_CreateObject();
 		double spc = pf_f_to_c(spf);
 		cJSON_AddNumberToObject(e, "setpoint", round(pf_from_c(spc, u)));
-		cJSON_AddNumberToObject(e, "u", round((f.a + f.b * (spc - amb)) * 1000) / 1000);
+		pthread_mutex_lock(&g_mu);
+		double sup, g = loss_at(spc, &sup), ue = uff_raw(spc, amb);
+		pthread_mutex_unlock(&g_mu);
+		cJSON_AddNumberToObject(e, "u", round(ue * 1000) / 1000);
+		cJSON_AddNumberToObject(e, "loss", round(g * 1e5) / 1e5);        /* feed per degree C of difference */
+		cJSON_AddNumberToObject(e, "support", round(sup * 10) / 10);     /* measured evidence near it */
 		cJSON_AddItemToArray(ex, e);
 	}
 	cJSON_AddNumberToObject(ff, "example_ambient", round(pf_from_c(amb, u)));
