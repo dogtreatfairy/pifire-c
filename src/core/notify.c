@@ -53,7 +53,7 @@ int pf_notify_set_target(pf_notify *n, const char *label, double target_c, int a
 	p->eta_hits = 0;
 	p->target_c = target_c > 0 ? target_c : 0;
 	p->rest_c = 0;   /* a plain target is a take-off; pf_notify_set_rest makes it a rest-to */
-	p->rest_watch = false;
+	p->rest_watch = false; p->removed = false; p->removed_n = 0; p->amb_on = 0;
 	if (p->target_c <= 0) { p->meat[0] = p->done[0] = 0; p->finish_c = 0; }
 	p->after = after;
 	p->eta_s = -1;
@@ -351,7 +351,34 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 		/* A rest-to target moves with the climb: the faster the meat is still rising, the more it
 		 * will carry on rising off the heat, so the earlier it has to come off. Until there is a
 		 * rate to go on the take-off sits at the aim itself, which errs on the late side. */
-		double cook_c = cook_temp_c(n, s, si), rate_now = p->rest_c > 0 ? pf_notify_probe_rate(n, p->label) : 0;
+		double cook_c = cook_temp_c(n, s, si), rate_now = p->target_c > 0 ? pf_notify_probe_rate(n, p->label) : 0;
+		/* Off the heat, seen by the probe's own ambient sensor: the air round the meat falls from the
+		 * grill's towards the room's. More than 20 C (36 F) under what it read on the heat, twice
+		 * running, is a removal. That moment -- not the alert -- is where the rest starts: the
+		 * carry-over is measured from it, a rest-to target taken off early or late still teaches,
+		 * and the alert has been answered, since the meat is off. */
+		{
+			int a = s->p[si].companion;
+			bool amb_ok = a >= 0 && a < s->n && s->p[a].valid && isfinite(s->p[a].temp_c);
+			double amb = amb_ok ? s->p[a].temp_c : NAN;
+			if (amb_ok && !p->removed) {
+				if (!(p->amb_on > 0) || amb > p->amb_on) p->amb_on = amb;
+				else if (amb > p->amb_on - 20.0) p->amb_on += (amb - p->amb_on) * 0.02;   /* follows the grill down slowly */
+			}
+			if (amb_ok && p->target_c > 0 && p->amb_on > t + 10.0 && amb < p->amb_on - 20.0) {
+				if (!p->removed && ++p->removed_n >= 2) {
+					p->removed = true;
+					p->rest_watch = true; p->pull_c = t; p->pull_rate = rate_now;
+					p->pull_predicted_c = pf_carryover_model_c(rate_now, t, p->amb_on);
+					p->rest_peak_c = t; p->rest_peak_t = now; p->rest_watch_t = now;
+					char key[96];
+					snprintf(key, sizeof key, "RULE_probe-target:%.32s", p->label);
+					pf_alarms_ack(key);
+					LOGI("notify", "%s came off the heat at %.1f C (ambient %.0f C, was %.0f C)", p->label, t, amb, p->amb_on);
+				}
+			} else if (amb_ok && p->removed && amb > p->amb_on - 10.0) { p->removed = false; p->removed_n = 0; }   /* back on the heat */
+			else if (!p->removed) p->removed_n = 0;
+		}
 		if (p->rest_c > 0 && !p->reached) p->target_c = pf_notify_rest_pull_c(p->rest_c, rate_now, t, cook_c, p->meat);
 		/* the rest after a rest-to alert: a real rest peaks and falls away; a probe still climbing
 		 * after half an hour stayed on the grill, and teaches nothing about resting */
@@ -365,7 +392,7 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 		}
 		if (p->target_c > 0 && !p->reached) {
 			if (t >= p->target_c) {
-				if (p->rest_c > 0) {
+				if (p->rest_c > 0 && !p->removed) {
 					p->rest_watch = true; p->pull_c = t; p->pull_rate = rate_now;
 					p->pull_predicted_c = pf_carryover_model_c(rate_now, t, cook_c);   /* before the learned correction: that is what it corrects */
 					p->rest_peak_c = t; p->rest_peak_t = now; p->rest_watch_t = now;

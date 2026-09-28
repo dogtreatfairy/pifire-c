@@ -249,6 +249,7 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 		if (s->notify[i].done[0]) cJSON_AddStringToObject(po, "done", s->notify[i].done);
 		if (s->notify[i].finish_c > 0) cJSON_AddNumberToObject(po, "finish", r1(conv(s->notify[i].finish_c, units)));
 		if (s->notify[i].rest_c > 0) cJSON_AddNumberToObject(po, "rest", r1(conv(s->notify[i].rest_c, units)));
+		if (s->notify[i].resting) { cJSON_AddBoolToObject(po, "resting", true); cJSON_AddNumberToObject(po, "rest_peak", r1(conv(s->notify[i].rest_peak_c, units))); }
 		cJSON_AddNumberToObject(po, "eta_s", s->notify[i].eta_s);
 		cJSON_AddNumberToObject(po, "eta_step_s", s->notify[i].eta_step_s);
 		if (s->notify[i].next_step[0]) cJSON_AddStringToObject(po, "next_step", s->notify[i].next_step);

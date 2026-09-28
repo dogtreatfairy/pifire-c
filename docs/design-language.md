@@ -1101,6 +1101,13 @@ about 10, a roast off 225 F about 4 and off 350 F about 10, a brisket at 200 und
 that, each real rest after a rest-to alert (the probe peaks and falls away within half an hour)
 corrects the model per meat, recency-weighted. Capped at 8 C. Thickness is never asked.
 
+A Bluetooth probe's ambient sensor also says when the meat came off: the air round it falls from
+the grill's to the room's. More than 20 C under what it read on the heat, twice running, is a
+removal. The rest is timed from that moment rather than from the alert, so a cut taken off early
+or late still teaches the carry-over, the probe-target alert acknowledges itself (the meat is off,
+so the question is answered), and the card reads `Resting · peak 142°` until the rest is over. A
+probe put back on the grill clears it.
+
 ## A recipe starts by saying which probes are in the food; Start asks Smoke or Hold
 
 Which probes are in the meat is a fact only the cook has. A probe on the counter reads perfectly

@@ -2766,6 +2766,8 @@ static void publish(pf_control *c, double now)
 		pf_strlcpy(s.notify[i].done, p ? p->done : "", sizeof s.notify[i].done);
 		s.notify[i].finish_c = p ? p->finish_c : 0;
 		s.notify[i].rest_c = p ? p->rest_c : 0;
+		s.notify[i].resting = p && p->removed && p->rest_watch;
+		s.notify[i].rest_peak_c = p ? p->rest_peak_c : 0;
 		s.notify[i].limit_high_c = p ? p->limit_high_c : 0;
 		s.notify[i].limit_low_c = p ? p->limit_low_c : 0;
 		s.notify[i].nsteps = p ? p->nsteps : 0;

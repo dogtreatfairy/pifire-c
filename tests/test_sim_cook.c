@@ -564,6 +564,38 @@ static void test_carryover_follows_the_cut_and_the_heat(void)
 	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(1e-9, 0, pf_carryover_model_c(0.01, pf_f_to_c(150), pf_f_to_c(140)), "nothing carries when the meat is hotter than its surroundings");
 }
 
+/* A Bluetooth probe's ambient sensor says when the meat came off: the rest is timed from there,
+ * and the carry-over it shows is what the next estimate learns from. */
+static void test_the_ambient_sensor_sees_the_meat_come_off(void)
+{
+	pf_notify nt; memset(&nt, 0, sizeof nt);
+	pf_sensors s; memset(&s, 0, sizeof s);
+	s.n = 2; s.primary = -1;
+	pf_strlcpy(s.p[0].label, "BTX", sizeof s.p[0].label); pf_strlcpy(s.p[0].name, "BTX", sizeof s.p[0].name);
+	s.p[0].role = PF_PROBE_FOOD; s.p[0].enabled = true; s.p[0].valid = true; s.p[0].companion = 1;
+	pf_strlcpy(s.p[1].label, "BTXAmb", sizeof s.p[1].label); s.p[1].role = PF_PROBE_AUX; s.p[1].enabled = true; s.p[1].valid = true;
+	s.p[1].companion = -1; s.p[1].is_companion = true;
+	pf_notify_sync(&nt, &s);
+	TEST_ASSERT_EQUAL(0, pf_notify_set_rest(&nt, "BTX", pf_f_to_c(140), 0));
+	pf_notify_set_target_note(&nt, "BTX", "Testmeat", "Medium", pf_f_to_c(140));
+	double t = 1000, centre = pf_f_to_c(100);
+	/* on a 400 F grill, climbing 2 F a minute */
+	for (int k = 0; k < 400; k++) { t += 3; centre += 2.0 * 5 / 9 / 20; s.p[0].temp_c = centre; s.p[1].temp_c = pf_f_to_c(400); pf_notify_tick(&nt, &s, PF_MODE_HOLD, t, PF_UNITS_F); }
+	const pf_notify_probe *np = pf_notify_find(&nt, "BTX");
+	TEST_ASSERT_FALSE(np->removed);
+	/* off the grill: the ambient falls to the room */
+	for (int k = 0; k < 3; k++) { t += 3; s.p[1].temp_c = pf_f_to_c(75); pf_notify_tick(&nt, &s, PF_MODE_HOLD, t, PF_UNITS_F); }
+	TEST_ASSERT_TRUE_MESSAGE(np->removed, "the fall in ambient is a removal");
+	TEST_ASSERT_TRUE_MESSAGE(np->rest_watch, "and the rest is watched from that moment");
+	double pulled = np->pull_c;
+	/* the rest: up 6 F over ten minutes, then away */
+	for (int k = 0; k < 200; k++) { t += 3; s.p[0].temp_c = pulled + (6.0 * 5 / 9) * k / 200.0; pf_notify_tick(&nt, &s, PF_MODE_HOLD, t, PF_UNITS_F); }
+	for (int k = 0; k < 20; k++) { t += 3; s.p[0].temp_c -= 0.2; pf_notify_tick(&nt, &s, PF_MODE_HOLD, t, PF_UNITS_F); }
+	TEST_ASSERT_FALSE_MESSAGE(np->rest_watch, "the rest peaked and fell, so it has been learned from");
+	printf("rest seen by the ambient sensor: predicted %.1f F, rested %.1f F, correction x%.2f\n", np->pull_predicted_c * 9 / 5, 6.0, pf_carryover_k("Testmeat"));
+	TEST_ASSERT_TRUE(pf_carryover_k("Testmeat") != 1.0);
+}
+
 int main(void)
 {
 	pf_log_init(PF_LOG_WARN);
@@ -584,5 +616,6 @@ int main(void)
 	RUN_TEST(test_a_rest_target_comes_off_early_by_the_climb);
 	RUN_TEST(test_carryover_learns_from_rests);
 	RUN_TEST(test_carryover_follows_the_cut_and_the_heat);
+	RUN_TEST(test_the_ambient_sensor_sees_the_meat_come_off);
 	return UNITY_END();
 }

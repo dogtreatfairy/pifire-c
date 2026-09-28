@@ -32,6 +32,10 @@ typedef struct {
 	/* After a rest-to alert, the rest itself is watched: the temperature and climb at the alert,
 	 * then the peak, so the carry-over that actually happened can correct the next estimate. */
 	bool rest_watch; double pull_c, pull_rate, pull_predicted_c, rest_peak_c, rest_peak_t, rest_watch_t;
+	/* A Bluetooth probe's own ambient sensor says when the meat leaves the heat: it falls from the
+	 * grill's air towards the room's. amb_on follows the ambient while on the heat; `removed` is
+	 * set when it has fallen well below that, and cleared if it climbs back. */
+	double amb_on; bool removed; int removed_n;
 	pf_notify_step steps[PF_MAX_STEPS];
 	int nsteps;
 	int after;              /* PF_AFTER_* */

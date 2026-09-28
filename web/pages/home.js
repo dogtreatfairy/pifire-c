@@ -320,7 +320,7 @@ export function renderHome(view) {
         el('span', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
         el('span', { class: 'foot' },
           el('span', { class: 'meat' }, p.target > 0 && (p.meat || p.done) ? [p.meat, p.done].filter(Boolean).join(' \u00b7 ') : '\u00a0'),
-          el('span', { class: `tg ${p.target > 0 ? '' : 'muted'}` }, p.target > 0 ? `${p.rest > 0 ? `off ${fmtTemp(p.target)}° \u2192 ${fmtTemp(p.rest)}°` : `${fmtTemp(p.target)}°`}${!hit && p.eta_s > 0 ? ` \u00b7 ${fmtEta(p.eta_s)}` : hit ? ' \u00b7 done' : ''}` : 'Set target'))));
+          el('span', { class: `tg ${p.target > 0 ? '' : 'muted'}` }, p.resting ? `Resting \u00b7 peak ${fmtTemp(p.rest_peak)}°` : p.target > 0 ? `${p.rest > 0 ? `off ${fmtTemp(p.target)}° \u2192 ${fmtTemp(p.rest)}°` : `${fmtTemp(p.target)}°`}${!hit && p.eta_s > 0 ? ` \u00b7 ${fmtEta(p.eta_s)}` : hit ? ' \u00b7 done' : ''}` : 'Set target'))));
     }
     probes.hidden = !food.length;
 

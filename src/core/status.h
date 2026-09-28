@@ -54,6 +54,8 @@ typedef struct {
 		char meat[24], done[24];   /* what the target was chosen for */
 		double finish_c;           /* what it rests up to off the heat, 0 = not said */
 		double rest_c;             /* a rest-to target: the rest wanted; target is then the moving take-off */
+		bool resting;              /* off the heat, by its ambient sensor, and being watched through the rest */
+		double rest_peak_c;
 		/* the named temperatures on the way to the target, and what each has already said */
 		int nsteps; struct { char name[24]; double temp_c; bool fired; } steps[PF_MAX_STEPS];
 	} notify[PF_MAX_PROBES]; /* parallel to sensors.p */
