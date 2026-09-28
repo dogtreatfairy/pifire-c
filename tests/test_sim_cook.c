@@ -507,6 +507,27 @@ static void test_a_hold_request_during_startup_waits_for_ignition(void)
 	TEST_ASSERT_DOUBLE_WITHIN(0.5, pf_f_to_c(275), ctrl.setpoint_c);
 }
 
+/* A rest-to target moves the take-off with the climb: aimed 2 F over the rest asked for, less the
+ * carry-over the rate predicts. A fast climb comes off earlier than a slow one for the same rest. */
+static void test_a_rest_target_comes_off_early_by_the_climb(void)
+{
+	double rest = pf_f_to_c(145);
+	double still = pf_notify_rest_pull_c(rest, 0), slow = pf_notify_rest_pull_c(rest, 0.002), fast = pf_notify_rest_pull_c(rest, 0.01);
+	printf("rest to 145 F: take off at %.1f F still, %.1f F slow climb, %.1f F fast climb\n", pf_c_to_f(still), pf_c_to_f(slow), pf_c_to_f(fast));
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.05, 147.0, pf_c_to_f(still), "with no climb it aims 2 F over the rest");
+	TEST_ASSERT_TRUE_MESSAGE(slow < still && fast < slow, "the faster it climbs, the earlier it comes off");
+	TEST_ASSERT_TRUE_MESSAGE(pf_c_to_f(fast) >= 147.0 - 9.0 - 0.01, "and never by more than the carry-over cap");
+	/* through the command: the status reports the rest and a take-off at or under the aim */
+	pf_cmd c = { .type = PF_CMD_NOTIFY_TARGET, .num = 145, .flag = true };
+	pf_strlcpy(c.str, "Probe1", sizeof c.str);
+	pf_cmdq_push(&c);
+	tick(2);
+	const pf_notify_probe *np = pf_notify_find(&ctrl.notify, "Probe1");
+	TEST_ASSERT_NOT_NULL(np);
+	TEST_ASSERT_DOUBLE_WITHIN(0.05, rest, np->rest_c);
+	TEST_ASSERT_TRUE(np->target_c <= rest + PF_REST_MARGIN_C + 1e-6);
+}
+
 int main(void)
 {
 	pf_log_init(PF_LOG_WARN);
@@ -524,5 +545,6 @@ int main(void)
 	RUN_TEST(test_warm_restart_resumes_hold);
 	RUN_TEST(test_power_loss_recovery);
 	RUN_TEST(test_a_hold_request_during_startup_waits_for_ignition);
+	RUN_TEST(test_a_rest_target_comes_off_early_by_the_climb);
 	return UNITY_END();
 }

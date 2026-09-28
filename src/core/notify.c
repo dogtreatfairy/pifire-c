@@ -51,6 +51,7 @@ int pf_notify_set_target(pf_notify *n, const char *label, double target_c, int a
 	p->eta_warned = false;
 	p->eta_hits = 0;
 	p->target_c = target_c > 0 ? target_c : 0;
+	p->rest_c = 0;   /* a plain target is a take-off; pf_notify_set_rest makes it a rest-to */
 	if (p->target_c <= 0) { p->meat[0] = p->done[0] = 0; p->finish_c = 0; }
 	p->after = after;
 	p->eta_s = -1;
@@ -65,6 +66,30 @@ void pf_notify_set_target_note(pf_notify *n, const char *label, const char *meat
 	pf_strlcpy(p->meat, meat ? meat : "", sizeof p->meat);
 	pf_strlcpy(p->done, done ? done : "", sizeof p->done);
 	p->finish_c = finish_c > 0 ? finish_c : 0;
+}
+
+double pf_notify_rest_margin_c(void)
+{
+	double v = pf_set_num("notify.rest_margin", pf_settings_units() == PF_UNITS_C ? 1 : 2);
+	if (!(v >= 0) || v > 20) v = 2;
+	return pf_settings_units() == PF_UNITS_C ? v : v * 5.0 / 9.0;
+}
+
+double pf_notify_rest_pull_c(double rest_c, double rate_c_s)
+{
+	double aim = rest_c + PF_REST_MARGIN_C;
+	return aim - pf_carryover_c(rate_c_s);
+}
+
+int pf_notify_set_rest(pf_notify *n, const char *label, double rest_c, int after)
+{
+	if (!(rest_c > 0)) return pf_notify_set_target(n, label, 0, after);
+	double rate = pf_notify_probe_rate(n, label);
+	if (pf_notify_set_target(n, label, pf_notify_rest_pull_c(rest_c, rate), after)) return -1;
+	pf_notify_probe *p = find_mut(n, label);
+	p->rest_c = rest_c;
+	p->finish_c = rest_c;
+	return 0;
 }
 
 int pf_notify_set_limits(pf_notify *n, const char *label, double high_c, double low_c)
@@ -247,6 +272,10 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 		 * target, so both have to stay visible. A latch keeps this from running twice, and the
 		 * after-action (keep warm, shutdown) still fires exactly once. The messages themselves now
 		 * come from the rules in features/rules.c. */
+		/* A rest-to target moves with the climb: the faster the meat is still rising, the more it
+		 * will carry on rising off the heat, so the earlier it has to come off. Until there is a
+		 * rate to go on the take-off sits at the aim itself, which errs on the late side. */
+		if (p->rest_c > 0 && !p->reached) p->target_c = pf_notify_rest_pull_c(p->rest_c, pf_notify_probe_rate(n, p->label));
 		if (p->target_c > 0 && !p->reached) {
 			if (t >= p->target_c) {
 				p->reached = true;

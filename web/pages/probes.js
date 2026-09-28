@@ -328,7 +328,7 @@ export async function renderProbes(view, opts = {}) {
         return !p.enabled ? 'Disabled'
           : primary
             ? (PF.status?.mode === 'Hold' ? `Holding ${PF.status.setpoint}${degUnit()}` : live?.valid ? `${PF.status?.mode || 'Reading'}` : 'No reading')
-          : tgt ? [live.meat, live.done, `${live.target}${degUnit()}`].filter(Boolean).join(' \u00b7 ')
+          : tgt ? [live.meat, live.done, live.rest > 0 ? `off ${live.target}${degUnit()} \u2192 rest ${live.rest}${degUnit()}` : `${live.target}${degUnit()}`].filter(Boolean).join(' \u00b7 ')
                 + (live.eta_s > 0 && live.temp < live.target ? ` \u00b7 ${fmtEta(live.eta_s)} left` : live.valid && live.temp >= live.target ? ' \u00b7 reached' : '')
           : live?.valid ? nextStep(live) || 'Reading' : 'No reading';
       };

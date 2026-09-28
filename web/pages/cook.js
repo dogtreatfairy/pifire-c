@@ -98,26 +98,32 @@ export async function targetDialog(p) {
           } }, '+ Custom')));
     };
 
-    const pick = async (target, m, done, rest, steps) => {
+    /* `restTo` set: the daemon works out when it comes off from how fast it is climbing */
+    const pick = async (target, m, done, rest, steps, restTo = 0) => {
       cur.length = 0;
       for (const [n, t] of steps) cur.push({ name: n, temp: t });
       await saveProbeSteps(p.label, cur);
-      close({ target, after, meat: m, done, finish: rest || 0 });
+      close(restTo ? { rest: restTo, after, meat: m, done } : { target, after, meat: m, done, finish: rest || 0 });
     };
 
     /* The one-off target is always first: type a number, add its alerts, Set. Naming it saves it
        to the list below; leaving the name blank uses it once. */
     const showCustom = () => {
-      const tv = el('input', { type: 'text', inputmode: 'decimal', placeholder: u, 'aria-label': 'Target', value: p.target > 0 ? String(fmtTemp(p.target)) : '' });
+      /* Off at: the alert fires at the number. Rest to: the number is what it should read after
+         resting, and the daemon calls the take-off from how fast it is climbing, aiming 2 degrees
+         over so the rest lands on it. */
+      let kind = p.rest > 0 ? 'rest' : 'off';
+      const tv = el('input', { type: 'text', inputmode: 'decimal', placeholder: u, 'aria-label': 'Target', value: p.rest > 0 ? String(fmtTemp(p.rest)) : p.target > 0 ? String(fmtTemp(p.target)) : '' });
       const nm = el('input', { type: 'text', placeholder: 'Blank: use once', 'aria-label': 'Save as' });
       list.append(el('form', { class: 'custom-target', onsubmit: async (e) => {
         e.preventDefault();
         const v = parseFloat(tv.value);
         if (Number.isNaN(v) || v <= 0) { tv.focus(); return; }
         const name = nm.value.trim();
-        if (name) { const all = customPresets().filter((x) => x.name !== name); all.push({ name, target: v, steps: cur.map((x) => ({ ...x })) }); await saveCustomPresets(all); }
-        close({ target: v, after, meat: name ? 'Custom' : '', done: name, finish: 0 });
+        if (name) { const all = customPresets().filter((x) => x.name !== name); all.push({ name, target: v, rest: kind === 'rest', steps: cur.map((x) => ({ ...x })) }); await saveCustomPresets(all); }
+        close(kind === 'rest' ? { rest: v, after, meat: name ? 'Custom' : '', done: name } : { target: v, after, meat: name ? 'Custom' : '', done: name, finish: 0 });
       } },
+        segmented([['off', 'Off at'], ['rest', 'Rest to']], kind, (v) => (kind = v)),
         el('div', { class: 'ct-row' },
           el('label', { class: 'field' }, el('span', {}, `Target (${u})`), tv),
           el('label', { class: 'field' }, el('span', {}, 'Save as'), nm)),
@@ -128,10 +134,10 @@ export async function targetDialog(p) {
       for (const [i, c] of saved.entries()) {
         const steps = (c.steps || []).map((x) => [x.name, x.temp]);
         list.append(el('div', { class: 'done' },
-          el('button', { class: 'done-main', type: 'button', style: 'all:unset;cursor:pointer;flex:1;min-width:0', onclick: () => pick(c.target, 'Custom', c.name, 0, steps) },
+          el('button', { class: 'done-main', type: 'button', style: 'all:unset;cursor:pointer;flex:1;min-width:0', onclick: () => pick(c.target, 'Custom', c.name, 0, steps, c.rest ? c.target : 0) },
             el('div', { class: 'done-name' }, c.name),
-            el('div', { class: 'done-note' }, summary(steps, c.target))),
-          el('div', { class: 'done-temps' }, el('div', { class: 'done-pull' }, `${c.target}${u}`)),
+            el('div', { class: 'done-note' }, steps.length ? summary(steps, c.target) : c.rest ? 'rest to' : 'off at')),
+          el('div', { class: 'done-temps' }, el('div', { class: 'done-pull' }, `${c.target}${u}`), c.rest ? el('div', { class: 'done-final' }, 'rested') : null),
           iconBtn('trash-2', `Remove ${c.name}`, { class: 'danger', onclick: async () => { saved.splice(i, 1); await saveCustomPresets(saved); showMeat('Custom'); } })));
       }
     };
@@ -147,13 +153,13 @@ export async function targetDialog(p) {
         const done = toUser(d.to), pull = toUser(d.to - d.carry), coast = d.coast ? toUser(d.to + d.coast) : 0;
         const rest = d.carry > 0 ? done : coast;
         const steps = d.steps.map(([n, t]) => [n, toUser(t)]);
-        list.append(el('button', { class: 'done', type: 'button', onclick: () => pick(pull, m, d.name, rest, steps) },
+        list.append(el('button', { class: 'done', type: 'button', onclick: () => pick(pull, m, d.name, rest, steps, d.carry > 0 ? done : 0) },
           el('div', { class: 'done-main' },
             el('div', { class: 'done-name' }, d.name),
             el('div', { class: 'done-note' }, summary(steps, pull))),
           el('div', { class: 'done-temps' },
             el('div', { class: 'done-pull' }, `${done}${u}`),
-            d.carry > 0 ? el('div', { class: 'done-final' }, `off at ${pull}${u}`) : coast ? el('div', { class: 'done-final' }, `coasts to ${coast}${u}`) : null)));
+            d.carry > 0 ? el('div', { class: 'done-final' }, `off \u2248${pull}${u}`) : coast ? el('div', { class: 'done-final' }, `coasts to ${coast}${u}`) : null)));
       }
     };
 
@@ -178,7 +184,7 @@ function customPresets() {
   const raw = PF.settings?.notify?.custom_presets || [];
   const conv = (v, from) => (from === PF.units ? v : from === 'C' ? Math.round(v * 9 / 5 + 32) : Math.round((v - 32) * 5 / 9));
   return raw.filter((c) => c && c.name && c.target > 0).map((c) => ({
-    name: c.name, target: conv(c.target, c.units || 'F'),
+    name: c.name, target: conv(c.target, c.units || 'F'), rest: !!c.rest,
     steps: (c.steps || []).map((x) => ({ name: x.name, temp: conv(x.temp, c.units || 'F') })),
   }));
 }

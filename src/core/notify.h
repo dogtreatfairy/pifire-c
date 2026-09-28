@@ -25,6 +25,10 @@ typedef struct {
 	double target_c;        /* 0 = none */
 	char meat[24], done[24]; /* what the target was chosen for -- Beef, Medium rare -- so the card can say so */
 	double finish_c;         /* what it rests up to once off the heat, 0 = not said */
+	/* A rest-to target: the temperature wanted after resting. The take-off point (target_c) is
+	 * then worked out as the probe climbs -- the rest temperature plus a small margin, less the
+	 * carry-over its rate of climb predicts -- rather than fixed. 0 = target_c is a take-off. */
+	double rest_c;
 	pf_notify_step steps[PF_MAX_STEPS];
 	int nsteps;
 	int after;              /* PF_AFTER_* */
@@ -68,6 +72,14 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 int  pf_notify_set_target(pf_notify *n, const char *label, double target_c, int after);
 /* the words behind the target; either may be empty. Cleared when the target is. */
 void pf_notify_set_target_note(pf_notify *n, const char *label, const char *meat, const char *done, double finish_c);
+/* Aim at a rested temperature instead of a take-off one (see rest_c). Sets the target too. */
+/* how far above the rest asked for a rest-to target aims, so the actual rest lands on it:
+ * notify.rest_margin in the user's units, 2 F by default */
+double pf_notify_rest_margin_c(void);
+#define PF_REST_MARGIN_C pf_notify_rest_margin_c()
+int  pf_notify_set_rest(pf_notify *n, const char *label, double rest_c, int after);
+/* the take-off point for a rest-to target at this rate of climb */
+double pf_notify_rest_pull_c(double rest_c, double rate_c_s);
 int  pf_notify_set_limits(pf_notify *n, const char *label, double high_c, double low_c);
 void pf_notify_timer_start(pf_notify *n, double seconds, int after, double now);
 void pf_notify_timer_pause(pf_notify *n, double now);

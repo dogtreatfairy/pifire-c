@@ -1083,6 +1083,13 @@ Picking one replaces the probe's step alerts with its own. The alert at the targ
 instruction -- "BT1: off the heat", "Beef · Medium is at 135°F; it rests up to 140°F" -- not
 merely that a number was reached.
 
+A target is either **Off at** -- the alert fires at the number -- or **Rest to**, the temperature
+wanted after resting. A rest-to target aims a configurable margin over (2 F by default, Cooking ->
+Misc) and moves its take-off with the climb: the faster the probe is rising, the more it will
+carry on rising off the heat, so the earlier it comes off, never by more than the carry-over cap.
+The presets that come off early (beef, pork chops, lamb) are rest-to targets; the card reads
+`off 142° -> 140°`, the take-off and the rest.
+
 ## A recipe starts by saying which probes are in the food; Start asks Smoke or Hold
 
 Which probes are in the meat is a fact only the cook has. A probe on the counter reads perfectly

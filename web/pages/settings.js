@@ -97,13 +97,14 @@ const PAGES = [
     I('manual_override_time', 'Manual override lasts (s)', '', { min: 5 }),
   ] }] },
   // ---- Cook
-  { key: 'misc', title: 'Misc', sub: 'Auger rate, lid-open detection, keep warm', section: 'Cooking', icon: 'sliders-horizontal', color: '#8e8e93', sections: [
+  { key: 'misc', title: 'Misc', sub: 'Auger rate, lid-open detection, rest-to targets, keep warm', section: 'Cooking', icon: 'sliders-horizontal', color: '#8e8e93', sections: [
     { id: 'globals', title: 'Auger', fields: [N('augerrate', 'Auger rate (g/s)', 'Pellets delivered per second of auger run; used for priming and usage estimates', { step: 0.01, min: 0.01 })] },
     { id: 'cycle_data', title: 'Lid-open detection', fields: [
     B('LidOpenDetectEnabled', 'Detect an open lid', 'A sudden temperature drop pauses the auger so the pot does not overfill'),
     I('LidOpenThreshold', 'Drop that counts as open (%)', 'Percentage below the set point', { min: 1, max: 50 }),
     I('LidOpenPauseTime', 'Pause length (s)', '', { min: 10 }),
   ] },
+    { id: 'notify', title: 'Rest-to targets', fields: [{ path: 'rest_margin', label: 'Aim above the rest', help: 'A rest-to target comes off aiming this far over, so the rested temperature lands on it', type: 'tempdelta' }] },
     { id: 'keep_warm', title: 'Keep warm', fields: [T('temp', 'Keep-warm temperature', 'After a probe reaches its target with Keep warm chosen'), B('s_plus', 'Use Smoke+ while keeping warm', '')] },
   ] },
   { key: 'pellets', title: 'Pellets & Hopper', sub: 'Loaded pellets, brands, hopper sensor', section: 'Cooking', icon: 'package', color: '#ac8e68', custom: pelletsPage },

@@ -501,6 +501,12 @@ static void do_action(tft_t *t, pf_action act, int arg)
 		temp_step(t, &cel);
 		double pull_f = PF_MEATS[m].d[arg].to_f - PF_MEATS[m].d[arg].carry_f;
 		c.type = PF_CMD_NOTIFY_TARGET; c.num = cel ? round((pull_f - 32) * 5 / 9) : pull_f;
+		if (PF_MEATS[m].d[arg].carry_f > 0) {
+			/* comes off early: a rest-to target, so the take-off follows the climb */
+			double to_f = PF_MEATS[m].d[arg].to_f;
+			c.num = cel ? round((to_f - 32) * 5 / 9) : to_f;
+			c.flag = true;
+		}
 		pf_strlcpy(c.str, t->ui.temp_probe, sizeof c.str);
 		pf_strlcpy(c.meat, PF_MEATS[m].name, sizeof c.meat);
 		pf_strlcpy(c.done, PF_MEATS[m].d[arg].name, sizeof c.done);

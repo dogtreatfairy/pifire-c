@@ -28,7 +28,7 @@ Base path `/api/v1`. All bodies and responses are JSON. Temperatures are in the 
 | `lid` | toggle lid-open pause |
 | `prime` | `amount` (g), `next` ("Startup" or "") |
 | `clear_error` | |
-| `target` | `label`, `target` (0 clears), `after` (0 notify, 1 keep warm, 2 shutdown), `meat` and `done` (optional words the target was chosen for, e.g. Beef, Medium rare; echoed on the probe in `/status`) |
+| `target` | `label`, `target` (0 clears), `after` (0 notify, 1 keep warm, 2 shutdown), `rest` (a rest-to target: the temperature wanted after resting; the daemon moves the take-off with the climb, aiming `notify.rest_margin` over), `meat` and `done` (optional words the target was chosen for, e.g. Beef, Medium rare; echoed on the probe in `/status`) |
 | `limits` | `label`, `high`, `low` (0 = off) |
 | `timer` | `op` start/pause/resume/cancel, `seconds`, `after` |
 | `test_notify` | |

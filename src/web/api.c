@@ -138,6 +138,10 @@ int pf_api_command_json(const char *json, char *err, size_t errn)
 		pf_strlcpy(c.meat, pf_json_str(j, "meat", ""), sizeof c.meat);
 		pf_strlcpy(c.done, pf_json_str(j, "done", ""), sizeof c.done);
 		c.num2 = pf_json_num(j, "finish", 0);   /* what it rests up to, user units */
+		/* a rest-to target: `rest` is the temperature wanted after resting, and the daemon works
+		 * out when it comes off; `target` is then ignored */
+		double rest = pf_json_num(j, "rest", 0);
+		if (rest > 0) { c.num = rest; c.flag = true; }
 		if (!c.str[0]) { snprintf(err, errn, "label required"); rc = -1; }
 	} else if (!strcmp(cmd, "limits")) {
 		c.type = PF_CMD_NOTIFY_LIMITS;

@@ -652,7 +652,10 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 		break;
 	case PF_CMD_NOTIFY_TARGET:
 		pf_notify_sync(&c->notify, &c->sensors);
-		if (pf_notify_set_target(&c->notify, cmd->str, cmd->num > 0 ? pf_to_c(cmd->num, u) : 0, cmd->aux))
+		if (cmd->flag && cmd->num > 0) {
+			if (pf_notify_set_rest(&c->notify, cmd->str, pf_to_c(cmd->num, u), cmd->aux)) LOGW(TAG, "notify target: unknown probe '%s'", cmd->str);
+			else pf_notify_set_target_note(&c->notify, cmd->str, cmd->meat, cmd->done, pf_to_c(cmd->num, u));
+		} else if (pf_notify_set_target(&c->notify, cmd->str, cmd->num > 0 ? pf_to_c(cmd->num, u) : 0, cmd->aux))
 			LOGW(TAG, "notify target: unknown probe '%s'", cmd->str);
 		else pf_notify_set_target_note(&c->notify, cmd->str, cmd->meat, cmd->done, cmd->num2 > 0 ? pf_to_c(cmd->num2, u) : 0);
 		break;
@@ -2553,6 +2556,7 @@ char *pf_control_resume_json(const pf_control *c, double now)
 		if (p->meat[0]) cJSON_AddStringToObject(po, "meat", p->meat);
 		if (p->done[0]) cJSON_AddStringToObject(po, "done", p->done);
 		if (p->finish_c > 0) cJSON_AddNumberToObject(po, "finish_c", p->finish_c);
+		if (p->rest_c > 0) cJSON_AddNumberToObject(po, "rest_c", p->rest_c);
 		cJSON_AddNumberToObject(po, "limit_high_c", p->limit_high_c);
 		cJSON_AddNumberToObject(po, "limit_low_c", p->limit_low_c);
 		cJSON_AddItemToArray(pr, po);
@@ -2652,7 +2656,8 @@ bool pf_control_resume(pf_control *c, const char *json, double now)
 	cJSON *pr = cJSON_GetObjectItem(o, "probes"), *po;
 	cJSON_ArrayForEach(po, pr) {
 		const char *label = pf_json_str(po, "label", "");
-		pf_notify_set_target(&c->notify, label, pf_json_num(po, "target_c", 0), (int)pf_json_num(po, "after", 0));
+		if (pf_json_num(po, "rest_c", 0) > 0) pf_notify_set_rest(&c->notify, label, pf_json_num(po, "rest_c", 0), (int)pf_json_num(po, "after", 0));
+		else pf_notify_set_target(&c->notify, label, pf_json_num(po, "target_c", 0), (int)pf_json_num(po, "after", 0));
 		pf_notify_set_target_note(&c->notify, label, pf_json_str(po, "meat", ""), pf_json_str(po, "done", ""), pf_json_num(po, "finish_c", 0));
 		pf_notify_set_limits(&c->notify, label, pf_json_num(po, "limit_high_c", 0), pf_json_num(po, "limit_low_c", 0));
 	}
@@ -2759,6 +2764,7 @@ static void publish(pf_control *c, double now)
 		pf_strlcpy(s.notify[i].meat, p ? p->meat : "", sizeof s.notify[i].meat);
 		pf_strlcpy(s.notify[i].done, p ? p->done : "", sizeof s.notify[i].done);
 		s.notify[i].finish_c = p ? p->finish_c : 0;
+		s.notify[i].rest_c = p ? p->rest_c : 0;
 		s.notify[i].limit_high_c = p ? p->limit_high_c : 0;
 		s.notify[i].limit_low_c = p ? p->limit_low_c : 0;
 		s.notify[i].nsteps = p ? p->nsteps : 0;

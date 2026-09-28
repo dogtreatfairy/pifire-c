@@ -411,6 +411,7 @@
       "system": false
     },
     "eta_warn_min": 15,
+    "rest_margin": 2,
     "rules": [
       {
         "id": "probe-target",
