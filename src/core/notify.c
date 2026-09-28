@@ -120,19 +120,40 @@ void pf_carryover_learn(const char *meat, double predicted_c, double actual_c)
 	     meat && meat[0] ? meat : "custom", predicted_c, actual_c, k, n + 1, n ? "s" : "");
 }
 
-double pf_carryover_learned_c(double rate_c_s, const char *meat)
+double pf_carryover_model_c(double rate_c_s, double centre_c, double cook_c)
 {
-	double base = rate_c_s * PF_CARRYOVER_TAU_S;
-	if (base < 0) base = 0;
-	double k = pf_carryover_k(meat), c = base * k;
-	double cap = k > 1 ? CARRY_LEARNED_MAX_C : PF_CARRYOVER_MAX_C;
-	return c > cap ? cap : c;
+	if (!isfinite(cook_c) || !isfinite(centre_c) || !(rate_c_s > 1e-5)) return pf_carryover_c(rate_c_s);
+	double gap = cook_c - centre_c;
+	if (!(gap > 0)) return 0;
+	double tau = gap / rate_c_s;
+	double g = tau / 300000.0;
+	if (g < 0.004) g = 0.004;
+	if (g > 0.06) g = 0.06;
+	double c = g * gap;
+	return c > CARRY_LEARNED_MAX_C ? CARRY_LEARNED_MAX_C : c;
 }
 
-double pf_notify_rest_pull_c(double rest_c, double rate_c_s, const char *meat)
+double pf_carryover_learned_c(double rate_c_s, double centre_c, double cook_c, const char *meat)
+{
+	double c = pf_carryover_model_c(rate_c_s, centre_c, cook_c) * pf_carryover_k(meat);
+	return c > CARRY_LEARNED_MAX_C ? CARRY_LEARNED_MAX_C : c < 0 ? 0 : c;
+}
+
+double pf_notify_rest_pull_c(double rest_c, double rate_c_s, double centre_c, double cook_c, const char *meat)
 {
 	double aim = rest_c + PF_REST_MARGIN_C;
-	return aim - pf_carryover_learned_c(rate_c_s, meat);
+	return aim - pf_carryover_learned_c(rate_c_s, centre_c, cook_c, meat);
+}
+
+/* What this probe's meat is cooking in: its own ambient sensor when it has one that is reading,
+ * else the grill's set point, else the pit probe. */
+static double cook_temp_c(const pf_notify *n, const pf_sensors *s, int si)
+{
+	int a = s->p[si].companion;
+	if (a >= 0 && a < s->n && s->p[a].valid && isfinite(s->p[a].temp_c)) return s->p[a].temp_c;
+	if (n->cook_temp_c > 0) return n->cook_temp_c;
+	if (s->primary >= 0 && s->primary < s->n && s->p[s->primary].valid) return s->p[s->primary].temp_c;
+	return NAN;
 }
 
 int pf_notify_set_rest(pf_notify *n, const char *label, double rest_c, int after)
@@ -140,7 +161,7 @@ int pf_notify_set_rest(pf_notify *n, const char *label, double rest_c, int after
 	if (!(rest_c > 0)) return pf_notify_set_target(n, label, 0, after);
 	double rate = pf_notify_probe_rate(n, label);
 	pf_notify_probe *p0 = find_mut(n, label);
-	if (pf_notify_set_target(n, label, pf_notify_rest_pull_c(rest_c, rate, p0 ? p0->meat : ""), after)) return -1;
+	if (pf_notify_set_target(n, label, pf_notify_rest_pull_c(rest_c, rate, NAN, NAN, p0 ? p0->meat : ""), after)) return -1;
 	pf_notify_probe *p = find_mut(n, label);
 	p->rest_c = rest_c;
 	p->finish_c = rest_c;
@@ -330,13 +351,14 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 		/* A rest-to target moves with the climb: the faster the meat is still rising, the more it
 		 * will carry on rising off the heat, so the earlier it has to come off. Until there is a
 		 * rate to go on the take-off sits at the aim itself, which errs on the late side. */
-		if (p->rest_c > 0 && !p->reached) p->target_c = pf_notify_rest_pull_c(p->rest_c, pf_notify_probe_rate(n, p->label), p->meat);
+		double cook_c = cook_temp_c(n, s, si), rate_now = p->rest_c > 0 ? pf_notify_probe_rate(n, p->label) : 0;
+		if (p->rest_c > 0 && !p->reached) p->target_c = pf_notify_rest_pull_c(p->rest_c, rate_now, t, cook_c, p->meat);
 		/* the rest after a rest-to alert: a real rest peaks and falls away; a probe still climbing
 		 * after half an hour stayed on the grill, and teaches nothing about resting */
 		if (p->rest_watch) {
 			if (t > p->rest_peak_c) { p->rest_peak_c = t; p->rest_peak_t = now; }
 			if (p->rest_peak_c - t >= 1.1) {
-				double predicted = pf_carryover_c(p->pull_rate), actual = p->rest_peak_c - p->pull_c;
+				double predicted = p->pull_predicted_c, actual = p->rest_peak_c - p->pull_c;
 				pf_carryover_learn(p->meat, predicted, actual);
 				p->rest_watch = false;
 			} else if (now - p->rest_watch_t > 1800) p->rest_watch = false;
@@ -344,7 +366,8 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 		if (p->target_c > 0 && !p->reached) {
 			if (t >= p->target_c) {
 				if (p->rest_c > 0) {
-					p->rest_watch = true; p->pull_c = t; p->pull_rate = pf_notify_probe_rate(n, p->label);
+					p->rest_watch = true; p->pull_c = t; p->pull_rate = rate_now;
+					p->pull_predicted_c = pf_carryover_model_c(rate_now, t, cook_c);   /* before the learned correction: that is what it corrects */
 					p->rest_peak_c = t; p->rest_peak_t = now; p->rest_watch_t = now;
 				}
 				p->reached = true;

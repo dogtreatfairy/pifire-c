@@ -31,7 +31,7 @@ typedef struct {
 	double rest_c;
 	/* After a rest-to alert, the rest itself is watched: the temperature and climb at the alert,
 	 * then the peak, so the carry-over that actually happened can correct the next estimate. */
-	bool rest_watch; double pull_c, pull_rate, rest_peak_c, rest_peak_t, rest_watch_t;
+	bool rest_watch; double pull_c, pull_rate, pull_predicted_c, rest_peak_c, rest_peak_t, rest_watch_t;
 	pf_notify_step steps[PF_MAX_STEPS];
 	int nsteps;
 	int after;              /* PF_AFTER_* */
@@ -65,6 +65,7 @@ typedef struct {
 	pf_timer timer;
 	double last_eta_t;
 	int pending_action;     /* PF_AFTER_* requested by a fired trigger; consumed by control */
+	double cook_temp_c;     /* the grill's set point, when it has one, for probes with no ambient sensor of their own */
 } pf_notify;
 
 void pf_notify_init(pf_notify *n);
@@ -82,7 +83,7 @@ double pf_notify_rest_margin_c(void);
 #define PF_REST_MARGIN_C pf_notify_rest_margin_c()
 int  pf_notify_set_rest(pf_notify *n, const char *label, double rest_c, int after);
 /* the take-off point for a rest-to target at this rate of climb */
-double pf_notify_rest_pull_c(double rest_c, double rate_c_s, const char *meat);
+double pf_notify_rest_pull_c(double rest_c, double rate_c_s, double centre_c, double cook_c, const char *meat);
 int  pf_notify_set_limits(pf_notify *n, const char *label, double high_c, double low_c);
 void pf_notify_timer_start(pf_notify *n, double seconds, int after, double now);
 void pf_notify_timer_pause(pf_notify *n, double now);
@@ -108,6 +109,27 @@ static inline double pf_carryover_c(double rate_c_s)
 	double c = rate_c_s * PF_CARRYOVER_TAU_S;
 	return c < 0 ? 0 : c > PF_CARRYOVER_MAX_C ? PF_CARRYOVER_MAX_C : c;
 }
+/* Carry-over from the cook itself: the centre temperature, its rate of climb, and the temperature
+ * the meat is cooking in (the probe's own ambient sensor, or the grill's set point).
+ *
+ * The centre climbs towards the cooking temperature with a time constant that grows with the
+ * square of the cut's thickness, and the ratio of the gap to the climb, (T_cook - T_centre) / rate,
+ * is that time constant, measured: a flank steak on a hot grill shows about half an hour, a 2"
+ * steak about three hours, a roast or a brisket three to four. The heat stored in the outer layers
+ * at the pull goes with the gap, and how much of it reaches the centre rather than the air goes
+ * with the time constant -- a thin cut loses its surface heat to the room faster than it can move
+ * inward -- so the rise is
+ *
+ *     carry = g x (T_cook - T_centre),   g = tau / 300000 s, kept between 0.004 and 0.06
+ *
+ * g is fitted to the usual carry-over figures: a flank steak off a 450 F grill about 2 F, a 1"
+ * steak about 7, a 2" steak about 10, a standing rib roast off 350 F about 10, a roast off 225 F
+ * about 4, a brisket at 200 F under 2. Those figures are rules of thumb, which is why the per-meat
+ * correction below still applies on top: the model says why two steaks differ, the grill's own
+ * rests say by how much on this grill. Capped at 8 C. Falls back to the rate-only estimate when
+ * there is no cooking temperature to go on. */
+double pf_carryover_model_c(double rate_c_s, double centre_c, double cook_c);
+
 /* The same estimate corrected by what this grill's rests of this meat have actually done.
  *
  * Carry-over is heat already inside the meat moving inward after it comes off: how much there
@@ -119,7 +141,7 @@ static inline double pf_carryover_c(double rate_c_s)
  * and falls away within the half hour) is compared with what was predicted, and the ratio is
  * kept per meat, recency-weighted. The cap widens to 8 C (about 15 F) once a meat has shown it
  * carries more than the base allows, which is where thick roasts off a hot grill land. */
-double pf_carryover_learned_c(double rate_c_s, const char *meat);
+double pf_carryover_learned_c(double rate_c_s, double centre_c, double cook_c, const char *meat);
 /* the learned correction for a meat, 1 when nothing has been learned; and one observation of it */
 double pf_carryover_k(const char *meat);
 void   pf_carryover_learn(const char *meat, double predicted_c, double actual_c);

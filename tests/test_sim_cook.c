@@ -512,7 +512,7 @@ static void test_a_hold_request_during_startup_waits_for_ignition(void)
 static void test_a_rest_target_comes_off_early_by_the_climb(void)
 {
 	double rest = pf_f_to_c(145);
-	double still = pf_notify_rest_pull_c(rest, 0, ""), slow = pf_notify_rest_pull_c(rest, 0.002, ""), fast = pf_notify_rest_pull_c(rest, 0.01, "");
+	double still = pf_notify_rest_pull_c(rest, 0, NAN, NAN, ""), slow = pf_notify_rest_pull_c(rest, 0.002, NAN, NAN, ""), fast = pf_notify_rest_pull_c(rest, 0.01, NAN, NAN, "");
 	printf("rest to 145 F: take off at %.1f F still, %.1f F slow climb, %.1f F fast climb\n", pf_c_to_f(still), pf_c_to_f(slow), pf_c_to_f(fast));
 	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.05, 147.0, pf_c_to_f(still), "with no climb it aims 2 F over the rest");
 	TEST_ASSERT_TRUE_MESSAGE(slow < still && fast < slow, "the faster it climbs, the earlier it comes off");
@@ -532,17 +532,36 @@ static void test_a_rest_target_comes_off_early_by_the_climb(void)
  * earlier next time, and past the base cap once it has shown it needs to. */
 static void test_carryover_learns_from_rests(void)
 {
-	double rate = 0.008;                                   /* C per second at the pull */
-	double base = pf_carryover_learned_c(rate, "Roast");
+	double rate = 0.008;                                   /* C per second at the pull, no cooking temperature known */
+	double base = pf_carryover_learned_c(rate, NAN, NAN, "Roast");
 	TEST_ASSERT_DOUBLE_WITHIN(0.01, 3.36, base);           /* 0.008 x 420 s */
 	for (int i = 0; i < 5; i++) pf_carryover_learn("Roast", base, base * 2.0);   /* it rested twice as far, every time */
-	double learned = pf_carryover_learned_c(rate, "Roast");
+	double learned = pf_carryover_learned_c(rate, NAN, NAN, "Roast");
 	printf("carry-over at 0.008 C/s: base %.2f C, after five rests of twice that %.2f C (x%.2f)\n", base, learned, pf_carryover_k("Roast"));
 	TEST_ASSERT_TRUE_MESSAGE(learned > base * 1.7, "five rests of twice the prediction move the estimate most of the way");
-	TEST_ASSERT_TRUE_MESSAGE(pf_carryover_learned_c(0.03, "Roast") <= 8.0 + 1e-9 && pf_carryover_learned_c(0.03, "Roast") > 5.0, "a meat that carries far may pass the base cap, up to 8 C");
 	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.001, 1.0, pf_carryover_k("Fish"), "another meat is untouched");
-	/* and the take-off moves earlier for it */
-	TEST_ASSERT_TRUE(pf_notify_rest_pull_c(pf_f_to_c(135), rate, "Roast") < pf_notify_rest_pull_c(pf_f_to_c(135), rate, "Fish"));
+	TEST_ASSERT_TRUE(pf_notify_rest_pull_c(pf_f_to_c(135), rate, NAN, NAN, "Roast") < pf_notify_rest_pull_c(pf_f_to_c(135), rate, NAN, NAN, "Fish"));
+}
+
+/* The model tells a flank steak from a thick one and a hot cook from a low one, from the cook
+ * itself: the thin cut climbs fast for its gap, the thick one slowly. Each pair is the same meat
+ * at the same pull temperature; only the cut or the heat differs. */
+static void test_carryover_follows_the_cut_and_the_heat(void)
+{
+	double c130 = pf_f_to_c(130), grill = pf_f_to_c(450);
+	double flank = pf_carryover_model_c(10.0 * 5 / 9 / 60, c130, grill);                        /* 10 F a minute */
+	double one = pf_carryover_model_c(3.0 * 5 / 9 / 60, c130, grill);                          /* 3 F a minute  */
+	double two = pf_carryover_model_c(2.0 * 5 / 9 / 60, c130, grill);                          /* 2 F a minute  */
+	double low = pf_carryover_model_c(0.5 * 5 / 9 / 60, pf_f_to_c(125), pf_f_to_c(225));      /* roast, low and slow */
+	double hot = pf_carryover_model_c(1.0 * 5 / 9 / 60, pf_f_to_c(125), pf_f_to_c(350));      /* roast, hot */
+	double brisket = pf_carryover_model_c(0.3 * 5 / 9 / 60, pf_f_to_c(200), pf_f_to_c(250));
+	printf("carry-over, F: flank %.1f, 1in steak %.1f, 2in steak %.1f, roast at 225 %.1f, roast at 350 %.1f, brisket %.1f\n",
+	       flank * 9 / 5, one * 9 / 5, two * 9 / 5, low * 9 / 5, hot * 9 / 5, brisket * 9 / 5);
+	TEST_ASSERT_TRUE_MESSAGE(flank < one && one < two, "on the same grill, the thicker cut carries further");
+	TEST_ASSERT_TRUE_MESSAGE(low < hot, "the same roast carries further off a hotter grill");
+	TEST_ASSERT_TRUE_MESSAGE(flank * 9 / 5 < 4 && two * 9 / 5 > 7, "a flank steak a couple of degrees, a 2 inch steak most of ten");
+	TEST_ASSERT_TRUE_MESSAGE(brisket * 9 / 5 < 3, "a brisket near 200 barely moves");
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(1e-9, 0, pf_carryover_model_c(0.01, pf_f_to_c(150), pf_f_to_c(140)), "nothing carries when the meat is hotter than its surroundings");
 }
 
 int main(void)
@@ -564,5 +583,6 @@ int main(void)
 	RUN_TEST(test_a_hold_request_during_startup_waits_for_ignition);
 	RUN_TEST(test_a_rest_target_comes_off_early_by_the_climb);
 	RUN_TEST(test_carryover_learns_from_rests);
+	RUN_TEST(test_carryover_follows_the_cut_and_the_heat);
 	return UNITY_END();
 }

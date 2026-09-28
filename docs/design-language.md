@@ -1090,13 +1090,16 @@ carry on rising off the heat, so the earlier it comes off, never by more than th
 The presets that come off early (beef, pork chops, lamb) are rest-to targets; the card reads
 `off 142° -> 140°`, the take-off and the rest.
 
-The carry-over estimate starts from the centre's rate of climb (rate x 7 minutes, capped at 5 C)
-and is corrected by the grill's own rests: after a rest-to alert the probe is watched, and a rest
-that peaks and falls away within half an hour is compared with what was predicted. The ratio is
-kept per meat, recency-weighted, and a meat that has shown it carries further may pass the base
-cap, up to 8 C. Thickness is never asked: it is the biggest single factor (the time the heat takes
-to even out goes with the thickness squared), but the climb rate already carries most of it and
-the learned correction carries the rest, without a ruler at the grill.
+The carry-over estimate comes from the cook itself. The meat's cooking temperature is its own
+ambient sensor for a Bluetooth probe that has one, else the grill's set point, else the pit probe;
+the gap between that and the centre, divided by the centre's rate of climb, is the cut's heating
+time constant -- which grows with the square of its thickness -- so a flank steak and a 2" ribeye
+off the same 450 F grill read differently without anyone measuring either. The rise is that gap
+times a factor that grows with the time constant (thin cuts lose surface heat to the room before
+it reaches the centre), fitted to the usual figures: flank about 2 F, 1" steak about 7, 2" steak
+about 10, a roast off 225 F about 4 and off 350 F about 10, a brisket at 200 under 2. On top of
+that, each real rest after a rest-to alert (the probe peaks and falls away within half an hour)
+corrects the model per meat, recency-weighted. Capped at 8 C. Thickness is never asked.
 
 ## A recipe starts by saying which probes are in the food; Start asks Smoke or Hold
 

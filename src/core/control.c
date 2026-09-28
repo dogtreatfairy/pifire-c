@@ -1148,6 +1148,7 @@ static void run_recipe(pf_control *c, double now)
 static void run_notify(pf_control *c, double now)
 {
 	pf_notify_sync(&c->notify, &c->sensors);
+	c->notify.cook_temp_c = (c->mode == PF_MODE_HOLD || c->mode == PF_MODE_REIGNITE || c->mode == PF_MODE_STARTUP) && c->setpoint_c > 0 ? c->setpoint_c : 0;
 	pf_notify_tick(&c->notify, &c->sensors, c->mode, now, c->cfg.units);
 	int act = c->notify.pending_action;
 	c->notify.pending_action = PF_AFTER_NONE;
