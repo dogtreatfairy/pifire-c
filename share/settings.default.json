@@ -1,5 +1,5 @@
 {
-  "schema_version": 18,
+  "schema_version": 19,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -1004,6 +1004,135 @@
         ],
         "cooldown_s": 600,
         "only_while_cooking": true
+      },
+      {
+        "id": "update-available",
+        "name": "PiFire Update",
+        "enabled": true,
+        "select": {
+          "domain": "system",
+          "match": "any"
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "entity": "system",
+              "trait": "update_available",
+              "op": "is_on"
+            }
+          ]
+        },
+        "title": "PiFire {update_version} available",
+        "body": "Settings \u203a Software Updates",
+        "level": "info",
+        "sinks": [
+          "app",
+          "webpush",
+          "pushover",
+          "ntfy"
+        ],
+        "for_s": 0,
+        "cooldown_s": 0,
+        "repeat_s": 0,
+        "only_while_cooking": false
+      },
+      {
+        "id": "system-updates",
+        "name": "System Updates",
+        "enabled": true,
+        "select": {
+          "domain": "system",
+          "match": "any"
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "entity": "system",
+              "trait": "system_updates",
+              "op": ">",
+              "value": 0
+            }
+          ]
+        },
+        "title": "{system_updates} system updates",
+        "body": "Settings \u203a Software Updates",
+        "level": "info",
+        "sinks": [
+          "app",
+          "webpush",
+          "pushover",
+          "ntfy"
+        ],
+        "for_s": 0,
+        "cooldown_s": 0,
+        "repeat_s": 0,
+        "only_while_cooking": false
+      },
+      {
+        "id": "backup-done",
+        "name": "Backup Done",
+        "enabled": false,
+        "select": {
+          "domain": "system",
+          "match": "any"
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "entity": "system",
+              "trait": "backup_done",
+              "op": "is_on"
+            }
+          ]
+        },
+        "title": "Backup done",
+        "body": "",
+        "level": "info",
+        "sinks": [
+          "app",
+          "webpush",
+          "pushover",
+          "ntfy"
+        ],
+        "for_s": 0,
+        "cooldown_s": 0,
+        "repeat_s": 0,
+        "only_while_cooking": false
+      },
+      {
+        "id": "backup-failed",
+        "name": "Backup Failed",
+        "enabled": true,
+        "select": {
+          "domain": "system",
+          "match": "any"
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "entity": "system",
+              "trait": "backup_failed",
+              "op": "is_on"
+            }
+          ]
+        },
+        "title": "Backup failed",
+        "body": "Settings \u203a Backup",
+        "level": "high",
+        "sinks": [
+          "app",
+          "webpush",
+          "pushover",
+          "ntfy"
+        ],
+        "for_s": 0,
+        "cooldown_s": 0,
+        "repeat_s": 0,
+        "only_while_cooking": false
       }
     ],
     "probe_steps": {}
@@ -1041,7 +1170,18 @@
     "include_prerelease": true,
     "hot_update": false,
     "auto_install": false,
-    "auto_install_hour": 2
+    "branch": "main",
+    "auto_install_time": "02:00",
+    "auto_install_days": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "auto_install_system": false
   },
   "history": {
     "minutes": 15,

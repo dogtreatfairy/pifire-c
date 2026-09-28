@@ -121,6 +121,9 @@ static val trait_of(const cJSON *status, const inst *in, const char *entity, con
 		{ "weather", "temp", "weather.temp" }, { "weather", "wind", "weather.wind_kmh" },
 		{ "weather", "humidity", "weather.humidity" },
 		{ "system", "wifi_signal", "net.signal" }, { "system", "tailscale_online", "net.tailscale.online" },
+		{ "system", "update_available", "update.available" }, { "system", "update_version", "update.latest" },
+		{ "system", "system_updates", "update.system" },
+		{ "system", "backup_done", "backup.done" }, { "system", "backup_failed", "backup.failed" },
 		{ "timer", "remaining", "timer.remaining" }, { "timer", "running", "timer.running" },
 		/* A recipe step, asked about while it is running. These only exist inside the facts a step
 		 * is evaluated against, which is why they are not in the status the UI receives. */
@@ -831,6 +834,12 @@ static const struct trait_def TRAIT_TABLE[] = {
 		{ "weather", "temp", "temperature", "deg", "Outdoor Temperature", false }, { "weather", "wind", "number", "km/h", "Wind", false },
 		{ "weather", "humidity", "percent", "%", "Humidity", false },
 		{ "system", "wifi_signal", "percent", "%", "Wi-Fi Signal", false }, { "system", "tailscale_online", "bool", "", "Tailscale Online", false },
+		{ "system", "update_available", "bool", "", "PiFire Update Available", false },
+		{ "system", "update_version", "string", "", "PiFire Update Version", false },
+		{ "system", "system_updates", "number", "", "System Updates Pending", false },
+		/* true for ten minutes after a backup finishes, so a rule on it fires once per backup */
+		{ "system", "backup_done", "bool", "", "Backup Just Finished", false },
+		{ "system", "backup_failed", "bool", "", "Last Backup Failed", false },
 		{ "timer", "remaining", "duration", "s", "Time Remaining", false }, { "timer", "running", "bool", "", "Timer Running", false },
 		/* What a recipe step can be asked about. The food probes are given as the hottest and the
 		 * coolest of the ones in this cook, so "any of them has got there" and "all of them have"

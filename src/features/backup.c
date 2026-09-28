@@ -81,6 +81,7 @@ static struct {
 	/* the last backup, as filed in the database */
 	double last_ts; char last_name[128]; long last_size; bool last_ok; char last_results[1024];
 	double last_good_ts;       /* the last one that got everywhere: what the schedule counts from */
+	double done_at;            /* monotonic time of the last good backup in this run; 0 = none */
 	int fail_streak;           /* failures since the last success; the first of a streak is announced, the rest logged */
 	bool have_smb;             /* smbclient is installed (checked at start, on a test, and again while missing) */
 	double last_smb_check;
@@ -1291,7 +1292,7 @@ static void *backup_thread(void *arg)
 	if (pf_backup_make(local, err, sizeof err)) {
 		say(true, "Backup failed: %s", err);
 		file_last(false, name, 0, NULL);
-		if (g.fail_streak++ == 0) pf_events_emit("Backup_Failed", "Backup failed", "%s", err);
+		if (g.fail_streak++ == 0) pf_events_emit_ex("Backup_Failed", PF_CRIT_HIGH, PF_SINK_MQTT, "Backup failed", "%s", err);
 		goto done;
 	}
 	long size = file_size(local);
@@ -1321,13 +1322,15 @@ static void *backup_thread(void *arg)
 	file_last(ok, name, size, results);
 	if (ok) {
 		say(false, "Backed up %s (%s) to %d location%s", name, sz, sent, sent == 1 ? "" : "s");
-		pf_events_emit("Backup_Done", "Backup done", "%s, %s, sent to %d location%s.", name, sz, sent, sent == 1 ? "" : "s");
+		/* Not a notification: the "Backup Done" rule sends one if the person has switched it on. */
+		pthread_mutex_lock(&g.mu); g.done_at = pf_now(); pthread_mutex_unlock(&g.mu);
+		pf_events_emit_ex("Backup_Done", PF_CRIT_INFO, PF_SINK_MQTT, "Backup done", "%s, %s, sent to %d location%s.", name, sz, sent, sent == 1 ? "" : "s");
 	} else if (tried == 0) {
 		say(true, "Backup made but no location is switched on");
-		if (g.fail_streak++ == 0) pf_events_emit("Backup_Failed", "Backup failed", "No backup location is switched on.");
+		if (g.fail_streak++ == 0) pf_events_emit_ex("Backup_Failed", PF_CRIT_HIGH, PF_SINK_MQTT, "Backup failed", "No backup location is switched on.");
 	} else {
 		say(true, "Backup sent to %d of %d: %s", sent, tried, failed);
-		if (g.fail_streak++ == 0) pf_events_emit("Backup_Failed", "Backup incomplete", "Sent to %d of %d locations. %s", sent, tried, failed);
+		if (g.fail_streak++ == 0) pf_events_emit_ex("Backup_Failed", PF_CRIT_HIGH, PF_SINK_MQTT, "Backup incomplete", "Sent to %d of %d locations. %s", sent, tried, failed);
 	}
 	for (int i = 0; i < n; i++) if (all[i].enabled) prune(&all[i], (int)pf_set_num("backup.keep", 8));
 done:
@@ -1594,6 +1597,14 @@ static double next_due(double last)
 		if (matches && (double)t > after) return (double)t;
 	}
 	return 0;
+}
+
+void pf_backup_brief(bool *recent_ok, bool *failed)
+{
+	pthread_mutex_lock(&g.mu);
+	if (recent_ok) *recent_ok = g.done_at > 0 && pf_now() - g.done_at < 600;
+	if (failed) *failed = g.last_ts > 0 && !g.last_ok;
+	pthread_mutex_unlock(&g.mu);
 }
 
 cJSON *pf_backup_status_json(void)

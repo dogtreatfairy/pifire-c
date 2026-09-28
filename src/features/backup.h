@@ -11,6 +11,9 @@ void   pf_backup_init(const char *data_dir, const char *config_path, bool sim);
 void   pf_backup_tick(double now);                        /* services thread: runs the schedule */
 int    pf_backup_run(char *err, size_t n);                /* start a backup now, in the background */
 cJSON *pf_backup_status_json(void);
+/* For the notification rules: a backup finished well in the last ten minutes (in this run of the
+ * daemon), and whether the latest attempt failed. Neither sends anything by itself. */
+void   pf_backup_brief(bool *recent_ok, bool *failed);
 cJSON *pf_backup_list(char *err, size_t n);              /* what is at the locations, merged, newest first */
 int    pf_backup_test(const char *loc_id, char *msg, size_t n);   /* can that location be reached? 0 = yes */
 int    pf_backup_restore_named(const char *name, const char *loc_id, char *err, size_t n); /* from a location ("" = any that has it) */

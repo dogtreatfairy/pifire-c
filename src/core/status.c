@@ -2,6 +2,7 @@
 #include "features/tuner.h"
 #include "features/alarms.h"
 #include "features/update.h"
+#include "features/backup.h"
 #include "core/settings.h"
 #include "core/util.h"
 #include "features/learning.h"
@@ -86,6 +87,20 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 		cJSON *u = cJSON_AddObjectToObject(o, "update");
 		cJSON_AddStringToObject(u, "state", st);
 		cJSON_AddNumberToObject(u, "progress", pr);
+		/* what the notification rules ask about: a PiFire build waiting, and system packages */
+		bool avail = false; char latest[32] = ""; int nsys = 0;
+		pf_update_summary(&avail, latest, sizeof latest, &nsys);
+		cJSON_AddBoolToObject(u, "available", avail);
+		cJSON_AddStringToObject(u, "latest", latest[0] == 'v' ? latest + 1 : latest);
+		cJSON_AddNumberToObject(u, "system", nsys);
+	}
+	{
+		/* the last backup, for the rules: one that just finished, or a failure still standing */
+		bool recent = false, failed = false;
+		pf_backup_brief(&recent, &failed);
+		cJSON *b = cJSON_AddObjectToObject(o, "backup");
+		cJSON_AddBoolToObject(b, "done", recent);
+		cJSON_AddBoolToObject(b, "failed", failed);
 	}
 	cJSON_AddNumberToObject(o, "hopper_pct", s->hopper_pct);
 	add_num_or_null(o, "ambient", r1(conv(s->ambient_c, units)));
