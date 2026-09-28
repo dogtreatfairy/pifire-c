@@ -1530,3 +1530,6 @@ main.view:has(> .screen-actions) { padding-bottom: calc(var(--tab-h) + env(safe-
 .field.inline.time input:not([type="time"]):not([type="checkbox"]) {
   flex: none; width: 72px; height: 34px; box-sizing: border-box; padding: 0 10px; margin: 0; text-align: right;
   border-radius: var(--r-md); border: var(--bw) solid var(--line); background: var(--surface2); color: var(--text); font: inherit; font-size: var(--fs-md); font-variant-numeric: tabular-nums; }
+/* the head of a table of things to tick: the box that answers for every row under it */
+.ios-list .row.thead { background: var(--surface2); }
+.ios-list .row.thead .t { font-weight: 600; }

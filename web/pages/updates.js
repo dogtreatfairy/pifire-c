@@ -77,24 +77,59 @@ export function renderUpdates(view) {
       paint();
     } }, rels.length ? rels.map((r, i) => el('option', { value: r.tag, selected: r.tag === pickTag },
       `${bare(r.version)}${i === 0 ? ' · newest' : ''}${isCurrent(r) ? ' · installed' : ''}${r.url ? '' : ' · no build'}`)) : el('option', {}, 'Check first'));
-    const box = el('input', { type: 'checkbox', class: 'row-check', 'aria-label': 'Install this release', checked: !!(pifireOn && installable(chosen)),
-      disabled: !installable(chosen) || busy, onchange: (e) => { pifireOn = e.target.checked; paintBar(); } });
     const notes = chosen ? notesOf(chosen) : [];
     const older = chosen && bare(chosen.version) !== bare(u.current) && u.branch === 'main' && !u.switching && rels.findIndex((r) => r.tag === chosen.tag) > rels.findIndex((r) => isCurrent(r)) && rels.some(isCurrent);
-    const pi = [
+    const pk = u.system?.packages || [];
+    for (const p of pk) if (!known.has(p.name)) { known.add(p.name); sel.add(p.name); }
+    for (const n of [...sel]) if (!pk.some((p) => p.name === n)) sel.delete(n);
+    const checked = u.checked_at || u.system?.checked_at;
+    const failed = u.state === 'error' && !busyCheck;
+
+    /* ---- Status: the answer first ---- */
+    /* the status answers "is there something newer"; the list below is what will be installed,
+       which is the newest unless another release was picked under Source */
+    const piNews = !!(u.available && newest && !isCurrent(newest) && !ignored);
+    const piWaiting = installable(chosen) && (piNews || u.switching || chosen !== newest);
+    const status = [
+      row({ lead: tile(piNews ? 'circle-arrow-up' : 'circle-check', piNews ? '#ff8a1f' : '#30d158'), title: 'PiFire',
+        value: failed ? 'Check failed' : !u.checked_at ? 'Not checked' : piNews ? `${bare(newest.version)} available` : ignored ? 'Up to date · newest ignored' : 'Up to date' }),
+      row({ lead: tile(pk.length ? 'circle-arrow-up' : 'circle-check', pk.length ? '#ff8a1f' : '#30d158'), title: 'System',
+        value: !u.system?.checked_at ? 'Not checked' : pk.length ? `${pk.length} update${pk.length === 1 ? '' : 's'}` : 'Up to date' }),
+      u.system?.reboot_required ? row({ lead: tile('power', '#ff453a'), title: 'Reboot to Finish', chevron: true, onclick: idle() ? reboot : null, cls: 'danger' }) : null,
+      failed ? row({ lead: tile('triangle-alert', '#ff453a'), title: 'Error', value: u.message }) : null,
+    ];
+
+    /* ---- What there is to install: PiFire first, then the system ---- */
+    const box = el('input', { type: 'checkbox', class: 'row-check', 'aria-label': 'Install this release', checked: !!(pifireOn && installable(chosen)),
+      disabled: busy, onchange: (e) => { pifireOn = e.target.checked; paintBar(); } });
+    const piUpd = piWaiting ? [
+      el('label', { class: 'row' }, box, el('span', { class: 'body' }, el('span', { class: 't' }, older ? 'PiFire (older)' : u.switching ? `PiFire · ${u.branch}` : 'PiFire')),
+        el('span', { class: 'v' }, bare(chosen.version))),
+      notes.length ? row({ lead: tile('scroll-text', '#8e8e93'), title: 'Changelog', value: `${notes.length}`, chevron: true, onclick: () => showNotes(chosen, notes) }) : null,
+      u.available && newest && chosen === newest && !isCurrent(newest)
+        ? row({ lead: tile('eye-off', '#8e8e93'), title: 'Ignore This Release', onclick: async () => {
+            try { await patchSettings('update', { ignored: newest.tag }); pifireOn = false; poll(); } catch (err) { toast(err.message, true); }
+          } })
+        : null,
+    ] : null;
+    /* the table of packages: one box at its head ticks or clears every row */
+    const all = pk.length > 0 && pk.every((p) => sel.has(p.name));
+    const head = el('input', { type: 'checkbox', class: 'row-check', 'aria-label': 'All system updates', checked: all, disabled: busy,
+      onchange: (e) => { if (e.target.checked) pk.forEach((p) => sel.add(p.name)); else sel.clear(); paint(); } });
+    head.indeterminate = sel.size > 0 && !all;
+    const sysUpd = pk.length ? [
+      el('label', { class: 'row thead' }, head, el('span', { class: 'body' }, el('span', { class: 't' }, 'All')), el('span', { class: 'v' }, `${sel.size} of ${pk.length}`)),
+      ...pk.map((p) => checkRow({ checked: sel.has(p.name), title: p.name, value: p.to, onchange: (v) => { if (v) sel.add(p.name); else sel.delete(p.name); paint(); } })),
+    ] : null;
+
+    /* ---- Where PiFire comes from ---- */
+    const src = [
       row({ lead: tile('package', '#ff8a1f'), title: 'Installed', value: bare(u.current) + (u.current_branch !== 'main' ? ` · ${u.current_branch}` : '') }),
       el('div', { class: 'row static' }, tile('git-branch', '#636366'), el('span', { class: 'body' }, el('span', { class: 't' }, 'Branch')), pick),
-      el('div', { class: 'row static' }, box, el('span', { class: 'body' }, el('span', { class: 't' }, older ? 'Release (older)' : 'Release')), relPick),
-      u.state === 'error' && !busyCheck ? row({ lead: tile('triangle-alert', '#ff453a'), title: 'Check failed', value: u.message }) : null,
-      notes.length ? row({ lead: tile('scroll-text', '#8e8e93'), title: 'Changelog', value: `${notes.length}`, chevron: true, onclick: () => showNotes(chosen, notes) }) : null,
-      u.available && newest && !isCurrent(newest)
-        ? row({ lead: tile(ignored ? 'eye' : 'eye-off', '#8e8e93'), title: ignored ? 'Ignored' : 'Ignore This Release', value: bare(newest.version),
-            onclick: async () => {
-              try { await patchSettings('update', { ignored: ignored ? '' : newest.tag }); if (!ignored) pifireOn = false; poll(); }
-              catch (err) { toast(err.message, true); }
-            } })
-        : null,
-      /* where PiFire comes from: part of this list, saved the moment it changes */
+      el('div', { class: 'row static' }, tile('tag', '#636366'), el('span', { class: 'body' }, el('span', { class: 't' }, 'Release')), relPick),
+      ignored ? row({ lead: tile('eye', '#8e8e93'), title: 'Ignored', value: bare(newest.version), onclick: async () => {
+        try { await patchSettings('update', { ignored: '' }); pifireOn = null; poll(); } catch (err) { toast(err.message, true); }
+      } }) : null,
       el('div', { class: 'row static' }, tile('link-2', '#636366'), el('span', { class: 'body' }, el('span', { class: 't' }, 'Repository')),
         el('input', { type: 'text', class: 'row-input', value: u.repo || '', autocapitalize: 'off', autocorrect: 'off', spellcheck: false, 'aria-label': 'GitHub repository', enterkeyhint: 'done',
           onchange: async (e) => {
@@ -107,19 +142,13 @@ export function renderUpdates(view) {
           try { await patchSettings('update', { include_prerelease: e.target.checked }); check('pifire'); } catch (err) { toast(err.message, true); }
         } }), el('span'))),
     ];
-    /* ---- System ---- */
-    const pk = u.system?.packages || [];
-    for (const p of pk) if (!known.has(p.name)) { known.add(p.name); sel.add(p.name); }
-    for (const n of [...sel]) if (!pk.some((p) => p.name === n)) sel.delete(n);
-    const all = pk.length > 0 && pk.every((p) => sel.has(p.name));
-    const sys = [
-      pk.length > 1 ? checkRow({ checked: all, title: 'All', value: `${sel.size} of ${pk.length}`, onchange: (v) => { if (v) pk.forEach((p) => sel.add(p.name)); else sel.clear(); paint(); } }) : null,
-      ...pk.map((p) => checkRow({ checked: sel.has(p.name), title: p.name, value: p.to, onchange: (v) => { if (v) sel.add(p.name); else sel.delete(p.name); paint(); } })),
-      pk.length ? null : row({ lead: tile('circle-check', '#30d158'), title: u.system?.checked_at ? 'Up to date' : 'Not checked' }),
-      u.system?.reboot_required ? row({ lead: tile('power', '#ff453a'), title: 'Reboot to Finish', chevron: true, onclick: idle() ? reboot : null, cls: 'danger' }) : null,
-    ];
-    const when = (ts) => (ts ? `Checked ${fmtTime(ts)}` : 'Not checked');
-    slot.replaceChildren(group('PiFire', pi, when(u.checked_at)), group('System', sys, when(u.system?.checked_at)));
+
+    slot.replaceChildren(...[
+      group('Status', status, busyCheck ? 'Checking…' : checked ? `Checked ${fmtTime(checked)}` : null),
+      piUpd ? group('PiFire Update', piUpd) : null,
+      sysUpd ? group('System Updates', sysUpd) : null,
+      group('Source', src),
+    ].filter(Boolean));
     checkBtn.disabled = busy;
     checkBtn.querySelector('span').textContent = busyCheck ? 'Checking' : 'Check';
     paintBar();
