@@ -114,27 +114,41 @@ export async function targetDialog(p) {
          over so the rest lands on it. */
       let kind = p.rest > 0 ? 'rest' : 'off';
       const tv = el('input', { type: 'text', inputmode: 'decimal', placeholder: u, 'aria-label': 'Target', value: p.rest > 0 ? String(fmtTemp(p.rest)) : p.target > 0 ? String(fmtTemp(p.target)) : '' });
-      const nm = el('input', { type: 'text', placeholder: 'Blank: use once', 'aria-label': 'Save as' });
-      list.append(el('form', { class: 'custom-target', onsubmit: async (e) => {
-        e.preventDefault();
-        const v = parseFloat(tv.value);
-        if (Number.isNaN(v) || v <= 0) { tv.focus(); return; }
+      const nm = el('input', { type: 'text', placeholder: 'Optional', 'aria-label': 'Name' });
+      const read = () => { const v = parseFloat(tv.value); if (Number.isNaN(v) || v <= 0) { tv.focus(); return null; } return v; };
+      /* the name labels the probe on its own -- no meat in front of it -- and is only kept in the
+         list when Save is pressed; Set Target uses it once */
+      const setIt = () => {
+        const v = read(); if (v == null) return;
         const name = nm.value.trim();
-        if (name) { const all = customPresets().filter((x) => x.name !== name); all.push({ name, target: v, rest: kind === 'rest', steps: cur.map((x) => ({ ...x })) }); await saveCustomPresets(all); }
-        close(kind === 'rest' ? { rest: v, after, meat: name ? 'Custom' : '', done: name } : { target: v, after, meat: name ? 'Custom' : '', done: name, finish: 0 });
-      } },
+        close(kind === 'rest' ? { rest: v, after, meat: '', done: name } : { target: v, after, meat: '', done: name, finish: 0 });
+      };
+      const saveIt = async () => {
+        const v = read(); if (v == null) return;
+        const name = nm.value.trim();
+        if (!name) { nm.focus(); toast('Name it to save it', true); return; }
+        const all = customPresets().filter((x) => x.name !== name);
+        all.push({ name, target: v, rest: kind === 'rest', steps: cur.map((x) => ({ ...x })) });
+        await saveCustomPresets(all);
+        toast(`Saved ${name}`);
+        showMeat('Custom');
+      };
+      list.append(el('form', { class: 'custom-target', onsubmit: (e) => { e.preventDefault(); setIt(); } },
         segmented([['off', 'Off at'], ['rest', 'Rest to']], kind, (v) => (kind = v)),
         el('div', { class: 'ct-row' },
           el('label', { class: 'field' }, el('span', {}, `Target (${u})`), tv),
-          el('label', { class: 'field' }, el('span', {}, 'Save as'), nm)),
-        el('button', { class: 'btn primary block', type: 'submit' }, 'Set Target')));
+          el('label', { class: 'field' }, el('span', {}, 'Name'), nm)),
+        /* dismissive or secondary left, committing right */
+        el('div', { class: 'btnrow' },
+          el('button', { class: 'btn', type: 'button', onclick: saveIt }, 'Save'),
+          el('button', { class: 'btn primary', type: 'submit' }, 'Set Target'))));
       list.append(stepsBox);
       drawSteps();
       const saved = customPresets();
       for (const [i, c] of saved.entries()) {
         const steps = (c.steps || []).map((x) => [x.name, x.temp]);
         list.append(el('div', { class: 'done' },
-          el('button', { class: 'done-main', type: 'button', style: 'all:unset;cursor:pointer;flex:1;min-width:0', onclick: () => pick(c.target, 'Custom', c.name, 0, steps, c.rest ? c.target : 0) },
+          el('button', { class: 'done-main', type: 'button', style: 'all:unset;cursor:pointer;flex:1;min-width:0', onclick: () => pick(c.target, '', c.name, 0, steps, c.rest ? c.target : 0) },
             el('div', { class: 'done-name' }, c.name),
             el('div', { class: 'done-note' }, steps.length ? summary(steps, c.target) : c.rest ? 'rest to' : 'off at')),
           el('div', { class: 'done-temps' }, el('div', { class: 'done-pull' }, `${c.target}${u}`), c.rest ? el('div', { class: 'done-final' }, 'rested') : null),
@@ -226,7 +240,7 @@ export function probeSheet(label) {
               q.wireless ? sigBars(q.signal || 0, q.rssi ? `${q.rssi} dBm` : 'no link') : null,
               q.wireless ? battIcon(q.battery) : null,
               q.valid ? (q.target > 0 ? (hit ? 'at target' : q.eta_s > 0 ? `${fmtEta(q.eta_s)} to target` : 'estimating…') : 'reading') : 'no reading',
-              q.meat ? el('span', {}, `\u00b7 ${q.meat}${q.done ? ` \u00b7 ${q.done}` : ''}`) : null)),
+              q.meat || q.done ? el('span', {}, `\u00b7 ${[q.meat, q.done].filter(Boolean).join(' \u00b7 ')}`) : null)),
           el('div', { class: 'sheet-now' }, q.valid ? fmtTemp(q.temp) : '—', el('small', {}, degUnit()))),
 
         el('div', { class: 'sheet-body' },

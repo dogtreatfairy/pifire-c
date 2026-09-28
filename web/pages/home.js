@@ -319,7 +319,7 @@ export function renderHome(view) {
         el('span', { class: `n ${p.wireless ? 'wl' : ''}` }, p.wireless ? btIcon() : null, el('span', { class: 'nm' }, p.name), p.wireless ? battIcon(p.battery) : null),
         el('span', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
         el('span', { class: 'foot' },
-          el('span', { class: 'meat' }, p.target > 0 && p.meat ? `${p.meat}${p.done ? ` \u00b7 ${p.done}` : ''}` : '\u00a0'),
+          el('span', { class: 'meat' }, p.target > 0 && (p.meat || p.done) ? [p.meat, p.done].filter(Boolean).join(' \u00b7 ') : '\u00a0'),
           el('span', { class: `tg ${p.target > 0 ? '' : 'muted'}` }, p.target > 0 ? `${p.rest > 0 ? `off ${fmtTemp(p.target)}° \u2192 ${fmtTemp(p.rest)}°` : `${fmtTemp(p.target)}°`}${!hit && p.eta_s > 0 ? ` \u00b7 ${fmtEta(p.eta_s)}` : hit ? ' \u00b7 done' : ''}` : 'Set target'))));
     }
     probes.hidden = !food.length;
