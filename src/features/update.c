@@ -866,6 +866,9 @@ cJSON *pf_update_status_json(void)
 	cJSON_AddStringToObject(o, "latest", fresh ? g.latest : "");
 	cJSON_AddBoolToObject(o, "available", fresh && g.available);
 	cJSON_AddBoolToObject(o, "switching", fresh && g.available && g.switching);
+	char ign[40];
+	pf_set_str("update.ignored", ign, sizeof ign, "");
+	cJSON_AddStringToObject(o, "ignored", ign);
 	cJSON_AddBoolToObject(o, "installable", fresh && g.available && g.asset_url[0] && (g.sums_url[0] || g.sim));
 	cJSON_AddStringToObject(o, "asset", g.asset_name);
 	cJSON_AddStringToObject(o, "notes", fresh ? g.notes : "");
@@ -885,13 +888,19 @@ cJSON *pf_update_status_json(void)
 	return o;
 }
 
+static const char *bare_v(const char *t) { return (t[0] == 'v' || t[0] == 'V') ? t + 1 : t; }
+
 void pf_update_summary(bool *available, char *latest, size_t n, int *system_count)
 {
 	pthread_mutex_lock(&g.mu);
 	char branch[64];
 	branch_setting(branch, sizeof branch);
 	bool fresh = !strcmp(g.branch, branch);
-	if (available) *available = fresh && g.available && g.asset_url[0];
+	/* a release the person chose to ignore is not news, here or in the header; the next one is */
+	char ign[40];
+	pf_set_str("update.ignored", ign, sizeof ign, "");
+	bool ignored = ign[0] && !strcmp(bare_v(ign), bare_v(g.latest));
+	if (available) *available = fresh && g.available && g.asset_url[0] && !ignored;
 	if (latest && n) pf_strlcpy(latest, fresh ? g.latest : "", n);
 	if (system_count) *system_count = g.packages ? cJSON_GetArraySize(g.packages) : 0;
 	pthread_mutex_unlock(&g.mu);

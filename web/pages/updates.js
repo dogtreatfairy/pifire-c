@@ -62,7 +62,11 @@ export function renderUpdates(view) {
     const chosen = rels.find((r) => r.tag === pickTag);
     const isCurrent = (r) => r && bare(r.version) === bare(u.current) && !u.switching;
     const installable = (r) => r && r.url && !isCurrent(r);
-    if (pifireOn == null && chosen) pifireOn = !isCurrent(chosen) && (u.available || u.switching);
+    /* Ignoring the newest release quiets it -- the header, the notification rule, this box -- and
+       only it: the next release is news again. */
+    const newest = rels[0];
+    const ignored = !!(newest && u.ignored && bare(u.ignored) === bare(newest.tag));
+    if (pifireOn == null && chosen) pifireOn = !isCurrent(chosen) && (u.available || u.switching) && !ignored;
     const relPick = el('select', { 'aria-label': 'Release', disabled: busy || !rels.length, onchange: (e) => {
       pickTag = e.target.value;
       pifireOn = !isCurrent(rels.find((r) => r.tag === pickTag));
@@ -79,6 +83,13 @@ export function renderUpdates(view) {
       el('div', { class: 'row static' }, box, el('span', { class: 'body' }, el('span', { class: 't' }, older ? 'Release (older)' : 'Release')), relPick),
       u.state === 'error' && !busyCheck ? row({ lead: tile('triangle-alert', '#ff453a'), title: 'Check failed', value: u.message }) : null,
       notes.length ? row({ lead: tile('scroll-text', '#8e8e93'), title: 'Changelog', value: `${notes.length}`, chevron: true, onclick: () => showNotes(chosen, notes) }) : null,
+      u.available && newest && !isCurrent(newest)
+        ? row({ lead: tile(ignored ? 'eye' : 'eye-off', '#8e8e93'), title: ignored ? 'Ignored' : 'Ignore This Release', value: bare(newest.version),
+            onclick: async () => {
+              try { await patchSettings('update', { ignored: ignored ? '' : newest.tag }); if (!ignored) pifireOn = false; poll(); }
+              catch (err) { toast(err.message, true); }
+            } })
+        : null,
       row({ lead: tile('refresh-cw', '#0a84ff'), title: 'Check for Updates', value: checkedAt(u.checked_at, 'pifire'), onclick: busy ? null : () => check('pifire'), cls: busy ? 'off' : '' }),
     ];
     /* ---- System ---- */

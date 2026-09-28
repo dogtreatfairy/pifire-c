@@ -187,6 +187,9 @@ const PAGES = [
       B('auto_install_system', 'Include system updates', ''),
       B('hot_update', 'Update while cooking', 'Manual PiFire installs; the cook resumes'),
     ] },
+    { id: 'update', title: 'Status Bar', fields: [
+      B('show_in_header', 'Show Update Available', 'Ignore hides one release'),
+    ] },
     { id: 'update', title: 'Source', sub: 'Repository and check interval', collapsible: true, icon: 'git-branch', color: '#636366', summary: () => ({ on: false, label: '' }), fields: [
       X('repo', 'GitHub repository', 'owner/name'),
       B('include_prerelease', 'Include pre-releases', 'main only'),

@@ -667,7 +667,8 @@ let updShown = null;
 onStatus((s) => {
   const b = document.getElementById('ind-upd');
   if (!b) return;
-  const avail = !!s?.update?.available;
+  /* the daemon already leaves out a release that was ignored; the switch hides the lot */
+  const avail = !!s?.update?.available && PF.settings?.update?.show_in_header !== false;
   if (avail === updShown) return;
   updShown = avail;
   b.hidden = !avail;

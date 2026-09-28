@@ -1181,7 +1181,9 @@
       5,
       6
     ],
-    "auto_install_system": false
+    "auto_install_system": false,
+    "ignored": "",
+    "show_in_header": true
   },
   "history": {
     "minutes": 15,
