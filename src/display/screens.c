@@ -496,7 +496,7 @@ static void draw_banner(pf_gfx *g, const cJSON *s, const char *mode, int ring)  
 	int W = g->vw;
 	bool tuning_fill = pf_json_bool((cJSON *)s, "tuning.running", false) || pf_json_bool((cJSON *)s, "autotune.active", false);
 	uint16_t fill = tuning_fill ? g->th.info : mode_fill(g, mode), tc = on_fill_text(g, fill);
-	pf_gfx_rect(g, 0, 0, g->w, 34, fill);
+	pf_gfx_rect(g, 0, 0, g->vw, 34, fill);
 	/* picked out by the knob: a two-pixel ring in the banner's own text colour, under the words */
 	if (ring == 1) { pf_gfx_rrect(g, 2, 2, W - 96, 30, 5, tc); pf_gfx_rrect(g, 4, 4, W - 100, 26, 3, fill); }
 	if (ring == 2) { pf_gfx_rrect(g, W - 92, 2, 90, 30, 5, tc); pf_gfx_rrect(g, W - 90, 4, 86, 26, 3, fill); }
@@ -806,7 +806,7 @@ static void render_main(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 /* a title bar shared by every screen that is not the grill itself */
 static void chrome(pf_gfx *g, const char *title, const cJSON *s, uint16_t fill)
 {
-	pf_gfx_rect(g, 0, 0, g->w, 34, fill);
+	pf_gfx_rect(g, 0, 0, g->vw, 34, fill);
 	uint16_t tc = on_fill_text(g, fill);
 	pf_gfx_text(g, B, 22, 10, 5, title, tc);
 	if (!s) return;
@@ -956,7 +956,7 @@ static void render_btscan(pf_gfx *g, const pf_ui_state *ui)
 static void render_netinfo(pf_gfx *g, const cJSON *s)
 {
 	int W = g->vw, H = g->vh;
-	pf_gfx_rect(g, 0, 0, g->w, 34, g->th.card2);
+	pf_gfx_rect(g, 0, 0, g->vw, 34, g->th.card2);
 	pf_gfx_text(g, B, 22, 10, 5, "NETWORK", g->th.text);
 	const char *ip = pf_json_str((cJSON *)s, "net.ip", "");
 	const char *ssid = pf_json_str((cJSON *)s, "net.ssid", "");
