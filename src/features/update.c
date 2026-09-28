@@ -1000,18 +1000,26 @@ static void schedule(int *start_min, unsigned *days)
 	if (!cJSON_IsArray(d) && !*days) *days = 0x7f;
 }
 
-/* Install on its own, when allowed: the switch is on, there is something to install, nothing else
- * is going on with the updater, it is inside the scheduled window, and the grill is idle -- Stop
- * or Monitor, with no timer, recipe or tuning run going. Never mid-cook, whatever the hot-update
- * switch says: that switch is for a person who has decided to, and this is nobody deciding. One
- * attempt per release, and one system upgrade per window, so a failure is not retried every tick. */
-static void auto_install(double now)
+/* The schedule: at the chosen time on the chosen days the grill looks for updates, PiFire and the
+ * system both, and installs straight away whichever kinds the person has said may install on their
+ * own. One moment for both, so an update is found and put in at two in the morning rather than
+ * found at noon and left waiting for the night.
+ *
+ * Installing needs the grill idle -- Stop or Monitor, with no timer, recipe or tuning run going --
+ * never mid-cook, whatever the hot-update switch says: that switch is for a person who has decided
+ * to, and this is nobody deciding. The system list is only refreshed while idle too (apt-get update
+ * works the CPU and the card for a minute on a Zero). One attempt per release and one system upgrade
+ * per day, so a failure is not retried every minute of the window. */
+static void scheduled(double now)
 {
-	static char tried[32];
 	static double not_before;
-	static int sys_tried_yday = -1;
-	if (!pf_set_bool("update.auto_install", false) || now < not_before) return;
-	not_before = now + 60;
+	static int checked_yday = -1, sys_tried_yday = -1;
+	static char tried[32];
+	bool want_check = pf_set_bool("update.auto_check", true);
+	bool want_pi = pf_set_bool("update.auto_install", false);
+	bool want_sys = pf_set_bool("update.auto_install_system", false);
+	if ((!want_check && !want_pi && !want_sys) || now < not_before) return;
+	not_before = now + 30;
 	time_t wall = time(NULL);
 	struct tm lt;
 	localtime_r(&wall, &lt);
@@ -1020,54 +1028,51 @@ static void auto_install(double now)
 	if (!pf_update_in_window(lt.tm_wday, lt.tm_hour * 60 + lt.tm_min, start, days)) return;
 	pf_status st;
 	pf_status_get(&st);
-	bool idle = st.mode == PF_MODE_STOP || st.mode == PF_MODE_MONITOR;
-	if (!idle || st.timer.running || st.recipe.active || pf_tuner_active(NULL, NULL, NULL)) return;
-	bool with_system = pf_set_bool("update.auto_install_system", false);
+	bool idle = (st.mode == PF_MODE_STOP || st.mode == PF_MODE_MONITOR) && !st.timer.running && !st.recipe.active && !pf_tuner_active(NULL, NULL, NULL);
 	pthread_mutex_lock(&g.mu);
 	bool busy = g.busy;
-	bool pifire = g.available && g.asset_url[0] && g.sums_url[0] && !g.sim && g.latest[0] && strcmp(tried, g.latest) != 0;
+	pthread_mutex_unlock(&g.mu);
+	if (busy) return;
+	/* first: look, once per scheduled day */
+	if (checked_yday != lt.tm_yday) {
+		if (check_start(true, idle && !g.sim, true) == 0) { checked_yday = lt.tm_yday; LOGI(TAG, "scheduled check for updates"); }
+		return;
+	}
+	/* then: install what may install itself */
+	if (!idle || (!want_pi && !want_sys)) return;
+	pthread_mutex_lock(&g.mu);
+	bool pifire = want_pi && g.available && g.asset_url[0] && g.sums_url[0] && !g.sim && g.latest[0] && strcmp(tried, g.latest) != 0;
 	char tag[32];
 	pf_strlcpy(tag, g.latest, sizeof tag);
-	bool sys_stale = pf_wall() - g.sys_checked_at > 6 * 3600;
 	cJSON *pk = NULL;
-	if (with_system && !sys_stale && sys_tried_yday != lt.tm_yday && g.packages && cJSON_GetArraySize(g.packages) > 0) {
+	if (want_sys && sys_tried_yday != lt.tm_yday && g.packages && cJSON_GetArraySize(g.packages) > 0) {
 		pk = cJSON_CreateArray();
 		cJSON *p;
 		cJSON_ArrayForEach(p, g.packages) cJSON_AddItemToArray(pk, cJSON_CreateString(pf_json_str(p, "name", "")));
 	}
 	pthread_mutex_unlock(&g.mu);
-	if (busy) { cJSON_Delete(pk); return; }
-	/* the list is from hours ago: look again first, and install on the next pass */
-	if (with_system && sys_stale && sys_tried_yday != lt.tm_yday) { cJSON_Delete(pk); check_start(false, true, true); return; }
+	/* an ignored release is not one the person wants; nor is it one to install behind their back */
+	char ign[40];
+	pf_set_str("update.ignored", ign, sizeof ign, "");
+	if (pifire && ign[0] && !strcmp(bare_v(ign), bare_v(tag))) pifire = false;
 	if (!pifire && !pk) return;
 	if (pifire) pf_strlcpy(tried, tag, sizeof tried);
 	if (pk) sys_tried_yday = lt.tm_yday;
 	char err[160];
 	if (pf_update_install_ex(pifire, pk, NULL, err, sizeof err) == 0) {
-		LOGI(TAG, "installing automatically: %s%s%s", pifire ? tag : "", pifire && pk ? " and " : "", pk ? "system packages" : "");
+		LOGI(TAG, "installing on schedule: %s%s%s", pifire ? tag : "", pifire && pk ? " and " : "", pk ? "system packages" : "");
 		if (pf_db_handle()) pf_db_event(PF_LVL_INFO, "UPDATE_AUTO", pifire ? tag : "system packages");
-	} else LOGW(TAG, "automatic install not started: %s", err);
+	} else LOGW(TAG, "scheduled install not started: %s", err);
 	cJSON_Delete(pk);
 }
 
 void pf_update_tick(double now)
 {
-	auto_install(now);
-	if (!pf_set_bool("update.auto_check", true)) return;
-	double hours = pf_set_num("update.check_interval_h", 24);
-	if (hours < 1) hours = 1;
-	if (now >= g.next_check) {
-		if (check_start(true, false, true) == 0) g.next_check = now + hours * 3600;
+	scheduled(now);
+	/* One quiet look for PiFire a couple of minutes after start, so the header can say whether an
+	 * update is waiting without anyone having to ask. Nothing is installed by it. */
+	if (g.next_check > 0 && now >= g.next_check) {
+		if (check_start(true, false, true) == 0) g.next_check = 0;
 		else g.next_check = now + 300;
-		return;
-	}
-	/* The system list needs apt-get update, which works the CPU and the SD card for a minute on a
-	 * Zero: only while the grill is idle, and put off until it is. */
-	if (now >= g.next_sys_check && !g.sim) {
-		pf_status st;
-		pf_status_get(&st);
-		if (st.mode != PF_MODE_STOP && st.mode != PF_MODE_MONITOR) { g.next_sys_check = now + 600; return; }
-		if (check_start(false, true, true) == 0) g.next_sys_check = now + hours * 3600;
-		else g.next_sys_check = now + 300;
 	}
 }

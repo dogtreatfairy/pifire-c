@@ -22,7 +22,7 @@ function checkRow({ checked, title, value, onchange, disabled }) {
   const box = el('input', { type: 'checkbox', class: 'row-check', checked, disabled, onchange: (e) => onchange(e.target.checked) });
   return el('label', { class: `row ${disabled ? 'off' : ''}` }, box, el('span', { class: 'body' }, el('span', { class: 't' }, title)), value != null ? el('span', { class: 'v' }, value) : null);
 }
-const group = (title, rows) => el('section', { class: 'ios-group' }, el('h2', {}, title), el('div', { class: 'ios-list' }, rows.filter(Boolean)));
+const group = (title, rows, foot) => el('section', { class: 'ios-group' }, el('h2', {}, title), el('div', { class: 'ios-list' }, rows.filter(Boolean)), foot ? el('div', { class: 'foot' }, foot) : null);
 const notesOf = (u) => String(u.notes || '').split(/\r?\n/).map((l) => l.replace(/^\s*[-*]\s+/, '').trim()).filter((l) => l && !/^#/.test(l));
 
 export function renderUpdates(view) {
@@ -31,19 +31,20 @@ export function renderUpdates(view) {
   const known = new Set();        // every name ever listed, so a new one arrives ticked
   const slot = el('div');
   const install = actionBtn('download', 'Install', { size: '', class: 'primary', onclick: () => go() });
-  const bar = actionBar([iconBtn('terminal', 'Console', { onclick: () => { location.hash = CONSOLE; } })], [install]);
+  /* one Check for both: PiFire's releases and the system's packages */
+  const checkBtn = actionBtn('refresh-cw', 'Check', { size: '', onclick: () => check() });
+  const bar = actionBar([iconBtn('terminal', 'Console', { onclick: () => { location.hash = CONSOLE; } }), checkBtn], [install]);
   view.append(slot);
   /* The pinned bar belongs to the page, not to this block: this block sits above the settings on
      the same page, and a bar inside it scrolled under them. */
   (view.closest('main') || view).append(bar);
 
-  const check = async (what) => {
+  const check = async (what = 'both') => {
     busyCheck = what;
     paint();
-    try { await api('/update/check', { body: what === 'pifire' ? { pifire: true } : { system: true } }); poll(); }
+    try { await api('/update/check', { body: what === 'pifire' ? { pifire: true } : { pifire: true, system: true } }); poll(); }
     catch (e) { toast(e.message, true); busyCheck = ''; paint(); }
   };
-  const checkedAt = (ts, what) => busyCheck === what ? 'Checking…' : ts ? fmtTime(ts) : 'Never';
 
   function paint() {
     if (!u) return;
@@ -105,7 +106,6 @@ export function renderUpdates(view) {
         el('span', { class: 'switch' }, el('input', { type: 'checkbox', checked: PF.settings?.update?.include_prerelease !== false, onchange: async (e) => {
           try { await patchSettings('update', { include_prerelease: e.target.checked }); check('pifire'); } catch (err) { toast(err.message, true); }
         } }), el('span'))),
-      row({ lead: tile('refresh-cw', '#0a84ff'), title: 'Check for Updates', value: checkedAt(u.checked_at, 'pifire'), onclick: busy ? null : () => check('pifire'), cls: busy ? 'off' : '' }),
     ];
     /* ---- System ---- */
     const pk = u.system?.packages || [];
@@ -117,9 +117,11 @@ export function renderUpdates(view) {
       ...pk.map((p) => checkRow({ checked: sel.has(p.name), title: p.name, value: p.to, onchange: (v) => { if (v) sel.add(p.name); else sel.delete(p.name); paint(); } })),
       pk.length ? null : row({ lead: tile('circle-check', '#30d158'), title: u.system?.checked_at ? 'Up to date' : 'Not checked' }),
       u.system?.reboot_required ? row({ lead: tile('power', '#ff453a'), title: 'Reboot to Finish', chevron: true, onclick: idle() ? reboot : null, cls: 'danger' }) : null,
-      row({ lead: tile('refresh-cw', '#0a84ff'), title: 'Check for Updates', value: checkedAt(u.system?.checked_at, 'system'), onclick: busy ? null : () => check('system'), cls: busy ? 'off' : '' }),
     ];
-    slot.replaceChildren(group('PiFire', pi), group('System', sys));
+    const when = (ts) => (ts ? `Checked ${fmtTime(ts)}` : 'Not checked');
+    slot.replaceChildren(group('PiFire', pi, when(u.checked_at)), group('System', sys, when(u.system?.checked_at)));
+    checkBtn.disabled = busy;
+    checkBtn.querySelector('span').textContent = busyCheck ? 'Checking' : 'Check';
     paintBar();
   }
   const chosenRel = () => (u?.releases || []).find((r) => r.tag === pickTag);

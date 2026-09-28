@@ -182,12 +182,11 @@ const PAGES = [
     /* One form for the page. The update source is not here: it is part of what PiFire installs
        from, so it sits in the PiFire list above, beside the branch and the release. */
     { id: 'update', title: 'Settings', fields: [
-      B('auto_check', 'Check automatically', 'System packages only while idle'),
-      I('check_interval_h', 'Check every', 'Hours', { min: 1, max: 720, compact: true }),
-      B('auto_install', 'Install automatically', 'Stop or Monitor only; no timer, recipe or tune running'),
-      TM('auto_install_time', 'Install at', 'Local time'),
+      B('auto_check', 'Check on schedule', 'PiFire and system; system only while idle'),
+      TM('auto_install_time', 'At', 'Local time'),
       DAYS('auto_install_days', 'Days'),
-      B('auto_install_system', 'Include system updates', ''),
+      B('auto_install', 'Install PiFire updates', 'At the scheduled check. Stop or Monitor only'),
+      B('auto_install_system', 'Install system updates', 'At the scheduled check. Stop or Monitor only'),
       B('hot_update', 'Update while cooking', 'Manual PiFire installs; the cook resumes'),
       B('show_in_header', 'Show Update Available', 'In the status bar. Ignore hides one release'),
     ] },
