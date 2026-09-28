@@ -645,18 +645,23 @@ function hideUpdateOverlay() { if (updOverlay) updOverlay.hidden = true; }
 function watchUpdate(s) {
   const st = s?.update?.state;
   if (updBootVersion == null && s?.version) updBootVersion = s.version;
-  /* The download leaves the app usable: the update page shows its percentage. The full screen
-     is for when the grill is actually being changed -- installing, rebooting, reloading. */
-  if (st === 'downloading' || st === 'checking') { updWasBusy = true; hideUpdateOverlay(); }
-  else if (st === 'verifying' || st === 'installing') { updWasBusy = true; showUpdateOverlay('Updating…', ''); }
-  else if (updWasBusy && s?.version && updBootVersion && s.version !== updBootVersion) {
+  /* Rebooting is only ever what follows an install: the daemon said it was installing, and then it
+     went away. A routine check, or a download, followed by the phone putting the page to sleep and
+     the link dropping, is not a reboot -- that was the full-screen "Rebooting" on opening the app
+     long after an update had finished. The flag is set by the install alone and cleared the moment
+     the daemon answers idle on the same version. */
+  if (st === 'verifying' || st === 'installing') { updWasBusy = true; showUpdateOverlay('Updating…', ''); return; }
+  if (updWasBusy && s?.version && updBootVersion && s.version !== updBootVersion) {
     /* the daemon is back, running something newer: fetch the new shell and start again */
     showUpdateOverlay('Reloading…', s.version);
     updWasBusy = false;
     (async () => { try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); } catch { /* no worker */ } setTimeout(() => location.reload(), 1200); })();
-  } else if (updWasBusy && !PF.connected) showUpdateOverlay('Rebooting…', '');
-  else if (updWasBusy && st === 'error') { updWasBusy = false; hideUpdateOverlay(); toast(s.update.message || 'The update failed', true); }
-  else if (!updWasBusy) hideUpdateOverlay();
+    return;
+  }
+  if (updWasBusy && !PF.connected) { showUpdateOverlay('Rebooting…', ''); return; }
+  if (updWasBusy && st === 'error') { updWasBusy = false; hideUpdateOverlay(); toast(s.update.message || 'The update failed', true); return; }
+  if (updWasBusy && PF.connected && (st === 'idle' || !st) && s?.version === updBootVersion) updWasBusy = false;   /* nothing was installed */
+  if (!updWasBusy) hideUpdateOverlay();
 }
 onStatus(watchUpdate);
 
