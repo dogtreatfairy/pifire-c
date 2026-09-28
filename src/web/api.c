@@ -760,10 +760,30 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		reply(resp, 200, pf_backup_status_json()); return;
 	}
 	if (get && !strcmp(p, "/update")) { reply(resp, 200, pf_update_status_json()); return; }
-	if (post && !strcmp(p, "/update/check")) { if (pf_update_check()) { reply_err(resp, 409, "an update operation is already running"); return; } reply_ok(resp); return; }
+	if (post && !strcmp(p, "/update/check")) {
+		/* {"pifire": true, "system": false}; an empty body is a PiFire check, as it always was */
+		cJSON *b = req->body_len ? cJSON_Parse(req->body) : NULL;
+		bool pifire = pf_json_bool(b, "pifire", !b || !cJSON_GetObjectItem(b, "system"));
+		bool system = pf_json_bool(b, "system", false);
+		cJSON_Delete(b);
+		if (pf_update_check(pifire, system)) { reply_err(resp, 409, "an update operation is already running"); return; }
+		reply_ok(resp);
+		return;
+	}
+	if (get && !strcmp(p, "/update/log")) {
+		const char *q = strstr(req->query, "since=");
+		unsigned since = q ? (unsigned)strtoul(q + 6, NULL, 10) : 0;
+		reply(resp, 200, pf_update_log_json(since));
+		return;
+	}
 	if (post && !strcmp(p, "/update/install")) {
+		/* {"pifire": bool, "packages": ["name", ...]}; an empty body installs PiFire, as it always did */
 		char err[160];
-		if (pf_update_install(err, sizeof err)) { reply_err(resp, 409, err); return; }
+		cJSON *b = req->body_len ? cJSON_Parse(req->body) : NULL;
+		bool pifire = pf_json_bool(b, "pifire", !b || !cJSON_GetObjectItem(b, "packages"));
+		int rc = pf_update_install_ex(pifire, b ? cJSON_GetObjectItem(b, "packages") : NULL, err, sizeof err);
+		cJSON_Delete(b);
+		if (rc) { reply_err(resp, 409, err); return; }
 		LOGW(TAG, "update install requested via API");
 		reply_ok(resp);
 		return;

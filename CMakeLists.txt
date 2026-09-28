@@ -68,6 +68,7 @@ add_library(cjson STATIC third_party/cjson/cJSON.c)
 target_include_directories(cjson PUBLIC third_party/cjson)
 target_compile_options(cjson PRIVATE -w)
 
+set(PF_BRANCH "" CACHE STRING "Branch a rolling branch build was made from; empty = a tagged release")
 set(PF_VERSION "" CACHE STRING "Version string baked into the binary (release builds pass the git tag); empty = project version")
 if(NOT PF_VERSION)
   set(PF_VERSION "${PROJECT_VERSION}")
@@ -94,7 +95,7 @@ add_custom_command(
 set(PF_WEB_FILES index.html style.css app.js sw.js manifest.webmanifest icon.svg icon-dark.svg
     icon-180.png icon-192.png icon-512.png icon-512-maskable.png
     icon-180-dark.png icon-192-dark.png icon-512-dark.png icon-512-maskable-dark.png
-    pages/home.js pages/history.js pages/cook.js pages/settings.js pages/more.js pages/network.js pages/pellets.js pages/learning.js pages/probes.js pages/rules.js icons.js conditions.js pages/backup.js)
+    pages/home.js pages/history.js pages/cook.js pages/settings.js pages/more.js pages/network.js pages/pellets.js pages/learning.js pages/probes.js pages/rules.js icons.js conditions.js pages/backup.js pages/updates.js)
 # The service worker names its cache after the build. Hand-editing that string was one more thing
 # to remember at release time, and forgetting it leaves a phone running the previous shell.
 configure_file(${CMAKE_SOURCE_DIR}/web/sw.js ${CMAKE_BINARY_DIR}/gen/web-src/sw.js @ONLY)
@@ -214,6 +215,7 @@ if(PF_WITH_BLE)
 endif()
 target_compile_definitions(pfcore PUBLIC
   PF_VERSION="${PF_VERSION}"
+  PF_BRANCH="${PF_BRANCH}"
   PF_DEFAULT_CONFIG="/etc/pifire/settings.json"
   PF_DEFAULT_DATA_DIR="/var/lib/pifire")
 
@@ -240,6 +242,7 @@ if(PF_BUILD_TESTS)
   endfunction()
   pf_test(test_settings)
   pf_test(test_backup)
+  pf_test(test_update)
   pf_test(test_recipe_run)
   pf_test(test_cycle)
   pf_test(test_shh)

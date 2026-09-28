@@ -55,74 +55,11 @@ function system(view) {
   };
   load();
 
-  view.append(el('p', { class: 'help' }, 'Software updates are under Settings → System → Software updates.'));
   view.append(el('div', { class: 'btnrow' },
     el('button', { class: 'btn', onclick: async () => { if (await confirmDialog('Reboot?', 'The grill must be stopped first.', 'Reboot')) api('/admin/reboot', { body: {} }).then(() => toast('Rebooting…')).catch((e) => toast(e.message, true)); } }, 'Reboot'),
     el('button', { class: 'btn danger', onclick: async () => { if (await confirmDialog('Power off?', 'The grill must be stopped first.', 'Power off', true)) api('/admin/poweroff', { body: {} }).then(() => toast('Powering off…')).catch((e) => toast(e.message, true)); } }, 'Power off')));
   const t = setInterval(load, 10000);
   return () => clearInterval(t);
-}
-
-// ---- software updates from GitHub Releases (rendered inside Settings → System → Software updates) ----
-export function softwareUpdates(view) {
-  const upd = el('div', { class: 'card' });
-  const renderUpd = (u) => {
-    upd.innerHTML = '';
-    const busy = u.busy;
-    const rows = el('div', { class: 'kv' }, el('div', {}, 'Installed'), el('div', {}, `${u.current} (${u.arch})`), el('div', {}, 'Latest release'), el('div', {}, u.latest || '—'),
-      el('div', {}, 'Source'), el('div', {}, u.repo ? el('a', { href: `https://github.com/${u.repo}/releases`, target: '_blank' }, u.repo) : '— (set below)'));
-    /* One line that says which stage the update is at, in the accent while it is under way:
-       Checking, Updating (with the download's percentage), Restarting once the daemon has gone
-       away, Reloading when it is back. The daemon's own sentence stays as the help line. */
-    const stage = u.state === 'checking' ? 'Checking…'
-      : u.state === 'downloading' ? `Updating · downloading ${(u.progress * 100).toFixed(0)}%`
-      : u.state === 'verifying' ? 'Updating · verifying'
-      : u.state === 'installing' ? 'Updating · installing'
-      : u.state === 'restarting' ? 'Restarting…'
-      : u.state === 'reloading' ? 'Reloading…' : '';
-    if (stage) upd.append(el('div', { class: 'upd-stage' }, stage));
-    upd.append(rows, el('p', { class: 'help' }, u.state === 'error' ? `⚠ ${u.message}` : u.message || ''));
-    if (u.state === 'downloading') upd.append(el('div', { class: 'progress' }, el('div', { style: `width:${(u.progress * 100).toFixed(0)}%` })));
-    if (u.available && u.notes) upd.append(el('details', {}, el('summary', { class: 'muted' }, `What's new in ${u.latest}`), el('div', { class: 'mono', style: 'margin-top:6px' }, u.notes)));
-    upd.append(el('div', { class: 'btnrow', style: 'margin-top:10px' },
-      el('button', { class: 'btn', disabled: busy, onclick: async () => { try { await api('/update/check', { body: {} }); poll(); } catch (e) { toast(e.message, true); } } }, 'Check for updates'),
-      el('button', { class: 'btn primary', disabled: busy || !u.installable, onclick: async () => {
-        const cooking = !['Stop', 'Monitor', 'Error'].includes(PF.status?.mode);
-        if (cooking && !PF.settings?.update?.hot_update) { toast('Stop the grill first, or turn on "Update while cooking" below', true); return; }
-        if (!await confirmDialog(`Install ${u.latest}?`, cooking ? `The grill is in ${PF.status.mode}. The release is downloaded and verified, then the controller restarts and picks the cook back up where it left off (the fan and auger pause for a few seconds).` : 'Downloads, verifies the checksum, reinstalls and restarts. About a minute. This page reloads when it is back.', 'Install')) return;
-        try { await api('/update/install', { body: {} }); installing = { from: u.current, to: u.latest, notes: u.notes || '', since: Date.now() }; poll(); } catch (e) { toast(e.message, true); }
-      } }, u.available ? `Install ${u.latest}` : 'Up to date')));
-  };
-  let pollT = null, installing = null, last = null;
-  const again = (ms) => { clearTimeout(pollT); pollT = setTimeout(poll, ms); };
-  /* The daemon goes away while it restarts, so a failed poll during an install is the Restarting
-     stage, not an error. When it answers again with a different version the install is done: the
-     outcome is left for the app to announce after it reloads, the service worker is told to fetch
-     the new shell, and the page reloads itself so nobody is left running the old interface against
-     the new daemon. Ten minutes without the daemon coming back is reported instead of waited on. */
-  const poll = async () => {
-    try {
-      const u = await api('/update', { timeout: installing ? 3000 : 8000 });
-      last = u;
-      if (installing && u.current !== installing.from) {
-        /* the app-wide watcher reloads the shell; this page only says so */
-        renderUpd({ ...u, state: 'reloading', message: `${u.current} is running` });
-        installing = null;
-        return;
-      }
-      renderUpd(u);
-      if (u.busy || installing) again(1000);
-    } catch {
-      if (installing) {
-        if (Date.now() - installing.since > 600000) { renderUpd({ ...(last || {}), state: 'error', message: 'The controller has not come back after the update; check it on the grill', busy: false }); installing = null; return; }
-        renderUpd({ ...(last || {}), state: 'restarting', message: 'The controller is restarting', busy: true });
-        again(1000);
-      }
-    }
-  };
-  poll();
-  view.append(upd);   /* the page title above already says Software updates */
-  return () => clearTimeout(pollT);
 }
 
 function manual(view) {

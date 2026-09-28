@@ -13,6 +13,8 @@ const I = (path, label, help, extra = {}) => ({ path, label, help, type: 'int', 
 const B = (path, label, help) => ({ path, label, help, type: 'bool' });
 const S = (path, label, help, options, bool = false) => ({ path, label, help, type: 'select', options, bool });
 const X = (path, label, help) => ({ path, label, help, type: 'text' });
+const TM = (path, label, help) => ({ path, label, help, type: 'time' });
+const DAYS = (path, label, help) => ({ path, label, help, type: 'days' });
 
 // Settings pages. Each page holds one or more sections; a section maps to one settings group (its `id`)
 // and saves independently, so a page can combine related groups (e.g. startup + shutdown).
@@ -176,15 +178,21 @@ const PAGES = [
     B('show_recipes', 'Show recipes', 'Recipe programs on the Cook page'),
   ] }] },
   { key: 'backup', title: 'Backup', sub: 'Settings, tuning, recipes and cooks, off the grill', section: 'System', icon: 'archive', color: '#30d158', custom: (v) => import('./backup.js').then((m) => m.renderBackup(v)) },
-  { key: 'updates', title: 'Software Updates', sub: 'Releases and update source', section: 'System', icon: 'refresh-cw', color: '#0a84ff', before: (v) => import('./more.js').then((m) => m.softwareUpdates(v)), sections: [{ id: 'update', title: 'Update Source', fields: [
-    X('repo', 'GitHub repository', 'owner/name whose releases the updater installs'),
-    B('auto_check', 'Check automatically', 'After boot, then periodically. Logs a notice when a release is newer'),
-    I('check_interval_h', 'Check every (hours)', '', { min: 1, max: 720 }),
-    B('include_prerelease', 'Include pre-releases', 'Offer alpha/beta/rc builds as well as final releases'),
-    B('hot_update', 'Update while cooking', 'On: installs mid-cook and resumes the running mode after a few seconds. Off: the grill must be stopped'),
-    B('auto_install', 'Install automatically', 'A newer release installs on its own in the hour below, while the grill is stopped or monitoring with no timer or recipe running. Never mid-cook'),
-    I('auto_install_hour', 'Install at (hour, 0–23)', 'Local time. 2 is two in the morning', { min: 0, max: 23 }),
-  ] }] },
+  { key: 'updates', title: 'Software Updates', sub: 'PiFire and system packages', section: 'System', icon: 'refresh-cw', color: '#0a84ff', before: (v) => import('./updates.js').then((m) => m.renderUpdates(v)), sections: [
+    { id: 'update', title: 'Automatic', fields: [
+      B('auto_check', 'Check automatically', 'Daily. System packages only while idle'),
+      B('auto_install', 'Install automatically', 'Stop or Monitor only; no timer, recipe or tune running'),
+      TM('auto_install_time', 'Install at', 'Local time'),
+      DAYS('auto_install_days', 'Days'),
+      B('auto_install_system', 'Include system updates', ''),
+      B('hot_update', 'Update while cooking', 'Manual PiFire installs; the cook resumes'),
+    ] },
+    { id: 'update', title: 'Source', sub: 'Repository and check interval', collapsible: true, icon: 'git-branch', color: '#636366', summary: () => ({ on: false, label: '' }), fields: [
+      X('repo', 'GitHub repository', 'owner/name'),
+      B('include_prerelease', 'Include pre-releases', 'main only'),
+      I('check_interval_h', 'Check every (hours)', '', { min: 1, max: 720 }),
+    ] },
+  ] },
 ];
 // index order: what you cook with, the hardware, the safety net, connectivity, data, the app itself
 // Every concern has exactly one home. Settings = what you configure; More = what you do and what you
@@ -310,12 +318,30 @@ export function fieldInput(f, value) {
     return el('div', {}, box, el('button', { class: 'btn sm ghost', type: 'button', style: 'margin-top:6px', onclick: async () => { try { await api('/weather/refresh', { body: {} }); toast('Refreshing…'); setTimeout(load, 4000); } catch (err) { toast(err.message, true); } } }, 'Refresh now'));
   }
   const id = 'f_' + f.path.replace(/\W/g, '_') + '_' + Math.random().toString(36).slice(2, 6);
+  if (f.type === 'days') {
+    /* the days of the week, Sunday first, each a chip that is on or off; none on reads as every day */
+    const on = new Set(Array.isArray(value) ? value : [0, 1, 2, 3, 4, 5, 6]);
+    const store = el('input', { type: 'hidden', name: f.path, value: JSON.stringify([...on].sort()) });
+    const chips = ['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => el('button', {
+      type: 'button', class: `day-chip ${on.has(i) ? 'on' : ''}`, 'aria-pressed': String(on.has(i)),
+      'aria-label': ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][i],
+      onclick: (e) => {
+        if (on.has(i)) on.delete(i); else on.add(i);
+        e.currentTarget.classList.toggle('on', on.has(i));
+        e.currentTarget.setAttribute('aria-pressed', String(on.has(i)));
+        store.value = JSON.stringify([...on].sort());
+        store.dispatchEvent(new Event('input', { bubbles: true }));
+      } }, d));
+    return el('div', { class: 'field inline' }, el('div', {}, el('label', {}, f.label), f.help ? el('div', { class: 'help' }, f.help) : null), el('div', { class: 'day-chips' }, chips, store));
+  }
   let input;
   switch (f.type) {
     case 'bool': input = el('input', { type: 'checkbox', id, name: f.path, checked: !!value }); break;
     case 'select': input = el('select', { id, name: f.path }, (f.options || []).map(([v, l]) => el('option', { value: v, selected: String(v) === String(value) }, l))); break;
     case 'password': input = el('input', { type: 'password', id, name: f.path, value: value ?? '', autocomplete: 'off' }); break;
     case 'text': input = el('input', { type: 'text', id, name: f.path, value: value ?? '' }); break;
+    /* the phone's own time wheel; the value is local wall-clock "HH:MM" */
+    case 'time': input = el('input', { type: 'time', id, name: f.path, value: value || '02:00', step: 60 }); break;
     default: input = el('input', { type: 'text', inputmode: 'decimal', id, name: f.path, value: value ?? '', pattern: '-?[0-9]*[.,]?[0-9]*' });
   }
   const unit = f.type === 'temp' || f.type === 'tempdelta' ? ` (${degUnit()})` : '';
@@ -332,6 +358,8 @@ export function readField(f, form) {
   if (f.type === 'bool') return input.checked;
   if (f.type === 'select') return f.bool ? input.value === 'true' : (f.options?.every(([v]) => typeof v === 'number') ? Number(input.value) : input.value);
   if (f.type === 'text' || f.type === 'password') return input.value;
+  if (f.type === 'time') { if (!/^\d{2}:\d{2}$/.test(input.value)) throw new Error(`${f.label}: pick a time`); return input.value; }
+  if (f.type === 'days') return JSON.parse(input.value || '[]');
   const v = parseFloat(String(input.value).replace(',', '.'));
   if (Number.isNaN(v)) throw new Error(`${f.label}: enter a number`);
   if (f.min != null && v < f.min) throw new Error(`${f.label}: minimum is ${f.min}`);
@@ -387,7 +415,7 @@ function pageCard(pg) {
           sec.brand ? el('span', { class: 'tile brand' }, brandIcon(sec.brand))
                     : sec.icon ? el('span', { class: 'tile', style: tileStyle(sec.color) }, lucide(sec.icon)) : null,
           el('span', { class: 'body' }, el('span', { class: 't' }, sec.title || pg.title), sec.sub ? el('span', { class: 's' }, sec.sub) : null),
-          state, lucide('chevron-right', 'ic chev')),
+          sum && sum.label === '' ? null : state, lucide('chevron-right', 'ic chev')),
         el('div', { class: 'fold-body' }, card));
       /* Some services are not a switch. Being able to reach this browser is not something you turn
          on in settings -- the browser grants it and then holds a subscription -- so the summary says
@@ -597,6 +625,7 @@ export function renderSettings(view, rest) {
        timings only ever affected Smoke. The old address still works rather than dead-ending. */
     const MOVED = { auger: 'controller', push: 'services', integrations: 'services' };
     if (page === 'probes') { location.replace('#/probes'); return; }   // Probes is its own tab
+    if (page === 'updates' && rest[1] === 'console') { setBack('#/settings/updates', 'Updates'); return import('./updates.js').then((m) => m.renderConsole(view)); }
     if (MOVED[page]) { location.replace(`#/settings/${MOVED[page]}`); return; }
     const pg = pages.find((x) => x.key === page);
     if (!pg) { view.append(el('div', { class: 'card muted' }, 'No such settings page')); return; }

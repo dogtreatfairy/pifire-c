@@ -562,6 +562,15 @@ the page to do when you have a new probe in your hand.
 as the word "null", which is how a bare `null` appeared under the probe list and, later, under a running recipe's message. Filter before
 appending: `view.append(...[a, cond ? b : null].filter(Boolean))`.
 
+**A row with a box to tick** is a settings row whose tile is a checkbox: tick means include. It is
+for choosing several of a list to act on together -- the updates to install, like Linux Mint's
+Update Manager -- and the action is the one button in the pinned bar, counting what is ticked
+(`Install 5`). One line each: the name on the left, the version it would become on the right.
+
+**A console** is the one place text is shown as a tool printed it: monospace, on its own dark
+panel, headed by one row saying what is running. It is part of the page and scrolls with it, and it
+follows the end only while the reader is at the end. Software Updates is the only user.
+
 **An input may carry its own mark**, inside it and ahead of the text, so the field says what it is
 for before its label is read.
 

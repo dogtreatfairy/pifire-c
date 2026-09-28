@@ -22,5 +22,8 @@ static inline double pf_clamp(double v, double lo, double hi) { return v < lo ? 
 /* Run a program (no shell) and capture stdout+stderr. Returns the exit status, -1 on exec
  * failure, -2 on timeout (child killed). `out` may be NULL. */
 int pf_run_capture(const char *const argv[], char *out, size_t n, int timeout_s);
+/* Run argv and hand each line of its output (stdout and stderr together, split on newline or
+ * carriage return) to `line` as it arrives. Returns the exit status, -2 on timeout, -1 on error. */
+int pf_run_stream(const char *const argv[], int timeout_s, void (*line)(const char *text, void *ud), void *ud);
 /* Reboot or power off the machine (systemctl, detached). The caller stops the grill first. */
 void pf_system_power(bool reboot);

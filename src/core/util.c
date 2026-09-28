@@ -173,6 +173,53 @@ int pf_run_capture(const char *const argv[], char *out, size_t n, int timeout_s)
 	return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
+int pf_run_stream(const char *const argv[], int timeout_s, void (*line)(const char *text, void *ud), void *ud)
+{
+	int fds[2];
+	if (pipe2(fds, O_CLOEXEC) < 0) return -1;
+	pid_t pid = fork();
+	if (pid < 0) { close(fds[0]); close(fds[1]); return -1; }
+	if (pid == 0) {
+		dup2(fds[1], STDOUT_FILENO);
+		dup2(fds[1], STDERR_FILENO);
+		int devnull = open("/dev/null", O_RDONLY);
+		if (devnull >= 0) dup2(devnull, STDIN_FILENO);
+		execvp(argv[0], (char *const *)argv);
+		_exit(127);
+	}
+	close(fds[1]);
+	char buf[1024];
+	size_t have = 0;
+	double deadline = pf_now() + timeout_s;
+	int status = 0, rc = 0;
+	for (;;) {
+		struct pollfd p = { .fd = fds[0], .events = POLLIN };
+		int left_ms = (int)((deadline - pf_now()) * 1000);
+		if (left_ms < 0) left_ms = 0;
+		int r = poll(&p, 1, left_ms);
+		if (r == 0) { kill(pid, SIGKILL); rc = -2; break; }
+		if (r < 0) { if (errno == EINTR) continue; break; }
+		ssize_t rd = read(fds[0], buf + have, sizeof buf - 1 - have);
+		if (rd <= 0) break;
+		have += (size_t)rd;
+		/* hand over every finished line; a line longer than the buffer goes out in pieces */
+		size_t start = 0;
+		for (size_t i = 0; i < have; i++) {
+			if (buf[i] != '\n' && buf[i] != '\r') continue;
+			buf[i] = 0;
+			if (i > start && line) line(buf + start, ud);
+			start = i + 1;
+		}
+		if (start == 0 && have == sizeof buf - 1) { buf[have] = 0; if (line) line(buf, ud); have = 0; }
+		else { memmove(buf, buf + start, have - start); have -= start; }
+	}
+	if (have && line) { buf[have] = 0; line(buf, ud); }
+	close(fds[0]);
+	waitpid(pid, &status, 0);
+	if (rc) return rc;
+	return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
 /* ---- enum names (declared in pifire/common.h) ---- */
 static const char *mode_names[PF_MODE_COUNT] = {
 	"Stop", "Monitor", "Prime", "Startup", "Reignite", "Smoke", "Hold", "Shutdown", "Manual", "Error"

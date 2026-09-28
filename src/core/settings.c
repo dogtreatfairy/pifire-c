@@ -670,6 +670,23 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 18 (probe-target alert says to take it off the heat)");
 			added = 1;
 		}
+		if (ver < 19) {
+			/* The install hour became a local time of day ("02:30") and a set of weekdays. */
+			cJSON *up = cJSON_GetObjectItem(g_root, "update");
+			cJSON *h = up ? cJSON_GetObjectItem(up, "auto_install_hour") : NULL;
+			if (cJSON_IsNumber(h)) {
+				char t[8];
+				int hh = h->valueint >= 0 && h->valueint <= 23 ? h->valueint : 2;
+				snprintf(t, sizeof t, "%02d:00", hh);
+				if (cJSON_GetObjectItem(up, "auto_install_time")) cJSON_ReplaceItemInObject(up, "auto_install_time", cJSON_CreateString(t));
+				else cJSON_AddStringToObject(up, "auto_install_time", t);
+			}
+			if (up) cJSON_DeleteItemFromObject(up, "auto_install_hour");
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 19); else cJSON_AddNumberToObject(g_root, "schema_version", 19);
+			LOGI(TAG, "settings migrated to schema 19 (update install time and days)");
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);

@@ -1,0 +1,24 @@
+#!/bin/bash
+# pifire-system-update: the privileged side of PiFire's system updates (sudoers lets the pifire
+# user run this). Sub-commands:
+#   refresh           apt-get update
+#   list              the upgradable packages, one `apt list --upgradable` line each
+#   upgrade PKG...    upgrade exactly those packages (and whatever they now depend on)
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive LC_ALL=C
+cmd="${1:-list}"
+case "$cmd" in
+	refresh) apt-get update 2>&1 ;;
+	list) apt list --upgradable 2>/dev/null | grep -v '^Listing' || true ;;
+	upgrade)
+		shift
+		[ "$#" -gt 0 ] || { echo "no packages named" >&2; exit 2; }
+		for p in "$@"; do
+			[[ "$p" =~ ^[a-z0-9][a-z0-9+.:-]*$ ]] || { echo "not a package name: $p" >&2; exit 2; }
+		done
+		# keep the existing configuration files when a package ships new ones: nobody is there to answer
+		apt-get install --only-upgrade -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+			-o APT::Status-Fd=1 "$@" 2>&1
+		;;
+	*) echo "usage: pifire-system-update refresh|list|upgrade PKG..." >&2; exit 2 ;;
+esac

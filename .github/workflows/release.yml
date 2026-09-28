@@ -2,10 +2,15 @@
 # 64-bit OS, armhf for the 32-bit OS) inside Debian Bookworm containers under QEMU, packages them
 # as pifire-X.Y.Z-<arch>.tar.gz with a SHA256SUMS file, and publishes a GitHub Release. The OTA
 # updater in pifired looks for exactly these asset names.
+#
+# A push to any other branch than main builds the same archives from that branch's head and
+# publishes them as the rolling pre-release "branch-<name>" (replaced on every push), which is what
+# the updater installs when it is set to that branch. main is served by its tagged releases.
 name: Release
 on:
   push:
     tags: ['v*']
+    branches: ['**', '!main']
 permissions:
   contents: write
 jobs:
@@ -22,14 +27,22 @@ jobs:
             image: arm32v7/debian:bookworm-slim
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: docker/setup-qemu-action@v3
       - name: Build ${{ matrix.arch }}
         run: |
-          VER="${GITHUB_REF_NAME#v}"
-          docker run --rm --platform ${{ matrix.platform }} -v "$PWD":/src -w /src -e VER="$VER" -e ARCH=${{ matrix.arch }} ${{ matrix.image }} bash -euc '
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            VER="${GITHUB_REF_NAME#v}"; BRANCH=""
+          else
+            # the last release this branch grew from, how far past it, and the commit
+            VER="$(git describe --tags --match 'v*' --abbrev=7 2>/dev/null || echo "0.0.0-g$(git rev-parse --short=7 HEAD)")"
+            VER="${VER#v}"; BRANCH="$GITHUB_REF_NAME"
+          fi
+          docker run --rm --platform ${{ matrix.platform }} -v "$PWD":/src -w /src -e VER="$VER" -e BRANCH="$BRANCH" -e ARCH=${{ matrix.arch }} ${{ matrix.image }} bash -euc '
             apt-get update -qq
             apt-get install -y -qq --no-install-recommends cmake gcc make pkg-config libsqlite3-dev libmosquitto-dev libcurl4-openssl-dev libssl-dev libsystemd-dev gzip tar binutils >/dev/null
-            cmake -B build -DCMAKE_BUILD_TYPE=Release -DPF_BUILD_TESTS=OFF -DPF_VERSION="$VER"
+            cmake -B build -DCMAKE_BUILD_TYPE=Release -DPF_BUILD_TESTS=OFF -DPF_VERSION="$VER" -DPF_BRANCH="$BRANCH"
             cmake --build build -j"$(nproc)"
             tools/package.sh "$ARCH" "$VER"
           '
@@ -59,9 +72,22 @@ jobs:
           if [ -n "$prev" ]; then git log --no-merges --format='- %s' "$prev..${GITHUB_REF_NAME}"; else git log --no-merges --format='- %s' -n 20; fi > dist/NOTES.md
           cat dist/NOTES.md
       - uses: softprops/action-gh-release@v2
+        if: github.ref_type == 'tag'
         with:
           files: |
             dist/*.tar.gz
             dist/SHA256SUMS
           body_path: dist/NOTES.md
           prerelease: ${{ contains(github.ref_name, '-') }}
+      # a branch build replaces the branch's previous one: same tag, moved to this commit
+      - name: Branch build
+        if: github.ref_type == 'branch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          slug="${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}"
+          tag="branch-$slug"
+          gh release delete "$tag" --cleanup-tag -y 2>/dev/null || true
+          git log --no-merges --format='- %s' -n 20 > dist/NOTES.md
+          gh release create "$tag" dist/*.tar.gz dist/SHA256SUMS --target "$GITHUB_SHA" --prerelease \
+            --title "$GITHUB_REF_NAME" --notes-file dist/NOTES.md
