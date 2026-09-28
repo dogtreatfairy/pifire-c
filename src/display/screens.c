@@ -105,17 +105,17 @@ int pf_bt_devices(const cJSON *status, pf_bt_device *out, int max)
 	return n;
 }
 
-/* the same table the phone's picker offers: done at, carry-over, and the step alerts on the way */
+/* the same table the phone's picker offers: the doneness, how early it comes off, the step alerts */
 static const pf_doneness D_BEEF[] = { { "Rare", 125, 5, { "Flip" }, { 100 } }, { "Medium rare", 135, 5, { "Flip" }, { 110 } }, { "Medium", 140, 5, { "Flip" }, { 115 } },
                                       { "Medium well", 150, 5, { "Flip" }, { 125 } }, { "Well done", 160, 5, { "Flip" }, { 135 } } };
 static const pf_doneness D_BRISKET[] = { { "Probe tender", 203, 0, { "Spritz", "Wrap" }, { 150, 165 } } };
-static const pf_doneness D_PORK[] = { { "Chops and loin", 145, 5, { "Flip" }, { 120 } }, { "Pulled pork", 203, 0, { "Spritz", "Wrap" }, { 150, 165 } } };
+static const pf_doneness D_PORK[] = { { "Chops and loin", 145, 4, { "Flip" }, { 120 } }, { "Pulled pork", 203, 0, { "Spritz", "Wrap" }, { 150, 165 } } };
 static const pf_doneness D_RIBS[] = { { "Bend test", 195, 0, { "Spritz", "Wrap", "Unwrap" }, { 150, 165, 185 } } };
-static const pf_doneness D_CHICKEN[] = { { "Breast 155", 155, 5, { "Flip" }, { 130 } }, { "Breast 165", 165, 5, { "Flip" }, { 140 } }, { "Thighs", 175, 5, { "Flip" }, { 150 } } };
-static const pf_doneness D_TURKEY[] = { { "Whole bird", 165, 8, { "Baste" }, { 140 } } };
-static const pf_doneness D_FISH[] = { { "Flaky", 145, 3, { 0 }, { 0 } } };
-static const pf_doneness D_LAMB[] = { { "Medium rare", 135, 5, { "Flip" }, { 110 } }, { "Medium", 140, 5, { "Flip" }, { 115 } } };
-static const pf_doneness D_SAUSAGE[] = { { "Cooked through", 160, 5, { "Flip" }, { 135 } } };
+static const pf_doneness D_CHICKEN[] = { { "Breast 155", 155, 0, { "Flip" }, { 135 } }, { "Breast 165", 165, 0, { "Flip" }, { 145 } }, { "Thighs", 175, 0, { "Flip" }, { 155 } } };
+static const pf_doneness D_TURKEY[] = { { "Whole bird", 165, 0, { "Baste" }, { 145 } } };
+static const pf_doneness D_FISH[] = { { "Flaky", 145, 0, { 0 }, { 0 } } };
+static const pf_doneness D_LAMB[] = { { "Medium rare", 135, 4, { "Flip" }, { 110 } }, { "Medium", 140, 4, { "Flip" }, { 115 } } };
+static const pf_doneness D_SAUSAGE[] = { { "Cooked through", 160, 0, { "Flip" }, { 140 } } };
 #define MEAT(n, d) { n, d, (int)(sizeof d / sizeof d[0]) }
 const pf_meat PF_MEATS[] = { MEAT("Beef", D_BEEF), MEAT("Brisket", D_BRISKET), MEAT("Pork", D_PORK), MEAT("Ribs", D_RIBS), MEAT("Chicken", D_CHICKEN),
                              MEAT("Turkey", D_TURKEY), MEAT("Fish", D_FISH), MEAT("Lamb", D_LAMB), MEAT("Sausage", D_SAUSAGE) };
@@ -379,8 +379,8 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 		int m = ui->meat_idx >= 0 && ui->meat_idx < PF_MEAT_COUNT ? ui->meat_idx : 0;
 		for (int i = 0; i < PF_MEATS[m].n; i++) {
 			ADD(PF_ACT_DONE, i, PF_MEATS[m].d[i].name);
-			double pull_f = PF_MEATS[m].d[i].to_f - PF_MEATS[m].d[i].carry_f;
-			double v = units[0] == 'C' ? round((pull_f - 32) * 5 / 9) : pull_f;
+			double done_f = PF_MEATS[m].d[i].to_f;   /* the doneness, as on the phone; it comes off earlier by carry_f */
+			double v = units[0] == 'C' ? round((done_f - 32) * 5 / 9) : done_f;
 			snprintf(out[n - 1].right, sizeof out[n - 1].right, "%.0f" DEG, v);
 		}
 		ADD(PF_ACT_BACK, 0, "Back");

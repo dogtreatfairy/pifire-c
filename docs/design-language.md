@@ -1074,8 +1074,11 @@ a strip that scrolls is kept for lists that genuinely cannot.
 The target picker opens on Custom -- a temperature typed, the step alerts it wants, and the
 presets saved from it under a name -- with the meats a tap away (Custom first on the panel too).
 Every doneness carries its plan: the steps on the way (a flip about twenty below the pull for a
-steak, spritz and wrap for the long cooks, unwrap for ribs), the pull temperature the target is set
-to, and what it rests up to off the heat. Medium beef: flip at 115, off at 135, rests to 140.
+steak, spritz and wrap for the long cooks, unwrap for ribs), the doneness itself shown large, and
+the temperature it comes off at, which is what the target is set to. Beef comes off five early,
+pork and lamb four; poultry, sausage, fish, brisket and ribs come off at the number itself, since
+a brisket pulled at 200 does not reliably reach 205 -- a 155 breast comes off at 155 and is said
+to coast to about 160. Medium beef: flip at 115, off at 135, done at 140.
 Picking one replaces the probe's step alerts with its own. The alert at the target says the
 instruction -- "BT1: off the heat", "Beef · Medium is at 135°F; it rests up to 140°F" -- not
 merely that a number was reached.

@@ -458,7 +458,7 @@ static void test_main_screen_focus_and_its_menus(void)
 	n = pf_menu_build(st, &ui, items, PF_MENU_MAX);
 	TEST_ASSERT_EQUAL_INT(6, n);
 	TEST_ASSERT_EQUAL_STRING("Medium", items[2].label);
-	TEST_ASSERT_EQUAL_STRING("135\xC2\xB0", items[2].right);   /* medium: off at 135, rests to 140 */
+	TEST_ASSERT_EQUAL_STRING("140\xC2\xB0", items[2].right);   /* medium is 140; it comes off at 135 */
 	render_to(&g, st, &ui, "menu_done");
 	pf_nav_pop(&ui);
 	pf_nav_push(&ui, PF_SCR_LIST, PF_LIST_HOPPER);

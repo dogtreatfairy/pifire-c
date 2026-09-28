@@ -16,11 +16,12 @@ import { pickFoodProbes } from './probes.js';
  * few degrees, a whole bird more. Cuts taken to tenderness rather than to a temperature, like
  * brisket and ribs, carry nothing worth naming, because you are pulling them when they feel right
  * and then resting them for an hour anyway. */
-/* `to` is where the meat is done, `carry` how far it climbs once it is off the heat, so the target
- * set is `to - carry`: the alert says "take it off" while it still has that climb to make. `steps`
- * are the things to do on the way, in degrees F -- a flip about twenty below the pull for a steak,
- * spritz and wrap for the long cooks, unwrap for ribs -- and they replace the probe's step alerts
- * when the doneness is picked. Medium beef, for one: flip at 115, off at 135, rests to 140. */
+/* `to` is the doneness -- the temperature the meat is at when it is ready, shown large on each row.
+ * `carry` is how many degrees early it comes off the heat: five for beef, a few for pork and lamb,
+ * none for poultry, sausage, fish, brisket and ribs, which have to reach the number itself (and a
+ * brisket pulled at 200 does not reliably climb to 205). `coast` is how far a pull at the number
+ * still climbs, said but not relied on: a 155 breast comes off at 155 and coasts to about 160.
+ * `steps` are the things to do on the way, in degrees F, and replace the probe's step alerts. */
 const PRESETS = {
   Beef: [
     { name: 'Rare', to: 125, carry: 5, steps: [['Flip', 100]] },
@@ -31,22 +32,22 @@ const PRESETS = {
   ],
   Brisket: [{ name: 'Probe tender', to: 203, carry: 0, steps: [['Spritz', 150], ['Wrap', 165]] }],
   Pork: [
-    { name: 'Chops and loin', to: 145, carry: 5, steps: [['Flip', 120]] },
+    { name: 'Chops and loin', to: 145, carry: 4, steps: [['Flip', 120]] },
     { name: 'Pulled pork', to: 203, carry: 0, steps: [['Spritz', 150], ['Wrap', 165]] },
   ],
   Ribs: [{ name: 'Bend test', to: 195, carry: 0, steps: [['Spritz', 150], ['Wrap', 165], ['Unwrap', 185]] }],
   Chicken: [
-    { name: 'Breast 155', to: 155, carry: 5, steps: [['Flip', 130]] },   /* juicy; safe when it rests there a few minutes */
-    { name: 'Breast 165', to: 165, carry: 5, steps: [['Flip', 140]] },
-    { name: 'Thighs', to: 175, carry: 5, steps: [['Flip', 150]] },
+    { name: 'Breast 155', to: 155, carry: 0, coast: 5, steps: [['Flip', 135]] },
+    { name: 'Breast 165', to: 165, carry: 0, coast: 5, steps: [['Flip', 145]] },
+    { name: 'Thighs', to: 175, carry: 0, coast: 5, steps: [['Flip', 155]] },
   ],
-  Turkey: [{ name: 'Whole bird', to: 165, carry: 8, steps: [['Baste', 140]] }],
-  Fish: [{ name: 'Flaky', to: 145, carry: 3, steps: [] }],
+  Turkey: [{ name: 'Whole bird', to: 165, carry: 0, coast: 5, steps: [['Baste', 145]] }],
+  Fish: [{ name: 'Flaky', to: 145, carry: 0, steps: [] }],
   Lamb: [
-    { name: 'Medium rare', to: 135, carry: 5, steps: [['Flip', 110]] },
-    { name: 'Medium', to: 140, carry: 5, steps: [['Flip', 115]] },
+    { name: 'Medium rare', to: 135, carry: 4, steps: [['Flip', 110]] },
+    { name: 'Medium', to: 140, carry: 4, steps: [['Flip', 115]] },
   ],
-  Sausage: [{ name: 'Cooked through', to: 160, carry: 5, steps: [['Flip', 135]] }],
+  Sausage: [{ name: 'Cooked through', to: 160, carry: 0, steps: [['Flip', 140]] }],
 };
 const AFTER = [[0, 'Notify only'], [1, 'Keep warm'], [2, 'Shutdown']];
 const toUser = (f) => (PF.units === 'C' ? Math.round((f - 32) * 5 / 9) : f);
@@ -69,7 +70,8 @@ export async function targetDialog(p) {
 
     const chips = el('div', { class: 'chiprow' });
     const list = el('div', { class: 'donelist' });
-    const summary = (steps, pull) => [...steps.map(([n, t]) => `${n} ${t}${u}`), `off at ${pull}${u}`].join(' \u00b7 ');
+    /* the note is the plan on the way; the pull is said once, under the large number */
+    const summary = (steps, pull) => steps.length ? steps.map(([n, t]) => `${n} ${t}${u}`).join(' \u00b7 ') : `off at ${pull}${u}`;
 
     /* the probe's step alerts, edited on the Custom tab and saved as they change */
     const cur = (PF.settings?.notify?.probe_steps?.[p.label] || []).map((x) => ({ ...x }));
@@ -140,15 +142,18 @@ export async function targetDialog(p) {
       list.innerHTML = '';
       if (m === 'Custom') { showCustom(); return; }
       for (const d of PRESETS[m]) {
-        const pull = toUser(d.to - d.carry), rest = d.carry > 0 ? toUser(d.to) : 0;
+        /* large: the doneness itself; under it, when it comes off if that is earlier, or how far a
+           pull at the number coasts */
+        const done = toUser(d.to), pull = toUser(d.to - d.carry), coast = d.coast ? toUser(d.to + d.coast) : 0;
+        const rest = d.carry > 0 ? done : coast;
         const steps = d.steps.map(([n, t]) => [n, toUser(t)]);
         list.append(el('button', { class: 'done', type: 'button', onclick: () => pick(pull, m, d.name, rest, steps) },
           el('div', { class: 'done-main' },
             el('div', { class: 'done-name' }, d.name),
             el('div', { class: 'done-note' }, summary(steps, pull))),
           el('div', { class: 'done-temps' },
-            el('div', { class: 'done-pull' }, `${pull}${u}`),
-            rest ? el('div', { class: 'done-final' }, `rests to ${rest}${u}`) : null)));
+            el('div', { class: 'done-pull' }, `${done}${u}`),
+            d.carry > 0 ? el('div', { class: 'done-final' }, `off at ${pull}${u}`) : coast ? el('div', { class: 'done-final' }, `coasts to ${coast}${u}`) : null)));
       }
     };
 
