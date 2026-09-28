@@ -1432,6 +1432,12 @@ main.view:has(> .screen-actions) { padding-bottom: calc(var(--tab-h) + env(safe-
 .chiprow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
 .chiprow.steps { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
 .tsteps { margin-top: var(--sp-3); }
+/* the Custom tab's own target: two fields side by side, the button under them */
+.custom-target { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border-radius: var(--r-md); background: var(--surface2); }
+.custom-target .ct-row { display: grid; grid-template-columns: 1fr 1.4fr; gap: var(--sp-2); }
+.custom-target .field { display: flex; flex-direction: column; gap: 4px; margin: 0; min-width: 0; padding: 0; border-top: 0; }
+.custom-target .field span { font-size: var(--fs-xs); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+.custom-target input { width: 100%; min-width: 0; box-sizing: border-box; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 10px 12px; color: var(--text); font: inherit; font-size: var(--fs-md); }
 .tsteps .ios-list { margin-bottom: 4px; }
 .chip-btn { min-width: 0; border: 1px solid var(--line); background: transparent; border-radius: var(--r-pill); padding: 7px 4px; font-size: var(--fs-xs); font-weight: 600; color: var(--muted); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chip-btn.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }

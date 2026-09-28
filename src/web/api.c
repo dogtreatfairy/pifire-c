@@ -137,6 +137,7 @@ int pf_api_command_json(const char *json, char *err, size_t errn)
 		c.aux = pf_json_int(j, "after", 0);
 		pf_strlcpy(c.meat, pf_json_str(j, "meat", ""), sizeof c.meat);
 		pf_strlcpy(c.done, pf_json_str(j, "done", ""), sizeof c.done);
+		c.num2 = pf_json_num(j, "finish", 0);   /* what it rests up to, user units */
 		if (!c.str[0]) { snprintf(err, errn, "label required"); rc = -1; }
 	} else if (!strcmp(cmd, "limits")) {
 		c.type = PF_CMD_NOTIFY_LIMITS;

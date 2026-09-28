@@ -105,15 +105,17 @@ int pf_bt_devices(const cJSON *status, pf_bt_device *out, int max)
 	return n;
 }
 
-static const pf_doneness D_BEEF[] = { { "Rare", 125, 5 }, { "Medium rare", 135, 5 }, { "Medium", 145, 5 }, { "Medium well", 150, 5 }, { "Well done", 160, 5 } };
-static const pf_doneness D_BRISKET[] = { { "Probe tender", 203, 0 } };
-static const pf_doneness D_PORK[] = { { "Chops and loin", 145, 5 }, { "Pulled pork", 203, 0 } };
-static const pf_doneness D_RIBS[] = { { "Bend test", 195, 0 } };
-static const pf_doneness D_CHICKEN[] = { { "Breast", 165, 5 }, { "Thighs", 175, 5 } };
-static const pf_doneness D_TURKEY[] = { { "Whole bird", 165, 8 } };
-static const pf_doneness D_FISH[] = { { "Flaky", 145, 3 } };
-static const pf_doneness D_LAMB[] = { { "Medium rare", 135, 5 }, { "Medium", 145, 5 } };
-static const pf_doneness D_SAUSAGE[] = { { "Cooked through", 160, 5 } };
+/* the same table the phone's picker offers: done at, carry-over, and the step alerts on the way */
+static const pf_doneness D_BEEF[] = { { "Rare", 125, 5, { "Flip" }, { 100 } }, { "Medium rare", 135, 5, { "Flip" }, { 110 } }, { "Medium", 140, 5, { "Flip" }, { 115 } },
+                                      { "Medium well", 150, 5, { "Flip" }, { 125 } }, { "Well done", 160, 5, { "Flip" }, { 135 } } };
+static const pf_doneness D_BRISKET[] = { { "Probe tender", 203, 0, { "Spritz", "Wrap" }, { 150, 165 } } };
+static const pf_doneness D_PORK[] = { { "Chops and loin", 145, 5, { "Flip" }, { 120 } }, { "Pulled pork", 203, 0, { "Spritz", "Wrap" }, { 150, 165 } } };
+static const pf_doneness D_RIBS[] = { { "Bend test", 195, 0, { "Spritz", "Wrap", "Unwrap" }, { 150, 165, 185 } } };
+static const pf_doneness D_CHICKEN[] = { { "Breast", 165, 5, { "Flip" }, { 140 } }, { "Thighs", 175, 5, { "Flip" }, { 150 } } };
+static const pf_doneness D_TURKEY[] = { { "Whole bird", 165, 8, { "Baste" }, { 140 } } };
+static const pf_doneness D_FISH[] = { { "Flaky", 145, 3, { 0 }, { 0 } } };
+static const pf_doneness D_LAMB[] = { { "Medium rare", 135, 5, { "Flip" }, { 110 } }, { "Medium", 140, 5, { "Flip" }, { 115 } } };
+static const pf_doneness D_SAUSAGE[] = { { "Cooked through", 160, 5, { "Flip" }, { 135 } } };
 #define MEAT(n, d) { n, d, (int)(sizeof d / sizeof d[0]) }
 const pf_meat PF_MEATS[] = { MEAT("Beef", D_BEEF), MEAT("Brisket", D_BRISKET), MEAT("Pork", D_PORK), MEAT("Ribs", D_RIBS), MEAT("Chicken", D_CHICKEN),
                              MEAT("Turkey", D_TURKEY), MEAT("Fish", D_FISH), MEAT("Lamb", D_LAMB), MEAT("Sausage", D_SAUSAGE) };
@@ -367,8 +369,8 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 	}
 
 	case PF_LIST_MEAT:
+		ADD(PF_ACT_PROBE_CUSTOM, 0, "Custom");   /* a temperature of your own, first, as on the phone */
 		for (int i = 0; i < PF_MEAT_COUNT && i < max - 2; i++) ADD(PF_ACT_MEAT, i, PF_MEATS[i].name);
-		ADD(PF_ACT_PROBE_CUSTOM, 0, "Custom");
 		ADD(PF_ACT_BACK, 0, "Back");
 		break;
 

@@ -1,5 +1,5 @@
 {
-  "schema_version": 17,
+  "schema_version": 18,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -445,8 +445,8 @@
             }
           ]
         },
-        "title": "{probe} reached {target}",
-        "body": "{probe} is at {temp} after {cook_time}.",
+        "title": "{probe}: off the heat",
+        "body": "{food} is at {temp}{rest}.",
         "level": "high",
         "sinks": [
           "app",

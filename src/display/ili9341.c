@@ -504,7 +504,24 @@ static void do_action(tft_t *t, pf_action act, int arg)
 		pf_strlcpy(c.str, t->ui.temp_probe, sizeof c.str);
 		pf_strlcpy(c.meat, PF_MEATS[m].name, sizeof c.meat);
 		pf_strlcpy(c.done, PF_MEATS[m].d[arg].name, sizeof c.done);
+		{ double to_f = PF_MEATS[m].d[arg].to_f; c.num2 = PF_MEATS[m].d[arg].carry_f > 0 ? (cel ? round((to_f - 32) * 5 / 9) : to_f) : 0; }
 		pf_cmdq_push(&c);
+		{
+			/* and its step alerts replace the probe's, as on the phone */
+			cJSON *patch = cJSON_CreateObject(), *ps = cJSON_AddObjectToObject(patch, "probe_steps"), *arr = cJSON_AddArrayToObject(ps, t->ui.temp_probe);
+			for (int k = 0; k < 3 && PF_MEATS[m].d[arg].step[k]; k++) {
+				cJSON *st = cJSON_CreateObject();
+				double f = PF_MEATS[m].d[arg].step_f[k];
+				cJSON_AddStringToObject(st, "name", PF_MEATS[m].d[arg].step[k]);
+				cJSON_AddNumberToObject(st, "temp", cel ? round((f - 32) * 5 / 9) : f);
+				cJSON_AddItemToArray(arr, st);
+			}
+			char *txt = cJSON_PrintUnformatted(patch);
+			char err[120];
+			if (txt && pf_settings_patch("notify", txt, err, sizeof err)) LOGW(TAG, "could not set the step alerts: %s", err);
+			free(txt);
+			cJSON_Delete(patch);
+		}
 		char msg[64];
 		snprintf(msg, sizeof msg, "%s %s: %.0f\xC2\xB0", PF_MEATS[m].name, PF_MEATS[m].d[arg].name, c.num);
 		show_message(t, msg, 2);

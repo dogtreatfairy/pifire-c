@@ -653,6 +653,23 @@ int pf_settings_init(const char *path)
 			     removed, removed == 1 ? "" : "s", fixed);
 			added = 1;
 		}
+		if (ver < 18) {
+			cJSON *rules = pf_json_path(g_root, "notify.rules"), *r;
+			/* The probe-target alert used to say the probe had reached its target. What the cook
+			 * needs at that moment is the instruction -- take it off the heat -- and what it will
+			 * rest up to. Updated only where the wording is still the shipped default. */
+			cJSON_ArrayForEach(r, rules) {
+				if (strcmp(pf_json_str(r, "id", ""), "probe-target")) continue;
+				if (!strcmp(pf_json_str(r, "title", ""), "{probe} reached {target}"))
+					cJSON_ReplaceItemInObject(r, "title", cJSON_CreateString("{probe}: off the heat"));
+				if (!strcmp(pf_json_str(r, "body", ""), "{probe} is at {temp} after {cook_time}."))
+					cJSON_ReplaceItemInObject(r, "body", cJSON_CreateString("{food} is at {temp}{rest}."));
+			}
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 18); else cJSON_AddNumberToObject(g_root, "schema_version", 18);
+			LOGI(TAG, "settings migrated to schema 18 (probe-target alert says to take it off the heat)");
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);

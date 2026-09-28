@@ -129,7 +129,7 @@ typedef struct { pf_screen screen; int list; int index; } pf_nav;
 /* What is on the probe and how done, the same table the phone's picker offers. `to_f` is where the
  * meat is done and `carry_f` how far it climbs once it is off the heat; the target set is the
  * difference, so the alarm fires while there is still time to pull it. */
-typedef struct { const char *name; int to_f, carry_f; } pf_doneness;
+typedef struct { const char *name; int to_f, carry_f; const char *step[3]; int step_f[3]; } pf_doneness;   /* steps: flip, spritz, wrap... in F */
 typedef struct { const char *name; const pf_doneness *d; int n; } pf_meat;
 extern const pf_meat PF_MEATS[];
 extern const int PF_MEAT_COUNT;

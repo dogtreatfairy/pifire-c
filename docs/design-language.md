@@ -1069,6 +1069,17 @@ the wrong one under a thumb as often as the right one. When a choice fits on the
 laid out to fit -- a grid that divides the width, labels short enough for a fifth of it -- and
 a strip that scrolls is kept for lists that genuinely cannot.
 
+## A probe's target is a plan: steps on the way, off the heat at the pull, resting to done
+
+The target picker opens on Custom -- a temperature typed, the step alerts it wants, and the
+presets saved from it under a name -- with the meats a tap away (Custom first on the panel too).
+Every doneness carries its plan: the steps on the way (a flip about twenty below the pull for a
+steak, spritz and wrap for the long cooks, unwrap for ribs), the pull temperature the target is set
+to, and what it rests up to off the heat. Medium beef: flip at 115, off at 135, rests to 140.
+Picking one replaces the probe's step alerts with its own. The alert at the target says the
+instruction -- "BT1: off the heat", "Beef · Medium is at 135°F; it rests up to 140°F" -- not
+merely that a number was reached.
+
 ## A recipe starts by saying which probes are in the food; Start asks Smoke or Hold
 
 Which probes are in the meat is a fact only the cook has. A probe on the counter reads perfectly

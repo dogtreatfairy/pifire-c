@@ -16,112 +16,166 @@ import { pickFoodProbes } from './probes.js';
  * few degrees, a whole bird more. Cuts taken to tenderness rather than to a temperature, like
  * brisket and ribs, carry nothing worth naming, because you are pulling them when they feel right
  * and then resting them for an hour anyway. */
+/* `to` is where the meat is done, `carry` how far it climbs once it is off the heat, so the target
+ * set is `to - carry`: the alert says "take it off" while it still has that climb to make. `steps`
+ * are the things to do on the way, in degrees F -- a flip about twenty below the pull for a steak,
+ * spritz and wrap for the long cooks, unwrap for ribs -- and they replace the probe's step alerts
+ * when the doneness is picked. Medium beef, for one: flip at 115, off at 135, rests to 140. */
 const PRESETS = {
   Beef: [
-    { name: 'Rare', to: 125, carry: 5, note: 'Cool red centre' },
-    { name: 'Medium rare', to: 135, carry: 5, note: 'Warm red centre' },
-    { name: 'Medium', to: 145, carry: 5, note: 'Warm pink centre' },
-    { name: 'Medium well', to: 150, carry: 5, note: 'Slightly pink' },
-    { name: 'Well done', to: 160, carry: 5, note: 'Cooked through' },
+    { name: 'Rare', to: 125, carry: 5, steps: [['Flip', 100]] },
+    { name: 'Medium rare', to: 135, carry: 5, steps: [['Flip', 110]] },
+    { name: 'Medium', to: 140, carry: 5, steps: [['Flip', 115]] },
+    { name: 'Medium well', to: 150, carry: 5, steps: [['Flip', 125]] },
+    { name: 'Well done', to: 160, carry: 5, steps: [['Flip', 135]] },
   ],
-  Brisket: [{ name: 'Probe tender', to: 203, carry: 0, note: 'Then rest, an hour or more' }],
+  Brisket: [{ name: 'Probe tender', to: 203, carry: 0, steps: [['Spritz', 150], ['Wrap', 165]] }],
   Pork: [
-    { name: 'Chops and loin', to: 145, carry: 5, note: 'Rest three minutes' },
-    { name: 'Pulled pork', to: 203, carry: 0, note: 'Falls apart' },
+    { name: 'Chops and loin', to: 145, carry: 5, steps: [['Flip', 120]] },
+    { name: 'Pulled pork', to: 203, carry: 0, steps: [['Spritz', 150], ['Wrap', 165]] },
   ],
-  Ribs: [{ name: 'Bend test', to: 195, carry: 0, note: 'Bones begin to show' }],
+  Ribs: [{ name: 'Bend test', to: 195, carry: 0, steps: [['Spritz', 150], ['Wrap', 165], ['Unwrap', 185]] }],
   Chicken: [
-    { name: 'Breast', to: 165, carry: 5, note: 'Safe and still juicy' },
-    { name: 'Thighs', to: 175, carry: 5, note: 'Dark meat, better higher' },
+    { name: 'Breast', to: 165, carry: 5, steps: [['Flip', 140]] },
+    { name: 'Thighs', to: 175, carry: 5, steps: [['Flip', 150]] },
   ],
-  Turkey: [{ name: 'Whole bird', to: 165, carry: 8, note: 'Measured in the breast' }],
-  Fish: [{ name: 'Flaky', to: 145, carry: 3, note: 'Just opaque' }],
+  Turkey: [{ name: 'Whole bird', to: 165, carry: 8, steps: [['Baste', 140]] }],
+  Fish: [{ name: 'Flaky', to: 145, carry: 3, steps: [] }],
   Lamb: [
-    { name: 'Medium rare', to: 135, carry: 5, note: '' },
-    { name: 'Medium', to: 145, carry: 5, note: '' },
+    { name: 'Medium rare', to: 135, carry: 5, steps: [['Flip', 110]] },
+    { name: 'Medium', to: 140, carry: 5, steps: [['Flip', 115]] },
   ],
-  Sausage: [{ name: 'Cooked through', to: 160, carry: 5, note: '' }],
+  Sausage: [{ name: 'Cooked through', to: 160, carry: 5, steps: [['Flip', 135]] }],
 };
 const AFTER = [[0, 'Notify only'], [1, 'Keep warm'], [2, 'Shutdown']];
 const toUser = (f) => (PF.units === 'C' ? Math.round((f - 32) * 5 / 9) : f);
 const deltaUser = (f) => (PF.units === 'C' ? Math.round(f * 5 / 9) : f);
 
+/* The target picker opens on Custom -- a temperature typed, with whatever step alerts it wants, and
+ * the presets saved from it -- and a meat is one tap away. Picking a doneness sets the target to the
+ * pull temperature, carries the meat, the doneness and what it rests to, and replaces the probe's
+ * step alerts with that doneness's own. */
 export async function targetDialog(p) {
   return dialog((close) => {
     let after = p.after || 0;
-    let meat = p.meat && PRESETS[p.meat] ? p.meat : 'Beef';
+    let meat = p.meat && PRESETS[p.meat] ? p.meat : 'Custom';
+    const u = degUnit();
 
-    const now = p.valid ? `${fmtTemp(p.temp)}${degUnit()}` : '—';
+    const now = p.valid ? `${fmtTemp(p.temp)}${u}` : '\u2014';
     const head = el('div', { class: 'sheet-head' },
       el('div', {}, el('h3', {}, p.name), el('div', { class: 'muted' }, `Now ${now}`)),
-      p.target > 0 ? el('div', { class: 'sheet-now' }, `${fmtTemp(p.target)}${degUnit()}`, el('small', {}, 'set')) : null);
+      p.target > 0 ? el('div', { class: 'sheet-now' }, `${fmtTemp(p.target)}${u}`, el('small', {}, 'set')) : null);
 
     const chips = el('div', { class: 'chiprow' });
     const list = el('div', { class: 'donelist' });
+    const summary = (steps, pull) => [...steps.map(([n, t]) => `${n} ${t}${u}`), `off at ${pull}${u}`].join(' \u00b7 ');
 
-    const showMeat = (m) => {
-      meat = m;
-      chips.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.meat === m));
-      list.innerHTML = '';
-      for (const d of PRESETS[m]) {
-        const to = toUser(d.to), pull = toUser(d.to - d.carry), carry = deltaUser(d.carry);
-        list.append(el('button', { class: 'done', type: 'button', onclick: () => close({ target: pull, after, meat: m, done: d.name }) },
-          el('div', { class: 'done-main' },
-            el('div', { class: 'done-name' }, d.name),
-            el('div', { class: 'done-note' }, carry > 0
-              ? `${d.note ? d.note + '. ' : ''}Climbs about ${carry}${degUnit()} once it is off the heat`
-              : d.note || 'Cook until it probes tender')),
-          el('div', { class: 'done-temps' },
-            el('div', { class: 'done-pull' }, `${pull}${degUnit()}`),
-            carry > 0 ? el('div', { class: 'done-final' }, `ready at ${to}${degUnit()}`) : null)));
-      }
-      const custom = el('input', { type: 'text', inputmode: 'decimal', placeholder: degUnit(), 'aria-label': 'Custom target' });
-      list.append(el('form', { class: 'done custom', onsubmit: (e) => { e.preventDefault(); const v = parseFloat(custom.value); if (!Number.isNaN(v) && v > 0) close({ target: v, after, meat: m, done: '' }); } },
-        el('div', { class: 'done-main' }, el('div', { class: 'done-name' }, 'Something else'), el('div', { class: 'done-note' }, 'Set the alarm temperature yourself')),
-        el('div', { class: 'row', style: 'gap:6px' }, custom, el('button', { class: 'btn sm primary', type: 'submit' }, 'Set'))));
-    };
-
-    for (const m of Object.keys(PRESETS)) chips.append(el('button', { class: 'chip-btn', type: 'button', 'data-meat': m, onclick: () => showMeat(m) }, m));
-    showMeat(meat);
-
-    /* The steps on the way -- flip, wrap, spritz -- live with the target, because a step is a
-       thing to do before the target and means nothing without one. They save as they change,
-       since picking a doneness closes the sheet; clearing the target clears them too. */
+    /* the probe's step alerts, edited on the Custom tab and saved as they change */
+    const cur = (PF.settings?.notify?.probe_steps?.[p.label] || []).map((x) => ({ ...x }));
     const stepsBox = el('div', { class: 'sheet-foot tsteps' });
-    const cur = (PF.settings?.notify?.probe_steps?.[p.label] || []).map((s) => ({ ...s }));
     const ask = (title, v) => numberDialog(title, v, { min: 32, max: 400, step: 5 });
     const drawSteps = () => {
       stepsBox.innerHTML = '';
       const inner = el('div', { class: 'ios-list' });
       for (const [i, st] of cur.entries()) {
         inner.append(itemRow({
-          icon: 'bell', color: '#bf5af2', title: st.name, value: `${st.temp}${degUnit()}`, chevron: false,
+          icon: 'bell', color: '#bf5af2', title: st.name, value: `${st.temp}${u}`, chevron: false,
           onclick: async () => { const v = await ask(st.name, st.temp); if (v != null) { st.temp = v; await saveProbeSteps(p.label, cur); drawSteps(); } },
           actions: [iconBtn('trash-2', `Remove ${st.name}`, { class: 'danger', onclick: async (e) => { e.stopPropagation(); cur.splice(i, 1); await saveProbeSteps(p.label, cur); drawSteps(); } })],
         }));
       }
-      const left = STEP_PRESETS.filter(([n]) => !cur.some((s) => s.name === n));
+      const left = STEP_PRESETS.filter(([n]) => !cur.some((x) => x.name === n));
       stepsBox.append(el('label', {}, 'Step alerts'), cur.length ? inner : null,
         cur.length >= 4 ? null : el('div', { class: 'chiprow steps' },
           left.map(([n, t]) => el('button', { class: 'chip-btn', type: 'button', onclick: async () => {
-            cur.push({ name: n, temp: PF.units === 'C' ? Math.round((t - 32) * 5 / 9) : t }); await saveProbeSteps(p.label, cur); drawSteps();
+            cur.push({ name: n, temp: toUser(t) }); await saveProbeSteps(p.label, cur); drawSteps();
           } }, `+ ${n}`)),
           el('button', { class: 'chip-btn', type: 'button', onclick: async () => {
-            const v = await ask('Alert at', PF.units === 'C' ? 60 : 140); if (v != null) { cur.push({ name: 'Alert', temp: v }); await saveProbeSteps(p.label, cur); drawSteps(); }
+            const v = await ask('Alert at', toUser(140)); if (v != null) { cur.push({ name: 'Alert', temp: v }); await saveProbeSteps(p.label, cur); drawSteps(); }
           } }, '+ Custom')));
     };
-    drawSteps();
+
+    const pick = async (target, m, done, rest, steps) => {
+      cur.length = 0;
+      for (const [n, t] of steps) cur.push({ name: n, temp: t });
+      await saveProbeSteps(p.label, cur);
+      close({ target, after, meat: m, done, finish: rest || 0 });
+    };
+
+    const showCustom = () => {
+      const saved = customPresets();
+      for (const [i, c] of saved.entries()) {
+        const steps = (c.steps || []).map((x) => [x.name, x.temp]);
+        list.append(el('div', { class: 'done' },
+          el('button', { class: 'done-main', type: 'button', style: 'all:unset;cursor:pointer;flex:1;min-width:0', onclick: () => pick(c.target, 'Custom', c.name, 0, steps) },
+            el('div', { class: 'done-name' }, c.name),
+            el('div', { class: 'done-note' }, summary(steps, c.target))),
+          el('div', { class: 'done-temps' }, el('div', { class: 'done-pull' }, `${c.target}${u}`)),
+          iconBtn('trash-2', `Remove ${c.name}`, { class: 'danger', onclick: async () => { saved.splice(i, 1); await saveCustomPresets(saved); showMeat('Custom'); } })));
+      }
+      const tv = el('input', { type: 'text', inputmode: 'decimal', placeholder: u, 'aria-label': 'Target', value: p.target > 0 ? String(fmtTemp(p.target)) : '' });
+      const nm = el('input', { type: 'text', placeholder: 'Optional', 'aria-label': 'Save as' });
+      list.append(el('form', { class: 'custom-target', onsubmit: async (e) => {
+        e.preventDefault();
+        const v = parseFloat(tv.value);
+        if (Number.isNaN(v) || v <= 0) { tv.focus(); return; }
+        const name = nm.value.trim();
+        if (name) { const all = customPresets().filter((x) => x.name !== name); all.push({ name, target: v, steps: cur.map((x) => ({ ...x })) }); await saveCustomPresets(all); }
+        close({ target: v, after, meat: name ? 'Custom' : '', done: name, finish: 0 });
+      } },
+        el('div', { class: 'ct-row' },
+          el('label', { class: 'field' }, el('span', {}, `Target (${u})`), tv),
+          el('label', { class: 'field' }, el('span', {}, 'Save as'), nm)),
+        el('button', { class: 'btn primary block', type: 'submit' }, 'Set Target')));
+      list.append(stepsBox);
+      drawSteps();
+    };
+
+    const showMeat = (m) => {
+      meat = m;
+      chips.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.meat === m));
+      list.innerHTML = '';
+      if (m === 'Custom') { showCustom(); return; }
+      for (const d of PRESETS[m]) {
+        const pull = toUser(d.to - d.carry), rest = d.carry > 0 ? toUser(d.to) : 0;
+        const steps = d.steps.map(([n, t]) => [n, toUser(t)]);
+        list.append(el('button', { class: 'done', type: 'button', onclick: () => pick(pull, m, d.name, rest, steps) },
+          el('div', { class: 'done-main' },
+            el('div', { class: 'done-name' }, d.name),
+            el('div', { class: 'done-note' }, summary(steps, pull))),
+          el('div', { class: 'done-temps' },
+            el('div', { class: 'done-pull' }, `${pull}${u}`),
+            rest ? el('div', { class: 'done-final' }, `rests to ${rest}${u}`) : null)));
+      }
+    };
+
+    for (const m of ['Custom', ...Object.keys(PRESETS)]) chips.append(el('button', { class: 'chip-btn', type: 'button', 'data-meat': m, onclick: () => showMeat(m) }, m));
+    showMeat(meat);
 
     return el('div', { class: 'sheet' }, head, chips, list,
       el('div', { class: 'sheet-foot' },
         el('label', {}, 'At target'),
         segmented(AFTER, after, (v) => (after = v))),
-      stepsBox,
       /* dismissive left, committing right: see docs/design-language.md */
       el('div', { class: 'btnrow' },
         el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'),
         p.target > 0 ? el('button', { class: 'btn ghost', type: 'button', onclick: async () => { cur.length = 0; await saveProbeSteps(p.label, cur); close({ target: 0, after: 0 }); } }, 'Clear target') : null));
   });
+}
+
+/* Custom presets: a name, a target and its step alerts, saved from the Custom tab. Kept in the
+ * grill's settings (notify.custom_presets), with the unit they were saved in so a unit change
+ * converts them rather than reading 60 F as 60 C. */
+function customPresets() {
+  const raw = PF.settings?.notify?.custom_presets || [];
+  const conv = (v, from) => (from === PF.units ? v : from === 'C' ? Math.round(v * 9 / 5 + 32) : Math.round((v - 32) * 5 / 9));
+  return raw.filter((c) => c && c.name && c.target > 0).map((c) => ({
+    name: c.name, target: conv(c.target, c.units || 'F'),
+    steps: (c.steps || []).map((x) => ({ name: x.name, temp: conv(x.temp, c.units || 'F') })),
+  }));
+}
+async function saveCustomPresets(list) {
+  try { await patchSettings('notify', { custom_presets: list.map((c) => ({ ...c, units: PF.units })) }); } catch (e) { toast(e.message, true); }
 }
 
 /* The steps on the way to the target: a temperature with a name on it that says something once,
