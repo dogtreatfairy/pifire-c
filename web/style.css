@@ -1528,5 +1528,5 @@ main.view:has(> .screen-actions) { padding-bottom: calc(var(--tab-h) + env(safe-
 .ios-list .row .row-input { flex: 0 1 55%; min-width: 0; height: 32px; padding: 0 10px; border-radius: var(--r-md);
   border: var(--bw) solid var(--line); background: var(--surface2); color: var(--text); font: inherit; font-size: var(--fs-sm); text-align: right; }
 .field.inline.time input:not([type="time"]):not([type="checkbox"]) {
-  flex: none; width: 96px; height: 34px; box-sizing: border-box; padding: 0 10px; margin: 0; text-align: right;
+  flex: none; width: 72px; height: 34px; box-sizing: border-box; padding: 0 10px; margin: 0; text-align: right;
   border-radius: var(--r-md); border: var(--bw) solid var(--line); background: var(--surface2); color: var(--text); font: inherit; font-size: var(--fs-md); font-variant-numeric: tabular-nums; }
