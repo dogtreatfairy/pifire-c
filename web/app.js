@@ -661,6 +661,23 @@ function watchUpdate(s) {
 }
 onStatus(watchUpdate);
 
+/* A newer PiFire is waiting: said in the header, on every page, until it is installed. Tapping it
+   opens Software Updates. Where the back button needs the room, it is the mark alone. */
+let updShown = null;
+onStatus((s) => {
+  const b = document.getElementById('ind-upd');
+  if (!b) return;
+  const avail = !!s?.update?.available;
+  if (avail === updShown) return;
+  updShown = avail;
+  b.hidden = !avail;
+  if (avail) {
+    b.replaceChildren(lucide('circle-arrow-up'), el('span', { class: 'lbl' }, 'Update Available'));
+    b.title = `PiFire ${String(s.update.latest || '').replace(/^v/, '')} is available`;
+    b.onclick = () => { location.hash = '#/settings/updates'; };
+  }
+});
+
 /* After an update the app reloads itself and says, once, what it is now running and what changed.
    The change log is the release's notes -- one line per change, written when the change was made --
    so it is short, and it is the same text the update page offered before the install. */

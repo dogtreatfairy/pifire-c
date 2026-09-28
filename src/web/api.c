@@ -777,11 +777,11 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		return;
 	}
 	if (post && !strcmp(p, "/update/install")) {
-		/* {"pifire": bool, "packages": ["name", ...]}; an empty body installs PiFire, as it always did */
+		/* {"pifire": bool, "tag": "v...", "packages": ["name", ...]}; an empty body installs the newest PiFire */
 		char err[160];
 		cJSON *b = req->body_len ? cJSON_Parse(req->body) : NULL;
 		bool pifire = pf_json_bool(b, "pifire", !b || !cJSON_GetObjectItem(b, "packages"));
-		int rc = pf_update_install_ex(pifire, b ? cJSON_GetObjectItem(b, "packages") : NULL, err, sizeof err);
+		int rc = pf_update_install_ex(pifire, b ? cJSON_GetObjectItem(b, "packages") : NULL, pf_json_str(b, "tag", ""), err, sizeof err);
 		cJSON_Delete(b);
 		if (rc) { reply_err(resp, 409, err); return; }
 		LOGW(TAG, "update install requested via API");

@@ -567,6 +567,13 @@ for choosing several of a list to act on together -- the updates to install, lik
 Update Manager -- and the action is the one button in the pinned bar, counting what is ticked
 (`Install 5`). One line each: the name on the left, the version it would become on the right.
 
+The release to install is a drop-down in the same kind of row, with its box beside it: the newest is
+chosen for you, choosing another ticks the box, choosing the installed one clears it.
+
+**A waiting update is said in the header**, beside the indicators: the circle-arrow-up mark and
+"Update Available" in the accent, on every page, opening Software Updates. On a pushed page, where
+the back button needs the room, it is the mark alone.
+
 **A console** is the one place text is shown as a tool printed it: monospace, on its own dark
 panel, headed by one row saying what is running. It is part of the page and scrolls with it, and it
 follows the end only while the reader is at the end. Software Updates is the only user.

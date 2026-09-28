@@ -43,6 +43,8 @@ static struct {
 	char branch[64];    /* the branch the last PiFire check was for */
 	bool switching;     /* what is on offer is another branch's build rather than a newer one */
 	cJSON *branches;    /* branches with a build to install, from the last check */
+	cJSON *releases;    /* what can be installed from the chosen branch, newest first:
+	                     * [{tag, version, prerelease, asset, url, sums, notes, html_url}] */
 	/* the system */
 	cJSON *packages;    /* [{name, from, to}] from the last system check */
 	double sys_checked_at, next_sys_check;
@@ -390,6 +392,39 @@ static bool pick_asset(cJSON *rel, char *ver, size_t vn)
 	return found;
 }
 
+/* one installable release, as the page lists it and the installer finds it again */
+static cJSON *release_entry(cJSON *rel, const char *version)
+{
+	char suffix[40];
+	snprintf(suffix, sizeof suffix, "-%s.tar.gz", g.sim ? "arm64" : pf_update_arch());
+	cJSON *o = cJSON_CreateObject();
+	const char *tag = pf_json_str(rel, "tag_name", "");
+	cJSON_AddStringToObject(o, "tag", tag);
+	cJSON_AddStringToObject(o, "version", version && *version ? version : (tag[0] == 'v' ? tag + 1 : tag));
+	cJSON_AddBoolToObject(o, "prerelease", pf_json_bool(rel, "prerelease", false));
+	char notes[1500];
+	pf_strlcpy(notes, pf_json_str(rel, "body", ""), sizeof notes);
+	cJSON_AddStringToObject(o, "notes", notes);
+	cJSON_AddStringToObject(o, "html_url", pf_json_str(rel, "html_url", ""));
+	cJSON *a;
+	cJSON_ArrayForEach(a, cJSON_GetObjectItem(rel, "assets")) {
+		const char *name = pf_json_str(a, "name", "");
+		size_t l = strlen(name), sl = strlen(suffix);
+		if (!strncmp(name, "pifire-", 7) && l > 7 + sl && !strcmp(name + l - sl, suffix)) {
+			cJSON_AddStringToObject(o, "asset", name);
+			cJSON_AddStringToObject(o, "url", pf_json_str(a, "browser_download_url", ""));
+		}
+		if (!strcmp(name, "SHA256SUMS")) cJSON_AddStringToObject(o, "sums", pf_json_str(a, "browser_download_url", ""));
+	}
+	return o;
+}
+
+static int cmp_release(const void *x, const void *y)
+{
+	const cJSON *a = *(const cJSON *const *)x, *b = *(const cJSON *const *)y;
+	return -pf_version_compare(pf_json_str((cJSON *)a, "tag_name", ""), pf_json_str((cJSON *)b, "tag_name", ""));
+}
+
 static void check_pifire(void)
 {
 	char repo[96], url[256], err[160], branch[64], slug[64];
@@ -407,6 +442,8 @@ static void check_pifire(void)
 	if (!cJSON_IsArray(j)) { cJSON_Delete(j); fail("bad response from GitHub"); return; }
 	bool pre = pf_set_bool("update.include_prerelease", true);
 	cJSON *best = NULL, *it, *branches = cJSON_CreateArray();
+	cJSON *mains[64];
+	int nmain = 0;
 	cJSON_AddItemToArray(branches, cJSON_CreateString("main"));
 	char want[80];
 	snprintf(want, sizeof want, "branch-%s", slug);
@@ -422,11 +459,20 @@ static void check_pifire(void)
 		}
 		if (!is_main(branch)) continue;
 		if (!pre && pf_json_bool(it, "prerelease", false)) continue;
+		if (nmain < 64) mains[nmain++] = it;
 		if (!best || pf_version_compare(tag, pf_json_str(best, "tag_name", "")) > 0) best = it;
+	}
+	/* the list to choose from: this branch's build, or the releases newest first */
+	cJSON *list = cJSON_CreateArray();
+	if (is_main(branch)) {
+		qsort(mains, (size_t)nmain, sizeof mains[0], cmp_release);
+		for (int i = 0; i < nmain && i < 25; i++) cJSON_AddItemToArray(list, release_entry(mains[i], NULL));
 	}
 	pthread_mutex_lock(&g.mu);
 	cJSON_Delete(g.branches);
 	g.branches = branches;
+	cJSON_Delete(g.releases);
+	g.releases = list;
 	pf_strlcpy(g.branch, branch, sizeof g.branch);
 	pthread_mutex_unlock(&g.mu);
 	if (!best) {
@@ -448,6 +494,7 @@ static void check_pifire(void)
 	} else {
 		/* a branch build is what that branch is now; there is no newer or older between branches */
 		pf_strlcpy(g.latest, ver[0] ? ver : tag, sizeof g.latest);
+		cJSON_AddItemToArray(g.releases, release_entry(best, ver));
 		g.switching = strcmp(PF_BRANCH, branch) != 0;
 		g.available = ver[0] && strcmp(ver, PF_VERSION) != 0;
 	}
@@ -572,6 +619,27 @@ int pf_update_check(bool pifire, bool system) { return check_start(pifire, syste
 /* ---------------- install ---------------- */
 
 typedef struct { bool pifire; int npk; char (*pk)[96]; } job_t;
+
+/* Make `tag` the release the installer fetches: its archive, its checksums and its notes. Caller
+ * holds the lock. 0 when found and installable. */
+static int select_release(const char *tag, char *err, size_t n)
+{
+	cJSON *r;
+	cJSON_ArrayForEach(r, g.releases) {
+		if (strcmp(pf_json_str(r, "tag", ""), tag) && strcmp(pf_json_str(r, "version", ""), tag)) continue;
+		if (!pf_json_str(r, "url", "")[0] || (!pf_json_str(r, "sums", "")[0] && !g.sim)) { snprintf(err, n, "%s has no %s build", tag, pf_update_arch()); return -1; }
+		const char *ver = pf_json_str(r, "version", "");
+		if (!strcmp(ver, PF_VERSION) && !g.switching) { snprintf(err, n, "%s is already installed", ver); return -1; }
+		pf_strlcpy(g.asset_name, pf_json_str(r, "asset", ""), sizeof g.asset_name);
+		pf_strlcpy(g.asset_url, pf_json_str(r, "url", ""), sizeof g.asset_url);
+		pf_strlcpy(g.sums_url, pf_json_str(r, "sums", ""), sizeof g.sums_url);
+		pf_strlcpy(g.notes, pf_json_str(r, "notes", ""), sizeof g.notes);
+		pf_strlcpy(g.latest, pf_json_str(r, "tag", ""), sizeof g.latest);
+		return 0;
+	}
+	snprintf(err, n, "%s is not in the list - check for updates first", tag);
+	return -1;
+}
 
 static bool upgrade_system(job_t *jb)
 {
@@ -730,7 +798,7 @@ static bool valid_pkg(const char *s)
 	return true;
 }
 
-int pf_update_install_ex(bool pifire, const cJSON *packages, char *err, size_t n)
+int pf_update_install_ex(bool pifire, const cJSON *packages, const char *tag, char *err, size_t n)
 {
 	int npk = cJSON_IsArray(packages) ? cJSON_GetArraySize(packages) : 0;
 	if (!pifire && !npk) { snprintf(err, n, "nothing selected"); return -1; }
@@ -757,7 +825,8 @@ int pf_update_install_ex(bool pifire, const cJSON *packages, char *err, size_t n
 	}
 	pthread_mutex_lock(&g.mu);
 	if (g.busy) { pthread_mutex_unlock(&g.mu); free(jb->pk); free(jb); snprintf(err, n, "an update operation is already running"); return -1; }
-	if (pifire && (!g.available || !g.asset_url[0] || (!g.sums_url[0] && !g.sim))) {
+	if (pifire && tag && *tag && select_release(tag, err, n)) { pthread_mutex_unlock(&g.mu); free(jb->pk); free(jb); return -1; }
+	if (pifire && (!tag || !*tag) && (!g.available || !g.asset_url[0] || (!g.sums_url[0] && !g.sim))) {
 		pthread_mutex_unlock(&g.mu); free(jb->pk); free(jb);
 		snprintf(err, n, "no installable PiFire build for %s - check for updates first", pf_update_arch());
 		return -1;
@@ -774,7 +843,7 @@ int pf_update_install_ex(bool pifire, const cJSON *packages, char *err, size_t n
 	return 0;
 }
 
-int pf_update_install(char *err, size_t n) { return pf_update_install_ex(true, NULL, err, n); }
+int pf_update_install(char *err, size_t n) { return pf_update_install_ex(true, NULL, NULL, err, n); }
 
 /* ---------------- status / lifecycle ---------------- */
 
@@ -791,6 +860,7 @@ cJSON *pf_update_status_json(void)
 	cJSON_AddStringToObject(o, "repo", repo);
 	cJSON_AddStringToObject(o, "branch", branch);
 	cJSON_AddItemToObject(o, "branches", g.branches ? cJSON_Duplicate(g.branches, true) : cJSON_CreateArray());
+	cJSON_AddItemToObject(o, "releases", g.releases && !strcmp(g.branch, branch) ? cJSON_Duplicate(g.releases, true) : cJSON_CreateArray());
 	/* a check for another branch answers nothing about this one */
 	bool fresh = !strcmp(g.branch, branch);
 	cJSON_AddStringToObject(o, "latest", fresh ? g.latest : "");
@@ -949,7 +1019,7 @@ static void auto_install(double now)
 	if (pifire) pf_strlcpy(tried, tag, sizeof tried);
 	if (pk) sys_tried_yday = lt.tm_yday;
 	char err[160];
-	if (pf_update_install_ex(pifire, pk, err, sizeof err) == 0) {
+	if (pf_update_install_ex(pifire, pk, NULL, err, sizeof err) == 0) {
 		LOGI(TAG, "installing automatically: %s%s%s", pifire ? tag : "", pifire && pk ? " and " : "", pk ? "system packages" : "");
 		if (pf_db_handle()) pf_db_event(PF_LVL_INFO, "UPDATE_AUTO", pifire ? tag : "system packages");
 	} else LOGW(TAG, "automatic install not started: %s", err);

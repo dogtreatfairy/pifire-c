@@ -618,6 +618,11 @@ legend { font-weight: 600; margin-bottom: 6px; }
 /* ---- the header's timer chip and its drop-down ---- */
 /* The chip shows the time, not just a glyph: answering "how long left" without a tap is the whole
    reason it is in the header. It borrows the indicator row's shape and widens to fit the digits. */
+.tb-upd { width: auto; gap: 4px; padding: 0 6px; background: none; border: 0; color: var(--accent-ink); cursor: pointer;
+  font-size: var(--fs-2xs); font-weight: 600; white-space: nowrap; }
+.tb-upd .ic { width: 18px; height: 18px; flex: none; }
+/* on a pushed page the back button takes the room: the mark alone says it */
+.topbar:has(#tb-back:not([hidden])) .tb-upd .lbl { display: none; }
 .tb-timer { width: auto; gap: 4px; padding: 0 4px; background: none; border: 0; color: var(--text); cursor: pointer; }
 .tb-timer .tb-tag { border: 0; padding: 0; font-size: var(--fs-2xs); font-variant-numeric: tabular-nums; letter-spacing: 0; }
 .tb-timer.paused { color: var(--muted); }

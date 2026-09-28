@@ -19,9 +19,9 @@ void   pf_update_init(const char *data_dir, bool sim);
 void   pf_update_tick(double now);           /* periodic checks and the install schedule, from the services thread */
 /* start a check in the background: PiFire, the system packages, or both; 0 if started */
 int    pf_update_check(bool pifire, bool system);
-/* install: PiFire (when newer or a branch switch is waiting) and/or the named system packages,
- * system first; 0 if started */
-int    pf_update_install_ex(bool pifire, const cJSON *packages, char *err, size_t n);
+/* install: PiFire and/or the named system packages, system first; 0 if started. `tag` picks one
+ * release from the last check's list (any, older included); NULL or "" is the newest. */
+int    pf_update_install_ex(bool pifire, const cJSON *packages, const char *tag, char *err, size_t n);
 int    pf_update_install(char *err, size_t n);   /* PiFire only */
 cJSON *pf_update_status_json(void);
 /* the console: lines after `since` (a sequence number), with the job's id so a reader can tell a

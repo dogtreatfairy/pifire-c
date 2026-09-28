@@ -26,13 +26,16 @@ const group = (title, rows) => el('section', { class: 'ios-group' }, el('h2', {}
 const notesOf = (u) => String(u.notes || '').split(/\r?\n/).map((l) => l.replace(/^\s*[-*]\s+/, '').trim()).filter((l) => l && !/^#/.test(l));
 
 export function renderUpdates(view) {
-  let u = null, pifireOn = true, busyCheck = '';
+  let u = null, pifireOn = null, busyCheck = '', pickTag = null;
   const sel = new Set();          // system packages ticked
   const known = new Set();        // every name ever listed, so a new one arrives ticked
   const slot = el('div');
   const install = actionBtn('download', 'Install', { size: '', class: 'primary', onclick: () => go() });
   const bar = actionBar([iconBtn('terminal', 'Console', { onclick: () => { location.hash = CONSOLE; } })], [install]);
-  view.append(slot, bar);
+  view.append(slot);
+  /* The pinned bar belongs to the page, not to this block: this block sits above the settings on
+     the same page, and a bar inside it scrolled under them. */
+  (view.closest('main') || view).append(bar);
 
   const check = async (what) => {
     busyCheck = what;
@@ -48,17 +51,34 @@ export function renderUpdates(view) {
     /* ---- PiFire ---- */
     const branches = [...new Set(['main', ...(u.branches || []), u.branch, u.current_branch].filter(Boolean))];
     const pick = el('select', { 'aria-label': 'Branch', disabled: busy, onchange: async (e) => {
+      pifireOn = null; pickTag = null;
       try { await patchSettings('update', { branch: e.target.value }); check('pifire'); } catch (err) { toast(err.message, true); }
     } }, branches.map((b) => el('option', { value: b, selected: b === u.branch }, b)));
-    const notes = notesOf(u);
+    /* The release to install: the newest by default, any other on the list by choice. The box
+       beside it says whether to install it at all; picking another release ticks it, picking the
+       one already installed unticks it. */
+    const rels = u.releases || [];
+    if (!rels.some((r) => r.tag === pickTag)) pickTag = rels[0]?.tag || null;
+    const chosen = rels.find((r) => r.tag === pickTag);
+    const isCurrent = (r) => r && bare(r.version) === bare(u.current) && !u.switching;
+    const installable = (r) => r && r.url && !isCurrent(r);
+    if (pifireOn == null && chosen) pifireOn = !isCurrent(chosen) && (u.available || u.switching);
+    const relPick = el('select', { 'aria-label': 'Release', disabled: busy || !rels.length, onchange: (e) => {
+      pickTag = e.target.value;
+      pifireOn = !isCurrent(rels.find((r) => r.tag === pickTag));
+      paint();
+    } }, rels.length ? rels.map((r, i) => el('option', { value: r.tag, selected: r.tag === pickTag },
+      `${bare(r.version)}${i === 0 ? ' · newest' : ''}${isCurrent(r) ? ' · installed' : ''}${r.url ? '' : ' · no build'}`)) : el('option', {}, 'Check first'));
+    const box = el('input', { type: 'checkbox', class: 'row-check', 'aria-label': 'Install this release', checked: !!(pifireOn && installable(chosen)),
+      disabled: !installable(chosen) || busy, onchange: (e) => { pifireOn = e.target.checked; paintBar(); } });
+    const notes = chosen ? notesOf(chosen) : [];
+    const older = chosen && bare(chosen.version) !== bare(u.current) && u.branch === 'main' && !u.switching && rels.findIndex((r) => r.tag === chosen.tag) > rels.findIndex((r) => isCurrent(r)) && rels.some(isCurrent);
     const pi = [
       row({ lead: tile('package', '#ff8a1f'), title: 'Installed', value: bare(u.current) + (u.current_branch !== 'main' ? ` · ${u.current_branch}` : '') }),
       el('div', { class: 'row static' }, tile('git-branch', '#636366'), el('span', { class: 'body' }, el('span', { class: 't' }, 'Branch')), pick),
-      u.available
-        ? checkRow({ checked: pifireOn && u.installable, disabled: !u.installable, title: u.switching ? `PiFire · ${u.branch}` : 'PiFire',
-            value: u.installable ? bare(u.latest) : `No ${u.arch} build`, onchange: (v) => { pifireOn = v; paintBar(); } })
-        : row({ lead: tile('circle-check', '#30d158'), title: u.state === 'error' && !busyCheck ? 'Check failed' : 'Up to date', value: u.state === 'error' && !busyCheck ? u.message : null }),
-      u.available && notes.length ? row({ lead: tile('scroll-text', '#8e8e93'), title: 'Changelog', value: `${notes.length}`, chevron: true, onclick: () => showNotes(u, notes) }) : null,
+      el('div', { class: 'row static' }, box, el('span', { class: 'body' }, el('span', { class: 't' }, older ? 'Release (older)' : 'Release')), relPick),
+      u.state === 'error' && !busyCheck ? row({ lead: tile('triangle-alert', '#ff453a'), title: 'Check failed', value: u.message }) : null,
+      notes.length ? row({ lead: tile('scroll-text', '#8e8e93'), title: 'Changelog', value: `${notes.length}`, chevron: true, onclick: () => showNotes(chosen, notes) }) : null,
       row({ lead: tile('refresh-cw', '#0a84ff'), title: 'Check for Updates', value: checkedAt(u.checked_at, 'pifire'), onclick: busy ? null : () => check('pifire'), cls: busy ? 'off' : '' }),
     ];
     /* ---- System ---- */
@@ -76,7 +96,9 @@ export function renderUpdates(view) {
     slot.replaceChildren(group('PiFire', pi), group('System', sys));
     paintBar();
   }
-  function count() { return (u?.available && u.installable && pifireOn ? 1 : 0) + sel.size; }
+  const chosenRel = () => (u?.releases || []).find((r) => r.tag === pickTag);
+  const piReady = () => { const r = chosenRel(); return !!(pifireOn && r && r.url && (bare(r.version) !== bare(u.current) || u.switching)); };
+  function count() { return (piReady() ? 1 : 0) + sel.size; }
   function paintBar() {
     const n = count();
     const running = u?.busy && !busyCheck && ['downloading', 'verifying', 'installing', 'upgrading'].includes(u.state);
@@ -85,13 +107,16 @@ export function renderUpdates(view) {
     install.onclick = running ? () => { location.hash = CONSOLE; } : () => go();
   }
   async function go() {
-    const withPi = u?.available && u.installable && pifireOn;
+    const withPi = piReady();
+    const rel = chosenRel();
     const packages = [...sel];
     if (packages.length && !idle()) { toast('Stop the grill before system updates', true); return; }
     if (withPi && !idle() && !PF.settings?.update?.hot_update) { toast('Stop the grill first, or turn on Update while cooking', true); return; }
-    const what = [withPi ? `PiFire ${bare(u.latest)}` : null, packages.length ? `${packages.length} system package${packages.length === 1 ? '' : 's'}` : null].filter(Boolean).join(' and ');
-    if (!await confirmDialog(`Install ${what}?`, withPi ? 'PiFire restarts at the end.' : 'PiFire keeps running.', 'Install')) return;
-    try { await api('/update/install', { body: { pifire: !!withPi, packages } }); location.hash = CONSOLE; }
+    const what = [withPi ? `PiFire ${bare(rel.version)}` : null, packages.length ? `${packages.length} system package${packages.length === 1 ? '' : 's'}` : null].filter(Boolean).join(' and ');
+    const rels = u.releases || [], cur = rels.findIndex((r) => bare(r.version) === bare(u.current));
+    const down = withPi && u.branch === 'main' && !u.switching && cur >= 0 && rels.indexOf(rel) > cur;
+    if (!await confirmDialog(`Install ${what}?`, down ? 'Older than the installed version. Settings from newer versions may not carry back. PiFire restarts at the end.' : withPi ? 'PiFire restarts at the end.' : 'PiFire keeps running.', 'Install')) return;
+    try { await api('/update/install', { body: { pifire: !!withPi, tag: withPi ? rel.tag : '', packages } }); location.hash = CONSOLE; }
     catch (e) { toast(e.message, true); }
   }
 
@@ -110,9 +135,9 @@ export function renderUpdates(view) {
   return () => { clearTimeout(t); off(); };
 }
 
-function showNotes(u, notes) {
+function showNotes(r, notes) {
   return dialog((close) => el('div', {},
-    el('h3', {}, `PiFire ${bare(u.latest)}`),
+    el('h3', {}, `PiFire ${bare(r.version)}`),
     el('ul', { class: 'changelog' }, notes.map((l) => el('li', {}, l))),
     el('div', { class: 'btnrow' }, el('button', { class: 'btn primary', type: 'button', onclick: () => close(true) }, 'Close'))));
 }
