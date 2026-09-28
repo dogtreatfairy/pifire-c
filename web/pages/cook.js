@@ -36,7 +36,8 @@ const PRESETS = {
   ],
   Ribs: [{ name: 'Bend test', to: 195, carry: 0, steps: [['Spritz', 150], ['Wrap', 165], ['Unwrap', 185]] }],
   Chicken: [
-    { name: 'Breast', to: 165, carry: 5, steps: [['Flip', 140]] },
+    { name: 'Breast 155', to: 155, carry: 5, steps: [['Flip', 130]] },   /* juicy; safe when it rests there a few minutes */
+    { name: 'Breast 165', to: 165, carry: 5, steps: [['Flip', 140]] },
     { name: 'Thighs', to: 175, carry: 5, steps: [['Flip', 150]] },
   ],
   Turkey: [{ name: 'Whole bird', to: 165, carry: 8, steps: [['Baste', 140]] }],
@@ -102,19 +103,11 @@ export async function targetDialog(p) {
       close({ target, after, meat: m, done, finish: rest || 0 });
     };
 
+    /* The one-off target is always first: type a number, add its alerts, Set. Naming it saves it
+       to the list below; leaving the name blank uses it once. */
     const showCustom = () => {
-      const saved = customPresets();
-      for (const [i, c] of saved.entries()) {
-        const steps = (c.steps || []).map((x) => [x.name, x.temp]);
-        list.append(el('div', { class: 'done' },
-          el('button', { class: 'done-main', type: 'button', style: 'all:unset;cursor:pointer;flex:1;min-width:0', onclick: () => pick(c.target, 'Custom', c.name, 0, steps) },
-            el('div', { class: 'done-name' }, c.name),
-            el('div', { class: 'done-note' }, summary(steps, c.target))),
-          el('div', { class: 'done-temps' }, el('div', { class: 'done-pull' }, `${c.target}${u}`)),
-          iconBtn('trash-2', `Remove ${c.name}`, { class: 'danger', onclick: async () => { saved.splice(i, 1); await saveCustomPresets(saved); showMeat('Custom'); } })));
-      }
       const tv = el('input', { type: 'text', inputmode: 'decimal', placeholder: u, 'aria-label': 'Target', value: p.target > 0 ? String(fmtTemp(p.target)) : '' });
-      const nm = el('input', { type: 'text', placeholder: 'Optional', 'aria-label': 'Save as' });
+      const nm = el('input', { type: 'text', placeholder: 'Blank: use once', 'aria-label': 'Save as' });
       list.append(el('form', { class: 'custom-target', onsubmit: async (e) => {
         e.preventDefault();
         const v = parseFloat(tv.value);
@@ -129,6 +122,16 @@ export async function targetDialog(p) {
         el('button', { class: 'btn primary block', type: 'submit' }, 'Set Target')));
       list.append(stepsBox);
       drawSteps();
+      const saved = customPresets();
+      for (const [i, c] of saved.entries()) {
+        const steps = (c.steps || []).map((x) => [x.name, x.temp]);
+        list.append(el('div', { class: 'done' },
+          el('button', { class: 'done-main', type: 'button', style: 'all:unset;cursor:pointer;flex:1;min-width:0', onclick: () => pick(c.target, 'Custom', c.name, 0, steps) },
+            el('div', { class: 'done-name' }, c.name),
+            el('div', { class: 'done-note' }, summary(steps, c.target))),
+          el('div', { class: 'done-temps' }, el('div', { class: 'done-pull' }, `${c.target}${u}`)),
+          iconBtn('trash-2', `Remove ${c.name}`, { class: 'danger', onclick: async () => { saved.splice(i, 1); await saveCustomPresets(saved); showMeat('Custom'); } })));
+      }
     };
 
     const showMeat = (m) => {
