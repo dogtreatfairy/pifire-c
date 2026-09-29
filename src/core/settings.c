@@ -703,6 +703,30 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 20 (one warning before a probe target)");
 			added = 1;
 		}
+		if (ver < 21) {
+			/* Ryan's words, as he gave them: "Remove from Heat" and "Almost There". Changed only
+			 * where the text is still what shipped; a rule somebody has reworded is theirs. */
+			cJSON *rules = pf_json_path(g_root, "notify.rules"), *r;
+			cJSON_ArrayForEach(r, rules) {
+				const char *id = pf_json_str(r, "id", "");
+				if (!strcmp(id, "probe-target")) {
+					if (!strcmp(pf_json_str(r, "title", ""), "{probe}: off the heat") || !strcmp(pf_json_str(r, "title", ""), "{probe} reached {target}"))
+						cJSON_ReplaceItemInObject(r, "title", cJSON_CreateString("{probe}: Remove from Heat"));
+					if (!strcmp(pf_json_str(r, "name", ""), "Probe Reached Target"))
+						cJSON_ReplaceItemInObject(r, "name", cJSON_CreateString("Remove from Heat"));
+				}
+				if (!strcmp(id, "probe-eta")) {
+					if (!strcmp(pf_json_str(r, "title", ""), "{probe} is {eta} from {target}"))
+						cJSON_ReplaceItemInObject(r, "title", cJSON_CreateString("{probe}: Almost There"));
+					if (!strcmp(pf_json_str(r, "body", ""), "{probe} is at {temp}, climbing towards {target}."))
+						cJSON_ReplaceItemInObject(r, "body", cJSON_CreateString("{temp}, {eta} to {target}."));
+				}
+			}
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 21); else cJSON_AddNumberToObject(g_root, "schema_version", 21);
+			LOGI(TAG, "settings migrated to schema 21 (Remove from Heat, Almost There)");
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);

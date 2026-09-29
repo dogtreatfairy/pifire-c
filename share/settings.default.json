@@ -1,5 +1,5 @@
 {
-  "schema_version": 20,
+  "schema_version": 21,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -415,7 +415,7 @@
     "rules": [
       {
         "id": "probe-target",
-        "name": "Probe Reached Target",
+        "name": "Remove from Heat",
         "enabled": true,
         "select": {
           "domain": "probe",
@@ -446,7 +446,7 @@
             }
           ]
         },
-        "title": "{probe}: off the heat",
+        "title": "{probe}: Remove from Heat",
         "body": "{food} is at {temp}{rest}.",
         "level": "high",
         "sinks": [
@@ -504,8 +504,8 @@
             }
           ]
         },
-        "title": "{probe} is {eta} from {target}",
-        "body": "{probe} is at {temp}, climbing towards {target}.",
+        "title": "{probe}: Almost There",
+        "body": "{temp}, {eta} to {target}.",
         "level": "normal",
         "sinks": [
           "app",
