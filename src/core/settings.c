@@ -687,6 +687,22 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 19 (update install time and days)");
 			added = 1;
 		}
+		if (ver < 20) {
+			/* "Take It Off The Heat" warned two minutes before a target that "Almost There" had
+			 * already warned about, and the target itself says to take it off: a 155 F chicken breast
+			 * spoke at 148, 150 and 155. One warning and the moment are enough. Removed where it is
+			 * still the shipped rule; one somebody has reworded is theirs and stays. */
+			cJSON *rules = pf_json_path(g_root, "notify.rules");
+			for (int i = cJSON_GetArraySize(rules) - 1; i >= 0; i--) {
+				cJSON *r = cJSON_GetArrayItem(rules, i);
+				if (!strcmp(pf_json_str(r, "id", ""), "probe-off-heat") && !strcmp(pf_json_str(r, "title", ""), "Take {probe} off soon"))
+					cJSON_DeleteItemFromArray(rules, i);
+			}
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 20); else cJSON_AddNumberToObject(g_root, "schema_version", 20);
+			LOGI(TAG, "settings migrated to schema 20 (one warning before a probe target)");
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);

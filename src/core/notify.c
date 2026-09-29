@@ -412,6 +412,8 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 				st->fired = true;
 				pf_events_emit("Probe_Step", st->name, "%s reached %.0f%s for %s (%.0f%s).",
 				               name, pf_from_c(st->temp_c, units), u, st->name, pf_from_c(t, units), u);
+				/* the panel flashes the step itself -- Flip, Spritz, Wrap -- over the probe and its reading */
+				pf_alarms_flash_probe_code("Probe_Step", p->label, name, st->name);
 			} else if (st->fired && t < st->temp_c - pf_delta_to_c(2, units)) st->fired = false;
 		}
 		if (p->limit_high_c > 0) {

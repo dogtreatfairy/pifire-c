@@ -183,7 +183,7 @@ typedef struct {
 	int probe_idx, meat_idx;
 
 	/* the word the daemon wants flashed until somebody acknowledges it: TIMER, a probe's name */
-	char attention[24];
+	char attention[64];   /* "ACTION\nProbe 165°", or one word */
 
 	char message[64];
 	double message_until;

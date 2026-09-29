@@ -42,7 +42,7 @@ typedef struct {
 	 * the remedy lives on. */
 	char fix[24];
 	double snooze_s;
-	char flash[48];   /* what the panel flashes until this is acknowledged; "\x01label\x01name" names a probe whose reading is shown live */
+	char flash[64];   /* what the panel flashes until this is acknowledged; "\x01label\x01name" names a probe whose reading is shown live */
 } alarm_t;
 
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
@@ -284,11 +284,22 @@ void pf_alarms_flash(const char *key, const char *word)
 	pthread_mutex_unlock(&g_mu);
 }
 
-void pf_alarms_flash_probe(const char *key, const char *label, const char *name)
+/* "\x01label\x01name\x01action": the status fills in the probe's reading when it is drawn */
+static void probe_word(char *w, size_t n, const char *label, const char *name, const char *action)
 {
-	char w[48];
-	snprintf(w, sizeof w, "\x01%.16s\x01%.24s", label ? label : "", name ? name : "");
+	snprintf(w, n, "\x01%.16s\x01%.20s\x01%.20s", label ? label : "", name ? name : "", action ? action : "");
+}
+void pf_alarms_flash_probe(const char *key, const char *label, const char *name, const char *action)
+{
+	char w[64];
+	probe_word(w, sizeof w, label, name, action);
 	pf_alarms_flash(key, w);
+}
+void pf_alarms_flash_probe_code(const char *code, const char *label, const char *name, const char *action)
+{
+	char w[64];
+	probe_word(w, sizeof w, label, name, action);
+	pf_alarms_flash_code(code, w);
 }
 
 void pf_alarms_flash_code(const char *code, const char *word)

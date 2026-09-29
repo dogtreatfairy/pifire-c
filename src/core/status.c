@@ -64,6 +64,7 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 	cJSON_AddBoolToObject(o, "pwm_control", s->pwm_control);
 	cJSON_AddNumberToObject(o, "duty_cycle", s->duty_cycle);
 	cJSON_AddBoolToObject(o, "lid_open", s->lid_open);
+	cJSON_AddBoolToObject(o, "lid_event", s->lid_event);
 	cJSON_AddNumberToObject(o, "lid_open_remaining", s->lid_open ? fmax(0, s->lid_open_until - s->t) : 0);
 	cJSON_AddBoolToObject(o, "target_reached", s->target_reached);
 	/* How long the grill has been working towards what it is aiming at now. A pit short of its
@@ -75,23 +76,29 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 	 * line fitted through the last few minutes. -1 while it does not know enough to say. */
 	cJSON_AddNumberToObject(o, "setpoint_eta_s", s->setpoint_eta_s >= 0 ? round(s->setpoint_eta_s) : -1);
 	{
-		char word[48] = "";
+		char word[64] = "";
 		pf_alarms_flash_word(word, sizeof word);
-		/* a probe's flash is filled in now, with what it reads now */
+		/* A probe's flash is filled in now, with what it reads now: the action on the first line and
+		 * the probe with its reading on the second -- "Flip" over "Brisket 165°". */
 		if (word[0] == '\x01') {
-			char label[24] = "", name[32] = "";
-			const char *sep = strchr(word + 1, '\x01');
-			if (sep) {
-				size_t ll = (size_t)(sep - word - 1);
-				if (ll >= sizeof label) ll = sizeof label - 1;
-				memcpy(label, word + 1, ll);
-				pf_strlcpy(name, sep + 1, sizeof name);
+			char label[24] = "", name[24] = "", action[24] = "";
+			const char *a = word + 1, *b = strchr(a, '\x01');
+			const char *c2 = b ? strchr(b + 1, '\x01') : NULL;
+			if (b) {
+				size_t ll = (size_t)(b - a); if (ll >= sizeof label) ll = sizeof label - 1;
+				memcpy(label, a, ll);
+				size_t nl = c2 ? (size_t)(c2 - b - 1) : strlen(b + 1); if (nl >= sizeof name) nl = sizeof name - 1;
+				memcpy(name, b + 1, nl);
+				if (c2) pf_strlcpy(action, c2 + 1, sizeof action);
 			}
 			double t = NAN;
 			for (int i = 0; i < s->sensors.n; i++)
 				if (!strcmp(s->sensors.p[i].label, label) && s->sensors.p[i].valid) t = conv(s->sensors.p[i].temp_c, units);
-			if (isfinite(t)) snprintf(word, sizeof word, "%.14s %.0f\xC2\xB0", name, t);
-			else snprintf(word, sizeof word, "%.20s", name);
+			char line[40];
+			if (isfinite(t)) snprintf(line, sizeof line, "%.14s %.0f\xC2\xB0", name, t);
+			else snprintf(line, sizeof line, "%.20s", name);
+			if (action[0]) snprintf(word, sizeof word, "%s\n%s", action, line);
+			else pf_strlcpy(word, line, sizeof word);
 		}
 		cJSON_AddStringToObject(o, "attention", word);   /* what the panel flashes until it is acknowledged */
 	}

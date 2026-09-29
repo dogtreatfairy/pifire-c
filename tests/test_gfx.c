@@ -478,7 +478,7 @@ static void test_the_flash_and_the_recipe_banner(void)
 	cJSON *st = cJSON_Parse(status_json);
 	pf_ui_state ui = { 0 };
 	pf_nav_reset(&ui);
-	snprintf(ui.attention, sizeof ui.attention, "Probe 1");
+	snprintf(ui.attention, sizeof ui.attention, "Flip\nProbe 1 165\xC2\xB0");
 	ui.blink = true;
 	render_to(&g, st, &ui, "flash_on");
 	/* the buffer holds pixels byte-swapped for the panel's SPI order */

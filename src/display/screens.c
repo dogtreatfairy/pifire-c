@@ -1105,12 +1105,23 @@ void pf_screens_render(pf_gfx *g, const cJSON *status, const pf_ui_state *ui)
 	 * second until a press here or a clear on the phone acknowledges it. */
 	if (ui->attention[0] && ui->blink) {
 		pf_gfx_clear(g, g->th.accent);
-		char word[24];
-		snprintf(word, sizeof word, "%.20s", ui->attention);
+		/* What to do, as large as it will go, and under it which probe and what it reads now:
+		 * "FLIP" over "Brisket 165°". A timer is just its word. */
+		char word[32] = "", sub[40] = "";
+		const char *nl = strchr(ui->attention, '\n');
+		if (nl) {
+			snprintf(word, sizeof word, "%.*s", (int)(nl - ui->attention) < 24 ? (int)(nl - ui->attention) : 24, ui->attention);
+			snprintf(sub, sizeof sub, "%.30s", nl + 1);
+		} else snprintf(word, sizeof word, "%.20s", ui->attention);
 		upper(word);
 		int px = 56;
 		while (px > 24 && pf_gfx_text_width(B, px, word) > g->vw - 24) px -= 4;
-		pf_gfx_text_center(g, B, px, g->vw / 2, g->vh / 2 - pf_gfx_line_height(B, px) / 2, word, g->th.accent_text);
+		int sp = 30;
+		while (sub[0] && sp > 16 && pf_gfx_text_width(B, sp, sub) > g->vw - 24) sp -= 2;
+		int hw = pf_gfx_line_height(B, px), hs = sub[0] ? pf_gfx_line_height(B, sp) + 8 : 0;
+		int top = g->vh / 2 - (hw + hs) / 2;
+		pf_gfx_text_center(g, B, px, g->vw / 2, top, word, g->th.accent_text);
+		if (sub[0]) pf_gfx_text_center(g, B, sp, g->vw / 2, top + hw + 8, sub, g->th.accent_text);
 		return;
 	}
 	if (scr == PF_SCR_MESSAGE) {

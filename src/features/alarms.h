@@ -70,7 +70,9 @@ int  pf_alarms_shelve(const char *key, double seconds);
 void pf_alarms_flash(const char *key, const char *word);
 /* Flash a probe: its name and whatever it reads at the moment it is drawn, not what it read when
  * the alert fired. pf_alarms_flash_word hands back "\x01label\x01name" for the status to fill in. */
-void pf_alarms_flash_probe(const char *key, const char *label, const char *name);
+void pf_alarms_flash_probe(const char *key, const char *label, const char *name, const char *action);
+/* the same, on the newest entry with this code (a step, which is a notice rather than a rule) */
+void pf_alarms_flash_probe_code(const char *code, const char *label, const char *name, const char *action);
 void pf_alarms_flash_code(const char *code, const char *word);   /* the newest entry with this code */
 /* The word to flash right now: the newest unacknowledged entry carrying one. 0 = nothing. */
 int  pf_alarms_flash_word(char *out, size_t n);

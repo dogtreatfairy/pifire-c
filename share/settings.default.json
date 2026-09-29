@@ -1,5 +1,5 @@
 {
-  "schema_version": 19,
+  "schema_version": 20,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -904,60 +904,6 @@
         "repeat_s": 0,
         "only_while_cooking": true,
         "deadband": 3
-      },
-      {
-        "id": "probe-off-heat",
-        "name": "Take It Off The Heat",
-        "enabled": true,
-        "select": {
-          "domain": "probe",
-          "role": "Food",
-          "link": "any",
-          "match": "any",
-          "include": [],
-          "exclude": []
-        },
-        "when": {
-          "op": "all",
-          "conditions": [
-            {
-              "trait": "in_use",
-              "op": "is_on"
-            },
-            {
-              "trait": "target",
-              "op": ">",
-              "value": 0
-            },
-            {
-              "trait": "temp",
-              "op": "<",
-              "value": {
-                "trait": "target"
-              }
-            },
-            {
-              "trait": "eta",
-              "op": ">",
-              "value": 0
-            },
-            {
-              "trait": "eta",
-              "op": "<=",
-              "value": 120,
-              "_note": "seconds"
-            }
-          ]
-        },
-        "title": "Take {probe} off soon",
-        "body": "{probe} is at {temp}, about two minutes from {target}.",
-        "level": "high",
-        "sinks": [
-          "app",
-          "webpush"
-        ],
-        "cooldown_s": 900,
-        "only_while_cooking": true
       },
       {
         "id": "probe-step-soon",
