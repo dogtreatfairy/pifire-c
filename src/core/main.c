@@ -22,6 +22,9 @@
 #include "features/weather.h"
 #include "core/log.h"
 #include "core/outputs.h"
+#include <pthread.h>
+#include <stdint.h>
+#include <unistd.h>
 #include "core/sdnotify.h"
 #include "core/settings.h"
 #include "core/threads.h"
@@ -65,6 +68,25 @@ static void usage(const char *argv0)
 	        "  -l, --log LEVEL     debug|info|warn|error\n"
 	        "  -v, --version\n",
 	        argv0, PF_DEFAULT_CONFIG, PF_DEFAULT_DATA_DIR);
+}
+
+static void *shutdown_deadline(void *arg)
+{
+	int secs = (int)(intptr_t)arg;
+	pf_sleep_ms((unsigned)secs * 1000u);
+	LOGW(TAG, "shutdown still not finished after %d s: forcing the outputs off and leaving", secs);
+	pf_outputs_emergency_off(500);
+	_exit(0);
+	return NULL;
+}
+static void shutdown_deadline_start(int secs)
+{
+	pthread_t t;
+	pthread_attr_t at;
+	pthread_attr_init(&at);
+	pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
+	pthread_create(&t, &at, shutdown_deadline, (void *)(intptr_t)secs);
+	pthread_attr_destroy(&at);
 }
 
 int main(int argc, char **argv)
@@ -131,7 +153,13 @@ int main(int argc, char **argv)
 	unlink(resume_path);
 	char checkpoint_path[600];
 	snprintf(checkpoint_path, sizeof checkpoint_path, "%s/checkpoint.json", data_dir);
-	char *checkpoint = unclean ? pf_read_file(checkpoint_path, NULL) : NULL;
+	/* A restart the grill chose (to recover the Wi-Fi radio) leaves its reason behind. It is handled
+	 * like a power blip: the cook's checkpoint is read and the cook resumes. */
+	char rr_path[600];
+	snprintf(rr_path, sizeof rr_path, "%s/restart_resume", data_dir);
+	char *restart_reason = pf_read_file(rr_path, NULL);
+	unlink(rr_path);
+	char *checkpoint = (unclean || restart_reason) ? pf_read_file(checkpoint_path, NULL) : NULL;
 	unlink(checkpoint_path);
 	pf_db_event(PF_LVL_INFO, "SYS_START", sim ? "pifired started (simulator)" : "pifired started");
 
@@ -176,7 +204,9 @@ int main(int argc, char **argv)
 	for (int i = 0; i < 12; i++) { pf_probes_poll(pf_now()); pf_sleep_ms(50); }
 	pf_control_step(&ctrl, pf_now());
 	bool recovered = false;
-	if (unclean && checkpoint) recovered = pf_control_recover(&ctrl, checkpoint, pf_now());
+	pf_control_note_restart(&ctrl, restart_reason ? restart_reason : unclean ? "The grill restarted unexpectedly" : NULL);
+	free(restart_reason);
+	if ((unclean || ctrl.restart_reason[0]) && checkpoint) recovered = pf_control_recover(&ctrl, checkpoint, pf_now());
 	free(checkpoint);
 	if (!recovered) pf_control_boot_check(&ctrl, unclean, pf_now());
 	pf_control_set_checkpoint_path(&ctrl, checkpoint_path);
@@ -192,6 +222,7 @@ int main(int argc, char **argv)
 	char bind[64];
 	pf_set_str("web.bind", bind, sizeof bind, "0.0.0.0");
 	if (pf_web_start(bind, pf_set_int("web.port", 80))) return 1;
+	pf_netmgr_set_data_dir(data_dir);
 	pf_netmgr_start(sim);
 	pf_mqtt_init();
 	pf_webhook_init();
@@ -210,6 +241,13 @@ int main(int argc, char **argv)
 
 	pf_sd_notify("STOPPING=1");
 	LOGI(TAG, "shutting down");
+	/* A shutdown has a deadline. Several of the services below talk to the network, and with the
+	 * Wi-Fi gone (it has happened: the radio's firmware stopped answering) each of them sits out its
+	 * own timeout -- the push worker retrying, MQTT, the web server's clients -- and systemd waited
+	 * the whole ninety seconds with the restart on the panel saying "Restarting..." and nothing
+	 * happening. After eight seconds the outputs are forced off and the process goes; the cook's
+	 * checkpoint is on disk, so the next start resumes it as it would after a power blip. */
+	shutdown_deadline_start(8);
 	pf_weather_shutdown();
 	pf_rules_shutdown();
 	pf_push_shutdown();
