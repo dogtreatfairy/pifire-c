@@ -57,7 +57,9 @@ async function apiOnce(path, opts, method, rid, ms) {
   let r, j;
   try {
     const headers = {};
-    if (opts.body) headers['Content-Type'] = 'application/json';
+    /* every command says it is JSON, body or not: the grill refuses anything else that changes
+       something, which is what keeps other web pages from driving it */
+    if (opts.body || method !== 'GET') headers['Content-Type'] = 'application/json';
     if (rid) headers['X-Request-Id'] = rid;
     r = await fetch('/api/v1' + path, {
       method,
