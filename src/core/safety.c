@@ -54,15 +54,20 @@ void pf_safety_on_startup_enter(pf_control *c, double now)
 	s->coldstart_active = false;
 	s->coldstart_reached = false;
 	if (cfg->coldstart) {
-		if (cfg->startup_exit_c > 0 && c->pit_c >= cfg->startup_exit_c) {
-			LOGI(TAG, "cold-start skipped: grill already at %.0f C (>= exit temp)", c->pit_c);
+		/* A hot grill is not a cold start: a relight after a power blip, or a new set point on a
+		 * grill that is already running, cannot be asked to climb another twelve degrees on cue. The
+		 * check is for a cold pot -- below 140 F, or the startup exit temperature if that is higher.
+		 * A fire that fails on a hot grill is the flame-out protection's to catch. */
+		double hot_c = fmax(pf_f_to_c(140), cfg->startup_exit_c);
+		if (c->pit_c >= hot_c) {
+			LOGI(TAG, "smart start skipped: grill already at %.0f C", c->pit_c);
 		} else {
 			s->coldstart_active = true;
 			s->baseline_c = c->pit_c;
 			s->baseline_window_end = now + cfg->coldstart_window_s;
 			double timeout = cfg->coldstart_timeout_s > 0 ? cfg->coldstart_timeout_s : c->startup_duration_s;
 			s->coldstart_deadline = now + timeout;
-			LOGI(TAG, "cold-start armed: baseline %.1f C, need +%.1f C within %.0f s", s->baseline_c, cfg->coldstart_delta_c, timeout);
+			LOGI(TAG, "smart start armed: baseline %.1f C, need +%.1f C within %.0f s", s->baseline_c, cfg->coldstart_delta_c, timeout);
 		}
 	}
 	LOGI(TAG, "startup floor set to %.1f C", s->floor_c);
@@ -79,7 +84,7 @@ void pf_safety_on_startup_exit(pf_control *c, double now)
 		double cold = s->baseline_c + cfg->coldstart_delta_c;
 		s->floor_c = fmax(cold, exit_based);
 		s->coldstart_active = false;
-		LOGI(TAG, "cold-start complete; flame-out floor %.1f C", s->floor_c);
+		LOGI(TAG, "smart start complete; flame-out floor %.1f C", s->floor_c);
 	}
 }
 
@@ -153,18 +158,13 @@ int pf_safety_tick(pf_control *c, double now)
 			if (s->filt_c < s->baseline_c) s->baseline_c = s->filt_c;
 		} else if (!s->coldstart_reached) {
 			if (s->filt_c >= s->baseline_c + cfg->coldstart_delta_c) {
-				if (++s->above_count >= 2) { s->coldstart_reached = true; LOGI(TAG, "cold-start: temperature rise confirmed (%.1f C)", s->filt_c); }
+				if (++s->above_count >= 2) { s->coldstart_reached = true; LOGI(TAG, "smart start: temperature rise confirmed (%.1f C)", s->filt_c); }
 			} else s->above_count = 0;
 			if (!s->coldstart_reached && now > s->coldstart_deadline) {
-				if (s->reignite_retries_left > 0) {
-					s->reignite_retries_left--;
-					s->reignite_last = c->cfg.after_startup_mode;
-					LOGW(TAG, "cold-start: no rise within timeout, re-igniting (%d left)", s->reignite_retries_left);
-					if (pf_db_handle()) pf_db_event(PF_LVL_WARN, "W04_STARTUP_RETRY", "Startup did not raise the pit temperature in time; retrying");
-					return PF_MODE_REIGNITE;
-				}
-				pf_safety_set_error(c, "E04_STARTUP_FAILED", "Pit temperature did not rise %.0f degrees above the %.0f C baseline within the startup timeout",
-				                    cfg->coldstart_delta_c, s->baseline_c);
+				/* Smart Start: no rise in the time allowed is an error, not another light. A pot that
+				 * did not catch is a pot full of pellets, and lighting it again is how a grill flares. */
+				double mins = (cfg->coldstart_timeout_s > 0 ? cfg->coldstart_timeout_s : c->startup_duration_s) / 60.0;
+				pf_safety_set_error(c, "E04_STARTUP_FAILED", "No temperature rise in %.0f min. Check igniter and fire pot.", mins);
 				return PF_MODE_ERROR;
 			}
 		}

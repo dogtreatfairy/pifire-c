@@ -767,6 +767,23 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 22 (notification wording)");
 			added = 1;
 		}
+		if (ver < 23) {
+			/* Smart Start (the cold-start check) is on for every grill, with five minutes for the
+			 * pit to rise before startup errors out. A timeout of 0 meant "the startup duration". */
+			cJSON *cs = pf_json_path(g_root, "safety.coldstart");
+			if (cs) {
+				cJSON_ReplaceItemInObject(cs, "enabled", cJSON_CreateBool(1));
+				cJSON *to = cJSON_GetObjectItem(cs, "timeout_s");
+				if (!cJSON_IsNumber(to) || to->valuedouble <= 0) {
+					if (to) cJSON_ReplaceItemInObject(cs, "timeout_s", cJSON_CreateNumber(300));
+					else cJSON_AddNumberToObject(cs, "timeout_s", 300);
+				}
+			}
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 23); else cJSON_AddNumberToObject(g_root, "schema_version", 23);
+			LOGI(TAG, "settings migrated to schema 23 (Smart Start on, 5 min)");
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);

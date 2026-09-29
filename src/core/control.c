@@ -79,9 +79,11 @@ static void load_cfg(pf_cfg *g)
 	g->relight_timeout_s = N("safety.relight_timeout_s", 300);
 	g->use_library = B("learning.use_library", true);
 	g->error_cooldown_fan_s = N("safety.error_cooldown_fan_s", 300);
-	g->coldstart = B("safety.coldstart.enabled", false);
+	/* Smart Start: the pit must rise, or startup errors out. Stored under safety.coldstart, its
+	 * original name. */
+	g->coldstart = B("safety.coldstart.enabled", true);
 	g->coldstart_delta_c = D("safety.coldstart.delta_rise", 12);
-	g->coldstart_timeout_s = N("safety.coldstart.timeout_s", 0);
+	g->coldstart_timeout_s = N("safety.coldstart.timeout_s", 300);
 	g->coldstart_window_s = N("safety.coldstart.baseline_window_s", 60);
 	g->coldstart_exit_on_rise = B("safety.coldstart.exit_on_rise", false);
 

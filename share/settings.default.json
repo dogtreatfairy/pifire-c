@@ -1,5 +1,5 @@
 {
-  "schema_version": 22,
+  "schema_version": 23,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -119,9 +119,9 @@
     "error_cooldown_fan_s": 300,
     "restart_hot_temp": 150,
     "coldstart": {
-      "enabled": false,
+      "enabled": true,
       "delta_rise": 12,
-      "timeout_s": 0,
+      "timeout_s": 300,
       "baseline_window_s": 60,
       "exit_on_rise": false
     },

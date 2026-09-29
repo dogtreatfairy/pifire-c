@@ -390,6 +390,22 @@ static void test_coldstart_failure(void)
 	TEST_ASSERT_EQUAL_STRING("E04_STARTUP_FAILED", ctrl.safety.error_code);
 }
 
+/* Smart Start with what ships: on, five minutes. A fire that never lights is still lighting at
+ * four and a half minutes and in error by just after five -- and it is not lit a second time. */
+static void test_smart_start_defaults_error_after_five_minutes(void)
+{
+	pf_sim_reset(10.0);
+	tick(3);
+	pf_cmd_mode(PF_MODE_HOLD, 225);
+	int t = 0;
+	for (; t < 270; t += 5) { tick(5); pf_sim_model()->pot_pellets_g = 0; pf_sim_model()->fire_lit = false; }
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.mode == PF_MODE_STARTUP, "still lighting at 4.5 min");
+	for (; t < 330; t += 5) { tick(5); pf_sim_model()->pot_pellets_g = 0; pf_sim_model()->fire_lit = false; }
+	TEST_ASSERT_EQUAL_MESSAGE(PF_MODE_ERROR, ctrl.mode, "no rise by 5 min: error");
+	TEST_ASSERT_EQUAL_STRING("E04_STARTUP_FAILED", ctrl.safety.error_code);
+	TEST_ASSERT_FALSE_MESSAGE(pf_outputs_get(PF_OUT_IGNITER), "and nothing is lit again");
+}
+
 static void test_manual_refused_and_override_expires(void)
 {
 	pf_cmd m = { .type = PF_CMD_MANUAL_OUTPUT, .flag = true };
@@ -667,6 +683,7 @@ int main(void)
 	RUN_TEST(test_flameout_reignites_then_errors);
 	RUN_TEST(test_coldstart_winter);
 	RUN_TEST(test_coldstart_failure);
+	RUN_TEST(test_smart_start_defaults_error_after_five_minutes);
 	RUN_TEST(test_manual_refused_and_override_expires);
 	RUN_TEST(test_warm_restart_resumes_hold);
 	RUN_TEST(test_power_loss_recovery);
