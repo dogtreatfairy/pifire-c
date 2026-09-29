@@ -182,10 +182,58 @@ static void test_step_overrides_skip_auto_and_pause(void)
 	TEST_ASSERT_TRUE_MESSAGE(ctrl.recipe.step >= 4 || !ctrl.recipe.active, "Next releases the pause and the run goes on");
 }
 
+/* Finish, chosen by hand in the middle of a recipe, goes to the recipe's own Shutdown step: the
+ * grill shuts down, the steps between are dropped, and once the grill is out the recipe is over.
+ * Before, the Hold step stayed current, and when it ended it carried on into the next Hold. */
+static void test_finish_mid_recipe_goes_to_its_shutdown_step(void)
+{
+	pf_recipes_init();
+	int id = save_recipe("{\"name\":\"Finish\",\"units\":\"C\",\"steps\":[{\"mode\":\"Startup\"},"
+	                     "{\"mode\":\"Hold\",\"setpoint\":100,\"ends\":{\"op\":\"all\",\"conditions\":[{\"trait\":\"elapsed\",\"op\":\">=\",\"value\":36000}]}},"
+	                     "{\"mode\":\"Hold\",\"setpoint\":120,\"ends\":{\"op\":\"all\",\"conditions\":[{\"trait\":\"elapsed\",\"op\":\">=\",\"value\":36000}]}},"
+	                     "{\"mode\":\"Shutdown\"}]}");
+	pf_cmd c = { .type = PF_CMD_RECIPE_START, .num = id };
+	pf_cmdq_push(&c);
+	for (int i = 0; i < 3 * 60 * 60 && ctrl.recipe.step < 1; i++) tick(1);
+	TEST_ASSERT_EQUAL_INT(1, ctrl.recipe.step);
+	for (int i = 0; i < 600 && ctrl.mode != PF_MODE_HOLD; i++) tick(1);
+	TEST_ASSERT_EQUAL_INT(PF_MODE_HOLD, ctrl.mode);
+	pf_cmd fin = { .type = PF_CMD_MODE, .mode = PF_MODE_SHUTDOWN };   /* the app's End Cook, the panel's Finish */
+	pf_cmdq_push(&fin);
+	tick(2);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(PF_MODE_SHUTDOWN, ctrl.mode, "Finish shuts the grill down");
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.recipe.active, "the recipe is on its way out, not abandoned");
+	TEST_ASSERT_EQUAL_INT_MESSAGE(3, ctrl.recipe.step, "on its Shutdown step");
+	for (int i = 0; i < 60 * 60 && ctrl.mode != PF_MODE_STOP; i++) tick(1);
+	tick(3);
+	TEST_ASSERT_EQUAL_INT(PF_MODE_STOP, ctrl.mode);
+	TEST_ASSERT_FALSE_MESSAGE(ctrl.recipe.active, "and once the grill is out the recipe is over");
+}
+
+/* A recipe with no Shutdown step has no finish of its own: Finish ends it and shuts down. */
+static void test_finish_a_recipe_without_a_shutdown_step_ends_it(void)
+{
+	pf_recipes_init();
+	int id = save_recipe("{\"name\":\"NoEnd\",\"units\":\"C\",\"steps\":[{\"mode\":\"Startup\"},"
+	                     "{\"mode\":\"Hold\",\"setpoint\":100,\"ends\":{\"op\":\"all\",\"conditions\":[{\"trait\":\"elapsed\",\"op\":\">=\",\"value\":36000}]}}]}");
+	pf_cmd c = { .type = PF_CMD_RECIPE_START, .num = id };
+	pf_cmdq_push(&c);
+	for (int i = 0; i < 3 * 60 * 60 && ctrl.mode != PF_MODE_HOLD; i++) tick(1);
+	pf_cmd fin = { .type = PF_CMD_MODE, .mode = PF_MODE_SHUTDOWN };
+	pf_cmdq_push(&fin);
+	tick(2);
+	TEST_ASSERT_EQUAL_INT(PF_MODE_SHUTDOWN, ctrl.mode);
+	TEST_ASSERT_FALSE(ctrl.recipe.active);
+	for (int i = 0; i < 60 * 60 && ctrl.mode != PF_MODE_STOP; i++) tick(1);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(PF_MODE_STOP, ctrl.mode, "and nothing relights it");
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
 	RUN_TEST(test_a_hold_steps_clock_starts_when_the_pit_arrives);
 	RUN_TEST(test_step_overrides_skip_auto_and_pause);
+	RUN_TEST(test_finish_mid_recipe_goes_to_its_shutdown_step);
+	RUN_TEST(test_finish_a_recipe_without_a_shutdown_step_ends_it);
 	return UNITY_END();
 }

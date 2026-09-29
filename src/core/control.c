@@ -28,6 +28,7 @@
 static void enter_mode(pf_control *c, pf_mode m, double now);
 static void recipe_begin_step(pf_control *c, double now);
 static void recipe_advance(pf_control *c, double now);
+static void recipe_finish_now(pf_control *c, double now, const char *why);
 static void learn_reset_window(pf_control *c, double now);
 static void learn_rise_begin(pf_control *c, double now);
 static void autotune_start(pf_control *c, double now);
@@ -512,6 +513,10 @@ static void apply_request(pf_control *c, double now)
 	if (c->req_setpoint_c > 0) c->setpoint_c = c->req_setpoint_c;
 
 	if (c->mode == PF_MODE_ERROR && m != PF_MODE_STOP) { LOGW(TAG, "in ERROR: only Stop is accepted"); return; }
+	/* Finish, asked for while a recipe has the grill: the recipe goes to its own finish rather than
+	 * being left on a step whose ending, when it came, would carry on into the next one -- a Hold
+	 * after the fire had been put out. */
+	if (m == PF_MODE_SHUTDOWN && c->recipe.active) { recipe_finish_now(c, now, "by the user"); return; }
 	if (m == PF_MODE_STOP) { c->safety.error_code[0] = 0; c->safety.error_msg[0] = 0; }
 
 	if (m == PF_MODE_HOLD && c->setpoint_c <= 0) c->setpoint_c = c->cfg.after_startup_setpoint_c;
@@ -1017,6 +1022,31 @@ static void recipe_advance(pf_control *c, double now)
 	recipe_begin_step(c, now);
 }
 
+/* Finishing a recipe early. Its finish is its last Shutdown step: the recipe moves straight to it,
+ * everything after it is dropped for this run, and the recipe then ends the way it always does --
+ * when the grill has cooled to Stop -- so nothing is left running a recipe on a cold grill. A recipe
+ * with no Shutdown step has no finish of its own to go to, so it ends here and the grill shuts down. */
+static void recipe_finish_now(pf_control *c, double now, const char *why)
+{
+	int fin = -1;
+	for (int i = c->recipe.r.nsteps - 1; i >= c->recipe.step && i >= 0; i--)
+		if (c->recipe.r.steps[i].mode == PF_MODE_SHUTDOWN) { fin = i; break; }
+	if (fin < 0) {
+		LOGI(TAG, "recipe '%s' finished %s: no Shutdown step, ending the recipe and shutting down", c->recipe.r.name, why);
+		c->recipe.active = false;
+		cJSON_Delete(c->recipe.ends);
+		c->recipe.ends = NULL;
+		c->recipe.left_running = false;
+		enter_mode(c, PF_MODE_SHUTDOWN, now);
+		return;
+	}
+	LOGI(TAG, "recipe '%s' finished %s: going to its Shutdown step (%d/%d)", c->recipe.r.name, why, fin + 1, c->recipe.r.nsteps);
+	c->recipe.r.nsteps = fin + 1;          /* nothing after the finish */
+	c->recipe.step = fin;
+	if (fin < 16) c->recipe.flags[fin] = 0;   /* no skip, no pause: this is the way out */
+	recipe_begin_step(c, now);
+}
+
 /* Asked every tick once a recipe has ended leaving the grill lit. It is a condition, not a moment:
  * it is true for as long as the fire is burning with no recipe behind it, and it ends by itself
  * when the grill goes out -- which is what makes a snooze harmless. Snoozing for an hour on a
@@ -1152,8 +1182,10 @@ static void run_notify(pf_control *c, double now)
 	pf_notify_tick(&c->notify, &c->sensors, c->mode, now, c->cfg.units);
 	int act = c->notify.pending_action;
 	c->notify.pending_action = PF_AFTER_NONE;
-	if (act == PF_AFTER_SHUTDOWN && (c->mode == PF_MODE_STARTUP || c->mode == PF_MODE_REIGNITE || c->mode == PF_MODE_SMOKE || c->mode == PF_MODE_HOLD))
-		enter_mode(c, PF_MODE_SHUTDOWN, now);
+	if (act == PF_AFTER_SHUTDOWN && (c->mode == PF_MODE_STARTUP || c->mode == PF_MODE_REIGNITE || c->mode == PF_MODE_SMOKE || c->mode == PF_MODE_HOLD)) {
+		if (c->recipe.active) recipe_finish_now(c, now, "by a probe target");
+		else enter_mode(c, PF_MODE_SHUTDOWN, now);
+	}
 	else if (act == PF_AFTER_KEEPWARM && (c->mode == PF_MODE_SMOKE || c->mode == PF_MODE_HOLD)) {
 		c->setpoint_c = c->cfg.keepwarm_c;
 		c->s_plus = c->cfg.keepwarm_splus;
