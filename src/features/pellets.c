@@ -147,17 +147,17 @@ static void read_hopper(void)
 		pf_settings_save();
 		double f = pf_set_num("pelletlevel.full", 4), e = pf_set_num("pelletlevel.empty", 22);
 		if (e <= f)
-			pf_events_emit("Hopper_Calibrated", "Hopper calibration needs the other end",
-			               "%s is now %.1f cm, which is not %s than the other mark (%.1f cm). Set the other one as well.",
+			pf_events_emit("Hopper_Calibrated", "Hopper Calibration Incomplete",
+			               "%s %.1f cm is not %s than the other mark (%.1f cm). Set the other end.",
 			               cal == 1 ? "Full" : "Empty", cm, cal == 1 ? "nearer" : "further", cal == 1 ? e : f);
 		else
-			pf_events_emit("Hopper_Calibrated", "Hopper calibrated",
-			               "%s is %.1f cm from the sensor. The hopper reads 0-100%% between %.1f and %.1f cm.",
+			pf_events_emit("Hopper_Calibrated", "Hopper Calibrated",
+			               "%s %.1f cm. Range 0-100%%: %.1f to %.1f cm.",
 			               cal == 1 ? "Full" : "Empty", cm, f, e);
 		LOGI(TAG, "hopper %s set to %.1f cm", cal == 1 ? "full" : "empty", cm);
 	} else if (cal) {
-		pf_events_emit("Hopper_Calibrated", "The hopper sensor did not answer",
-		               "Nothing was measured, so %s was left as it was.", cal == 1 ? "full" : "empty");
+		pf_events_emit("Hopper_Calibrated", "Hopper Sensor Not Responding",
+		               "No reading. %s unchanged.", cal == 1 ? "full" : "empty");
 	}
 	double empty = pf_set_num("pelletlevel.empty", 22), full = pf_set_num("pelletlevel.full", 4);
 	pthread_mutex_lock(&g_mu);

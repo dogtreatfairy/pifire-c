@@ -126,7 +126,7 @@ static void watchdog(double now)
 	snprintf(txt, sizeof txt, "%.0f", pf_wall());
 	pf_write_file_atomic(p, txt, strlen(txt));
 	snprintf(p, sizeof p, "%s/restart_resume", g_data_dir);
-	const char *why = "The Wi-Fi radio stopped responding";
+	const char *why = "Wi-Fi radio not responding";
 	pf_write_file_atomic(p, why, strlen(why));
 	LOGW(TAG, "restarting the grill to recover the Wi-Fi radio%s", cooking ? "; the cook resumes" : "");
 	if (pf_db_handle()) pf_db_event(PF_LVL_WARN, "NET_RADIO_REBOOT", "Restarting to recover the Wi-Fi radio");

@@ -483,7 +483,7 @@ static void render(char *out, size_t cap, const char *tpl, const cJSON *status, 
 			if (m[0] && d[0]) snprintf(buf, sizeof buf, "%.20s \xC2\xB7 %.20s", m, d); else if (m[0] || d[0]) snprintf(buf, sizeof buf, "%.30s", m[0] ? m : d); else snprintf(buf, sizeof buf, "it");
 		} else if (!strcmp(key, "rest")) {
 			double f = in && in->obj ? pf_json_num((cJSON *)in->obj, "finish", 0) : 0;
-			if (f > 0) { char t[24]; fmt_temp_token(t, sizeof t, f, units); snprintf(buf, sizeof buf, "; it rests up to %s", t); } else buf[0] = 0;
+			if (f > 0) { char t[24]; fmt_temp_token(t, sizeof t, f, units); snprintf(buf, sizeof buf, " · Rest to %s", t); } else buf[0] = 0;
 		}
 		else {
 			/* anything else is a trait: of the matched instance first, then the grill */

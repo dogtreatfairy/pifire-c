@@ -727,6 +727,46 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 21 (Remove from Heat, Almost There)");
 			added = 1;
 		}
+		if (ver < 22) {
+			/* The notifications read like an instrument, not a person: a condition or an action in
+			 * the title, readings in the body. Each field is replaced only where it is still exactly
+			 * what shipped, so a rule somebody has reworded keeps their words. */
+			static const struct { const char *id, *on, *ot, *ob, *nn, *nt, *nb; } T[] = {
+				{ "probe-target", "Remove from Heat", "{probe}: Remove from Heat", "{food} is at {temp}{rest}.", "Remove from Heat", "{probe}: Remove from Heat", "{food} · {temp}{rest}" },
+				{ "probe-eta", "Almost There", "{probe}: Almost There", "{temp}, {eta} to {target}.", "Almost There", "{probe}: Almost There", "{temp} · {eta} to {target}" },
+				{ "probe-offline", "Probe Went Offline", "{probe} went offline", "No readings from {probe}. Check the battery, the range, or whether it went back in its charger.", "Probe Offline", "{probe}: Offline", "No signal. Check battery and range." },
+				{ "probe-battery", "Probe Battery Low", "{probe} battery at {battery}", "{probe} will need charging before the next cook.", "Probe Battery Low", "{probe}: Battery {battery}", "Charge before next cook." },
+				{ "grill-at-temp", "Grill Reached Temp", "{grill} is up to temperature", "The pit is at {grill_temp}.", "At Temperature", "{grill}: At Temperature", "Pit {grill_temp}" },
+				{ "grill-hot", "Grill Stalled Hot", "{grill} is not coming down", "Still {grill_temp} against a {setpoint} target, twenty minutes after being asked for it.", "Above Set Point", "{grill}: Above Set Point", "Pit {grill_temp} · Set {setpoint} · 20 min" },
+				{ "grill-cold", "Grill Stalled Cold", "{grill} is not getting there", "Still {grill_temp} against a {setpoint} target, twenty minutes after being asked for it. Check the fire and the hopper.", "Below Set Point", "{grill}: Below Set Point", "Pit {grill_temp} · Set {setpoint} · 20 min. Check fire and hopper." },
+				{ "hopper-low", "Hopper Low", "Pellets are low", "The hopper is at {hopper}. Top it up before it runs out.", "Hopper Low", "{grill}: Hopper Low", "Hopper {hopper}. Refill." },
+				{ "hopper-critical", "Hopper Critical", "Pellets about to run out", "The hopper is at {hopper}. The fire will go out if it is not filled now.", "Hopper Critical", "{grill}: Hopper Critical", "Hopper {hopper}. Refill now." },
+				{ "grill-emergency", "Emergency Shutdown", "{grill} shut itself down", "Over temperature at {grill_temp}. The fire is out and the fan is cooling it.", "Emergency Shutdown", "{grill}: Emergency Shutdown", "Over temperature at {grill_temp}. Fire out, fan cooling." },
+				{ "grill-flameout", "Flame Out", "{grill} may have gone out", "Down to {grill_temp} from a {setpoint} target.", "Flame Out", "{grill}: Flame Out", "Pit {grill_temp} · Set {setpoint}" },
+				{ "probe-step-soon", "Step Coming Up", "{step} coming up on {probe}", "{probe} is at {temp} — about a minute to {step}.", "Step Next", "{probe}: {step} in 1 min", "{temp}" },
+				{ "update-available", "PiFire Update", "PiFire {update_version} available", "Settings › Software Updates", "PiFire Update", "PiFire {update_version} Available", "Settings › Software Updates" },
+				{ "system-updates", "System Updates", "{system_updates} system updates", "Settings › Software Updates", "System Updates", "{system_updates} System Updates", "Settings › Software Updates" },
+				{ "backup-done", "Backup Done", "Backup done", "", "Backup Complete", "Backup Complete", "" },
+				{ "backup-failed", "Backup Failed", "Backup failed", "Settings › Backup", "Backup Failed", "Backup Failed", "Settings › Backup" },
+				{ "grill-restarted", "Grill Restarted", "{grill} restarted", "{restart_reason}{restart_resuming}.", "Grill Restarted", "{grill}: Restarted", "{restart_reason}{restart_resuming}" },
+				{ "probe-target", "Probe Reached Target", "{probe}: off the heat", "{food} is at {temp}{rest}.", "Remove from Heat", "{probe}: Remove from Heat", "{food} · {temp}{rest}" },
+				{ "probe-eta", "Almost There", "{probe} is {eta} from {target}", "{probe} is at {temp}, climbing towards {target}.", "Almost There", "{probe}: Almost There", "{temp} · {eta} to {target}" },
+			};
+			cJSON *rules = pf_json_path(g_root, "notify.rules"), *r;
+			cJSON_ArrayForEach(r, rules) {
+				const char *id = pf_json_str(r, "id", "");
+				for (size_t k = 0; k < sizeof T / sizeof T[0]; k++) {
+					if (strcmp(id, T[k].id)) continue;
+					if (!strcmp(pf_json_str(r, "name", ""), T[k].on)) cJSON_ReplaceItemInObject(r, "name", cJSON_CreateString(T[k].nn));
+					if (!strcmp(pf_json_str(r, "title", ""), T[k].ot)) cJSON_ReplaceItemInObject(r, "title", cJSON_CreateString(T[k].nt));
+					if (!strcmp(pf_json_str(r, "body", ""), T[k].ob)) cJSON_ReplaceItemInObject(r, "body", cJSON_CreateString(T[k].nb));
+				}
+			}
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 22); else cJSON_AddNumberToObject(g_root, "schema_version", 22);
+			LOGI(TAG, "settings migrated to schema 22 (notification wording)");
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);

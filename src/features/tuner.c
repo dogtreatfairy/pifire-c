@@ -141,18 +141,18 @@ static void finish(bool ok, const char *why, double now)
 		pf_cmdq_push(&fl);
 	}
 	if (ok && g.full)
-		pf_events_emit("Tune_Done", "Baseline tune finished",
-		               "%d of %d set point%s measured%s%s%s%s. This is the grill's baseline.%s%s",
+		pf_events_emit("Tune_Done", "Baseline Tune Complete",
+		               "%d of %d set point%s measured%s%s%s%s.%s%s",
 		               g.measured, g.n, g.n == 1 ? "" : "s",
-		               g.skipped[0] ? ", nothing usable at " : "", g.skipped[0] ? g.skipped : "",
-		               g.reverted[0] ? "; the new tune held worse than the old and was taken back at " : "", g.reverted[0] ? g.reverted : "",
+		               g.skipped[0] ? ", no result at " : "", g.skipped[0] ? g.skipped : "",
+		               g.reverted[0] ? "; previous tune kept at " : "", g.reverted[0] ? g.reverted : "",
 		               nv ? " " : "", nv ? vals : "");
 	else if (ok)
-		pf_events_emit("Tune_Done", "Tuning finished", "Added to the tuning library. %s",
-		               nv ? vals : "The run produced no usable measurement.");
+		pf_events_emit("Tune_Done", "Tune Complete", "Added to tuning library. %s",
+		               nv ? vals : "No usable measurement.");
 	else
-		pf_events_emit("Tune_Failed", "Tuning stopped", "%s%s%s", why,
-		               nv ? " Measured so far: " : " Nothing was measured before it stopped.", nv ? vals : "");
+		pf_events_emit("Tune_Failed", "Tune Stopped", "%s%s%s", why,
+		               nv ? " Measured: " : " Nothing measured.", nv ? vals : "");
 }
 
 void pf_tuner_init(void)
@@ -167,10 +167,10 @@ void pf_tuner_init(void)
 		mark_inflight(false);
 		pthread_mutex_lock(&g_mu);
 		g.ph = PH_FAILED;
-		pf_strlcpy(g.message, "The grill restarted part way through. Start it again when you are ready.", sizeof g.message);
+		pf_strlcpy(g.message, "Interrupted by a restart.", sizeof g.message);
 		pthread_mutex_unlock(&g_mu);
-		pf_events_emit("Tune_Failed", "Tuning did not finish",
-		               "The grill restarted part way through a tuning run. Any set points it had already measured were kept.");
+		pf_events_emit("Tune_Failed", "Tune Interrupted",
+		               "Restart during tuning. Completed set points kept.");
 		LOGW(TAG, "a tuning run was interrupted by a restart");
 	}
 }
@@ -247,13 +247,13 @@ int pf_tuner_start(const cJSON *setpoints_json, bool full_profile, bool from_scr
 	pf_cmd c = { .type = PF_CMD_MODE, .mode = PF_MODE_HOLD, .num = pf_from_c(pts[0], pf_settings_units()) };
 	pf_cmdq_push(&c);
 	if (full_profile)
-		pf_events_emit("Tune_Started", from_scratch ? "Baseline tune started (from scratch)" : "Baseline tune started",
-		               "The grill will hold %d set point%s and oscillate a few degrees at each, then shut down. %s Leave it empty.",
-		               np, np == 1 ? "" : "s in turn",
-		               from_scratch ? "The previous tuning library has been cleared." : "What it measures refines the tuning library.");
+		pf_events_emit("Tune_Started", from_scratch ? "Baseline Tune Started (From Scratch)" : "Baseline Tune Started",
+		               "%d set point%s, then shutdown. %s No food.",
+		               np, np == 1 ? "" : "s",
+		               from_scratch ? "Tuning library cleared." : "Refines the tuning library.");
 	else
-		pf_events_emit("Tune_Started", "Tuning started",
-		               "The grill will hold %.0f and oscillate a few degrees around it, then shut down. Leave it empty.",
+		pf_events_emit("Tune_Started", "Tune Started",
+		               "Oscillating around %.0f, then shutdown. No food.",
 		               pf_from_c(pts[0], pf_settings_units()));
 	LOGW(TAG, "%s tuning started over %d set point%s", full_profile ? "full profile" : "single", np, np == 1 ? "" : "s");
 	return 0;

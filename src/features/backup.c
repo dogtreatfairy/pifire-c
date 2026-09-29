@@ -1160,7 +1160,7 @@ static void *device_poll_thread(void *arg)
 			cJSON_Delete(j);
 			pthread_mutex_lock(&g.mu); g.dev.pending = false; pthread_mutex_unlock(&g.mu);
 			say(false, "%s connected", L.name);
-			pf_events_emit("Backup_Connected", "Backup location connected", "%s is connected; backups can go there now.", L.name);
+			pf_events_emit("Backup_Connected", "Backup Location Connected", "%s connected.", L.name);
 			return NULL;
 		}
 		if (!strcmp(e, "slow_down")) interval += 5;
@@ -1292,7 +1292,7 @@ static void *backup_thread(void *arg)
 	if (pf_backup_make(local, err, sizeof err)) {
 		say(true, "Backup failed: %s", err);
 		file_last(false, name, 0, NULL);
-		if (g.fail_streak++ == 0) pf_events_emit_ex("Backup_Failed", PF_CRIT_HIGH, PF_SINK_MQTT, "Backup failed", "%s", err);
+		if (g.fail_streak++ == 0) pf_events_emit_ex("Backup_Failed", PF_CRIT_HIGH, PF_SINK_MQTT, "Backup Failed", "%s", err);
 		goto done;
 	}
 	long size = file_size(local);
@@ -1324,13 +1324,13 @@ static void *backup_thread(void *arg)
 		say(false, "Backed up %s (%s) to %d location%s", name, sz, sent, sent == 1 ? "" : "s");
 		/* Not a notification: the "Backup Done" rule sends one if the person has switched it on. */
 		pthread_mutex_lock(&g.mu); g.done_at = pf_now(); pthread_mutex_unlock(&g.mu);
-		pf_events_emit_ex("Backup_Done", PF_CRIT_INFO, PF_SINK_MQTT, "Backup done", "%s, %s, sent to %d location%s.", name, sz, sent, sent == 1 ? "" : "s");
+		pf_events_emit_ex("Backup_Done", PF_CRIT_INFO, PF_SINK_MQTT, "Backup Complete", "%s · %s · %d location%s", name, sz, sent, sent == 1 ? "" : "s");
 	} else if (tried == 0) {
 		say(true, "Backup made but no location is switched on");
-		if (g.fail_streak++ == 0) pf_events_emit_ex("Backup_Failed", PF_CRIT_HIGH, PF_SINK_MQTT, "Backup failed", "No backup location is switched on.");
+		if (g.fail_streak++ == 0) pf_events_emit_ex("Backup_Failed", PF_CRIT_HIGH, PF_SINK_MQTT, "Backup Failed", "No backup location enabled.");
 	} else {
 		say(true, "Backup sent to %d of %d: %s", sent, tried, failed);
-		if (g.fail_streak++ == 0) pf_events_emit_ex("Backup_Failed", PF_CRIT_HIGH, PF_SINK_MQTT, "Backup incomplete", "Sent to %d of %d locations. %s", sent, tried, failed);
+		if (g.fail_streak++ == 0) pf_events_emit_ex("Backup_Failed", PF_CRIT_HIGH, PF_SINK_MQTT, "Backup Incomplete", "Sent to %d of %d locations. %s", sent, tried, failed);
 	}
 	for (int i = 0; i < n; i++) if (all[i].enabled) prune(&all[i], (int)pf_set_num("backup.keep", 8));
 done:
@@ -1384,7 +1384,7 @@ static int stage_and_restart(const char *archive, char *err, size_t n)
 	if (pf_backup_stage(archive, stage, err, n)) return -1;
 	if (pf_write_file_atomic(pending, stage, strlen(stage))) { snprintf(err, n, "cannot mark the restore"); rm_rf(stage); return -1; }
 	say(false, "Backup checked; restarting to put it in place");
-	pf_events_emit("Backup_Restore", "Restoring a backup", "The grill restarts and comes back with the backup's settings, tuning, recipes and cooks.");
+	pf_events_emit("Backup_Restore", "Restoring Backup", "Restarting with the backup's settings, tuning, recipes and cooks.");
 	if (pf_db_handle()) pf_db_event(PF_LVL_WARN, "BACKUP_RESTORE", "restoring a backup; restarting");
 	/* in the simulator there is nothing to restart us, so the staged restore waits for the next run */
 	if (!g.sim) { pf_sleep_ms(500); raise(SIGTERM); }
@@ -1411,12 +1411,12 @@ static void *restore_thread(void *arg)
 	}
 	if (!got) {
 		say(true, "Could not fetch %s from any location", g_restore_name);
-		pf_events_emit("Backup_Failed", "Restore failed", "Could not fetch %s.", g_restore_name);
+		pf_events_emit("Backup_Failed", "Restore Failed", "Could not fetch %s.", g_restore_name);
 		goto done;
 	}
 	if (stage_and_restart(local, err, sizeof err)) {
 		say(true, "Restore refused: %s", err);
-		pf_events_emit("Backup_Failed", "Restore failed", "%s", err);
+		pf_events_emit("Backup_Failed", "Restore Failed", "%s", err);
 	}
 	unlink(local);
 done:
@@ -1715,7 +1715,7 @@ void pf_backup_init(const char *data_dir, const char *config_path, bool sim)
 	snprintf(done, sizeof done, "%s/restored", g.work);
 	if (pf_file_exists(done)) {
 		unlink(done);
-		pf_events_emit("Backup_Restored", "Backup restored", "Settings, tuning, recipes and cooks are back from the backup.");
+		pf_events_emit("Backup_Restored", "Backup Restored", "Settings, tuning, recipes and cooks restored.");
 	}
 	/* anything left in the work directory is from a run that did not finish */
 	DIR *d = opendir(g.work);

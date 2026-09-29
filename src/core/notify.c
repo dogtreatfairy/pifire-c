@@ -294,7 +294,7 @@ static void recalc_eta(pf_notify_probe *p)
 
 static const char *after_text(int after)
 {
-	return after == PF_AFTER_SHUTDOWN ? " Shutting down." : after == PF_AFTER_KEEPWARM ? " Switching to keep-warm." : "";
+	return after == PF_AFTER_SHUTDOWN ? " · Shutting down" : after == PF_AFTER_KEEPWARM ? " · Keep warm" : "";
 }
 
 /* Steps live in settings (`notify.probe_steps.<label>`), not in the notify state, so they survive a
@@ -410,18 +410,17 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 			pf_notify_step *st = &p->steps[k];
 			if (!st->fired && cooking && t >= st->temp_c) {
 				st->fired = true;
-				pf_events_emit("Probe_Step", st->name, "%s reached %.0f%s for %s (%.0f%s).",
-				               name, pf_from_c(st->temp_c, units), u, st->name, pf_from_c(t, units), u);
+				pf_events_emit("Probe_Step", st->name, "%s: %s · %.0f%s", name, st->name, pf_from_c(t, units), u);
 				/* the panel flashes the step itself -- Flip, Spritz, Wrap -- over the probe and its reading */
 				pf_alarms_flash_probe_code("Probe_Step", p->label, name, st->name);
 			} else if (st->fired && t < st->temp_c - pf_delta_to_c(2, units)) st->fired = false;
 		}
 		if (p->limit_high_c > 0) {
-			if (t > p->limit_high_c && !p->high_tripped) { p->high_tripped = true; pf_events_emit("Probe_Temp_Limit_Alarm", "High temperature alarm", "%s is above %.0f%s (%.0f%s).", name, pf_from_c(p->limit_high_c, units), u, pf_from_c(t, units), u); }
+			if (t > p->limit_high_c && !p->high_tripped) { p->high_tripped = true; pf_events_emit("Probe_Temp_Limit_Alarm", "High Temperature Alarm", "%s %.0f%s · Limit %.0f%s", name, pf_from_c(t, units), u, pf_from_c(p->limit_high_c, units), u); }
 			else if (t <= p->limit_high_c - pf_delta_to_c(2, units)) p->high_tripped = false;
 		}
 		if (p->limit_low_c > 0 && cooking) {
-			if (t < p->limit_low_c && !p->low_tripped) { p->low_tripped = true; pf_events_emit("Probe_Temp_Limit_Alarm", "Low temperature alarm", "%s is below %.0f%s (%.0f%s).", name, pf_from_c(p->limit_low_c, units), u, pf_from_c(t, units), u); }
+			if (t < p->limit_low_c && !p->low_tripped) { p->low_tripped = true; pf_events_emit("Probe_Temp_Limit_Alarm", "Low Temperature Alarm", "%s %.0f%s · Limit %.0f%s", name, pf_from_c(t, units), u, pf_from_c(p->limit_low_c, units), u); }
 			else if (t >= p->limit_low_c + pf_delta_to_c(2, units)) p->low_tripped = false;
 		}
 	}
@@ -429,7 +428,7 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 	if (n->timer.running && !n->timer.paused && now >= n->timer.end_t) {
 		int after = n->timer.after;
 		int mins = (int)(n->timer.duration / 60), secs = (int)n->timer.duration % 60;
-		pf_events_emit("Timer_Expired", "Timer finished", "The %d:%02d timer is done.%s", mins, secs, after_text(after));
+		pf_events_emit("Timer_Expired", "Timer Complete", "%d:%02d%s", mins, secs, after_text(after));
 		pf_alarms_flash_code("Timer_Expired", "TIMER");   /* the panel flashes it until somebody looks */
 		pf_notify_timer_cancel(n);
 		if (after != PF_AFTER_NONE) n->pending_action = after;

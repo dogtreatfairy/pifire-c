@@ -1028,15 +1028,15 @@ static void test_the_grill_says_it_restarted(void)
 	only_rule("{\"id\":\"grill-restarted\",\"enabled\":true,\"only_while_cooking\":false,"
 	          "\"select\":{\"domain\":\"system\",\"match\":\"any\"},"
 	          "\"when\":{\"op\":\"all\",\"conditions\":[{\"entity\":\"system\",\"trait\":\"restarted\",\"op\":\"is_on\"}]},"
-	          "\"title\":\"{grill} restarted\",\"body\":\"{restart_reason}{restart_resuming}.\",\"level\":\"high\",\"sinks\":[\"app\"]}");
+	          "\"title\":\"{grill} restarted\",\"body\":\"{restart_reason}{restart_resuming}\",\"level\":\"high\",\"sinks\":[\"app\"]}");
 	cJSON *st = status();
 	cJSON *r = cJSON_AddObjectToObject(st, "restarted");
 	cJSON_AddBoolToObject(r, "active", true);
-	cJSON_AddStringToObject(r, "reason", "The Wi-Fi radio stopped responding");
-	cJSON_AddStringToObject(r, "resuming", " and is resuming the cook");
+	cJSON_AddStringToObject(r, "reason", "Wi-Fi radio not responding");
+	cJSON_AddStringToObject(r, "resuming", " · Cook resumed");
 	pf_rules_tick(st, 1000);
 	TEST_ASSERT_EQUAL_INT(1, g_ncap);
-	TEST_ASSERT_EQUAL_STRING("The Wi-Fi radio stopped responding and is resuming the cook.", g_cap[0].body);
+	TEST_ASSERT_EQUAL_STRING("Wi-Fi radio not responding · Cook resumed", g_cap[0].body);
 	TEST_ASSERT_TRUE(strstr(g_cap[0].title, "restarted") != NULL);
 	cJSON_Delete(st);
 }

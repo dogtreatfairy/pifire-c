@@ -20,7 +20,7 @@ void pf_safety_set_error(pf_control *c, const char *code, const char *fmt, ...)
 	va_start(ap, fmt);
 	vsnprintf(s->error_msg, sizeof s->error_msg, fmt, ap);
 	va_end(ap);
-	pf_events_emit(code, "Grill error", "%s", s->error_msg);
+	pf_events_emit(code, "Grill Error", "%s", s->error_msg);
 }
 
 void pf_safety_reset(pf_control *c)

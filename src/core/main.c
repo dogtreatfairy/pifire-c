@@ -204,7 +204,7 @@ int main(int argc, char **argv)
 	for (int i = 0; i < 12; i++) { pf_probes_poll(pf_now()); pf_sleep_ms(50); }
 	pf_control_step(&ctrl, pf_now());
 	bool recovered = false;
-	pf_control_note_restart(&ctrl, restart_reason ? restart_reason : unclean ? "The grill restarted unexpectedly" : NULL);
+	pf_control_note_restart(&ctrl, restart_reason ? restart_reason : unclean ? "Unexpected restart" : NULL);
 	free(restart_reason);
 	if ((unclean || ctrl.restart_reason[0]) && checkpoint) recovered = pf_control_recover(&ctrl, checkpoint, pf_now());
 	free(checkpoint);

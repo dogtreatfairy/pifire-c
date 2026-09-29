@@ -1,5 +1,5 @@
 {
-  "schema_version": 21,
+  "schema_version": 22,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -447,7 +447,7 @@
           ]
         },
         "title": "{probe}: Remove from Heat",
-        "body": "{food} is at {temp}{rest}.",
+        "body": "{food} \u00b7 {temp}{rest}",
         "level": "high",
         "sinks": [
           "app",
@@ -505,7 +505,7 @@
           ]
         },
         "title": "{probe}: Almost There",
-        "body": "{temp}, {eta} to {target}.",
+        "body": "{temp} \u00b7 {eta} to {target}",
         "level": "normal",
         "sinks": [
           "app",
@@ -520,7 +520,7 @@
       },
       {
         "id": "probe-offline",
-        "name": "Probe Went Offline",
+        "name": "Probe Offline",
         "enabled": true,
         "select": {
           "domain": "probe",
@@ -543,8 +543,8 @@
             }
           ]
         },
-        "title": "{probe} went offline",
-        "body": "No readings from {probe}. Check the battery, the range, or whether it went back in its charger.",
+        "title": "{probe}: Offline",
+        "body": "No signal. Check battery and range.",
         "level": "high",
         "sinks": [
           "app",
@@ -588,8 +588,8 @@
             }
           ]
         },
-        "title": "{probe} battery at {battery}",
-        "body": "{probe} will need charging before the next cook.",
+        "title": "{probe}: Battery {battery}",
+        "body": "Charge before next cook.",
         "level": "info",
         "sinks": [
           "app",
@@ -603,7 +603,7 @@
       },
       {
         "id": "grill-at-temp",
-        "name": "Grill Reached Temp",
+        "name": "At Temperature",
         "enabled": true,
         "select": {
           "domain": "grill",
@@ -650,8 +650,8 @@
             }
           ]
         },
-        "title": "{grill} is up to temperature",
-        "body": "The pit is at {grill_temp}.",
+        "title": "{grill}: At Temperature",
+        "body": "Pit {grill_temp}",
         "level": "normal",
         "sinks": [
           "app",
@@ -666,7 +666,7 @@
       },
       {
         "id": "grill-hot",
-        "name": "Grill Stalled Hot",
+        "name": "Above Set Point",
         "enabled": true,
         "select": {
           "domain": "grill",
@@ -695,8 +695,8 @@
             }
           ]
         },
-        "title": "{grill} is not coming down",
-        "body": "Still {grill_temp} against a {setpoint} target, twenty minutes after being asked for it.",
+        "title": "{grill}: Above Set Point",
+        "body": "Pit {grill_temp} \u00b7 Set {setpoint} \u00b7 20 min",
         "level": "high",
         "sinks": [
           "app",
@@ -712,7 +712,7 @@
       },
       {
         "id": "grill-cold",
-        "name": "Grill Stalled Cold",
+        "name": "Below Set Point",
         "enabled": true,
         "select": {
           "domain": "grill",
@@ -741,8 +741,8 @@
             }
           ]
         },
-        "title": "{grill} is not getting there",
-        "body": "Still {grill_temp} against a {setpoint} target, twenty minutes after being asked for it. Check the fire and the hopper.",
+        "title": "{grill}: Below Set Point",
+        "body": "Pit {grill_temp} \u00b7 Set {setpoint} \u00b7 20 min. Check fire and hopper.",
         "level": "high",
         "sinks": [
           "app",
@@ -774,8 +774,8 @@
             }
           ]
         },
-        "title": "Pellets are low",
-        "body": "The hopper is at {hopper}. Top it up before it runs out.",
+        "title": "{grill}: Hopper Low",
+        "body": "Hopper {hopper}. Refill.",
         "level": "normal",
         "sinks": [
           "app",
@@ -807,8 +807,8 @@
             }
           ]
         },
-        "title": "Pellets about to run out",
-        "body": "The hopper is at {hopper}. The fire will go out if it is not filled now.",
+        "title": "{grill}: Hopper Critical",
+        "body": "Hopper {hopper}. Refill now.",
         "level": "critical",
         "sinks": [
           "app",
@@ -844,8 +844,8 @@
             }
           ]
         },
-        "title": "{grill} shut itself down",
-        "body": "Over temperature at {grill_temp}. The fire is out and the fan is cooling it.",
+        "title": "{grill}: Emergency Shutdown",
+        "body": "Over temperature at {grill_temp}. Fire out, fan cooling.",
         "level": "critical",
         "sinks": [
           "app",
@@ -890,8 +890,8 @@
             }
           ]
         },
-        "title": "{grill} may have gone out",
-        "body": "Down to {grill_temp} from a {setpoint} target.",
+        "title": "{grill}: Flame Out",
+        "body": "Pit {grill_temp} \u00b7 Set {setpoint}",
         "level": "critical",
         "sinks": [
           "app",
@@ -907,7 +907,7 @@
       },
       {
         "id": "probe-step-soon",
-        "name": "Step Coming Up",
+        "name": "Step Next",
         "enabled": true,
         "select": {
           "domain": "probe",
@@ -941,8 +941,8 @@
             }
           ]
         },
-        "title": "{step} coming up on {probe}",
-        "body": "{probe} is at {temp} \u2014 about a minute to {step}.",
+        "title": "{probe}: {step} in 1 min",
+        "body": "{temp}",
         "level": "high",
         "sinks": [
           "app",
@@ -969,7 +969,7 @@
             }
           ]
         },
-        "title": "PiFire {update_version} available",
+        "title": "PiFire {update_version} Available",
         "body": "Settings \u203a Software Updates",
         "level": "info",
         "sinks": [
@@ -1002,7 +1002,7 @@
             }
           ]
         },
-        "title": "{system_updates} system updates",
+        "title": "{system_updates} System Updates",
         "body": "Settings \u203a Software Updates",
         "level": "info",
         "sinks": [
@@ -1018,7 +1018,7 @@
       },
       {
         "id": "backup-done",
-        "name": "Backup Done",
+        "name": "Backup Complete",
         "enabled": false,
         "select": {
           "domain": "system",
@@ -1034,7 +1034,7 @@
             }
           ]
         },
-        "title": "Backup done",
+        "title": "Backup Complete",
         "body": "",
         "level": "info",
         "sinks": [
@@ -1066,7 +1066,7 @@
             }
           ]
         },
-        "title": "Backup failed",
+        "title": "Backup Failed",
         "body": "Settings \u203a Backup",
         "level": "high",
         "sinks": [
@@ -1098,8 +1098,8 @@
             }
           ]
         },
-        "title": "{grill} restarted",
-        "body": "{restart_reason}{restart_resuming}.",
+        "title": "{grill}: Restarted",
+        "body": "{restart_reason}{restart_resuming}",
         "level": "high",
         "sinks": [
           "app",

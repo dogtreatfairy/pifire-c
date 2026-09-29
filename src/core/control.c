@@ -281,12 +281,12 @@ static void forget_learning(pf_control *c, int what, const char *why)
 	}
 	if (c->cinst && c->cops->forget) c->cops->forget(c->cinst, ctrl);
 	if (what == PF_CLEAR_TUNING)
-		pf_events_emit("Tuning_Cleared", "Measured tuning cleared",
-		               "The tuning library is gone and the grill is back to the Proportional Band, Integral Time and Derivative Time typed on the controller page (%s).", why);
+		pf_events_emit("Tuning_Cleared", "Tuning Cleared",
+		               "Tuning library cleared. Using the configured PB, Ti and Td (%s).", why);
 	else
-		pf_events_emit("Learning_Cleared", "Learning cleared",
-		               "The grill starts learning again from the tuning it has (%s).%s", why,
-		               what == PF_CLEAR_FOR_BASELINE ? " What it has measured about its fuel use is kept." : "");
+		pf_events_emit("Learning_Cleared", "Learning Cleared",
+		               "Learning restarted from the current tuning (%s).%s", why,
+		               what == PF_CLEAR_FOR_BASELINE ? " Fuel-use measurements kept." : "");
 }
 
 static void controller_fill_defaults(void)
@@ -672,7 +672,7 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 	case PF_CMD_TIMER_PAUSE: pf_notify_timer_pause(&c->notify, now); break;
 	case PF_CMD_TIMER_RESUME: pf_notify_timer_resume(&c->notify, now); break;
 	case PF_CMD_TIMER_CANCEL: pf_notify_timer_cancel(&c->notify); break;
-	case PF_CMD_NOTIFY_TEST: pf_events_emit("Test_Notify", "Test notification", "This is a test from PiFire."); break;
+	case PF_CMD_NOTIFY_TEST: pf_events_emit("Test_Notify", "Test Notification", "PiFire test."); break;
 	case PF_CMD_RECIPE_START:
 		if (c->mode == PF_MODE_ERROR) break;
 		if (pf_recipe_load((int)cmd->num, &c->recipe.r)) { LOGW(TAG, "recipe %d not found", (int)cmd->num); break; }
@@ -742,7 +742,7 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 			pf_set_put_num(path, round(a.Td));
 		}
 		pf_settings_save();
-		pf_events_emit("Tuning_Applied", "Tuning applied", "Controller '%s' now uses the learned tuning.", c->cops->id);
+		pf_events_emit("Tuning_Applied", "Tuning Applied", "%s: learned tuning in use.", c->cops->id);
 		/* Those numbers were just written into the starting values by the daemon, not typed by
 		 * anyone, so they must not read as a change of mind the next time settings are reloaded. */
 		typed_gains(c->cops->id, c->typed_gains);
@@ -1009,7 +1009,7 @@ static void recipe_advance(pf_control *c, double now)
 		if (done->message[0] && !c->recipe.said) pf_events_emit("Recipe_Step_Message", c->recipe.r.name, "%s", done->message);
 	}
 	if (++c->recipe.step >= c->recipe.r.nsteps) {
-		pf_events_emit("Recipe_Complete", c->recipe.r.name, "Recipe finished.");
+		pf_events_emit("Recipe_Complete", c->recipe.r.name, "Recipe complete.");
 		c->recipe.active = false;
 		cJSON_Delete(c->recipe.ends);
 		c->recipe.ends = NULL;
@@ -1075,7 +1075,7 @@ static void recipe_hold_here(pf_control *c, const pf_recipe_step *s)
 	c->recipe.eta_s = -1; c->recipe.clock_s = -1;
 	if (!c->recipe.said) {
 		c->recipe.said = true;
-		pf_events_emit("Recipe_Step_Done", c->recipe.r.name, "%s%sPaused here as you asked - continue when ready.",
+		pf_events_emit("Recipe_Step_Done", c->recipe.r.name, "%s%sPaused. Continue when ready.",
 		               s->message[0] ? s->message : "", s->message[0] ? " " : "");
 	}
 }
@@ -1156,7 +1156,7 @@ static void run_recipe(pf_control *c, double now)
 	if (c->recipe.waiting && !c->recipe.said) {
 		c->recipe.said = true;
 		pf_events_emit("Recipe_Step_Done", c->recipe.r.name, "%s",
-		               s->message[0] ? s->message : "This step is done - tap Next to continue.");
+		               s->message[0] ? s->message : "Step complete. Tap Next.");
 	}
 
 	/* How long until it ends, and the warning before it does. Fired once, and only while there is
@@ -1167,7 +1167,7 @@ static void run_recipe(pf_control *c, double now)
 	if (!c->recipe.lead_fired && s->lead_s > 0 && c->recipe.eta_s >= 0 && c->recipe.eta_s <= s->lead_s) {
 		c->recipe.lead_fired = true;
 		pf_events_emit("Recipe_Step_Soon", c->recipe.r.name, "%s",
-		               s->lead_message[0] ? s->lead_message : "The next step is coming up.");
+		               s->lead_message[0] ? s->lead_message : "Next step soon.");
 		LOGI(TAG, "recipe '%s' step %d: %d min warning", c->recipe.r.name, c->recipe.step + 1,
 		     (int)lround(c->recipe.eta_s / 60.0));
 	}
@@ -1472,7 +1472,7 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 	 * feed that holds the set point, which is what the run has just measured. */
 	double steady = c->autotune.last_load > 0 ? c->autotune.last_load : c->autotune.u_center;
 	if (steady > 0) c->u_raw = c->u_applied = pf_clamp(steady, c->cfg.u_min, c->cfg.u_max);
-	if (!ok) { pf_events_emit("Autotune_Failed", "Autotune stopped", "%s", why); return; }
+	if (!ok) { pf_events_emit("Autotune_Failed", "Autotune Stopped", "%s", why); return; }
 	int n = c->autotune.crossings < PF_AT_MAX ? c->autotune.crossings : PF_AT_MAX;
 	/* Average the last few complete oscillations. The early ones are the transient on the way into
 	 * the limit cycle and describe the starting conditions rather than the plant, so they are left
@@ -1484,7 +1484,7 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 		autotune_cycle(c, i, &p, &a);
 		Pu += p; A += a; k++;
 	}
-	if (k < 2) { pf_events_emit("Autotune_Failed", "Autotune stopped", "Not enough oscillations were captured."); return; }
+	if (k < 2) { pf_events_emit("Autotune_Failed", "Autotune Stopped", "Too few oscillations captured."); return; }
 	Pu /= k; A /= k;
 	/* The relay only switches once the error passes the hysteresis band, so the oscillation can
 	 * never be smaller than that band. An amplitude at or under it means the readings are not
@@ -1495,8 +1495,8 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 	 * itself had not changed. Below twice the band the measurement is not trustworthy and is
 	 * refused rather than stored. */
 	if (A < c->autotune.hyst_c * 2.0) {
-		pf_events_emit("Autotune_Failed", "Autotune stopped",
-		               "The swing was %.1f%s against a %.1f%s switching band -- too close to it to measure the gain. Run it again from a settled grill.",
+		pf_events_emit("Autotune_Failed", "Autotune Stopped",
+		               "Swing %.1f%s against a %.1f%s switching band: too small to measure the gain. Rerun from a settled grill.",
 		               pf_delta_from_c(A, c->cfg.units), c->cfg.units == PF_UNITS_C ? "C" : "F",
 		               pf_delta_from_c(c->autotune.hyst_c, c->cfg.units), c->cfg.units == PF_UNITS_C ? "C" : "F");
 		return;
@@ -1527,8 +1527,8 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 	 * rather than the one asked for. */
 	bool pinned = c->autotune.u_center - c->autotune.h <= c->cfg.u_min + 0.01;
 	if (off > 0.03 && !pinned) {
-		pf_events_emit("Autotune_Failed", "Autotune stopped",
-		               "The swing was centred on %.0f%% feed while its cycles averaged %.0f%%, so it was sitting beside the set point rather than oscillating about it. Nothing was filed.",
+		pf_events_emit("Autotune_Failed", "Autotune Stopped",
+		               "Swing centred on %.0f%% feed, cycles averaged %.0f%%: not centred on the set point. Nothing filed.",
 		               c->autotune.u_center * 100, c->autotune.last_load * 100);
 		LOGW(TAG, "autotune rejected: centre %.3f against a cycle load of %.3f", c->autotune.u_center, c->autotune.last_load);
 		return;
@@ -1545,8 +1545,8 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 	 * to refuse, not to record. */
 	bool settled = pf_control_autotune_settled(c);
 	if (!settled) {
-		pf_events_emit("Autotune_Failed", "Autotune stopped",
-		               "The oscillation never settled -- its last two cycles still differed by more than a quarter. Nothing was filed. Run it again once the grill is steady.");
+		pf_events_emit("Autotune_Failed", "Autotune Stopped",
+		               "Oscillation did not settle (last two cycles differ by more than 25%%). Nothing filed. Rerun once steady.");
 		LOGW(TAG, "autotune rejected: the limit cycle had not settled");
 		return;
 	}
@@ -1661,7 +1661,7 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 	 * bands of 82 F and 150 F, while the relay's own rule put the second run at 93 F. */
 	pf_tuning_from_relay(Ku, Pu, &r.PB_c, &r.Ti, &r.Td);
 	if (!(r.PB_c > 0) || !(r.Ti > 0)) {
-		pf_events_emit("Autotune_Failed", "Autotune stopped", "The oscillation could not be turned into a tuning.");
+		pf_events_emit("Autotune_Failed", "Autotune Stopped", "Oscillation could not be converted to a tuning.");
 		return;
 	}
 	/* The model is still worth having -- the controller looks ahead by the dead time, and the app
@@ -1696,7 +1696,7 @@ static void autotune_finish(pf_control *c, bool ok, const char *why)
 		c->cops->apply_tuning(c->cinst, Ku, Pu, m.valid ? m.K : 0, m.valid ? m.tau : 0, m.valid ? m.theta : 0);
 		applied = true;
 	}
-	pf_events_emit("Autotune_Done", "Autotune complete",
+	pf_events_emit("Autotune_Done", "Autotune Complete",
 	               "Ku %.3f (swing ±%.2f duty), period %.0f s over %d cycle%s%s, amplitude ±%.1f, sitting %.1f from the set point. PB %.0f (%s), Ti %.0f s%s.",
 	               Ku, h_eff, Pu, k, k == 1 ? "" : "s", "",
 	               pf_delta_from_c(A, c->cfg.units), bias_f, pf_delta_from_c(r.PB_c, c->cfg.units),
@@ -1786,8 +1786,8 @@ static void autotune_start(pf_control *c, double now)
 	 * to quite get there could never run the measurement that would retune it. */
 	double at_band = pf_delta_to_c(15, PF_UNITS_F);
 	if (c->mode != PF_MODE_HOLD || !c->pit_valid || c->setpoint_c <= 0 || fabs(c->pit_c - c->setpoint_c) > at_band) {
-		pf_events_emit("Autotune_Failed", "Autotune not started",
-		               "Hold near the set point first: the pit has to be within about 15 degrees of it.");
+		pf_events_emit("Autotune_Failed", "Autotune Not Started",
+		               "Pit must be within 15 degrees of the set point.");
 		return;
 	}
 	memset(&c->autotune, 0, sizeof c->autotune);
@@ -1815,8 +1815,8 @@ static void autotune_start(pf_control *c, double now)
 	else if (!isnan(measured)) { centre = measured; from = "the settled hold"; }
 	else {
 		c->autotune.active = false;
-		pf_events_emit("Autotune_Failed", "Autotune not started",
-		               "Hold at the set point for five minutes first, so the swing can start from what the grill actually needs there.");
+		pf_events_emit("Autotune_Failed", "Autotune Not Started",
+		               "Hold at the set point for 5 min first.");
 		return;
 	}
 	c->autotune.u_center = pf_clamp(centre, c->cfg.u_min + 0.05, c->cfg.u_max - 0.05);
@@ -1849,7 +1849,7 @@ static void autotune_start(pf_control *c, double now)
 	                  : (c->pit_rate_c_min > 0.2 ? -1 : c->pit_rate_c_min < -0.2 ? +1 : (e0 > 0 ? -1 : +1));
 	c->autotune.err_at_move = c->pit_c - c->setpoint_c;
 	c->autotune.peak_max = c->autotune.peak_min = c->pit_c;
-	pf_events_emit("Autotune_Started", "Autotune running", "The grill will oscillate a few degrees around %.0f for 15-40 minutes. Do not cook food during the test.", pf_from_c(c->setpoint_c, c->cfg.units));
+	pf_events_emit("Autotune_Started", "Autotune Running", "Oscillating around %.0f for 15-40 min. No food during the test.", pf_from_c(c->setpoint_c, c->cfg.units));
 	pf_cycle_begin(&c->cycle, &c->ccfg, now, autotune_output(c));
 	c->u_raw = c->u_applied = c->cycle.u_applied;
 }
@@ -2954,7 +2954,7 @@ bool pf_control_recover(pf_control *c, const char *json, double now)
 		cJSON_Delete(o);
 		pf_safety_set_error(c, "E08_POWER_LOSS", "Power was lost for %.0f min during a cook; not restarting", age / 60);
 		char msg[200];
-		snprintf(msg, sizeof msg, "Power was lost for %.0f minutes during a cook. The grill was not restarted: check the fire pot before lighting it again.", age / 60);
+		snprintf(msg, sizeof msg, "Power lost %.0f min during a cook. Not relit: inspect the fire pot before lighting.", age / 60);
 		event(PF_LVL_ERROR, "E08_POWER_LOSS", msg);
 		enter_mode(c, PF_MODE_ERROR, now);
 		return true;
@@ -2982,8 +2982,8 @@ bool pf_control_recover(pf_control *c, const char *json, double now)
 	c->restart_resumed = true;
 	{
 		char msg[240];
-		if (c->restart_reason[0]) snprintf(msg, sizeof msg, "%s; the grill restarted after %.0f s and is resuming %s.", c->restart_reason, age, pf_mode_name(c->safety.reignite_last));
-		else snprintf(msg, sizeof msg, "Power was lost for %.0f s during a cook. Relighting for %.0f s, then back to %s.", age, c->startup_duration_s, pf_mode_name(c->safety.reignite_last));
+		if (c->restart_reason[0]) snprintf(msg, sizeof msg, "%s · Down %.0f s · Relighting, then %s", c->restart_reason, age, pf_mode_name(c->safety.reignite_last));
+		else snprintf(msg, sizeof msg, "Power lost %.0f s · Relighting %.0f s, then %s", age, c->startup_duration_s, pf_mode_name(c->safety.reignite_last));
 		event(PF_LVL_WARN, "W12_POWER_LOSS", msg);
 	}
 	LOGW(TAG, "power loss of %.0f s: relighting for %.0f s, then %s", age, c->startup_duration_s, pf_mode_name(c->safety.reignite_last));
