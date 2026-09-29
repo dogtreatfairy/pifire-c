@@ -153,10 +153,28 @@ static int validate(cJSON *root, char *err, size_t errn)
 	double umin = pf_json_num(root, "cycle_data.u_min", 0.1), umax = pf_json_num(root, "cycle_data.u_max", 0.9);
 	CHECK(umin >= 0 && umin < umax && umax <= 1.0, "cycle_data.u_min/u_max must satisfy 0 <= u_min < u_max <= 1");
 	CHECK(pf_json_num(root, "cycle_data.HoldCycleTime", 25) >= 5, "cycle_data.HoldCycleTime must be >= 5 s");
+	/* The safety limits have ceilings as well as floors. A limit that can be set to anything is not
+	 * a limit: an overtemperature at 900 F, an auger allowed to run for ten minutes, or an igniter
+	 * left on for an hour is a grill with its protection switched off. */
+	bool c = !strcmp(units, "C");
 	double maxtemp = pf_json_num(root, "safety.maxtemp", 550);
-	CHECK(maxtemp > 100, "safety.maxtemp too low");
-	CHECK(pf_json_num(root, "safety.auger_max_on_s", 60) >= 5, "safety.auger_max_on_s must be >= 5");
-	CHECK(pf_json_num(root, "safety.igniter_max_on_s", 1200) >= 60, "safety.igniter_max_on_s must be >= 60");
+	CHECK(maxtemp > (c ? 65 : 150) && maxtemp <= (c ? 343 : 650), "safety.maxtemp must be between %s", c ? "66 and 343 C" : "151 and 650 F");
+	double aug = pf_json_num(root, "safety.auger_max_on_s", 60);
+	CHECK(aug >= 5 && aug <= 120, "safety.auger_max_on_s must be 5-120 s");
+	double ign = pf_json_num(root, "safety.igniter_max_on_s", 1200);
+	CHECK(ign >= 60 && ign <= 1800, "safety.igniter_max_on_s must be 60-1800 s");
+	double rr = pf_json_num(root, "safety.reigniteretries", 1);
+	CHECK(rr >= 0 && rr <= 3, "safety.reigniteretries must be 0-3");
+	double pf = pf_json_num(root, "safety.probe_fault_s", 10);
+	CHECK(pf >= 2 && pf <= 60, "safety.probe_fault_s must be 2-60 s");
+	double plm = pf_json_num(root, "safety.power_loss.max_s", 300);
+	CHECK(plm >= 0 && plm <= 900, "safety.power_loss.max_s must be 0-900 s");
+	double pli = pf_json_num(root, "safety.power_loss.igniter_s", 180);
+	CHECK(pli >= 60 && pli <= 600, "safety.power_loss.igniter_s must be 60-600 s");
+	double cst = pf_json_num(root, "safety.coldstart.timeout_s", 300);
+	CHECK(cst == 0 || (cst >= 60 && cst <= 1800), "safety.coldstart.timeout_s must be 60-1800 s");
+	double mo = pf_json_num(root, "safety.manual_override_time", 30);
+	CHECK(mo >= 5 && mo <= 600, "safety.manual_override_time must be 5-600 s");
 	CHECK(pf_json_num(root, "safety.coldstart.delta_rise", 12) > 0, "safety.coldstart.delta_rise must be > 0");
 	int port = pf_json_int(root, "web.port", 80);
 	CHECK(port > 0 && port < 65536, "web.port out of range");
@@ -795,7 +813,33 @@ int pf_settings_init(const char *path)
 
 	char err[256];
 	if (validate(g_root, err, sizeof err)) {
-		LOGW(TAG, "settings validation: %s (continuing with stored values)", err);
+		/* A file that fails validation -- edited by hand, restored from somewhere, written by an
+		 * older build -- does not get to run the grill with its protection outside the limits.
+		 * The safety group falls back to what ships, value by value, and the rest stands. */
+		LOGE(TAG, "settings validation: %s -- resetting out-of-range safety limits to defaults", err);
+		static const struct { const char *path; double f, c; } SAFE[] = {
+			{ "safety.maxtemp", 550, 288 }, { "safety.auger_max_on_s", 60, 60 }, { "safety.igniter_max_on_s", 1200, 1200 },
+			{ "safety.reigniteretries", 1, 1 }, { "safety.probe_fault_s", 10, 10 }, { "safety.power_loss.max_s", 300, 300 },
+			{ "safety.power_loss.igniter_s", 180, 180 }, { "safety.coldstart.timeout_s", 300, 300 }, { "safety.manual_override_time", 30, 30 },
+		};
+		bool celsius = !strcmp(pf_json_str(g_root, "globals.units", "F"), "C");
+		for (int pass = 0; pass < 12 && validate(g_root, err, sizeof err); pass++) {
+			bool fixed = false;
+			for (size_t i = 0; i < sizeof SAFE / sizeof SAFE[0] && !fixed; i++) {
+				if (!strstr(err, SAFE[i].path)) continue;
+				const char *leaf = strrchr(SAFE[i].path, '.') + 1;
+				char parent[64];
+				snprintf(parent, sizeof parent, "%.*s", (int)(leaf - 1 - SAFE[i].path), SAFE[i].path);
+				cJSON *pr = pf_json_path(g_root, parent);
+				if (!pr) break;
+				cJSON_DeleteItemFromObject(pr, leaf);
+				cJSON_AddNumberToObject(pr, leaf, celsius ? SAFE[i].c : SAFE[i].f);
+				LOGW(TAG, "%s reset to its default", SAFE[i].path);
+				fixed = true;
+				added = 1;
+			}
+			if (!fixed) break;   /* not a safety limit: reported above, left as it is */
+		}
 	}
 
 	pthread_mutex_lock(&g_mu);
