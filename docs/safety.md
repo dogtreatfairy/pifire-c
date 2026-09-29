@@ -17,7 +17,7 @@ Every relay write goes through one arbiter (`src/core/outputs.c`) guarded by a m
 |---|---|---|
 | Over-temperature, any mode | `safety.maxtemp` 550 °F | Error `E01_OVERTEMP`; auger/igniter off, fan runs `error_cooldown_fan_s` if the pit is hot |
 | Flame-out in Smoke/Hold | pit below the startup floor | Reignite (`reigniteretries`) then Error `E02_FLAMEOUT` |
-| Cold-start | off; `delta_rise` 12 °F within the startup duration | baseline = running minimum in the first 60 s; startup continues until the pit rises by the delta; timeout → retry, then `E04_STARTUP_FAILED`; with `coldstart.exit_on_rise` startup ends as soon as the rise is confirmed and the pit is above `minstartuptemp` (otherwise the full timer runs, or `startup_exit_temp` ends it); the flame-out floor becomes `max(baseline+delta, 0.9×exit temperature)` so a cold-weather start is not judged against a fixed 75 °F |
+| Smart Start (`safety.coldstart`) | on; `delta_rise` 12 °F within `timeout_s` 300 s | shown under Settings › Startup & Shutdown. Baseline = running minimum of the 30 s-filtered pit in the first 60 s; startup cannot finish until the pit is `delta_rise` above it; no rise by `timeout_s` from the start of startup → `E04_STARTUP_FAILED` straight away (no second light: an unlit pot is a pot full of pellets). Skipped for a hot grill (pit ≥ 140 °F or `startup_exit_temp`, whichever is higher), where a failing fire is the flame-out check's. The flame-out floor becomes `max(baseline+delta, 0.9×exit temperature)` |
 | Igniter cap | 20 min | igniter forced off, `W07_IGNITER_CAP` |
 | Auger cap | 60 s continuous | auger forced off (also applies in Manual), `W08_AUGER_CAP` |
 | Primary probe fault | 10 s without a valid reading while cooking | Error `E05_PROBE_FAULT` |

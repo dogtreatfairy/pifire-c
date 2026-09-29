@@ -24,23 +24,27 @@ const PAGES = [
      controller, its tuning, and the cycle the auger feeds on. None of it touches Smoke. */
   { key: 'controller', title: 'Hold Mode', sub: 'Controller, tuning, feed cycle', section: 'Cooking', icon: MODE_ICON.Hold, color: '#ff8a1f', custom: controllerPage },
   { key: 'probesetup', title: 'Probes', sub: 'Connect, name and assign profiles', section: 'Hardware', icon: 'thermometer', color: '#ff453a', custom: (v) => import('./probes.js').then((m) => m.renderProbes(v, { setup: true })) },
-  { key: 'probeprofiles', title: 'Probe Profiles', sub: 'Steinhart\u2013Hart curves you assign to probes', section: 'Hardware', icon: 'activity', color: '#ff9f0a', custom: (v) => import('./probes.js').then((m) => m.renderProbeProfiles(v)) },
+  { key: 'probeprofiles', title: 'Probe Profiles', sub: 'Steinhart\u2013Hart curves per probe', section: 'Hardware', icon: 'activity', color: '#ff9f0a', custom: (v) => import('./probes.js').then((m) => m.renderProbeProfiles(v)) },
   { key: 'hardware', title: 'Grill Hardware', sub: 'Board, pins, display, hopper sensor', section: 'Hardware', icon: 'cpu', color: '#64d2ff', custom: (v) => import('./more.js').then((m) => m.hardware(v)) },
   { key: 'startup', title: 'Startup & Shutdown', sub: 'Ignition, next mode, cool-down', section: 'Cooking', icon: MODE_ICON.Shutdown, color: '#30d158', sections: [
     { id: 'startup', title: 'Startup', fields: [
-      I('duration', 'Startup time (s)', 'Igniter and startup feed run for this long', { min: 60, max: 900 }),
-      T('startup_exit_temp', 'End startup early at', 'Leave startup as soon as the pit reaches this temperature (0 = wait for the timer)', { allowZero: true }),
-      { path: 'exit_rise', label: 'End startup after a rise of', help: 'Rise above the starting temperature that proves the fire is lit (0 = off)', type: 'tempdelta' },
-      B('start_to_mode.ask', 'Ask when starting', 'Start asks Smoke or Hold and the temperature. Off: it goes straight into the default below'),
-      S('start_to_mode.after_startup_mode', 'Default mode', 'What Start lights into when it does not ask, and the highlighted choice when it does', [['Smoke', 'Smoke'], ['Hold', 'Hold']]),
-      T('start_to_mode.primary_setpoint', 'Default hold temperature', 'Offered when Hold is chosen; used outright when Start does not ask'),
-      I('prime_on_startup', 'Prime before startup (g)', 'Pellets pushed into the pot before igniting (0 = off)', { min: 0 }),
+      I('duration', 'Startup time (s)', 'Igniter and startup feed duration', { min: 60, max: 900 }),
+      /* Smart Start: the pit must rise, or startup stops in error. Stored under safety. */
+      { ...B('coldstart.enabled', 'Smart Start', 'Error if the pit does not rise in time'), group: 'safety' },
+      { path: 'coldstart.delta_rise', label: 'Smart Start rise', help: 'Above the lowest reading in the first minute', type: 'tempdelta', group: 'safety' },
+      { ...I('coldstart.timeout_s', 'Smart Start timeout (s)', 'No rise in this time: error', { min: 60, max: 1800 }), group: 'safety' },
+      T('startup_exit_temp', 'End startup early at', 'Exit startup at this pit temperature (0 = timer only)', { allowZero: true }),
+      { path: 'exit_rise', label: 'End startup after a rise of', help: 'Rise above starting temperature that confirms ignition (0 = off)', type: 'tempdelta' },
+      B('start_to_mode.ask', 'Ask when starting', 'Start prompts for mode and temperature. Off: uses the defaults below'),
+      S('start_to_mode.after_startup_mode', 'Default mode', 'Mode after startup; preselected when Start prompts', [['Smoke', 'Smoke'], ['Hold', 'Hold']]),
+      T('start_to_mode.primary_setpoint', 'Default hold temperature', 'Preset for Hold; used directly when Start does not prompt'),
+      I('prime_on_startup', 'Prime before startup (g)', 'Pellets fed to the pot before ignition (0 = off)', { min: 0 }),
       I('pwm_duty_cycle', 'Fan speed during startup (%)', 'DC fan only', { min: 10, max: 100 }),
-      B('smartstart.enabled', 'Smart Start', 'Choose the startup profile from how warm the pit already is'),
-      T('smartstart.exit_temp', 'Smart Start exit temperature', ''),
+      B('smartstart.enabled', 'Startup profiles', 'Startup time and feed by initial pit temperature'),
+      T('smartstart.exit_temp', 'Startup profile exit temperature', ''),
     ] },
     { id: 'shutdown', title: 'Shutdown', fields: [
-      I('shutdown_duration', 'Cool-down fan time (s)', 'The fan keeps running this long after the auger stops', { min: 30 }),
+      I('shutdown_duration', 'Cool-down fan time (s)', 'Fan run time after the auger stops', { min: 30 }),
       B('auto_power_off', 'Power off the Pi after shutdown', ''),
     ] },
   ] },
@@ -48,12 +52,12 @@ const PAGES = [
      live here rather than beside settings that only affect Hold. */
   { key: 'smoke', title: 'Smoke Mode', sub: 'P-mode, auger cycle, Smoke+', section: 'Cooking', icon: MODE_ICON.Smoke, color: '#8e8e93', sections: [
     { id: 'cycle_data', title: 'Auger Cycle', fields: [
-      I('PMode', 'P-mode', 'Higher = longer pauses = fewer pellets and more smoke (0–9)', { min: 0, max: 9 }),
+      I('PMode', 'P-mode', 'Higher = longer pauses, less feed, more smoke (0–9)', { min: 0, max: 9 }),
       I('SmokeOnCycleTime', 'Auger on (s)', 'Auger run time per cycle in Smoke and during startup', { min: 1 }),
       I('SmokeOffCycleTime', 'Auger off (s)', 'Base pause between runs; each P-mode level adds 10 s', { min: 1 }),
     ] },
     { id: 'smoke_plus', title: 'Smoke+', fields: [
-    S('enabled', 'Default smoke mode', 'Which mode Smoke starts in; switch any time from the Home screen', [['false', 'Smoke'], ['true', 'Smoke+']], true),
+    S('enabled', 'Default smoke mode', 'Initial Smoke mode; switchable from Home', [['false', 'Smoke'], ['true', 'Smoke+']], true),
     T('min_temp', 'Smoke+ works above', 'Below this the fan stays on continuously'),
     T('max_temp', 'Smoke+ works below', 'Above this the fan stays on continuously'),
     I('on_time', 'Fan on (s)', '', { min: 1 }), I('off_time', 'Fan off (s)', '', { min: 1 }),
@@ -61,57 +65,51 @@ const PAGES = [
     ] },
   ] },
   { key: 'fan', title: 'DC Fan', sub: 'PWM speed control', section: 'Hardware', icon: 'fan', color: '#64d2ff', dc: true, sections: [{ id: 'pwm', fields: [
-    B('pwm_control', 'Vary fan speed with temperature', 'Default for new cooks; can be changed while cooking'),
+    B('pwm_control', 'Vary fan speed with temperature', 'Default for new cooks; adjustable while cooking'),
     I('frequency', 'PWM frequency (Hz)', '25 000 Hz for 4-wire PC fans', { min: 100, max: 100000 }),
     I('min_duty_cycle', 'Minimum fan speed (%)', 'Some fans stall below this', { min: 0, max: 100 }),
     I('max_duty_cycle', 'Maximum fan speed (%)', '', { min: 10, max: 100 }),
     I('update_time', 'Speed update interval (s)', '', { min: 1 }),
   ] }] },
   { key: 'safety', title: 'Temperature Limits', sub: 'High-temp cutoff, flame-out', section: 'Safety', icon: 'shield-check', color: '#ff453a', sections: [{ id: 'safety', fields: [
-    T('maxtemp', 'High-temperature cutoff', 'Above this in any mode everything shuts off and the grill goes to Error'),
-    B('relight_enabled', 'Flame-out protection', 'Relights the igniter if the pit falls away while holding'),
-    { path: 'relight_drop', label: 'Drop that triggers it', help: 'How far below the set point the pit must fall', type: 'tempdelta' },
-    { path: 'relight_recover', label: 'Rise that ends it', help: 'Rise from the low point before the igniter goes off', type: 'tempdelta' },
-    { path: 'relight_recover_step', label: 'Rise that ends it, coasting down', help: 'After a set-point drop the fire was starved, not lost', type: 'tempdelta' },
-    I('relight_timeout_s', 'Give up after (s)', 'If the pit has not climbed back by then, it is treated as a flame-out', { min: 60 }),
-    B('startup_check', 'Flame-out detection', 'Watch for the pit dropping below the flame-out floor in Smoke and Hold'),
+    T('maxtemp', 'High-temperature cutoff', 'Any mode: all outputs off, grill to Error'),
+    B('relight_enabled', 'Flame-out protection', 'Relights the igniter on a pit drop in Hold'),
+    { path: 'relight_drop', label: 'Drop that triggers it', help: 'Drop below set point', type: 'tempdelta' },
+    { path: 'relight_recover', label: 'Rise that ends it', help: 'Rise from the low point that ends relighting', type: 'tempdelta' },
+    { path: 'relight_recover_step', label: 'Rise that ends it, coasting down', help: 'Used after a set-point decrease', type: 'tempdelta' },
+    I('relight_timeout_s', 'Give up after (s)', 'No recovery by then = flame-out', { min: 60 }),
+    B('startup_check', 'Flame-out detection', 'Pit below the flame-out floor in Smoke and Hold'),
     T('minstartuptemp', 'Flame-out floor (minimum)', 'Lowest floor used after a normal startup'),
     T('maxstartuptemp', 'Flame-out floor (maximum)', ''),
-    I('reigniteretries', 'Re-ignite attempts', 'Tries to re-light after a flame-out before going to Error', { min: 0, max: 5 }),
+    I('reigniteretries', 'Re-ignite attempts', 'Relight attempts before Error', { min: 0, max: 5 }),
     I('probe_fault_s', 'Pit probe timeout (s)', 'Seconds without a valid pit reading before Error', { min: 3 }),
-    I('error_cooldown_fan_s', 'Fan run after an error (s)', 'Cools the pot when the grill errors while hot', { min: 0 }),
+    I('error_cooldown_fan_s', 'Fan run after an error (s)', 'Cools the pot after an error while hot', { min: 0 }),
   ] }] },
-  { key: 'powerloss', title: 'Power Loss', sub: 'Pick a cook back up after an outage', section: 'Safety', icon: 'zap', color: '#ff9f0a', sections: [{ id: 'safety', title: '', fields: [
-    B('power_loss.recovery', 'Recover after a power loss', 'Relight and carry on with the cook if the power comes back in time'),
-    I('power_loss.max_s', 'Longest outage to recover from (s)', 'Out longer than this and the grill goes to Error rather than lighting a pot nobody has checked', { min: 30, max: 3600 }),
-    I('power_loss.igniter_s', 'Relight for (s)', 'How long the igniter runs before the cook resumes', { min: 30, max: 900 }),
-  ] }] },
-  { key: 'coldstart', title: 'Cold-Weather Start', sub: 'Confirm ignition by temperature rise', section: 'Safety', icon: 'snowflake', color: '#5ac8fa', sections: [{ id: 'safety', fields: [
-    B('coldstart.enabled', 'Cold-weather start', 'Stay in startup until the pit rises from its cold baseline'),
-    { path: 'coldstart.delta_rise', label: 'Rise that confirms ignition', help: 'Above the baseline measured in the first minute', type: 'tempdelta' },
-    I('coldstart.timeout_s', 'Give up after (s)', '0 = same as the startup time', { min: 0 }),
-    B('coldstart.exit_on_rise', 'End startup once the rise is confirmed', 'Otherwise the full startup time runs'),
+  { key: 'powerloss', title: 'Power Loss', sub: 'Cook recovery after an outage', section: 'Safety', icon: 'zap', color: '#ff9f0a', sections: [{ id: 'safety', title: '', fields: [
+    B('power_loss.recovery', 'Recover after a power loss', 'Relight and resume if power returns in time'),
+    I('power_loss.max_s', 'Longest outage to recover from (s)', 'Longer outages go to Error instead of relighting', { min: 30, max: 3600 }),
+    I('power_loss.igniter_s', 'Relight for (s)', 'Igniter run time before resuming', { min: 30, max: 900 }),
   ] }] },
   { key: 'limits', title: 'Output Limits & Manual Control', sub: 'Igniter and auger caps, overrides', section: 'Safety', icon: 'zap', color: '#ff9f0a', sections: [{ id: 'safety', fields: [
-    I('igniter_max_on_s', 'Igniter maximum on time (s)', 'The igniter is forced off after this', { min: 60 }),
+    I('igniter_max_on_s', 'Igniter maximum on time (s)', 'Igniter forced off after this', { min: 60 }),
     I('auger_max_on_s', 'Auger maximum continuous run (s)', 'Absolute cap, regardless of controller or manual control', { min: 5 }),
-    B('allow_manual_changes', 'Allow manual outputs while cooking', 'Temporarily override outputs from More → Manual outputs'),
+    B('allow_manual_changes', 'Allow manual outputs while cooking', 'Override outputs from More → Manual Outputs'),
     I('manual_override_time', 'Manual override lasts (s)', '', { min: 5 }),
   ] }] },
   // ---- Cook
   { key: 'misc', title: 'Misc', sub: 'Auger rate, lid-open detection, rest-to targets, keep warm', section: 'Cooking', icon: 'sliders-horizontal', color: '#8e8e93', sections: [
-    { id: 'globals', title: 'Auger', fields: [N('augerrate', 'Auger rate (g/s)', 'Pellets delivered per second of auger run; used for priming and usage estimates', { step: 0.01, min: 0.01 })] },
-    { id: 'cycle_data', title: 'Lid-open detection', fields: [
-    B('LidOpenDetectEnabled', 'Detect an open lid', 'A sudden temperature drop pauses the auger so the pot does not overfill'),
+    { id: 'globals', title: 'Auger', fields: [N('augerrate', 'Auger rate (g/s)', 'Pellets per second of auger run; for priming and usage estimates', { step: 0.01, min: 0.01 })] },
+    { id: 'cycle_data', title: 'Lid-Open Detection', fields: [
+    B('LidOpenDetectEnabled', 'Detect an open lid', 'Sudden temperature drop pauses the auger'),
     I('LidOpenThreshold', 'Drop that counts as open (%)', 'Percentage below the set point', { min: 1, max: 50 }),
     I('LidOpenPauseTime', 'Pause length (s)', '', { min: 10 }),
   ] },
-    { id: 'notify', title: 'Rest-to targets', fields: [{ path: 'rest_margin', label: 'Aim above the rest', help: 'A rest-to target comes off aiming this far over, so the rested temperature lands on it', type: 'tempdelta' }] },
-    { id: 'keep_warm', title: 'Keep warm', fields: [T('temp', 'Keep-warm temperature', 'After a probe reaches its target with Keep warm chosen'), B('s_plus', 'Use Smoke+ while keeping warm', '')] },
+    { id: 'notify', title: 'Rest-To Targets', fields: [{ path: 'rest_margin', label: 'Rest-to offset', help: 'Added to rest-to targets so the rested temperature lands on target', type: 'tempdelta' }] },
+    { id: 'keep_warm', title: 'Keep Warm', fields: [T('temp', 'Keep-warm temperature', 'When a Keep Warm probe reaches target'), B('s_plus', 'Use Smoke+ while keeping warm', '')] },
   ] },
   { key: 'pellets', title: 'Pellets & Hopper', sub: 'Loaded pellets, brands, hopper sensor', section: 'Cooking', icon: 'package', color: '#ac8e68', custom: pelletsPage },
   { key: 'history', title: 'Data & History', sub: 'Chart sampling and retention', section: 'System', icon: 'database', color: '#5e5ce6', sections: [{ id: 'history', fields: [
-    I('sample_s', 'Sample every (s)', '', { min: 1, max: 60 }), I('retention_hours', 'Keep for (hours)', '', { min: 1 }), B('clear_on_startup', 'Clear the chart when a cook starts', ''),
+    I('sample_s', 'Sample every (s)', '', { min: 1, max: 60 }), I('retention_hours', 'Keep for (hours)', '', { min: 1 }), B('clear_on_startup', 'Clear chart at cook start', ''),
   ] }] },
   // ---- Connectivity
   /* What to say, and when. The services below decide where it goes. */
@@ -122,44 +120,44 @@ const PAGES = [
      nowhere near a phone at all. */
   { key: 'services', title: 'Notification Services', sub: 'Delivery targets', section: 'Notifications', icon: 'bell', color: '#ff453a', sections: [
     { id: 'notify', title: 'This Device', sub: 'Browser push, this device', icon: 'smartphone', color: '#0a84ff', collapsible: 'webpush.enabled', state: browserState, fields: [
-      { type: 'note', help: 'This browser only, and it works with PiFire closed. iPhone: add to the Home Screen and subscribe from there.' },
+      { type: 'note', help: 'This browser only; works with PiFire closed. iPhone: requires Home Screen app.' },
       { type: 'pushstate' },
-      { type: 'action', label: 'Allow notifications on this device', endpoint: '', client: 'alerts' },
-      { type: 'action', label: 'Show a test notification', endpoint: '', client: 'alerttest' },
+      { type: 'action', label: 'Notification permission', endpoint: '', client: 'alerts' },
+      { type: 'action', label: 'Local test', endpoint: '', client: 'alerttest' },
       /* The one above asks the browser to draw a notification locally, which proves the permission
          and nothing else. This one goes out through the push service and back to the device, which
          is the path that matters and the path that was silently failing. */
-      { type: 'action', label: 'Send a push to this device', endpoint: '/notify/test/webpush' },
+      { type: 'action', label: 'Push test', endpoint: '/notify/test/webpush' },
       /* Apple refuses a push whose sender gives no valid contact -- 403, every time, silently --
          and it is the one push service that checks. Blank uses the project's address. */
-      X('webpush.contact', 'Contact for the push service', 'A mailto: or https: URI, required by the push standard. Apple rejects anything else. Blank uses the project address'),
+      X('webpush.contact', 'Push contact', 'mailto: or https: URI (required by Apple). Blank = project address'),
       B('webpush.targets', 'Targets & timers', ''), B('webpush.alarms', 'Alarms & errors', ''), B('webpush.pellets', 'Pellets low', ''), B('webpush.tuning', 'Tuning runs', ''), B('webpush.system', 'Other system notices', ''),
     ] },
     { id: 'notify', title: 'Pushover', sub: 'Phone push, priorities and sounds', brand: 'pushover', collapsible: 'pushover.enabled', fields: [
-      { type: 'note', help: 'Pushover app ($5 once). User key from the app, application token from pushover.net/apps/build.' },
-      B('pushover.enabled', 'Pushover', 'Send notifications to the Pushover app'),
+      { type: 'note', help: 'User key from the Pushover app; application token from pushover.net/apps/build.' },
+      B('pushover.enabled', 'Pushover', 'Send to Pushover'),
       X('pushover.user_key', 'User key', 'Shown at the top of the Pushover app'), { path: 'pushover.app_token', label: 'Application token', type: 'password' },
       S('pushover.priority', 'Priority', 'For targets, timers and pellets', [[-1, 'Quiet (no sound)'], [0, 'Normal'], [1, 'High (bypasses quiet hours)']]),
       S('pushover.alarm_priority', 'Alarm priority', 'For limit alarms and grill errors', [[0, 'Normal'], [1, 'High'], [2, 'Emergency (repeats until acknowledged)']]),
-      X('pushover.sound', 'Sound', 'Blank = your default; e.g. cosmic, bike, siren'),
-      B('pushover.targets', 'Targets & timers', 'Target reached, the predictive warning, cook timer, recipe steps'), B('pushover.alarms', 'Alarms & errors', 'Probe limit alarms, flame-out, over-temperature'), B('pushover.pellets', 'Pellets low', ''), B('pushover.tuning', 'Tuning runs', 'Started, finished, or gave up; a run takes hours unattended'), B('pushover.system', 'Other system notices', ''),
-      { type: 'action', label: 'Send a test notification', endpoint: '/notify/test/pushover' },
+      X('pushover.sound', 'Sound', 'Blank = app default; e.g. cosmic, bike, siren'),
+      B('pushover.targets', 'Targets & timers', 'Target reached, the predictive warning, cook timer, recipe steps'), B('pushover.alarms', 'Alarms & errors', 'Probe limit alarms, flame-out, over-temperature'), B('pushover.pellets', 'Pellets low', ''), B('pushover.tuning', 'Tuning runs', 'Started, finished or aborted'), B('pushover.system', 'Other system notices', ''),
+      { type: 'action', label: 'Test notification', endpoint: '/notify/test/pushover' },
     ] },
     { id: 'notify', title: 'ntfy', sub: 'Free push over a topic', brand: 'ntfy', collapsible: 'ntfy.enabled', fields: [
-      { type: 'note', help: 'Free. Subscribe to a private topic in the ntfy app, then enter it here.' },
-      B('ntfy.enabled', 'ntfy', ''), X('ntfy.server', 'Server', 'https://ntfy.sh or your own'), X('ntfy.topic', 'Topic', 'Pick something nobody would guess'), { path: 'ntfy.token', label: 'Access token', help: 'Only for protected topics', type: 'password' },
-      B('ntfy.targets', 'Targets & timers', ''), B('ntfy.alarms', 'Alarms & errors', ''), B('ntfy.pellets', 'Pellets low', ''), B('ntfy.tuning', 'Tuning runs', 'Started, finished, or gave up'), B('ntfy.system', 'Other system notices', ''),
-      { type: 'action', label: 'Send a test notification', endpoint: '/notify/test/ntfy' },
+      { type: 'note', help: 'Subscribe to a private topic in the ntfy app and enter it here.' },
+      B('ntfy.enabled', 'ntfy', ''), X('ntfy.server', 'Server', 'https://ntfy.sh or self-hosted'), X('ntfy.topic', 'Topic', 'Use an unguessable name'), { path: 'ntfy.token', label: 'Access token', help: 'Only for protected topics', type: 'password' },
+      B('ntfy.targets', 'Targets & timers', ''), B('ntfy.alarms', 'Alarms & errors', ''), B('ntfy.pellets', 'Pellets low', ''), B('ntfy.tuning', 'Tuning runs', 'Started, finished or aborted'), B('ntfy.system', 'Other system notices', ''),
+      { type: 'action', label: 'Test notification', endpoint: '/notify/test/ntfy' },
     ] },
     { id: 'notify', title: 'Home Assistant', sub: 'MQTT with autodiscovery', brand: 'homeassistant', collapsible: 'mqtt.enabled', fields: [
-      { type: 'note', help: 'Publishes to MQTT with Home Assistant discovery. The grill and every probe appear as entities.' },
-      B('mqtt.enabled', 'MQTT', 'Publish state to a broker, with Home Assistant discovery'),
+      { type: 'note', help: 'MQTT with Home Assistant discovery. Grill and probes appear as entities.' },
+      B('mqtt.enabled', 'MQTT', 'Publish state to a broker'),
       X('mqtt.broker', 'Broker host', ''), I('mqtt.port', 'Broker port', '', { min: 1, max: 65535 }),
       X('mqtt.username', 'Username', ''), { path: 'mqtt.password', label: 'Password', type: 'password' },
       X('mqtt.id', 'Device ID', 'Topic prefix'), I('mqtt.update_sec', 'Publish every (s)', '', { min: 5 }),
     ] },
     { id: 'notify', title: 'Webhook', sub: 'POST events as JSON', icon: 'webhook', color: '#8e8e93', collapsible: 'webhook.enabled', fields: [
-      { type: 'note', help: 'POSTs every event as JSON. For anything not listed above.' },
+      { type: 'note', help: 'POSTs every event as JSON.' },
       B('webhook.enabled', 'Webhook', 'POST events as JSON to a URL'), X('webhook.url', 'Webhook URL', ''),
     ] },
   ] },
@@ -168,8 +166,8 @@ const PAGES = [
   { key: 'webserver', title: 'Web Server', sub: 'Port', section: 'Network', icon: 'network', color: '#8e8e93', sections: [{ id: 'web', fields: [I('port', 'Port', 'Restart required', { min: 1, max: 65535 })] }] },
   // ---- System
   { key: 'general', title: 'General', sub: 'Name, units', section: 'System', icon: 'settings-2', color: '#8e8e93', sections: [{ id: 'globals', fields: [
-    X('grill_name', 'Grill name', 'Shown in the header and in notifications'),
-    S('units', 'Temperature units', 'All temperature settings convert automatically', [['F', 'Fahrenheit'], ['C', 'Celsius']]),
+    X('grill_name', 'Grill name', 'Header and notifications'),
+    S('units', 'Temperature units', 'Temperature settings convert automatically', [['F', 'Fahrenheit'], ['C', 'Celsius']]),
     B('prime_ignition', 'Igniter on while priming', ''),
     B('debug_mode', 'Debug logging', ''),
   ] }] },
@@ -177,7 +175,7 @@ const PAGES = [
     S('theme', 'Theme', '', [['dark', 'Dark'], ['light', 'Light'], ['auto', 'Follow system']]),
     B('show_recipes', 'Show recipes', 'Recipe programs on the Cook page'),
   ] }] },
-  { key: 'backup', title: 'Backup', sub: 'Settings, tuning, recipes and cooks, off the grill', section: 'System', icon: 'archive', color: '#30d158', custom: (v) => import('./backup.js').then((m) => m.renderBackup(v)) },
+  { key: 'backup', title: 'Backup', sub: 'Settings, tuning, recipes, cook files', section: 'System', icon: 'archive', color: '#30d158', custom: (v) => import('./backup.js').then((m) => m.renderBackup(v)) },
   { key: 'updates', title: 'Software Updates', sub: 'PiFire and system packages', section: 'System', icon: 'refresh-cw', color: '#0a84ff', before: (v) => import('./updates.js').then((m) => m.renderUpdates(v)), sections: [
     /* One form for the page. The update source is not here: it is part of what PiFire installs
        from, so it sits in the PiFire list above, beside the branch and the release. */
@@ -257,24 +255,24 @@ export function fieldInput(f, value) {
     const refresh = async () => {
       try {
         const info = await api('/push');
-        if (!info.available) { state.textContent = 'This build of PiFire cannot do web push.'; btn.disabled = true; return; }
+        if (!info.available) { state.textContent = 'Web push not supported by this build.'; btn.disabled = true; return; }
         const reg = await navigator.serviceWorker?.getRegistration();
         const sub = await reg?.pushManager?.getSubscription();
         state.textContent = sub
-          ? `This device is subscribed. The grill can reach it with the app closed. ${info.devices} device${info.devices === 1 ? '' : 's'} subscribed in total.`
-          : 'Not subscribed yet. Allow notifications above, then subscribe.';
+          ? `Subscribed. ${info.devices} device${info.devices === 1 ? '' : 's'} total.`
+          : 'Not subscribed. Allow notifications first.';
         btn.textContent = sub ? 'Re-subscribe' : 'Subscribe';
-      } catch { state.textContent = 'Could not check with the grill.'; }
+      } catch { state.textContent = 'Status unavailable.'; }
     };
     btn.onclick = async () => {
       const sup = alertSupport();
       if (!sup.ok) { toast(sup.why, true); return; }
       const sub = await ensurePushSubscription();
-      toast(sub ? 'This device is subscribed' : 'Could not subscribe', !sub);
+      toast(sub ? 'Subscribed' : 'Subscribe failed', !sub);
       refresh();
     };
     refresh();
-    return el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'Reach this device with the app closed'), state), btn);
+    return el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'Background push'), state), btn);
   }
   if (f.client === 'alerts') {
     /* Asking the browser for permission has to happen from a tap, so it lives here rather than
@@ -283,7 +281,7 @@ export function fieldInput(f, value) {
     const btn = el('button', { class: 'btn sm', type: 'button' }, 'Allow');
     const refresh = () => {
       const sup = alertSupport();
-      state.textContent = sup.ok ? 'Allowed on this device.' : sup.why;
+      state.textContent = sup.ok ? 'Allowed.' : sup.why;
       btn.disabled = sup.ok || (typeof Notification !== 'undefined' && Notification.permission === 'denied');
       btn.textContent = sup.ok ? 'Allowed' : 'Allow';
     };
@@ -292,28 +290,28 @@ export function fieldInput(f, value) {
     return el('div', { class: 'field inline' }, el('div', {}, el('label', {}, f.label), state), btn);
   }
   if (f.client === 'alerttest') {
-    const state = el('div', { class: 'help' }, 'Appears on this device only. Leave the app, or lock the phone, before tapping.');
-    const btn = el('button', { class: 'btn sm', type: 'button' }, 'Show one');
+    const state = el('div', { class: 'help' }, 'This device only. Shows while the app is in the background.');
+    const btn = el('button', { class: 'btn sm', type: 'button' }, 'Test');
     btn.onclick = async () => {
       const sup = alertSupport();
       if (!sup.ok) { toast(sup.why, true); return; }
       /* a notification only shows while the page is hidden, which is the case worth testing, so
          give the tester a few seconds to put the app in the background */
-      state.textContent = 'In 5 seconds. Put the app in the background now.';
+      state.textContent = 'Sending in 5 s. Background the app.';
       setTimeout(async () => {
-        await showSystemNotification({ title: 'PiFire', body: 'This is what an alert looks like.', code: 'Test_Notify' });
-        state.textContent = 'Sent. If nothing appeared, check PiFire in your phone notification settings.';
+        await showSystemNotification({ title: 'PiFire', body: 'Test notification.', code: 'Test_Notify' });
+        state.textContent = 'Sent. If not shown, check phone notification settings.';
       }, 5000);
     };
     return el('div', { class: 'field inline' }, el('div', {}, el('label', {}, f.label), state), btn);
   }
   if (f.type === 'action') return el('div', { class: 'field inline' }, el('div', {}, el('label', {}, f.label), f.help ? el('div', { class: 'help' }, f.help) : null),
-    el('button', { class: 'btn sm', type: 'button', onclick: async (e) => { const b = e.currentTarget; b.disabled = true; try { await api(f.endpoint, { body: {} }); toast('Sent — check your phone'); } catch (err) { toast(err.message, true); } b.disabled = false; } }, 'Send test'));
+    el('button', { class: 'btn sm', type: 'button', onclick: async (e) => { const b = e.currentTarget; b.disabled = true; try { await api(f.endpoint, { body: {} }); toast('Test Sent'); } catch (err) { toast(err.message, true); } b.disabled = false; } }, 'Send Test'));
   if (f.type === 'weather') {
     const box = el('div', { class: 'kv', style: 'margin-top:6px' });
-    const load = async () => { try { const w = await api('/weather'); box.innerHTML = ''; const rows = w.valid ? [['Location', w.place], ['Outdoor', `${PF.units === 'C' ? w.temp_c.toFixed(1) + ' °C' : (w.temp_c * 9 / 5 + 32).toFixed(0) + ' °F'}`], ['Wind', `${w.wind_kmh} km/h (gusts ${w.gust_kmh})`], ['Humidity', `${w.humidity}%`], ['Updated', `${Math.round(w.age_s / 60)} min ago`]] : [['Status', w.error || (w.enabled ? 'waiting for the first fetch…' : 'off')]]; for (const [k, v] of rows) box.append(el('div', {}, k), el('div', {}, v)); } catch { /* ignore */ } };
+    const load = async () => { try { const w = await api('/weather'); box.innerHTML = ''; const rows = w.valid ? [['Location', w.place], ['Outdoor', `${PF.units === 'C' ? w.temp_c.toFixed(1) + ' °C' : (w.temp_c * 9 / 5 + 32).toFixed(0) + ' °F'}`], ['Wind', `${w.wind_kmh} km/h (gusts ${w.gust_kmh})`], ['Humidity', `${w.humidity}%`], ['Updated', `${Math.round(w.age_s / 60)} min ago`]] : [['Status', w.error || (w.enabled ? 'awaiting first fetch…' : 'off')]]; for (const [k, v] of rows) box.append(el('div', {}, k), el('div', {}, v)); } catch { /* ignore */ } };
     load();
-    return el('div', {}, box, el('button', { class: 'btn sm ghost', type: 'button', style: 'margin-top:6px', onclick: async () => { try { await api('/weather/refresh', { body: {} }); toast('Refreshing…'); setTimeout(load, 4000); } catch (err) { toast(err.message, true); } } }, 'Refresh now'));
+    return el('div', {}, box, el('button', { class: 'btn sm ghost', type: 'button', style: 'margin-top:6px', onclick: async () => { try { await api('/weather/refresh', { body: {} }); toast('Refreshing…'); setTimeout(load, 4000); } catch (err) { toast(err.message, true); } } }, 'Refresh'));
   }
   const id = 'f_' + f.path.replace(/\W/g, '_') + '_' + Math.random().toString(36).slice(2, 6);
   if (f.type === 'days') {
@@ -347,7 +345,9 @@ export function fieldInput(f, value) {
     return el('label', { class: 'toggle', for: id }, el('div', {}, el('div', {}, f.label), f.help ? el('div', { class: 'help' }, f.help) : null), el('span', { class: 'switch' }, input, el('span')));
   }
   /* a time of day sits at the right of its own row, as a time does in iOS Settings */
-  const cls = f.type === 'time' || f.compact ? 'field inline time' : 'field inline';
+  /* a number, a temperature or a time of day sits at the right of its own row, as in iOS Settings */
+  const compact = f.type === 'time' || f.compact || ['num', 'int', 'temp', 'tempdelta'].includes(f.type);
+  const cls = compact ? 'field inline time' : 'field inline';
   return el('div', { class: cls }, el('div', {}, el('label', { for: id }, f.label + unit), f.help ? el('div', { class: 'help' }, f.help) : null), input);
 }
 
@@ -358,10 +358,10 @@ export function readField(f, form) {
   if (f.type === 'bool') return input.checked;
   if (f.type === 'select') return f.bool ? input.value === 'true' : (f.options?.every(([v]) => typeof v === 'number') ? Number(input.value) : input.value);
   if (f.type === 'text' || f.type === 'password') return input.value;
-  if (f.type === 'time') { if (!/^\d{2}:\d{2}$/.test(input.value)) throw new Error(`${f.label}: pick a time`); return input.value; }
+  if (f.type === 'time') { if (!/^\d{2}:\d{2}$/.test(input.value)) throw new Error(`${f.label}: time required`); return input.value; }
   if (f.type === 'days') return JSON.parse(input.value || '[]');
   const v = parseFloat(String(input.value).replace(',', '.'));
-  if (Number.isNaN(v)) throw new Error(`${f.label}: enter a number`);
+  if (Number.isNaN(v)) throw new Error(`${f.label}: number required`);
   if (f.min != null && v < f.min) throw new Error(`${f.label}: minimum is ${f.min}`);
   if (f.max != null && v > f.max) throw new Error(`${f.label}: maximum is ${f.max}`);
   return f.type === 'int' ? Math.round(v) : v;
@@ -377,12 +377,23 @@ function pageCard(pg) {
     const data = PF.settings[sec.id] || {};
     const form = el('form', { onsubmit: async (e) => {
       e.preventDefault();
-      const patch = {};
-      try { for (const f of sec.fields) { const v = readField(f, form); if (v !== undefined) setDeep(patch, f.path, v); } }
-      catch (err) { toast(err.message, true); return; }
+      /* A field may belong to another settings group (`group`): one form on screen, one Save, and
+         each group patched with its own part. Smart Start is stored under safety and shown with
+         the rest of startup, where it is used. */
+      const patches = { [sec.id]: {} };
+      try {
+        for (const f of sec.fields) {
+          const v = readField(f, form);
+          if (v === undefined) continue;
+          const g = f.group || sec.id;
+          setDeep(patches[g] ||= {}, f.path, v);
+        }
+      } catch (err) { toast(err.message, true); return; }
+      const patch = patches[sec.id];
       const btn = form.querySelector('button[type=submit]');
       if (btn) btn.disabled = true;
       try {
+        for (const [g, p] of Object.entries(patches)) if (g !== sec.id && Object.keys(p).length) await patchSettings(g, p);
         await patchSettings(sec.id, patch);
         toast('Saved');
         if (sec.id === 'globals' && 'units' in patch) location.reload();
@@ -395,7 +406,7 @@ function pageCard(pg) {
       if (btn) btn.disabled = false;
     } });
     const card = el('div', { class: 'card' });
-    for (const f of sec.fields) card.append(fieldInput(f, f.path ? get(data, f.path) : undefined));
+    for (const f of sec.fields) card.append(fieldInput(f, f.path ? get(f.group ? (PF.settings[f.group] || {}) : data, f.path) : undefined));
     /* a section of notes and device-side buttons has nothing to store, so it has nothing to save */
     if (sec.fields.some((f) => f.path)) card.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'submit' }, 'Save')));
     if (sec.collapsible) {
@@ -468,14 +479,14 @@ async function controllerCard(tuned, onClear) {
     if (tuned) {
       card.append(
         el('p', { class: 'help' },
-          'Measured values are running. Clear the autotune to type your own.'),
+          'Measured values active. Clear Autotune to edit.'),
         el('div', { class: 'form-actions' }, el('button', { class: 'btn sm ghost', type: 'button', onclick: onClear }, 'Clear Autotune')));
     } else {
       for (const o of c.config) {
         const f = { path: o.option_name, label: o.option_friendly_name, help: o.option_description, type: o.option_type === 'bool' ? 'bool' : o.units === 'temp_delta' ? 'tempdelta' : 'num' };
         card.append(fieldInput(f, cfg[o.option_name] ?? o.option_default));
       }
-      card.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'submit' }, 'Save controller')));
+      card.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'submit' }, 'Save Controller')));
     }
     form.append(el('h2', {}, 'Controller'), card);
     wrap.append(form);
@@ -490,21 +501,21 @@ async function controllerCard(tuned, onClear) {
    you can open looks like the rows you tap, rather than a bordered box sitting on top of them. */
 
 const holdCycleFields = [
-  I('HoldCycleTime', 'Control cycle (s)', 'One auger cycle while holding. Shorter corrects sooner, feeds less per pulse. Smoke has its own timings.', { min: 5, max: 120 }),
-  N('u_min', 'Minimum auger duty', 'Smallest fraction of each cycle the auger runs. Keeps the fire alive when low', { step: 0.01, min: 0, max: 1 }),
-  N('u_max', 'Maximum auger duty', 'Largest fraction of each cycle the auger runs. Stops the pot over-filling', { step: 0.01, min: 0, max: 1 }),
-  B('FanPidEnabled', 'Modulate AC fan at minimum feed', 'Pulses the fan to hold when the auger is at minimum duty. AC fans only'),
+  I('HoldCycleTime', 'Control cycle (s)', 'Auger cycle length in Hold. Smoke has its own timings.', { min: 5, max: 120 }),
+  N('u_min', 'Minimum auger duty', 'Minimum auger fraction per cycle. Sustains the fire', { step: 0.01, min: 0, max: 1 }),
+  N('u_max', 'Maximum auger duty', 'Maximum auger fraction per cycle. Prevents pot overfill', { step: 0.01, min: 0, max: 1 }),
+  B('FanPidEnabled', 'Modulate AC fan at minimum feed', 'Pulses the fan at minimum auger duty. AC fans only'),
 ];
 
 /* One switch for one question. There were three -- this one, "apply learned tuning" beside it, and
    the adaptive controller's own copy on the same page -- and they could disagree. */
 const learningFields = [
-  B('enabled', 'Learn from cooks', 'Fits the grill on every startup and refines the tuning from each cook'),
-  B('use_library', 'Use measured tuning', 'On: measured values override the ones typed here. Off: runs exactly what is typed'),
-  I('half_life_obs', 'Memory half-life (observations)', 'How quickly old cooks fade; ~12 observations per hour of Hold', { min: 5, max: 500 }),
+  B('enabled', 'Learn from cooks', 'Fits the grill model each startup; refines tuning each cook'),
+  B('use_library', 'Use measured tuning', 'On: measured values override typed values. Off: typed values only'),
+  I('half_life_obs', 'Memory half-life (observations)', 'Decay of old cooks; ~12 observations per hour of Hold', { min: 5, max: 500 }),
 ];
 const weatherFields = [
-  { type: 'note', help: 'Outdoor temperature is the ambient reference for feed-forward and learning. With a postal code, fetched from Open-Meteo every 15 minutes. An ambient probe takes precedence.' },
+  { type: 'note', help: 'Outdoor temperature as the ambient reference for feed-forward and learning. Open-Meteo, every 15 min. An ambient probe takes precedence.' },
   B('enabled', 'Use local weather', ''), X('country', 'Country code', 'Two letters, e.g. us, ca, de'), X('postal_code', 'Postal / ZIP code', ''),
   { type: 'weather' },
 ];
@@ -527,9 +538,9 @@ async function controllerPage(view) {
   } catch { /* the summary simply says less */ }
 
   const clearTuning = async () => {
-    if (!await confirmDialog('Clear the measured tuning?',
-      'Deletes the library, the last autotune and the grill model. Reverts to the typed values. Back them up first — measuring again takes hours.', 'Clear', true)) return;
-    try { await api('/tune/clear', { body: {} }); toast('Back to the typed values'); setTimeout(() => location.reload(), 600); }
+    if (!await confirmDialog('Clear Measured Tuning?',
+      'Deletes the library, last autotune and grill model. Reverts to typed values. Back up first; re-measuring takes hours.', 'Clear', true)) return;
+    try { await api('/tune/clear', { body: {} }); toast('Revert to Typed Values'); setTimeout(() => location.reload(), 600); }
     catch (e) { toast(e.message, true); }
   };
   const ctl = await controllerCard(anchors > 0 && PF.settings?.learning?.use_library !== false, clearTuning);
@@ -558,7 +569,7 @@ async function controllerPage(view) {
 
   view.append(fold('Auto Tuning', anchors
     ? `${anchors} temperature${anchors === 1 ? '' : 's'} measured${deep > 1 ? ` · ${deep} runs deep` : ''}`
-    : 'nothing measured yet',
+    : 'no measurements',
     tuningInto, 'activity', '#0a84ff'));
 
   view.append(fold('Learning', PF.settings?.learning?.enabled === false ? 'off' : 'on',
@@ -607,17 +618,17 @@ function networkPage(view) {
     X('hotspot_ssid', 'Hotspot name', 'Blank = PiFire-XXXX from the Wi-Fi address'),
     { path: 'hotspot_password', label: 'Hotspot password', help: 'At least 8 characters', type: 'text' },
     I('setup_timeout_s', 'Start hotspot after (s)', 'If no network connects within this time after boot', { min: 10, max: 600 }),
-    B('force_setup', 'Start the hotspot on next boot', 'One-shot: cleared automatically'),
+    B('force_setup', 'Start hotspot on next boot', 'One-shot: cleared automatically'),
   ] }] });
   return renderNetwork(view, { hotspotExtra });
 }
 
 export function renderSettings(view, rest) {
-  if (!PF.settings) { view.append(el('div', { class: 'card muted' }, 'Loading settings…')); return; }
+  if (!PF.settings) { view.append(el('div', { class: 'card muted' }, 'Loading…')); return; }
   const dc = !!PF.settings.platform?.dc_fan;
   const pages = PAGES.filter((p) => !p.dc || dc);
   /* pages that were folded into another keep their routes: a link or a habit still lands somewhere */
-  const ALIAS = { lid: 'misc', keepwarm: 'misc' };
+  const ALIAS = { lid: 'misc', keepwarm: 'misc', coldstart: 'startup' };
   const page = ALIAS[rest?.[0]] || rest?.[0];
   if (page) {
     setBack('#/settings', 'Settings');
@@ -628,7 +639,7 @@ export function renderSettings(view, rest) {
     if (page === 'updates' && rest[1] === 'console') { setBack('#/settings/updates', 'Updates'); return import('./updates.js').then((m) => m.renderConsole(view)); }
     if (MOVED[page]) { location.replace(`#/settings/${MOVED[page]}`); return; }
     const pg = pages.find((x) => x.key === page);
-    if (!pg) { view.append(el('div', { class: 'card muted' }, 'No such settings page')); return; }
+    if (!pg) { view.append(el('div', { class: 'card muted' }, 'Page not found')); return; }
     if (pg.custom) return Promise.resolve(pg.custom(view)).catch((e) => { toast(e.message, true); });
     // pages made of settings fields, optionally with live content before (updates) or after (pellets)
     const parts = [];
