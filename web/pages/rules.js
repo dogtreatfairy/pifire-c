@@ -1,4 +1,4 @@
-import { PF, el, api, patchSettings, addRow, transferRow, toast, confirmDialog, dialog, pushScreen, degUnit, actionBtn, screenActions, iconBtn, segmented } from '../app.js';
+import { PF, el, api, patchSettings, transferActions, actionBar, toast, confirmDialog, dialog, pushScreen, degUnit, actionBtn, screenActions, iconBtn, segmented } from '../app.js';
 import { icon as lucide } from '../icons.js';
 /* The condition cards, rows and picker are shared: recipes ask the same kind of question about
    when a step ends, and must ask it in the same shapes. See web/conditions.js. */
@@ -285,15 +285,19 @@ export async function renderRules(view) {
           sw)));
     }
     if (!rules.length) list.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No conditional notifications yet.'));
-    list.append(addRow('Add Notification', () => edit(blankRule(), true)));
-    list.append(transferRow({
-      what: 'notifications', filename: 'pifire-notifications',
-      fetchDoc: () => api('/rules/export'),
-      confirmText: 'A notification with the same id as one on the grill replaces it; the rest are added. Temperatures are converted to this grill\u2019s unit.',
-      importDoc: async (doc) => { const r = await api('/rules/import', { body: doc }); toast(`Imported ${r.imported} notification${r.imported === 1 ? '' : 's'}${r.replaced ? `, ${r.replaced} replaced` : ''}`); rules = (await api('/rules')).rules || []; draw(); },
-    }));
   };
   draw();
+  /* The page's actions on the bar every list page uses (Probes, Recipes): the file transfer on the
+     left as marks, adding one on the right in the primary colour, the Home button over the gap. */
+  const xfer = transferActions({
+    what: 'notifications', filename: 'pifire-notifications',
+    fetchDoc: () => api('/rules/export'),
+    confirmText: 'A notification with the same id as one on the grill replaces it; the rest are added. Temperatures are converted to this grill\u2019s unit.',
+    importDoc: async (doc) => { const r = await api('/rules/import', { body: doc }); toast(`Imported ${r.imported} notification${r.imported === 1 ? '' : 's'}${r.replaced ? `, ${r.replaced} replaced` : ''}`); rules = (await api('/rules')).rules || []; draw(); },
+  });
+  const bar = actionBar(
+    [iconBtn('upload', 'Import', { onclick: xfer.upload }), iconBtn('download', 'Export', { onclick: xfer.download })],
+    [actionBtn('add', 'Add', { size: '', class: 'primary', onclick: () => edit(blankRule(), true) })]);
 
   /* The way to add one is the same as on every other list: a full-width button at its foot, where
      the eye ends up after reading what is already there. A "+ Add" in the heading was the one
@@ -304,4 +308,6 @@ export async function renderRules(view) {
        rows say it -- and no card wrapped round a list that draws its own border, which is where the
        double outline came from. Every other section on the page appends its list directly. */
     list);
+  /* pinned to the page itself, after whatever else the page shows */
+  queueMicrotask(() => (view.closest('main') || view).append(bar));
 }

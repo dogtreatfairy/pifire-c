@@ -858,6 +858,12 @@ export function iconBtn(icon, title, attrs = {}) {
 /* Every collection travels as a file, the same way: Export on the left (it takes nothing away),
    Import on the right (it changes the list, so it is the committing action and it confirms).
    Under the Add row, on every list that has one -- recipes, notifications, the tuning library. */
+/* The two halves of a collection's file transfer, for a page that puts them on its action bar. */
+export function transferActions(opts) {
+  const row = transferRow(opts);
+  const [down, up] = row.querySelectorAll('button');
+  return { download: () => down.click(), upload: () => up.click() };
+}
 export function transferRow({ what, filename, fetchDoc, importDoc, confirmText }) {
   const download = async () => {
     try {
