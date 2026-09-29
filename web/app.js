@@ -71,7 +71,7 @@ async function apiOnce(path, opts, method, rid, ms) {
        timer that was meant to prevent exactly that had already been cleared. */
     j = await r.json().catch(() => ({}));
   } catch (e) {
-    const err = new Error(e.name === 'AbortError' ? 'The grill did not answer in time' : 'Could not reach the grill');
+    const err = new Error(e.name === 'AbortError' ? 'Grill Not Responding' : 'Grill Unreachable');
     err.retry = true;
     throw err;
   } finally { clearTimeout(t); }
@@ -300,7 +300,7 @@ function askAboutFixables() {
     if (!n.active || !n.fix || n.acked || n.shelved_for || asked.has(n.key)) continue;
     asked.add(n.key);
     dialog((close) => el('div', {},
-      el('h3', {}, n.title || 'The grill needs an answer'),
+      el('h3', {}, n.title || 'Action Required'),
       n.body ? el('p', { class: 'muted' }, n.body) : null,
       el('div', { class: 'form-actions' },
         el('button', { class: 'btn ghost', type: 'button',
@@ -370,8 +370,8 @@ function installHint() {
   const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
   if (!iOS || standalone) return;
   try { if (localStorage.getItem('pf.installHint') === '1') return; localStorage.setItem('pf.installHint', '1'); } catch { /* private window */ }
-  notify({ kind: 'info', title: 'Add PiFire to your Home Screen',
-    body: 'Tap Share, then "Add to Home Screen". Launched from there it runs full screen, without Safari\'s bars.' });
+  notify({ kind: 'info', title: 'Add to Home Screen',
+    body: 'Share → Add to Home Screen. Runs full screen.' });
 }
 
 /* iPhones do not have the Notification constructor. A Home Screen web app on iOS 16.4 or later can
@@ -395,13 +395,13 @@ export function alertSupport() {
   const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   if (!('Notification' in window)) {
     return { ok: false, why: ios && !standalone
-      ? 'iPhone: Share → Add to Home Screen, then open it from there.'
-      : 'This browser cannot show notifications.' };
+      ? 'Requires Home Screen app: Share → Add to Home Screen.'
+      : 'Not supported by this browser.' };
   }
-  if (ios && !standalone) return { ok: false, why: 'Add to the Home Screen and open it from there. iOS allows notifications only then.' };
-  if (!window.isSecureContext) return { ok: false, why: 'Needs https. Reach the grill over https or Tailscale.' };
-  if (Notification.permission === 'denied') return { ok: false, why: 'Notifications are blocked for PiFire in your device settings.' };
-  return { ok: Notification.permission === 'granted', why: Notification.permission === 'granted' ? '' : 'Not allowed yet.' };
+  if (ios && !standalone) return { ok: false, why: 'Requires Home Screen app on iOS.' };
+  if (!window.isSecureContext) return { ok: false, why: 'Requires HTTPS or Tailscale.' };
+  if (Notification.permission === 'denied') return { ok: false, why: 'Blocked in device settings.' };
+  return { ok: Notification.permission === 'granted', why: Notification.permission === 'granted' ? '' : 'Permission not granted.' };
 }
 
 export function requestAlertPermission() {
@@ -439,7 +439,7 @@ export async function ensurePushSubscription() {
 }
 // Short confirmations ("Saved") are banners only; errors also land in the centre.
 export function toast(msg, err = false) {
-  notify({ kind: err ? 'error' : 'ok', title: err ? 'Something went wrong' : '', body: msg }, { keep: err });
+  notify({ kind: err ? 'error' : 'ok', title: err ? 'Error' : '', body: msg }, { keep: err });
 }
 export function openNotifications() {
   return pushScreen((close) => {
@@ -457,8 +457,8 @@ export function openNotifications() {
       wrap.innerHTML = '';
       wrap.append(el('div', { class: 'row between' }, el('h3', {}, 'Notifications'),
         el('button', { class: 'btn sm ghost', type: 'button', disabled: !items.length,
-          onclick: async () => { try { await api('/alarms/ack', { body: { all: true } }); } catch {} await refreshAlarms(); } }, 'Clear all')));
-      if (!items.length) wrap.append(el('div', { class: 'muted', style: 'padding:14px 0' }, 'Nothing to review.'));
+          onclick: async () => { try { await api('/alarms/ack', { body: { all: true } }); } catch {} await refreshAlarms(); } }, 'Clear All')));
+      if (!items.length) wrap.append(el('div', { class: 'muted', style: 'padding:14px 0' }, 'No Notifications'));
       const list = el('div', { class: 'nlist' });
       for (const n of items) {
         const kind = critKind(n.crit);
@@ -467,7 +467,7 @@ export function openNotifications() {
         /* An alarm says what it is doing now; one that has ended says so instead of vanishing
            silently, because fixing something is not the same as having seen that it broke. */
         const meta = [
-          n.active ? 'Happening now' : n.notice ? when : `Ended ${when}`,
+          n.active ? 'Active' : n.notice ? when : `Ended ${when}`,
           n.raises > 1 ? `${n.raises}\u00d7` : null,
           n.shelved_for ? `muted ${Math.round(n.shelved_for / 60)} min` : null,
         ].filter(Boolean).join(' \u00b7 ');
@@ -482,7 +482,7 @@ export function openNotifications() {
             n.active && (n.fix || !n.shelved_for) ? el('div', { class: 'nt-acts' },
               /* Mute is for the one that is right, keeps happening, and cannot be fixed now. */
               !n.shelved_for ? el('button', { class: 'btn xs ghost', type: 'button',
-                title: `Silence for ${Math.round((n.snooze_s || 1800) / 60)} minutes`,
+                title: `Mute ${Math.round((n.snooze_s || 1800) / 60)} min`,
                 onclick: async () => { try { await api('/alarms/shelve', { body: { key: n.key, seconds: n.snooze_s || 1800 } }); } catch {} await refreshAlarms(); } },
                 n.snooze_s ? snoozeLabel(n.snooze_s) : 'Mute') : null,
               /* An alarm that names a remedy offers it here, rather than sending the reader off to
@@ -722,7 +722,7 @@ onStatus((s) => {
    so it is short, and it is the same text the update page offered before the install. */
 export function updatedDialog(u) {
   const lines = String(u.notes || '').split(/\r?\n/).map((l) => l.replace(/^\s*[-*]\s+/, '').trim()).filter((l) => l && !/^#|^\*\*Full Changelog/.test(l));
-  const log = el('ul', { class: 'changelog', hidden: true }, lines.length ? lines.map((l) => el('li', {}, l)) : el('li', {}, 'No notes for this release'));
+  const log = el('ul', { class: 'changelog', hidden: true }, lines.length ? lines.map((l) => el('li', {}, l)) : el('li', {}, 'No release notes'));
   return dialog((close) => el('div', {},
     el('h3', {}, `Updated to ${String(u.to).replace(/^v/, '')}`),
     el('p', { class: 'muted' }, u.from ? `From ${String(u.from).replace(/^v/, '')}.` : ''),
@@ -730,7 +730,7 @@ export function updatedDialog(u) {
     /* dismissive left, committing right: Close, then the change log, which is the thing to look at */
     el('div', { class: 'btnrow' },
       el('button', { class: 'btn ghost', type: 'button', onclick: () => close(true) }, 'Close'),
-      el('button', { class: 'btn primary', type: 'button', onclick: (e) => { log.hidden = !log.hidden; e.currentTarget.textContent = log.hidden ? 'Changelog' : 'Hide changelog'; } }, 'Changelog'))));
+      el('button', { class: 'btn primary', type: 'button', onclick: (e) => { log.hidden = !log.hidden; e.currentTarget.textContent = log.hidden ? 'Changelog' : 'Hide Changelog'; } }, 'Changelog'))));
 }
 
 /* What the last install left: shown once, on whichever device opens the app first afterwards,
@@ -882,9 +882,9 @@ export function transferRow({ what, filename, fetchDoc, importDoc, confirmText }
       const file = f.files?.[0];
       if (!file) return;
       let doc;
-      try { doc = JSON.parse(await file.text()); } catch { toast(`${file.name} is not a JSON file`, true); return; }
+      try { doc = JSON.parse(await file.text()); } catch { toast(`${file.name}: invalid JSON`, true); return; }
       if (!await confirmDialog(`Import ${what} from ${file.name}?`, confirmText, 'Import')) return;
-      try { await importDoc(doc); } catch (e) { toast(e.message || `That file does not hold ${what}`, true); }
+      try { await importDoc(doc); } catch (e) { toast(e.message || `No ${what} in file`, true); }
     };
     f.click();
   };
@@ -921,7 +921,7 @@ export function dataTable(columns, rows, opts = {}) {
       : el('div', { class: 'dt-cells' }, cells);
     t.append(el('div', { class: 'dt-row' }, body, r._actions ? el('div', { class: 'dt-acts' }, r._actions) : null));
   }
-  if (!rows.length) t.append(el('p', { class: 'help' }, opts.empty || 'Nothing here yet.'));
+  if (!rows.length) t.append(el('p', { class: 'help' }, opts.empty || 'None'));
   return t;
 }
 
@@ -1032,8 +1032,8 @@ function paintLink() {
   const ts = overTailscale(lastNet);
   l.className = `tb-ind ${PF.connected ? 'ok' : 'bad'}`;
   l.title = PF.connected
-    ? (ts ? `Connected through Tailscale${lastNet.tailscale && lastNet.tailscale.name ? ' · ' + lastNet.tailscale.name : ''}` : 'Connected to the grill')
-    : 'Not connected to the grill';
+    ? (ts ? `Connected via Tailscale${lastNet.tailscale && lastNet.tailscale.name ? ' · ' + lastNet.tailscale.name : ''}` : 'Connected')
+    : 'Disconnected';
   l.replaceChildren(ts ? brandIcon('tailscale') : lucide('network'));
 }
 const bars = (n, cls) => el('span', { class: `sig s${n} ${cls}` }, [1, 2, 3, 4].map((i) => el('i', { class: i <= n ? 'on' : '' })));
@@ -1052,7 +1052,7 @@ function paintNet() {
   wifi.hidden = false;
   if (!PF.connected) {
     wifi.className = 'tb-ind muted';
-    wifi.title = 'Signal unknown: not connected to the grill';
+    wifi.title = 'Signal Unknown · Disconnected';
     wifi.replaceChildren(lucide('wifi'));
   } else if (net.hotspot) {
     wifi.className = 'tb-ind warn'; wifi.title = `Setup hotspot: ${net.ssid || ''}`;
@@ -1139,7 +1139,7 @@ function timerPanel() {
         el('div', { class: 'tp-name' }, `${r.name} \u00b7 step ${(r.step ?? 0) + 1} of ${r.nsteps || 0}`),
         el('div', { class: 'tp-time' }, fmtDur(r.remaining_s)))));
   }
-  if (!rows.length) rows.push(el('div', { class: 'muted', style: 'padding:6px 2px' }, 'Nothing is counting.'));
+  if (!rows.length) rows.push(el('div', { class: 'muted', style: 'padding:6px 2px' }, 'No Active Timers'));
   return el('div', { class: 'tp' }, ...rows);
 }
 const iconEl = (name) => { const w = el('span', { class: 'ic' }); import('./icons.js').then((m) => w.append(m.icon(name))); return w; };
@@ -1168,7 +1168,7 @@ function paintTimer(s) {
 
 onStatus((s) => {
   const b = document.getElementById('banner');
-  if (!s) { b.hidden = !PF.lost; if (PF.lost) { b.className = 'banner warn'; b.textContent = 'Connecting to grill…'; } return; }
+  if (!s) { b.hidden = !PF.lost; if (PF.lost) { b.className = 'banner warn'; b.textContent = 'Connecting…'; } return; }
 
   lastNet = s.net || {};
   paintNet();
@@ -1204,8 +1204,8 @@ onStatus((s) => {
      is where "Continue?" is answered: a tap asks, in the step's own words, and carries on. */
   readout.classList.toggle('tappable', !!(rc?.active && rc.waiting));
   readout.onclick = rc?.active && rc.waiting ? async () => {
-    if (rc.needs_lid) { toast('Open the lid first, then continue'); return; }
-    if (await confirmDialog('Continue to the next step?', rc.message || 'This step is done.', 'Continue')) cmd({ cmd: 'recipe', op: 'next' });
+    if (rc.needs_lid) { toast('Open Lid to Continue'); return; }
+    if (await confirmDialog('Next Step?', rc.message || 'Step complete.', 'Continue')) cmd({ cmd: 'recipe', op: 'next' });
   } : null;
   /* The same mark the mode carries everywhere else, so the plate reads as part of the interface
      rather than as a label that happens to be near it. */
@@ -1216,8 +1216,8 @@ onStatus((s) => {
   rdVal.hidden = !value;
   readout.dataset.mode = tuning ? 'Tuning' : rc?.active && rc.waiting ? 'Waiting' : s.mode;
 
-  if (PF.lost && PF.updating) { b.hidden = false; b.className = 'banner warn'; b.textContent = 'PiFire is restarting after an update…'; return; }
-  if (PF.lost) { b.hidden = false; b.className = 'banner warn'; b.textContent = 'Connection lost — reconnecting…'; return; }
+  if (PF.lost && PF.updating) { b.hidden = false; b.className = 'banner warn'; b.textContent = 'Restarting After Update…'; return; }
+  if (PF.lost) { b.hidden = false; b.className = 'banner warn'; b.textContent = 'Offline · Reconnecting…'; return; }
   if (s.safety.error_code) {
     b.hidden = false; b.className = 'banner';
     b.innerHTML = '';

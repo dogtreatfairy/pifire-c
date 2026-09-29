@@ -9,7 +9,7 @@ async function passwordDialog(ssid, secured) {
     const form = el('form', { onsubmit: (e) => { e.preventDefault(); close(secured ? inp.value : ''); } },
       el('h3', {}, `Join ${ssid}`),
       el('div', { class: 'field' }, inp), show,
-      el('p', { class: 'help' }, 'The hotspot drops while the grill switches. Rejoin your home Wi-Fi and open pifire.local. If the hotspot returns, the password was wrong.'),
+      el('p', { class: 'help' }, 'Hotspot drops during the switch. Rejoin home Wi-Fi and open pifire.local. Hotspot returns on a wrong password.'),
       el('div', { class: 'btnrow' }, el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'), el('button', { class: 'btn primary', type: 'submit' }, 'Join')));
     if (secured) setTimeout(() => inp.focus(), 50);
     return form;
@@ -22,7 +22,7 @@ export function renderNetwork(view, { captive = false, hotspotExtra = null } = {
   const list = el('div', { class: 'list' });
   const scanBtn = el('button', { class: 'btn sm', onclick: () => scan(true) }, 'Rescan');
   view.append(...[
-    captive ? el('div', { class: 'card' }, el('h3', {}, 'Welcome to PiFire'), el('p', { class: 'muted' }, 'Pick your home network. Once joined, open pifire.local from that network.')) : null,
+    captive ? el('div', { class: 'card' }, el('h3', {}, 'Wi-Fi Setup'), el('p', { class: 'muted' }, 'Select a network, then open pifire.local from it.')) : null,
     el('h2', {}, 'Connection'), statusCard,
     captive ? null : el('h2', {}, 'Setup Hotspot'), captive ? null : hotspotCard, captive ? null : hotspotExtra,
     el('div', { class: 'row between' }, el('h2', {}, 'Networks'), scanBtn),
@@ -42,12 +42,12 @@ export function renderNetwork(view, { captive = false, hotspotExtra = null } = {
     kv.append(el('div', {}, 'Interface'), el('div', {}, s.iface));
     statusCard.append(kv);
     if (s.last_error) statusCard.append(el('div', { class: 'notice', style: 'margin:10px 0 0' }, s.last_error));
-    if (s.ssid && s.state === 'online') statusCard.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog(`Forget ${s.ssid}?`, 'The grill will disconnect and may start its setup hotspot.', 'Forget', true)) { await api('/network/forget', { body: { ssid: s.ssid } }); status(); } } }, 'Forget network')));
+    if (s.ssid && s.state === 'online') statusCard.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmDialog(`Forget ${s.ssid}?`, 'Grill disconnects. Setup hotspot may start.', 'Forget', true)) { await api('/network/forget', { body: { ssid: s.ssid } }); status(); } } }, 'Forget Network')));
 
     hotspotCard.innerHTML = '';
-    hotspotCard.append(el('div', { class: 'kv' }, el('div', {}, 'Hotspot name'), el('div', {}, s.hotspot.ssid), el('div', {}, 'Password'), el('div', {}, s.hotspot.password), el('div', {}, 'Address'), el('div', {}, '10.42.0.1')),
+    hotspotCard.append(el('div', { class: 'kv' }, el('div', {}, 'Hotspot Name'), el('div', {}, s.hotspot.ssid), el('div', {}, 'Password'), el('div', {}, s.hotspot.password), el('div', {}, 'Address'), el('div', {}, '10.42.0.1')),
       el('p', { class: 'help' }, 'Starts when no known network is found at boot.'),
-      el('div', { class: 'form-actions' }, el('button', { class: 'btn sm' + (s.hotspot.active ? '' : ' primary'), onclick: async () => { if (s.hotspot.active || await confirmDialog('Start the setup hotspot?', 'Your current Wi-Fi connection will drop.', 'Start hotspot')) { await api('/network/hotspot', { body: { on: !s.hotspot.active } }); setTimeout(status, 1500); } } }, s.hotspot.active ? 'Stop hotspot' : 'Start hotspot')));
+      el('div', { class: 'form-actions' }, el('button', { class: 'btn sm' + (s.hotspot.active ? '' : ' primary'), onclick: async () => { if (s.hotspot.active || await confirmDialog('Start Setup Hotspot?', 'Current Wi-Fi connection drops.', 'Start Hotspot')) { await api('/network/hotspot', { body: { on: !s.hotspot.active } }); setTimeout(status, 1500); } } }, s.hotspot.active ? 'Stop Hotspot' : 'Start Hotspot')));
   }
   async function scan(rescan) {
     scanBtn.disabled = true;

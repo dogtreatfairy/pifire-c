@@ -551,22 +551,22 @@ static void do_action(tft_t *t, pf_action act, int arg)
 	case PF_ACT_RECIPE_NEXT:
 		c.type = PF_CMD_RECIPE_NEXT; pf_cmdq_push(&c); break;
 	case PF_ACT_RECIPE_SKIP:
-		open_confirm(t, PF_ACT_RECIPE_SKIP, "Skip to the next step?", "Skip", false);
+		open_confirm(t, PF_ACT_RECIPE_SKIP, "Skip to Next Step?", "Skip", false);
 		return;
 	case PF_ACT_RECIPE_BACK:
-		open_confirm(t, PF_ACT_RECIPE_BACK, "Back to the previous step?", "Back", false);
+		open_confirm(t, PF_ACT_RECIPE_BACK, "Previous Step?", "Back", false);
 		return;
 	case PF_ACT_RECIPE_EXIT:
-		open_confirm(t, PF_ACT_RECIPE_EXIT, "Leave the recipe? The grill keeps its mode.", "Leave", true);
+		open_confirm(t, PF_ACT_RECIPE_EXIT, "Exit Recipe? Mode is kept.", "Exit", true);
 		return;
 	case PF_ACT_STOP_GRILL:
-		open_confirm(t, PF_ACT_STOP, "Everything off, now?", "Stop", true);
+		open_confirm(t, PF_ACT_STOP, "All Outputs Off?", "Stop", true);
 		return;
 	case PF_ACT_HOPPER_FULL:
-		open_confirm(t, PF_ACT_HOPPER_FULL, "Hopper is full now?", "Set", false);
+		open_confirm(t, PF_ACT_HOPPER_FULL, "Set Hopper Full?", "Set", false);
 		return;
 	case PF_ACT_HOPPER_EMPTY:
-		open_confirm(t, PF_ACT_HOPPER_EMPTY, "Hopper is empty now?", "Set", false);
+		open_confirm(t, PF_ACT_HOPPER_EMPTY, "Set Hopper Empty?", "Set", false);
 		return;
 	case PF_ACT_BT_SCAN:
 		bt_begin_scan(t, arg);
@@ -599,7 +599,7 @@ static void do_action(tft_t *t, pf_action act, int arg)
 	}
 
 	case PF_ACT_RESTART: case PF_ACT_POWEROFF:
-		open_confirm(t, act, act == PF_ACT_RESTART ? "Restart the controller?" : "Shut down the controller?",
+		open_confirm(t, act, act == PF_ACT_RESTART ? "Restart Controller?" : "Shut Down Controller?",
 		             act == PF_ACT_RESTART ? "Restart" : "Shut Down", true);
 		return;
 	default:
@@ -744,7 +744,7 @@ static void margins_save(tft_t *t)
 		show_message(t, "Margins saved", 2);
 	} else {
 		LOGW(TAG, "could not save margins: %s", err);
-		show_message(t, "Could not save", 3);
+		show_message(t, "Save Failed", 3);
 	}
 }
 

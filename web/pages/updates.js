@@ -106,7 +106,7 @@ export function renderUpdates(view) {
     ];
 
     /* ---- What there is to install: PiFire first, then the system ---- */
-    const box = el('input', { type: 'checkbox', class: 'row-check', 'aria-label': 'Install this release', checked: !!(pifireOn && installable(chosen)),
+    const box = el('input', { type: 'checkbox', class: 'row-check', 'aria-label': 'Install This Release', checked: !!(pifireOn && installable(chosen)),
       disabled: busy, onchange: (e) => { pifireOn = e.target.checked; paintBar(); } });
     const piUpd = piWaiting ? [
       el('label', { class: 'row' }, box, el('span', { class: 'body' }, el('span', { class: 't' }, older ? 'PiFire (older)' : u.switching ? `PiFire · ${u.branch}` : 'PiFire')),
@@ -120,7 +120,7 @@ export function renderUpdates(view) {
     ] : null;
     /* the table of packages: one box at its head ticks or clears every row */
     const all = pk.length > 0 && pk.every((p) => sel.has(p.name));
-    const head = el('input', { type: 'checkbox', class: 'row-check', 'aria-label': 'All system updates', checked: all, disabled: busy,
+    const head = el('input', { type: 'checkbox', class: 'row-check', 'aria-label': 'All System Updates', checked: all, disabled: busy,
       onchange: (e) => { if (e.target.checked) pk.forEach((p) => sel.add(p.name)); else sel.clear(); paint(); } });
     head.indeterminate = sel.size > 0 && !all;
     const sysUpd = pk.length ? [
@@ -174,11 +174,11 @@ export function renderUpdates(view) {
     const rel = chosenRel();
     const packages = [...sel];
     if (packages.length && !idle()) { toast('Stop the grill before system updates', true); return; }
-    if (withPi && !idle() && !PF.settings?.update?.hot_update) { toast('Stop the grill first, or turn on Update while cooking', true); return; }
+    if (withPi && !idle() && !PF.settings?.update?.hot_update) { toast('Stop the grill first, or enable Update while cooking', true); return; }
     const what = [withPi ? `PiFire ${bare(rel.version)}` : null, packages.length ? `${packages.length} system package${packages.length === 1 ? '' : 's'}` : null].filter(Boolean).join(' and ');
     const rels = u.releases || [], cur = rels.findIndex((r) => bare(r.version) === bare(u.current));
     const down = withPi && u.branch === 'main' && !u.switching && cur >= 0 && rels.indexOf(rel) > cur;
-    if (!await confirmDialog(`Install ${what}?`, down ? 'Older than the installed version. Settings from newer versions may not carry back. PiFire restarts at the end.' : withPi ? 'PiFire restarts at the end.' : 'PiFire keeps running.', 'Install')) return;
+    if (!await confirmDialog(`Install ${what}?`, down ? 'Older than installed. Newer settings may not carry back. PiFire restarts.' : withPi ? 'PiFire restarts.' : 'PiFire keeps running.', 'Install')) return;
     try { await api('/update/install', { body: { pifire: !!withPi, tag: withPi ? rel.tag : '', packages } }); location.hash = CONSOLE; }
     catch (e) { toast(e.message, true); }
   }
@@ -206,7 +206,7 @@ function showNotes(r, notes) {
 }
 
 async function reboot() {
-  if (!await confirmDialog('Reboot?', 'The grill must be stopped.', 'Reboot')) return;
+  if (!await confirmDialog('Reboot?', 'Stop the grill first.', 'Reboot')) return;
   api('/admin/reboot', { body: {} }).then(() => toast('Rebooting…')).catch((e) => toast(e.message, true));
 }
 
@@ -227,7 +227,7 @@ export function renderConsole(view) {
     stage.replaceChildren(row({ lead: spin ? el('span', { class: 'tile spin-tile' }, el('span', { class: 'spin', 'aria-hidden': 'true' })) : tile(bad ? 'triangle-alert' : 'circle-check', bad ? '#ff453a' : '#30d158'),
       title: bad ? 'Failed' : text, value: bad ? text.replace(/^Failed:\s*/, '') : value }));
   };
-  const WORDS = { checking: 'Checking', downloading: 'Downloading', verifying: 'Verifying', installing: 'Installing', upgrading: 'Upgrading system packages' };
+  const WORDS = { checking: 'Checking', downloading: 'Downloading', verifying: 'Verifying', installing: 'Installing', upgrading: 'Upgrading System Packages' };
 
   async function poll() {
     clearTimeout(t);
@@ -236,7 +236,7 @@ export function renderConsole(view) {
     catch {
       /* the daemon is away: while an install was running, that is PiFire restarting */
       lost++;
-      setStage(lost > 300 ? 'Failed: PiFire has not come back' : 'Restarting PiFire', lost <= 300);
+      setStage(lost > 300 ? 'Failed: PiFire not responding' : 'Restarting PiFire', lost <= 300);
       t = setTimeout(poll, 1000);
       return;
     }
@@ -251,7 +251,7 @@ export function renderConsole(view) {
     const showPct = r.busy && (r.state === 'downloading' || r.state === 'upgrading') && r.progress > 0;
     if (r.busy) setStage(WORDS[r.state] || 'Working', true, showPct ? `${Math.round(r.progress * 100)}%` : null);
     else if (r.state === 'error') setStage(`Failed: ${r.message}`, false);
-    else setStage(r.lines.length || seq ? 'Finished' : 'Nothing running', false);
+    else setStage(r.lines.length || seq ? 'Finished' : 'Idle', false);
     bar.hidden = !showPct;
     bar.firstChild.style.width = `${Math.round((r.progress || 0) * 100)}%`;
     rb.hidden = !r.reboot_required;

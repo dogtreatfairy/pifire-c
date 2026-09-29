@@ -28,7 +28,7 @@ function events(view) {
   api('/events?limit=200').then((evs) => {
     list.innerHTML = '';
     for (const e of evs) list.append(el('div', { class: 'item' }, el('div', {}, el('div', { class: e.level >= 3 ? 'lvl-error' : e.level === 2 ? 'lvl-warn' : '' }, e.message), el('div', { class: 'meta' }, `${e.code} · ${new Date(e.ts * 1000).toLocaleString()}`))));
-    if (!evs.length) list.append(el('div', { class: 'muted' }, 'No events yet'));
+    if (!evs.length) list.append(el('div', { class: 'muted' }, 'No Events'));
   });
 }
 
@@ -48,28 +48,28 @@ function system(view) {
     const s = await api('/system');
     kv.innerHTML = '';
     const rows = [['Version', s.version], ['Hostname', s.hostname], ['Uptime', `${Math.floor(s.uptime_s / 3600)}h ${Math.floor((s.uptime_s % 3600) / 60)}m`],
-      ['CPU temperature', s.cpu_temp_c > 0 ? `${s.cpu_temp_c.toFixed(1)} °C` : '—'], ['Load', s.load1?.toFixed(2)], ['Memory free', `${(s.mem_available / 1048576).toFixed(0)} MB of ${(s.mem_total / 1048576).toFixed(0)} MB`],
-      ['Wi-Fi quality', s.wifi_quality_pct >= 0 ? `${s.wifi_quality_pct.toFixed(0)}%` : '—'], ['Throttled', s.throttled == null ? '—' : s.throttled ? 'YES' : 'no'], ['Under-voltage', s.under_voltage == null ? '—' : s.under_voltage ? 'YES' : 'no']];
+      ['CPU Temperature', s.cpu_temp_c > 0 ? `${s.cpu_temp_c.toFixed(1)} °C` : '—'], ['Load', s.load1?.toFixed(2)], ['Free Memory', `${(s.mem_available / 1048576).toFixed(0)} MB of ${(s.mem_total / 1048576).toFixed(0)} MB`],
+      ['Wi-Fi Quality', s.wifi_quality_pct >= 0 ? `${s.wifi_quality_pct.toFixed(0)}%` : '—'], ['Throttled', s.throttled == null ? '—' : s.throttled ? 'YES' : 'no'], ['Under-voltage', s.under_voltage == null ? '—' : s.under_voltage ? 'YES' : 'no']];
     for (const i of s.interfaces || []) rows.push([i.name, `${i.ip}${i.mac ? ' · ' + i.mac : ''}`]);
     for (const [k, v] of rows) kv.append(el('div', {}, k), el('div', {}, v ?? '—'));
   };
   load();
 
   view.append(el('div', { class: 'btnrow' },
-    el('button', { class: 'btn', onclick: async () => { if (await confirmDialog('Reboot?', 'The grill must be stopped first.', 'Reboot')) api('/admin/reboot', { body: {} }).then(() => toast('Rebooting…')).catch((e) => toast(e.message, true)); } }, 'Reboot'),
-    el('button', { class: 'btn danger', onclick: async () => { if (await confirmDialog('Power off?', 'The grill must be stopped first.', 'Power off', true)) api('/admin/poweroff', { body: {} }).then(() => toast('Powering off…')).catch((e) => toast(e.message, true)); } }, 'Power off')));
+    el('button', { class: 'btn', onclick: async () => { if (await confirmDialog('Reboot?', 'Stop the grill first.', 'Reboot')) api('/admin/reboot', { body: {} }).then(() => toast('Rebooting…')).catch((e) => toast(e.message, true)); } }, 'Reboot'),
+    el('button', { class: 'btn danger', onclick: async () => { if (await confirmDialog('Power Off?', 'Stop the grill first.', 'Power Off', true)) api('/admin/poweroff', { body: {} }).then(() => toast('Powering off…')).catch((e) => toast(e.message, true)); } }, 'Power Off')));
   const t = setInterval(load, 10000);
   return () => clearInterval(t);
 }
 
 function manual(view) {
   const card = el('div', { class: 'card' });
-  view.append(el('h2', {}, 'Manual Outputs'), el('div', { class: 'card help' }, 'Direct control in Manual mode, or while cooking if enabled in Safety. The auger cap still applies.'), card);
+  view.append(el('h2', {}, 'Manual Outputs'), el('div', { class: 'card help' }, 'Manual mode, or while cooking if enabled in Safety. Auger cap applies.'), card);
   const update = (s) => {
     if (!s) return;
     card.innerHTML = '';
     const manual = s.mode === 'Manual', allowed = manual || PF.settings?.safety?.allow_manual_changes;
-    if (!manual) card.append(el('button', { class: 'btn block', onclick: () => cmd({ cmd: 'mode', mode: 'Manual' }), disabled: !(s.mode === 'Stop' || s.mode === 'Monitor') }, 'Enter Manual mode (from Stop)'));
+    if (!manual) card.append(el('button', { class: 'btn block', onclick: () => cmd({ cmd: 'mode', mode: 'Manual' }), disabled: !(s.mode === 'Stop' || s.mode === 'Monitor') }, 'Enter Manual Mode (from Stop)'));
     for (const o of ['power', 'fan', 'auger', 'igniter']) {
       const on = s.outputs[o];
       card.append(el('div', { class: 'toggle' }, el('div', {}, o[0].toUpperCase() + o.slice(1)),
@@ -79,7 +79,7 @@ function manual(view) {
       const r = el('input', { type: 'range', min: 0, max: 100, value: s.outputs.fan_pct, disabled: !allowed, onchange: (e) => cmd({ cmd: 'manual', output: 'pwm', pct: Number(e.target.value) }) });
       card.append(el('div', { class: 'field' }, el('label', {}, `Fan speed ${s.outputs.fan_pct}%`), r));
     }
-    if (manual) card.append(el('button', { class: 'btn danger block', onclick: () => cmd({ cmd: 'stop' }) }, 'Stop (all off)'));
+    if (manual) card.append(el('button', { class: 'btn danger block', onclick: () => cmd({ cmd: 'stop' }) }, 'Stop (All Off)'));
   };
   update(PF.status);
   return onStatus(update);
@@ -99,12 +99,12 @@ export function remote(view) {
     let t;
     try { t = await api('/network/tailscale'); } catch (e) { card.innerHTML = ''; card.append(el('div', { class: 'muted' }, e.message)); return; }
     card.innerHTML = '';
-    const intro = el('p', { class: 'help' }, 'A private network reachable from anywhere. No port forwarding, nothing public. Sign in to the Tailscale app on your phone, then join the grill to the same account.');
+    const intro = el('p', { class: 'help' }, 'Private network, reachable anywhere. No port forwarding. Phone and grill sign in to the same Tailscale account.');
     card.append(intro);
     const kv = el('div', { class: 'kv' });
     const running = t.state === 'Running';
     const url = t.dns_name ? `${t.https ? 'https' : 'http'}://${t.dns_name}${!t.https && t.port !== 80 ? ':' + t.port : ''}/` : '';
-    const rows = [['Tailscale', !t.installed ? 'not installed' : `${t.version || 'installed'}`], ['Status', t.state === 'Running' ? (t.online ? 'connected' : 'connected (offline)') : t.state === 'NeedsLogin' ? 'waiting for sign-in' : t.state]];
+    const rows = [['Tailscale', !t.installed ? 'not installed' : `${t.version || 'installed'}`], ['Status', t.state === 'Running' ? (t.online ? 'connected' : 'connected (offline)') : t.state === 'NeedsLogin' ? 'awaiting sign-in' : t.state]];
     if (running) { rows.push(['Address', el('a', { href: url, target: '_blank' }, url)]); if (t.ips?.length) rows.push(['Tailnet IP', t.ips.join(', ')]); rows.push(['HTTPS', t.https ? 'on (tailscale serve, valid certificate)' : 'off']); }
     for (const [k, v] of rows) kv.append(el('div', {}, k), el('div', {}, v));
     card.append(kv);
@@ -112,21 +112,21 @@ export function remote(view) {
     else if (t.last_action && t.last_ok === false) {
       const out = (t.last_output || '').trim();
       const link = out.match(/https?:\/\/\S+/)?.[0];
-      const why = t.last_action === 'serve' && /not enabled/i.test(out) ? 'Enable HTTPS certificates for the tailnet once (admin console → DNS), then press Enable HTTPS again.' : `${t.last_action} failed: ${out.split('\n').filter(Boolean).join(' · ') || 'see the daemon log'}`;
-      card.append(el('div', { class: 'card tight', style: 'margin:10px 0;border-color:var(--warn)' }, el('div', { class: 'help' }, why), link ? el('a', { class: 'btn sm', href: link, target: '_blank', style: 'margin-top:8px' }, 'Open the Tailscale page') : null));
+      const why = t.last_action === 'serve' && /not enabled/i.test(out) ? 'Enable HTTPS certificates for the tailnet (admin console → DNS), then retry Enable HTTPS.' : `${t.last_action} failed: ${out.split('\n').filter(Boolean).join(' · ') || 'see daemon log'}`;
+      card.append(el('div', { class: 'card tight', style: 'margin:10px 0;border-color:var(--warn)' }, el('div', { class: 'help' }, why), link ? el('a', { class: 'btn sm', href: link, target: '_blank', style: 'margin-top:8px' }, 'Open Tailscale') : null));
     }
     const row = el('div', { class: 'btnrow', style: 'margin-top:10px' });
     if (t.state === 'Simulator') card.append(el('p', { class: 'muted' }, 'Not available in the simulator.'));
-    else if (!t.installed) row.append(el('button', { class: 'btn primary', disabled: t.busy, onclick: async () => { if (await confirmDialog('Install Tailscale?', 'Adds Tailscale\'s package repository and installs it (about a minute).', 'Install')) act('install', 'Installing…'); } }, 'Install Tailscale'));
+    else if (!t.installed) row.append(el('button', { class: 'btn primary', disabled: t.busy, onclick: async () => { if (await confirmDialog('Install Tailscale?', 'Adds the Tailscale package repository and installs it (~1 min).', 'Install')) act('install', 'Installing…'); } }, 'Install Tailscale'));
     else if (!running) {
       const hn = el('input', { type: 'text', value: t.hostname || 'pifire', style: 'max-width:160px' });
-      card.append(el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'Machine name'), el('div', { class: 'help' }, 'Becomes <name>.<your tailnet>.ts.net')), hn));
-      if (t.auth_url) card.append(el('p', {}, el('a', { class: 'btn primary block', href: t.auth_url, target: '_blank' }, 'Sign in to Tailscale to finish'), el('div', { class: 'help muted', style: 'margin-top:6px' }, 'Opens the Tailscale login; approve the machine, then come back here.')));
-      row.append(el('button', { class: 'btn primary', disabled: t.busy, onclick: async () => { try { await patchSettings('network', { tailscale_hostname: hn.value.trim() || 'pifire' }); } catch (e) { toast(e.message, true); return; } act('up', 'Connecting… a sign-in link appears in a few seconds'); } }, t.auth_url ? 'Restart sign-in' : 'Connect'));
+      card.append(el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'Machine Name'), el('div', { class: 'help' }, '<name>.<tailnet>.ts.net')), hn));
+      if (t.auth_url) card.append(el('p', {}, el('a', { class: 'btn primary block', href: t.auth_url, target: '_blank' }, 'Sign In to Tailscale'), el('div', { class: 'help muted', style: 'margin-top:6px' }, 'Approve the machine in Tailscale, then return.')));
+      row.append(el('button', { class: 'btn primary', disabled: t.busy, onclick: async () => { try { await patchSettings('network', { tailscale_hostname: hn.value.trim() || 'pifire' }); } catch (e) { toast(e.message, true); return; } act('up', 'Connecting… awaiting sign-in link'); } }, t.auth_url ? 'Restart Sign-In' : 'Connect'));
     } else {
-      row.append(el('button', { class: 'btn', disabled: t.busy, onclick: () => act(t.https ? 'unserve' : 'serve', t.https ? 'Turning HTTPS off…' : 'Publishing over HTTPS…') }, t.https ? 'Turn off HTTPS' : 'Enable HTTPS'),
-        el('button', { class: 'btn ghost', disabled: t.busy, onclick: async () => { if (await confirmDialog('Disconnect?', 'The grill leaves the tailnet until you connect again.', 'Disconnect', true)) act('down', 'Disconnected'); } }, 'Disconnect'));
-      card.append(el('p', { class: 'help' }, `Tip: add PiFire to your phone\'s Home Screen from ${url} — that address works at home and away, as long as the Tailscale app is signed in.`));
+      row.append(el('button', { class: 'btn', disabled: t.busy, onclick: () => act(t.https ? 'unserve' : 'serve', t.https ? 'Turning HTTPS off…' : 'Publishing over HTTPS…') }, t.https ? 'Disable HTTPS' : 'Enable HTTPS'),
+        el('button', { class: 'btn ghost', disabled: t.busy, onclick: async () => { if (await confirmDialog('Disconnect?', 'Grill leaves the tailnet until reconnected.', 'Disconnect', true)) act('down', 'Disconnected'); } }, 'Disconnect'));
+      card.append(el('p', { class: 'help' }, `Add to Home Screen from ${url}. Works on any network while Tailscale is signed in.`));
     }
     card.append(row);
     if (t.busy || t.state === 'NeedsLogin' || (t.installed && !running)) { clearTimeout(pollT); pollT = setTimeout(load, 3000); }
@@ -215,7 +215,7 @@ export async function hardware(view) {
     return card;
   };
   const displayCard = moduleCard('Display', man.modules.display, 'display', dispCfg);
-  const distCard = moduleCard('Hopper level sensor', man.modules.distance, 'dist', distCfg);
+  const distCard = moduleCard('Hopper Level Sensor', man.modules.distance, 'dist', distCfg);
 
   /* Probe hardware is hardware. It lived on the Probes page, which is about the probes themselves --
      what each one is called, what it is for, which profile converts it -- while this is the ADC,
@@ -240,7 +240,7 @@ export async function hardware(view) {
       const n = map.probe_info.filter((p) => p.device === d.device).length;
       fields.push(el('div', { class: 'form-actions' },
         actionBtn('delete', 'Remove', { onclick: async () => {
-          if (!await confirmDialog('Remove device?', `${d.device} and its ${n} probe${n === 1 ? '' : 's'}`, 'Remove', true)) return;
+          if (!await confirmDialog('Remove Device?', `${d.device} and its ${n} probe${n === 1 ? '' : 's'}`, 'Remove', true)) return;
           map.probe_devices.splice(i, 1);
           map.probe_info = map.probe_info.filter((p) => p.device !== d.device);
           renderProbeHw();
@@ -250,7 +250,7 @@ export async function hardware(view) {
     });
     const wired = Object.entries(pmods).filter(([, m]) => !wirelessMod(m));
     const sel = el('select', {}, wired.map(([id, m]) => el('option', { value: id }, m.friendly_name)));
-    probeCard.append(el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'Add device')), sel),
+    probeCard.append(el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'Add Device')), sel),
       el('div', { class: 'form-actions' }, actionBtn('add', 'Add', { onclick: () => {
         const id = sel.value, m = pmods[id];
         const cfg = {}; for (const c of m.device_specific?.config || []) cfg[c.label] = c.default;
@@ -284,9 +284,9 @@ export async function hardware(view) {
         // write the boot configuration (relay pulls, PWM overlay, I2C/SPI/1-Wire) for this board
         let boot;
         try { boot = await api('/admin/boardcfg', { body: {} }); } catch (e) { toast(`Saved, but boot config failed: ${e.message}`, true); return; }
-        if (boot.reboot && await confirmDialog('Reboot now?', 'Boot configuration changed. Reboot before the new hardware works.', 'Reboot')) {
+        if (boot.reboot && await confirmDialog('Reboot Now?', 'Boot configuration changed. Reboot required.', 'Reboot')) {
           await api('/admin/reboot', { body: {} }); toast('Rebooting…');
-        } else toast(boot.reboot ? 'Saved — reboot to apply the boot configuration' : 'Saved');
+        } else toast(boot.reboot ? 'Saved · Reboot to apply boot configuration' : 'Saved');
       } catch (e) { toast(e.message, true); }
-    } }, 'Save hardware')));
+    } }, 'Save Hardware')));
 }

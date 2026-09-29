@@ -301,7 +301,7 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		char ep[512];
 		pf_strlcpy(ep, pf_json_str(b, "endpoint", ""), sizeof ep);
 		cJSON_Delete(b);
-		if (!ep[0]) { reply_err(resp, 400, "which subscription?"); return; }
+		if (!ep[0]) { reply_err(resp, 400, "subscription endpoint required"); return; }
 		pf_webpush_unsubscribe(ep);
 		reply(resp, 200, pf_webpush_json());
 		return;
@@ -337,7 +337,7 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		pf_strlcpy(key, pf_json_str(b, "key", ""), sizeof key);
 		double secs = pf_json_num(b, "seconds", 1800);
 		cJSON_Delete(b);
-		if (!key[0]) { reply_err(resp, 400, "which alarm?"); return; }
+		if (!key[0]) { reply_err(resp, 400, "alarm key required"); return; }
 		if (pf_alarms_shelve(key, secs)) { reply_err(resp, 404, "no such alarm"); return; }
 		reply(resp, 200, cJSON_CreateObject());
 		return;
@@ -389,7 +389,7 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		cJSON_ArrayForEach(it, pts) { if (n < 3) { t[n] = pf_to_c(pf_json_num(it, "temp", NAN), u); r[n] = pf_json_num(it, "ohms", NAN); n++; } }
 		cJSON_Delete(b);
 		pf_shh shh;
-		if (n != 3 || isnan(t[0]) || isnan(t[1]) || isnan(t[2]) || pf_shh_solve(t[0], r[0], t[1], r[1], t[2], r[2], &shh)) { reply_err(resp, 400, "need three distinct (temp, ohms) points"); return; }
+		if (n != 3 || isnan(t[0]) || isnan(t[1]) || isnan(t[2]) || pf_shh_solve(t[0], r[0], t[1], r[1], t[2], r[2], &shh)) { reply_err(resp, 400, "three distinct (temp, ohms) points required"); return; }
 		cJSON *o = cJSON_CreateObject();
 		cJSON_AddNumberToObject(o, "A", shh.A);
 		cJSON_AddNumberToObject(o, "B", shh.B);
@@ -626,7 +626,7 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 			n++;
 		}
 		cJSON_Delete(doc);
-		if (!n) { cJSON_Delete(rules); reply_err(resp, 400, "no notification in the file could be read"); return; }
+		if (!n) { cJSON_Delete(rules); reply_err(resp, 400, "no readable notifications in file"); return; }
 		/* through the same door the editor uses, so it is validated, saved and picked up alike */
 		cJSON *patch = cJSON_CreateObject();
 		cJSON_AddItemToObject(patch, "rules", rules);
@@ -635,7 +635,7 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		char perr[160] = "";
 		int prc = ptxt ? pf_settings_patch("notify", ptxt, perr, sizeof perr) : -1;
 		free(ptxt);
-		if (prc) { reply_err(resp, 400, perr[0] ? perr : "could not save the notifications"); return; }
+		if (prc) { reply_err(resp, 400, perr[0] ? perr : "notifications save failed"); return; }
 		cJSON *o = cJSON_CreateObject(); cJSON_AddNumberToObject(o, "imported", n); cJSON_AddNumberToObject(o, "replaced", rep);
 		reply(resp, 200, o); return;
 	}
@@ -682,7 +682,7 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		if (!*ssid) { cJSON_Delete(j); reply_err(resp, 400, "ssid required"); return; }
 		int rc = pf_netmgr_connect(ssid, pf_json_str(j, "psk", ""));
 		cJSON_Delete(j);
-		if (rc) reply_err(resp, 409, "a connection attempt is already in progress"); else reply_ok(resp);
+		if (rc) reply_err(resp, 409, "connection attempt in progress"); else reply_ok(resp);
 		return;
 	}
 	if (post && !strcmp(p, "/network/forget")) {
@@ -766,7 +766,7 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 		bool pifire = pf_json_bool(b, "pifire", !b || !cJSON_GetObjectItem(b, "system"));
 		bool system = pf_json_bool(b, "system", false);
 		cJSON_Delete(b);
-		if (pf_update_check(pifire, system)) { reply_err(resp, 409, "an update operation is already running"); return; }
+		if (pf_update_check(pifire, system)) { reply_err(resp, 409, "update already running"); return; }
 		reply_ok(resp);
 		return;
 	}

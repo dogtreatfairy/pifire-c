@@ -80,7 +80,7 @@ function updateGauge(svg, s, primary, stopped) {
 
 // ---- actions
 const holdAt = async (s, change, force = false) => {
-  const v = await numberDialog('Hold temperature', s.setpoint || PF.settings?.startup?.start_to_mode?.primary_setpoint || (PF.units === 'C' ? 107 : 225), { presets: presets() });
+  const v = await numberDialog('Hold Temperature', s.setpoint || PF.settings?.startup?.start_to_mode?.primary_setpoint || (PF.units === 'C' ? 107 : 225), { presets: presets() });
   if (!v) return;
   if (change) cmd({ cmd: 'setpoint', setpoint: v }); else cmd({ cmd: 'mode', mode: 'Hold', setpoint: v, force });
 };
@@ -100,30 +100,30 @@ async function startGrill() {
   }
   const choice = await dialog((close) => el('div', {},
     el('h3', {}, 'Start'),
-    el('p', { class: 'muted' }, 'Lights the grill, then runs the mode you choose.'),
+    el('p', { class: 'muted' }, 'Ignites, then runs the selected mode.'),
     el('div', { class: 'btnrow' },
       el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'),
       el('button', { class: `btn ${st.after_startup_mode === 'Hold' ? '' : 'primary'}`, type: 'button', onclick: () => close('Smoke') }, lucide(MODE_ICON.Smoke, 'ic btn-ic'), ' Smoke'),
       el('button', { class: `btn ${st.after_startup_mode === 'Hold' ? 'primary' : ''}`, type: 'button', onclick: () => close('Hold') }, lucide(MODE_ICON.Hold, 'ic btn-ic'), ' Hold'))));
   if (!choice) return;
   if (choice === 'Smoke') { cmd({ cmd: 'mode', mode: 'Smoke' }); return; }
-  const v = await numberDialog('Hold temperature', def, { presets: presets() });
+  const v = await numberDialog('Hold Temperature', def, { presets: presets() });
   if (v) cmd({ cmd: 'mode', mode: 'Hold', setpoint: v });
 }
 function primeMenu() {
-  return dialog((close) => el('div', {}, el('h3', {}, 'Prime auger'),
-    el('p', { class: 'help' }, 'Pushes pellets into the fire pot. Use after the hopper ran empty.'),
+  return dialog((close) => el('div', {}, el('h3', {}, 'Prime Auger'),
+    el('p', { class: 'help' }, 'Refills the auger after the hopper runs empty.'),
     el('div', { class: 'opts' },
       ...[10, 15, 20, 25].map((g) => el('button', { class: 'btn', type: 'button', onclick: () => { close(); cmd({ cmd: 'prime', amount: g, next: '' }); } }, `Prime ${g} g`)),
-      el('button', { class: 'btn primary', type: 'button', onclick: async () => { close(); const g = await numberDialog('Prime amount', 10, { min: 1, max: 100, step: 5, unit: ' g', presets: [5, 10, 20, 30] }); if (g) cmd({ cmd: 'prime', amount: g, next: 'Startup' }); } }, 'Prime, then start')),
+      el('button', { class: 'btn primary', type: 'button', onclick: async () => { close(); const g = await numberDialog('Prime Amount', 10, { min: 1, max: 100, step: 5, unit: ' g', presets: [5, 10, 20, 30] }); if (g) cmd({ cmd: 'prime', amount: g, next: 'Startup' }); } }, 'Prime & Start')),
     el('button', { class: 'btn ghost block', type: 'button', onclick: () => close() }, 'Cancel')));
 }
 // Smoke button menu: Smoke <-> Smoke+ plus a 1-9 dial pad for the P-mode
 function smokeMenu(s) {
   const cur = PF.settings?.cycle_data?.PMode ?? 2;
   return dialog((close) => el('div', {}, el('h3', {}, s.s_plus ? 'Smoke+' : 'Smoke'),
-    el('button', { class: 'btn block', type: 'button', style: 'margin-bottom:12px', onclick: async () => { close(); const to = !s.s_plus; if (await confirmDialog(to ? 'Switch to Smoke+?' : 'Switch to Smoke?', to ? 'The fan cycles on and off for more smoke while the pit stays in range.' : 'The fan runs continuously again.', to ? 'Smoke+' : 'Smoke')) cmd({ cmd: 'smoke_plus', enabled: to }); } }, s.s_plus ? 'Switch to Smoke' : 'Switch to Smoke+'),
-    el('div', { class: 'help' }, `P-Mode · now ${cur} · higher = fewer pellets, more smoke`),
+    el('button', { class: 'btn block', type: 'button', style: 'margin-bottom:12px', onclick: async () => { close(); const to = !s.s_plus; if (await confirmDialog(to ? 'Switch to Smoke+?' : 'Switch to Smoke?', to ? 'Fan cycles on and off for more smoke.' : 'Fan runs continuously.', to ? 'Smoke+' : 'Smoke')) cmd({ cmd: 'smoke_plus', enabled: to }); } }, s.s_plus ? 'Switch to Smoke' : 'Switch to Smoke+'),
+    el('div', { class: 'help' }, `P-Mode · Current ${cur} · Higher: less feed, more smoke`),
     el('div', { class: 'presets pad' }, ...Array.from({ length: 9 }, (_, i) => i + 1).map((n) => el('button', { class: `btn ${n === cur ? 'primary' : ''}`, type: 'button', onclick: async () => { close(); try { await patchSettings('cycle_data', { PMode: n }); toast(`P-Mode ${n}`); } catch (e) { toast(e.message, true); } } }, String(n)))),
     el('button', { class: 'btn ghost block', type: 'button', onclick: () => close() }, 'Cancel')));
 }
@@ -131,12 +131,12 @@ function smokeMenu(s) {
    pot) under the chequered flag; Emergency Stop is everything off now, under the square. The
    same two answers the panel's Stop gives. */
 const shutdown = (s) => dialog((close) => el('div', {}, el('h3', {}, 'Stop?'),
-  el('p', { class: 'muted' }, `End Cook stops the feed and runs the fan for ${fmtDur(s.timers.shutdown_duration)} to cool the pot. Emergency Stop turns everything off now.`),
+  el('p', { class: 'muted' }, `End Cook: feed off, fan on ${fmtDur(s.timers.shutdown_duration)} to cool the pot. Emergency Stop: all outputs off now.`),
   el('div', { class: 'btnrow' },
     el('button', { class: 'btn ghost', type: 'button', onclick: () => close() }, 'Cancel'),
     el('button', { class: 'btn primary', type: 'button', onclick: () => { close(); cmd({ cmd: 'mode', mode: 'Shutdown' }); } }, lucide(MODE_ICON.Shutdown, 'ic btn-ic'), ' End Cook')),
   el('button', { class: 'btn danger block', type: 'button', style: 'margin-top:10px', onclick: () => { close(); cmd({ cmd: 'stop' }); } }, lucide(MODE_ICON.Stop, 'ic btn-ic'), ' Emergency Stop')));
-const stopGrill = (s) => (s.mode === 'Error' ? cmd({ cmd: 'stop' }) : confirmDialog('Stop the grill?', 'All outputs turn off immediately.', 'Stop', true).then((ok) => ok && cmd({ cmd: 'stop' })));
+const stopGrill = (s) => (s.mode === 'Error' ? cmd({ cmd: 'stop' }) : confirmDialog('Stop Grill?', 'All outputs off immediately.', 'Stop', true).then((ok) => ok && cmd({ cmd: 'stop' })));
 
 // ---- control bar: the transitions that make sense from the current mode
 function controlBar(s) {
@@ -152,8 +152,8 @@ function controlBar(s) {
       break;
     case 'Startup': case 'Reignite':
       right.push(b('play', '', { active: true, cls: 'ok', disabled: true, aria: s.mode }),
-        b('smoke', '', { cls: 'accent', onclick: () => confirmDialog('Skip to Smoke?', 'Ends startup now. Only do this once the fire is clearly lit.', 'Smoke').then((ok) => ok && cmd({ cmd: 'mode', mode: 'Smoke', force: true })), aria: 'Smoke' }),
-        b('target', '', { cls: 'ok', onclick: () => confirmDialog('Skip to Hold?', 'Ends startup now. Only do this once the fire is clearly lit.', 'Hold').then((ok) => ok && holdAt(s, false, true)), aria: 'Hold' }),
+        b('smoke', '', { cls: 'accent', onclick: () => confirmDialog('Skip to Smoke?', 'Ends startup. Confirm the fire is lit.', 'Smoke').then((ok) => ok && cmd({ cmd: 'mode', mode: 'Smoke', force: true })), aria: 'Smoke' }),
+        b('target', '', { cls: 'ok', onclick: () => confirmDialog('Skip to Hold?', 'Ends startup. Confirm the fire is lit.', 'Hold').then((ok) => ok && holdAt(s, false, true)), aria: 'Hold' }),
         b('power', '', { onclick: () => shutdown(s), aria: 'Shutdown' }));
       break;
     case 'Prime':
@@ -235,10 +235,10 @@ export function renderHome(view) {
       case 'Hold': t = { text: `Target ${fmtTemp(s.setpoint)}${u}`, cls: '', tap: true }; break;
       case 'Startup': case 'Reignite': t = s.next_mode === 'Hold' && s.setpoint > 0 ? { text: `Igniting → hold ${fmtTemp(s.setpoint)}${u}`, cls: '', tap: true } : { text: 'Igniting → smoke', cls: '' }; break;
       case 'Smoke': t = { text: s.s_plus ? 'Smoke+' : 'Smoke', cls: 'accent' }; break;
-      case 'Shutdown': t = { text: 'Cooling down', cls: 'info' }; break;
+      case 'Shutdown': t = { text: 'Cooling', cls: 'info' }; break;
       case 'Prime': t = { text: `Priming ${s.timers.prime_amount} g`, cls: '' }; break;
       case 'Error': t = { text: s.safety.error_code.replace(/_/g, ' '), cls: 'danger' }; break;
-      case 'Manual': t = { text: 'Manual outputs', cls: 'warn' }; break;
+      case 'Manual': t = { text: 'Manual Outputs', cls: 'warn' }; break;
       case 'Monitor': t = { text: 'Monitoring', cls: 'muted' }; break;
     }
     target.textContent = t.text; target.className = `line1 ${t.cls}`; target.onclick = t.tap ? () => holdAt(s, true) : null;
@@ -246,7 +246,7 @@ export function renderHome(view) {
     const bits = [];
     if (s.cook_elapsed > 0) bits.push(`Running ${fmtDur(s.cook_elapsed)}`);
     if (s.mode === 'Hold' && s.lid_open) bits.push('Lid open · auger paused');
-    if ((s.mode === 'Startup' || s.mode === 'Reignite') && s.coldstart.active && !s.coldstart.reached) bits.push('Cold start · waiting for rise');
+    if ((s.mode === 'Startup' || s.mode === 'Reignite') && s.coldstart.active && !s.coldstart.reached) bits.push('Cold start · awaiting rise');
     else if ((s.mode === 'Startup' || s.mode === 'Reignite') && s.timers.startup_exit_temp > 0) bits.push(`Exits at ${fmtTemp(s.timers.startup_exit_temp)}${u}`);
     detail.textContent = bits.join(' · ') || '\u00a0';
     const rc = s.recipe;
@@ -281,7 +281,7 @@ export function renderHome(view) {
       if (manual.dataset.state !== want) {
         manual.dataset.state = want;
         manual.innerHTML = '';
-        manual.append(el('div', { class: 'help' }, 'Manual outputs — everything turns off when you press Stop'),
+        manual.append(el('div', { class: 'help' }, 'Manual Outputs · All off on Stop'),
           manualRow('Auger', 'auger', s.outputs.auger), manualRow('Fan', 'fan', s.outputs.fan));
         /* a variable-speed fan turns on at full and is dialled down from there, because a fan you
            have to set a number on before it moves any air does not read as a switch */

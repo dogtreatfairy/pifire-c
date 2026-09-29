@@ -5,7 +5,7 @@ import { PF, el, api, cmd, onStatus, fmtTemp, patchSettings, toast, confirmDialo
    recipe takes from "the food" -- hottest, coolest, average, soonest to its target -- is wrong if
    it counts. Only enabled Food probes are offered; the pit probe is never in the meat. Resolves to
    the labels chosen, [] for none, or undefined if the person backed out. */
-export function pickFoodProbes(title = 'Which probes are in the food?', sub = '') {
+export function pickFoodProbes(title = 'Food Probes', sub = '') {
   const food = (PF.status?.probes || []).filter((p) => p.role === 'Food' && p.enabled && !p.companion);
   if (!food.length) return Promise.resolve([]);
   const chosen = new Set(food.filter((p) => p.in_use).map((p) => p.label));
@@ -20,7 +20,7 @@ export function pickFoodProbes(title = 'Which probes are in the food?', sub = ''
     })),
     el('div', { class: 'form-actions' },
       el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'),
-      el('button', { class: 'btn primary', type: 'button', onclick: () => close([...chosen]) }, chosen.size ? 'Start' : 'None, Start'))));
+      el('button', { class: 'btn primary', type: 'button', onclick: () => close([...chosen]) }, chosen.size ? 'Start' : 'Start (None)'))));
 }
 import { targetDialog, limitsDialog, openProbe } from './cook.js';
 import { icon as lucide, MODE_ICON } from '../icons.js';
@@ -77,7 +77,7 @@ export async function renderProbes(view, opts = {}) {
   const profName = (p) => profiles[p.profile?.id || p.profile]?.name || p.profile?.name || String(p.profile || '—');
 
   const save = async () => {
-    if (map.probe_info.filter((p) => p.type === 'Primary' && p.enabled).length !== 1) { toast('Exactly one enabled Primary (pit) probe is required', true); return false; }
+    if (map.probe_info.filter((p) => p.type === 'Primary' && p.enabled).length !== 1) { toast('One enabled Primary (pit) probe required', true); return false; }
     // a Bluetooth device without readings is an unpaired probe: never keep it (it would hide that address from pairing)
     map.probe_devices = map.probe_devices.filter((d) => !WIRELESS_MODULES.includes(d.module) || map.probe_info.some((p) => p.device === d.device));
     const labels = new Set();
@@ -111,7 +111,7 @@ export async function renderProbes(view, opts = {}) {
     /* Only an Aux probe can be the ambient reference, so the switch is only there when the type says
        so -- rather than sitting greyed out, or on, under a note explaining when it counts. */
     const auxOnly = el('div');
-    const paintAux = () => { auxOnly.innerHTML = ''; if (draft.type === 'Aux') auxOnly.append(tog('Ambient reference', 'ambient', 'Used by learning and cold start')); };
+    const paintAux = () => { auxOnly.innerHTML = ''; if (draft.type === 'Aux') auxOnly.append(tog('Ambient Reference', 'ambient', 'Used by learning and cold start')); };
     const typeSeg = segmented([['Primary', 'Grill'], ['Food', 'Food'], ['Aux', 'Aux']], draft.type || 'Food', (v) => { draft.type = v; paintAux(); });
     paintAux();
 
@@ -147,12 +147,12 @@ export async function renderProbes(view, opts = {}) {
           if (wireless) {
             // one physical probe = one device with its meat and ambient sensors: they go together
             const sibs = map.probe_info.filter((x) => x.device === p.device);
-            if (await confirmDialog('Unpair probe?', `${sibs.map((x) => x.name).join(' and ')}`, 'Unpair', true)) {
+            if (await confirmDialog('Unpair Probe?', `${sibs.map((x) => x.name).join(' and ')}`, 'Unpair', true)) {
               map.probe_info = map.probe_info.filter((x) => x.device !== p.device);
               const di = map.probe_devices.findIndex((d) => d.device === p.device); if (di >= 0) map.probe_devices.splice(di, 1);
               await save();
             }
-          } else if (await confirmDialog('Remove probe?', p.name, 'Remove', true)) {
+          } else if (await confirmDialog('Remove Probe?', p.name, 'Remove', true)) {
             const i = map.probe_info.indexOf(p); if (i >= 0) map.probe_info.splice(i, 1); await save();
           }
         },
@@ -169,15 +169,15 @@ export async function renderProbes(view, opts = {}) {
   /* The way out when the classifier does not know a probe: say what it is, then scan for that. */
   const pickBrand = () => dialog((close) => {
     const btMods = Object.entries(mods).filter(([, m]) => wirelessMod(m));
-    return el('div', {}, el('h3', {}, 'Which make?'),
+    return el('div', {}, el('h3', {}, 'Probe Make'),
       el('div', { class: 'opts' }, ...btMods.map(([, m]) => el('button', { class: 'btn', type: 'button', onclick: () => { close(); pairBluetooth(m.filename); } }, btIcon(), ` ${m.friendly_name}`))),
       el('button', { class: 'btn ghost block', type: 'button', style: 'margin-top:10px', onclick: () => close() }, 'Cancel'));
   });
 
   const addProbe = () => dialog((close) => {
     const free = freePorts(null).filter((o) => !o.wireless);
-    return el('div', {}, el('h3', {}, 'Add probe'),
-      el('div', { class: 'help' }, free.length ? 'Free wired ports' : 'No free wired ports \u2014 add a device under Settings \u2192 Grill Hardware \u2192 Probe Hardware'),
+    return el('div', {}, el('h3', {}, 'Add Probe'),
+      el('div', { class: 'help' }, free.length ? 'Free Wired Ports' : 'No free wired ports \u2014 add a device under Settings \u2192 Grill Hardware \u2192 Probe Hardware'),
       el('div', { class: 'opts' }, ...free.map((o) => el('button', { class: 'btn', type: 'button', onclick: () => { close(); const n = map.probe_info.length + 1; const p = { type: 'Food', label: `Probe${n}`, name: `Probe ${n}`, profile: 'TWPS00', device: o.device, port: o.port, enabled: true, show_on_home: true }; map.probe_info.push(p); editProbe(p, true).then(() => { if (!map.probe_info.includes(p)) return; }); } }, `${o.device} · ${o.port}`))),
       el('div', { class: 'help' }, 'Bluetooth'),
       el('div', { class: 'opts' }, el('button', { class: 'btn', type: 'button', onclick: () => { close(); pairBluetooth(); } }, btIcon(), ' Scan and Pair')),
@@ -198,10 +198,10 @@ export async function renderProbes(view, opts = {}) {
       return e ? e[1].friendly_name : k;
     };
     const picked = await dialog((close) => {
-      const list = el('div', { class: 'opts' }, el('div', { class: 'muted' }, 'Scanning for 8 s\u2026 make sure the probe is on and nearby.'));
+      const list = el('div', { class: 'opts' }, el('div', { class: 'muted' }, 'Scanning 8 s\u2026 Probe must be on and in range.'));
       const row = (f) => el('button', { class: 'btn', type: 'button', onclick: () => close(f) },
         el('div', { class: 'row between', style: 'width:100%' },
-          el('span', {}, btIcon(), ' ', f.name || 'Unknown device'),
+          el('span', {}, btIcon(), ' ', f.name || 'Unknown Device'),
           el('span', { class: 'help row', style: 'gap:6px' },
             f.kind ? el('span', { class: 'pill sm' }, kindName(f.kind)) : null,
             f.rssi ? sigBars(barsFromRssi(f.rssi), `${f.rssi} dBm`) : null)));
@@ -215,24 +215,24 @@ export async function renderProbes(view, opts = {}) {
         const probes = seen.filter((f) => known.has(f.kind) && (!only || f.kind === only));
         const rest = seen.filter((f) => !probes.includes(f) && f.kind !== 'chefiq-hub');
         if (!probes.length) list.append(el('div', { class: 'muted', style: 'margin-bottom:8px' },
-          'No unpaired probe seen. A probe only broadcasts while it is out of its charger and awake (Chef iQ: take it out of the dock, wait a few seconds), then scan again.'));
+          'No unpaired probes found. Probes broadcast only when out of the charger and awake (Chef iQ: undock, wait a few seconds).'));
         for (const f of probes) list.append(row(f));
         /* Anything else nearby is a phone or a watch. It is listed so the page does not look blind,
            but it cannot be paired from here: nothing says what it is, so nothing could read it. */
         if (rest.length) {
           const more = el('div', { class: 'opts', hidden: true }, ...rest.map((f) => el('div', { class: 'row between help', style: 'padding:6px 2px' },
-            el('span', {}, f.name || f.address), el('span', {}, 'not a known probe'))));
-          list.append(el('button', { class: 'btn ghost sm', type: 'button', onclick: (e) => { more.hidden = !more.hidden; e.target.textContent = more.hidden ? `Show ${rest.length} other device${rest.length === 1 ? '' : 's'} nearby` : 'Hide other devices'; } }, `Show ${rest.length} other device${rest.length === 1 ? '' : 's'} nearby`), more);
+            el('span', {}, f.name || f.address), el('span', {}, 'unsupported'))));
+          list.append(el('button', { class: 'btn ghost sm', type: 'button', onclick: (e) => { more.hidden = !more.hidden; e.target.textContent = more.hidden ? `Show ${rest.length} Other Device${rest.length === 1 ? '' : 's'}` : 'Hide Other Devices'; } }, `Show ${rest.length} Other Device${rest.length === 1 ? '' : 's'}`), more);
         }
-        list.append(el('button', { class: 'btn sm', type: 'button', onclick: () => { close(undefined); setTimeout(() => pairBluetooth(only), 50); } }, 'Scan again'));
-        if (!only) list.append(el('button', { class: 'btn ghost sm', type: 'button', onclick: () => { close(undefined); setTimeout(pickBrand, 50); } }, 'Choose the make myself'));
+        list.append(el('button', { class: 'btn sm', type: 'button', onclick: () => { close(undefined); setTimeout(() => pairBluetooth(only), 50); } }, 'Scan Again'));
+        if (!only) list.append(el('button', { class: 'btn ghost sm', type: 'button', onclick: () => { close(undefined); setTimeout(pickBrand, 50); } }, 'Select Make Manually'));
       }).catch((e) => { list.innerHTML = ''; list.append(el('div', { class: 'muted' }, e.message)); });
       return el('div', {}, el('h3', {}, 'Pair a Probe'), list, el('button', { class: 'btn ghost block', type: 'button', style: 'margin-top:10px', onclick: () => close(undefined) }, 'Cancel'));
     });
     if (!picked) return;
     const addr = picked.address;
     const entry = Object.entries(mods).find(([, mm]) => mm.filename === picked.kind);
-    if (!entry) { toast('That device is not a probe this grill can read', true); return; }
+    if (!entry) { toast('Unsupported device', true); return; }
     const m = entry[1];
     if (!addr) return;
     // devices: ChefiQ1, ChefiQ2 ... (first free number); probes: BT1, BT2 ... counted across every
@@ -288,8 +288,8 @@ export async function renderProbes(view, opts = {}) {
       table.append(el('h2', {}, heading), list);
       for (const p of members) renderRow(list, p);
     }
-    if (!map.probe_info.length) table.append(el('p', { class: 'help' }, 'No probes yet.'));
-    else if (!shown.length) table.append(el('p', { class: 'help' }, 'Nothing is ticked in Filter.'));
+    if (!map.probe_info.length) table.append(el('p', { class: 'help' }, 'No Probes'));
+    else if (!shown.length) table.append(el('p', { class: 'help' }, 'No probes selected in Filter.'));
     if (!setup && hidden.length) table.append(el('p', { class: 'help' }, `${hidden.length} hidden \u00b7 Filter`));
 
     /* One row per probe, and everything you do to a probe is on it: the reading, its target and its
@@ -327,7 +327,7 @@ export async function renderProbes(view, opts = {}) {
         const tgt = live?.target > 0;
         return !p.enabled ? 'Disabled'
           : primary
-            ? (PF.status?.mode === 'Hold' ? `Holding ${PF.status.setpoint}${degUnit()}` : live?.valid ? `${PF.status?.mode || 'Reading'}` : 'No reading')
+            ? (PF.status?.mode === 'Hold' ? `Hold ${PF.status.setpoint}${degUnit()}` : live?.valid ? `${PF.status?.mode || 'Reading'}` : 'No reading')
           : tgt ? [live.meat, live.done, live.rest > 0 ? `off ${live.target}${degUnit()} \u2192 rest ${live.rest}${degUnit()}` : `${live.target}${degUnit()}`].filter(Boolean).join(' \u00b7 ')
                 + (live.eta_s > 0 && live.temp < live.target ? ` \u00b7 ${fmtEta(live.eta_s)} left` : live.valid && live.temp >= live.target ? ' \u00b7 reached' : '')
           : live?.valid ? nextStep(live) || 'Reading' : 'No reading';
@@ -398,7 +398,7 @@ export async function renderProbes(view, opts = {}) {
       for (const p of members) {
         grp.append(el('label', { class: 'toggle' },
           el('div', {}, p.name,
-            el('div', { class: 'help' }, [p.device, p.enabled === false ? 'switched off in Settings' : null].filter(Boolean).join(' \u00b7 '))),
+            el('div', { class: 'help' }, [p.device, p.enabled === false ? 'disabled in Settings' : null].filter(Boolean).join(' \u00b7 '))),
           el('span', { class: 'switch' }, el('input', {
             type: 'checkbox', checked: draft.get(p.label),
             onchange: (e) => draft.set(p.label, e.target.checked),
@@ -406,11 +406,11 @@ export async function renderProbes(view, opts = {}) {
       }
       inner.append(grp);
     }
-    if (!map.probe_info.length) inner.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No probes yet.'));
+    if (!map.probe_info.length) inner.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No Probes'));
     return el('div', { class: 'sheet' },
       el('div', { class: 'sheet-head' }, el('div', {},
         el('h3', {}, 'Show on This Page'),
-        el('div', { class: 'help' }, 'Hidden probes keep reading and keep feeding the notifications'))),
+        el('div', { class: 'help' }, 'Hidden probes still read and trigger notifications'))),
       el('div', { class: 'sheet-body' }, inner),
       screenActions({
         onCancel: () => close(undefined),
@@ -427,14 +427,14 @@ export async function renderProbes(view, opts = {}) {
     /* No "Probes" heading on the Probes tab: the tab says it and the header says it, and a third
        copy is a line of the screen spent on something already known. */
     setup ? el('h2', {}, 'Probes') : null,
-    setup ? el('p', { class: 'help' }, 'Connect a probe, name it, say what it is for and which profile converts it.') : null,
+    setup ? el('p', { class: 'help' }, 'Port, name, role and profile.') : null,
     /* Adding one goes at the TOP of the section. At the foot it sits below every probe and their
        buttons, which on a phone is a screen and a half of scrolling to reach the one thing you came
        to this page to do when you have a new probe in your hand. */
     setup ? addRow('Connect a Probe', addProbe) : null,
     table,
     setup ? listGroup('Profiles', [
-      { href: '#/settings/probeprofiles', icon: 'activity', color: '#ff9f0a', title: 'Probe Profiles', sub: 'Curves you assign to probes, and the 3-point tuner' },
+      { href: '#/settings/probeprofiles', icon: 'activity', color: '#ff9f0a', title: 'Probe Profiles', sub: 'Probe curves and 3-point tuner' },
     ]) : null,
     /* The two things this page does, on the bar: add one on the left, choose what you are looking
        at on the right, and the Home button riding over the gap between them. Adding a probe is why
@@ -474,22 +474,22 @@ export async function renderProbeProfiles(view) {
       inner.append(itemRow({
         icon: 'thermometer', color: n ? '#ff453a' : '#8e8e93',
         title: pr.name,
-        meta: n ? `${n} probe${n === 1 ? '' : 's'}` : 'Not in use',
+        meta: n ? `${n} probe${n === 1 ? '' : 's'}` : 'Unused',
         badge: null,
         onclick: () => editProfile(pr, n),
         actions: n ? [] : [iconBtn('trash-2', 'Delete', { class: 'danger', onclick: async (e) => {
           e.stopPropagation();
-          if (!await confirmDialog('Delete profile?', pr.name, 'Delete', true)) return;
+          if (!await confirmDialog('Delete Profile?', pr.name, 'Delete', true)) return;
           delete profs[pr.id]; await saveProfiles(); renderProfiles();
         } })],
       }));
     }
-    if (!entries.length) inner.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No profiles.'));
+    if (!entries.length) inner.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No Profiles'));
     profCard.replaceChildren(addRow('Tune a New Probe', tuner), inner);
   };
   const editProfile = (pr, n) => pushScreen((close) => el('div', { class: 'sheet' },
     el('div', { class: 'sheet-head' },
-      el('div', {}, el('h3', {}, pr.name), el('div', { class: 'help' }, `${n} probe${n === 1 ? '' : 's'} using this`))),
+      el('div', {}, el('h3', {}, pr.name), el('div', { class: 'help' }, `${n} probe${n === 1 ? '' : 's'} assigned`))),
     el('div', { class: 'sheet-body' },
       el('h2', {}, 'Profile'),
       el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'Name')), el('input', { type: 'text', value: pr.name, onchange: (e) => (pr.name = e.target.value) })),
@@ -499,7 +499,7 @@ export async function renderProbeProfiles(view) {
       el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'C')), num(pr.C, (v) => (pr.C = v))),
       n ? null : el('div', { class: 'form-actions' },
         actionBtn('delete', 'Delete Profile', { onclick: async () => {
-          if (!await confirmDialog('Delete profile?', pr.name, 'Delete', true)) return;
+          if (!await confirmDialog('Delete Profile?', pr.name, 'Delete', true)) return;
           delete profs[pr.id]; close(); await saveProfiles(); renderProfiles();
         } }))),
     el('div', { class: 'form-actions' },
@@ -522,12 +522,12 @@ export async function renderProbeProfiles(view) {
           el('input', { type: 'text', inputmode: 'decimal', placeholder: `Temp ${i + 1} ${degUnit()}`, style: 'width:110px', onchange: (e) => (pt.temp = Number(e.target.value)) }), ohms,
           el('button', { class: 'btn sm', type: 'button', onclick: () => { const p = (PF.status?.probes || []).find((x) => x.label === sel.value); if (p) { ohms.value = p.ohms; pt.ohms = p.ohms; } } }, 'Capture'));
       });
-      const name = el('input', { type: 'text', placeholder: 'Profile name', value: 'My probe' });
-      return el('div', {}, el('h3', {}, 'Probe tuner'),
-        el('p', { class: 'help' }, 'Three known temperatures — ice water, boiling, a reference. Enter each and Capture the live resistance.'),
+      const name = el('input', { type: 'text', placeholder: 'Profile Name', value: 'e.g. PT-1000' });
+      return el('div', {}, el('h3', {}, 'Probe Tuner'),
+        el('p', { class: 'help' }, 'Three reference temperatures (e.g. ice water, boiling). Enter each, then Capture.'),
         el('div', { class: 'field' }, el('label', {}, 'Probe'), sel), ...rows,
-        el('div', { class: 'field' }, el('label', {}, 'New profile name'), name),
-        el('div', { class: 'btnrow' }, el('button', { class: 'btn ghost', type: 'button', onclick: () => close(null) }, 'Cancel'), el('button', { class: 'btn primary', type: 'button', onclick: () => close({ name: name.value.trim() || 'My probe', points: pts }) }, 'Solve')));
+        el('div', { class: 'field' }, el('label', {}, 'New Profile Name'), name),
+        el('div', { class: 'btnrow' }, el('button', { class: 'btn ghost', type: 'button', onclick: () => close(null) }, 'Cancel'), el('button', { class: 'btn primary', type: 'button', onclick: () => close({ name: name.value.trim() || 'e.g. PT-1000', points: pts }) }, 'Solve')));
     });
     if (!result) return;
     try {
@@ -535,13 +535,13 @@ export async function renderProbeProfiles(view) {
       const id = result.name.replace(/[^A-Za-z0-9-]/g, '') || 'custom';
       profs[id] = { id, name: result.name, A: r.A, B: r.B, C: r.C };
       renderProfiles();
-      toast(`Solved: check temps ${r.check.join(' / ')}${degUnit()} \u2014 open the profile and Save to keep it`);
+      toast(`Solved \u00b7 check ${r.check.join(' / ')}${degUnit()} \u2014 open the profile and Save`);
     } catch (e) { toast(e.message, true); }
   }
 
   renderProfiles();
   view.append(
     el('h2', {}, 'Probe Profiles'),
-    el('p', { class: 'help' }, 'Steinhart\u2013Hart: 1/T = A + B\u00b7ln(R) + C\u00b7ln(R)\u00b3. Assign one to a probe from its row on the Probes tab.'),
+    el('p', { class: 'help' }, 'Steinhart\u2013Hart: 1/T = A + B\u00b7ln(R) + C\u00b7ln(R)\u00b3. Assign from the probe row.'),
     profCard);
 }

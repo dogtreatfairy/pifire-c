@@ -8,7 +8,7 @@ async function profileDialog(p = {}, isCur = false) {
     const rating = el('select', {}, [1, 2, 3, 4, 5].map((r) => el('option', { value: r, selected: (p.rating || 4) === r }, '★'.repeat(r))));
     const comments = el('textarea', { rows: 2 }, p.comments || '');
     return el('form', { onsubmit: (e) => { e.preventDefault(); close({ id: p.id, brand: brand.value.trim(), wood: wood.value.trim(), rating: Number(rating.value), comments: comments.value }); } },
-      el('h3', {}, p.id ? 'Edit pellets' : 'New pellets'),
+      el('h3', {}, p.id ? 'Edit Pellets' : 'New Pellets'),
       el('div', { class: 'field' }, el('label', {}, 'Brand'), iconField('package', brand)),
       el('div', { class: 'field' }, el('label', {}, 'Wood'), iconField('flame', wood)),
       el('div', { class: 'field' }, el('label', {}, 'Rating'), rating),
@@ -48,13 +48,13 @@ export function renderPellets(view, slots = {}) {
     const scale = emptyCm > fullCm;
     if (h.enabled && !scale) {
       hopper.append(el('div', { class: 'notice warn' },
-        `Empty (${emptyCm} cm) has to be further from the sensor than full (${fullCm} cm), or there is no scale to read the level against. Measure the other end, or type the two distances below.`));
+        `Empty (${emptyCm} cm) must be farther from the sensor than full (${fullCm} cm). Recalibrate one end or enter both distances below.`));
     }
     if (h.enabled) {
       const cal = async (as) => {
         const what = as === 'full' ? 'full' : 'empty';
-        if (!await confirmDialog(`Call this ${what}?`,
-          `The sensor takes a reading now and that distance becomes ${what === 'full' ? 'the top' : 'the bottom'} of the scale. Do it with the hopper actually ${what === 'full' ? 'filled' : 'empty'}: the number depends on where the sensor sits and how the pellets heap up, which is why it is measured rather than typed.`,
+        if (!await confirmDialog(`Set Current as ${what}?`,
+          `Measures the current distance as ${what === 'full' ? 'the top' : 'the bottom'} of the scale. Hopper must be ${what === 'full' ? 'filled' : 'empty'}.`,
           `Set ${what}`)) return;
         try {
           await api('/pellets/calibrate', { body: { as } });
@@ -69,7 +69,7 @@ export function renderPellets(view, slots = {}) {
              no number, and the reading in centimetres is still true. */
           el('div', { class: 'readout-lg' }, scale && h.pct >= 0 ? `${h.pct}%` : '—'),
           el('div', { class: 'help', style: 'text-align:right' },
-            h.cm > 0 ? `${h.cm.toFixed(1)} cm to the pellets` : 'no reading',
+            h.cm > 0 ? `${h.cm.toFixed(1)} cm to pellets` : 'no reading',
             el('div', {}, `full ${PF.settings?.pelletlevel?.full ?? '—'} cm · empty ${PF.settings?.pelletlevel?.empty ?? '—'} cm`))),
         el('div', { class: 'progress' }, el('div', { style: `width:${scale ? Math.max(0, h.pct) : 0}%` })),
         /* Two measurements, each taken with the hopper in the state being named, in the order you
@@ -92,15 +92,15 @@ export function renderPellets(view, slots = {}) {
         title: `${p.brand} ${p.wood}`.trim(),
         meta: `${'\u2605'.repeat(p.rating)}${p.comments ? ' \u00b7 ' + p.comments : ''}`,
         badge: isCur ? 'Loaded' : null,
-        onclick: async () => { const r = await profileDialog(p, isCur); if (r === 'load') { await api('/pellets/load', { body: { id: p.id } }); toast('Pellets loaded'); load(); } else if (r) { await api('/pellets/profile', { body: r }); load(); } },
-        actions: isCur ? [] : [iconBtn('trash-2', 'Delete', { class: 'danger', onclick: async (e) => { e.stopPropagation(); if (await confirmDialog('Delete profile?', `${p.brand} ${p.wood}`, 'Delete', true)) { await api('/pellets/delete', { body: { id: p.id } }).catch((x) => toast(x.message, true)); load(); } } })],
+        onclick: async () => { const r = await profileDialog(p, isCur); if (r === 'load') { await api('/pellets/load', { body: { id: p.id } }); toast('Pellets Loaded'); load(); } else if (r) { await api('/pellets/profile', { body: r }); load(); } },
+        actions: isCur ? [] : [iconBtn('trash-2', 'Delete', { class: 'danger', onclick: async (e) => { e.stopPropagation(); if (await confirmDialog('Delete Profile?', `${p.brand} ${p.wood}`, 'Delete', true)) { await api('/pellets/delete', { body: { id: p.id } }).catch((x) => toast(x.message, true)); load(); } } })],
       }));
     }
-    if (!d.profiles.length) inner.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No pellet profiles.'));
+    if (!d.profiles.length) inner.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No Pellet Profiles'));
     list.replaceChildren(addRow('Add Pellets', async () => { const r = await profileDialog(); if (r && r !== 'load') { await api('/pellets/profile', { body: r }).catch((e) => toast(e.message, true)); load(); } }), inner);
     log.innerHTML = '';
     for (const e of d.log) log.append(el('div', { class: 'item' }, el('div', {}, el('div', {}, `${e.text} — ${e.brand} ${e.wood}`), el('div', { class: 'meta' }, `${new Date(e.ts * 1000).toLocaleString()}${e.hopper_pct >= 0 ? ` · hopper ${e.hopper_pct}%` : ''}`))));
-    if (!d.log.length) log.append(el('div', { class: 'muted' }, 'No entries yet'));
+    if (!d.log.length) log.append(el('div', { class: 'muted' }, 'No Entries'));
   }
   load().catch((e) => toast(e.message, true));
 }

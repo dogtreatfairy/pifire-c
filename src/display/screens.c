@@ -923,12 +923,12 @@ static void render_btscan(pf_gfx *g, const pf_ui_state *ui)
 	chrome(g, title, NULL, g->th.info);
 	if (ui->bt_scanning) {
 		pf_gfx_text_center(g, B, 20, W / 2, H / 2 - 24, "Scanning...", g->th.text);
-		pf_gfx_text_center(g, R, 14, W / 2, H / 2 + 4, "Take the probe out of its charger", g->th.muted);
+		pf_gfx_text_center(g, R, 14, W / 2, H / 2 + 4, "Remove probe from charger", g->th.muted);
 		return;
 	}
 	if (ui->bt_n == 0) {
 		pf_gfx_text_center(g, B, 20, W / 2, H / 2 - 24, "None found", g->th.muted);
-		pf_gfx_text_center(g, R, 14, W / 2, H / 2 + 4, "Press to scan again", g->th.muted);
+		pf_gfx_text_center(g, R, 14, W / 2, H / 2 + 4, "Press to rescan", g->th.muted);
 		return;
 	}
 	int rows = ui->bt_n + 1;   /* + Back */
@@ -964,7 +964,7 @@ static void render_netinfo(pf_gfx *g, const cJSON *s)
 	int signal = (int)pf_json_num((cJSON *)s, "net.signal", 0);
 	if (!ip[0]) {
 		pf_gfx_text_center(g, B, 20, W / 2, H / 2 - 30, "No network", g->th.muted);
-		pf_gfx_text_center(g, R, 15, W / 2, H / 2, "Join Wi-Fi from the setup hotspot", g->th.muted);
+		pf_gfx_text_center(g, R, 15, W / 2, H / 2, "Join Wi-Fi via setup hotspot", g->th.muted);
 		return;
 	}
 	char url[80];
@@ -1098,7 +1098,7 @@ static void render_margins(pf_gfx *g, const pf_ui_state *ui)
 	pf_gfx_frame(g, 1, 1, W - 2, H - 2, g->th.accent);
 
 	pf_gfx_text_center(g, B, 17, W / 2, 8, "SCREEN MARGINS", g->th.muted);
-	pf_gfx_text_center(g, R, 13, W / 2, 28, "Frame just inside the bezel", g->th.muted);
+	pf_gfx_text_center(g, R, 13, W / 2, 28, "Align frame to bezel edge", g->th.muted);
 
 	/* each edge's number sits against the edge it controls, so there is nothing to decode */
 	struct { int x, y; } at[4] = { { W / 2, 46 }, { W - 34, H / 2 - 8 }, { W / 2, H - 46 }, { 22, H / 2 - 8 } };

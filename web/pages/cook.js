@@ -49,7 +49,7 @@ const PRESETS = {
   ],
   Sausage: [{ name: 'Cooked through', to: 160, carry: 0, steps: [['Flip', 140]] }],
 };
-const AFTER = [[0, 'Notify only'], [1, 'Keep warm'], [2, 'Shutdown']];
+const AFTER = [[0, 'Notify Only'], [1, 'Keep Warm'], [2, 'Shutdown']];
 const toUser = (f) => (PF.units === 'C' ? Math.round((f - 32) * 5 / 9) : f);
 const deltaUser = (f) => (PF.units === 'C' ? Math.round(f * 5 / 9) : f);
 
@@ -88,13 +88,13 @@ export async function targetDialog(p) {
         }));
       }
       const left = STEP_PRESETS.filter(([n]) => !cur.some((x) => x.name === n));
-      stepsBox.append(el('label', {}, 'Step alerts'), cur.length ? inner : null,
+      stepsBox.append(el('label', {}, 'Step Alerts'), cur.length ? inner : null,
         cur.length >= 4 ? null : el('div', { class: 'chiprow steps' },
           left.map(([n, t]) => el('button', { class: 'chip-btn', type: 'button', onclick: async () => {
             cur.push({ name: n, temp: toUser(t) }); await saveProbeSteps(p.label, cur); drawSteps();
           } }, `+ ${n}`)),
           el('button', { class: 'chip-btn', type: 'button', onclick: async () => {
-            const v = await ask('Alert at', toUser(140)); if (v != null) { cur.push({ name: 'Alert', temp: v }); await saveProbeSteps(p.label, cur); drawSteps(); }
+            const v = await ask('Alert At', toUser(140)); if (v != null) { cur.push({ name: 'Alert', temp: v }); await saveProbeSteps(p.label, cur); drawSteps(); }
           } }, '+ Custom')));
     };
 
@@ -126,7 +126,7 @@ export async function targetDialog(p) {
       const saveIt = async () => {
         const v = read(); if (v == null) return;
         const name = nm.value.trim();
-        if (!name) { nm.focus(); toast('Name it to save it', true); return; }
+        if (!name) { nm.focus(); toast('Name Required', true); return; }
         const all = customPresets().filter((x) => x.name !== name);
         all.push({ name, target: v, rest: kind === 'rest', steps: cur.map((x) => ({ ...x })) });
         await saveCustomPresets(all);
@@ -182,12 +182,12 @@ export async function targetDialog(p) {
 
     return el('div', { class: 'sheet' }, head, chips, list,
       el('div', { class: 'sheet-foot' },
-        el('label', {}, 'At target'),
+        el('label', {}, 'At Target'),
         segmented(AFTER, after, (v) => (after = v))),
       /* dismissive left, committing right: see docs/design-language.md */
       el('div', { class: 'btnrow' },
         el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'),
-        p.target > 0 ? el('button', { class: 'btn ghost', type: 'button', onclick: async () => { cur.length = 0; await saveProbeSteps(p.label, cur); close({ target: 0, after: 0 }); } }, 'Clear target') : null));
+        p.target > 0 ? el('button', { class: 'btn ghost', type: 'button', onclick: async () => { cur.length = 0; await saveProbeSteps(p.label, cur); close({ target: 0, after: 0 }); } }, 'Clear Target') : null));
   });
 }
 
@@ -265,7 +265,7 @@ export function probeSheet(label) {
             el('div', {}, `${st.temp}${degUnit()}`)])) : null,
           el('h2', {}, 'Detail'),
           el('div', { class: 'kv' },
-            el('div', {}, q.role === 'Primary' ? 'Set point' : 'Target'),
+            el('div', {}, q.role === 'Primary' ? 'Set Point' : 'Target'),
             el('div', {}, q.role === 'Primary'
               ? (PF.status?.mode === 'Hold' ? `${fmtTemp(PF.status.setpoint)}${degUnit()}` : PF.status?.mode || '—')
               : q.target > 0 ? `${fmtTemp(q.target)}${degUnit()}` : '—'),
@@ -274,7 +274,7 @@ export function probeSheet(label) {
             q.role === 'Primary' ? null : el('div', {}, q.limit_high > 0 ? `${fmtTemp(q.limit_high)}${degUnit()}` : 'off'),
             q.role === 'Primary' ? null : el('div', {}, 'Alarm below'),
             q.role === 'Primary' ? null : el('div', {}, q.limit_low > 0 ? `${fmtTemp(q.limit_low)}${degUnit()}` : 'off')),
-          q.role === 'Primary' ? el('p', { class: 'help' }, 'Over- and under-temperature alarms for the pit are conditional notifications, so they follow the set point when it changes.') : null),
+          q.role === 'Primary' ? el('p', { class: 'help' }, 'Pit alarms are conditional notifications and track the set point.') : null),
 
         el('div', { class: 'form-actions' },
           actionBtn('cancel', 'Close', { size: '', onclick: () => close() })));
@@ -304,8 +304,8 @@ export async function limitsDialog(p) {
     const hi = el('input', { type: 'text', inputmode: 'decimal', value: p.limit_high || '', placeholder: 'off' });
     const lo = el('input', { type: 'text', inputmode: 'decimal', value: p.limit_low || '', placeholder: 'off' });
     return el('form', { onsubmit: (e) => { e.preventDefault(); close({ high: parseFloat(hi.value) || 0, low: parseFloat(lo.value) || 0 }); } },
-      el('h3', {}, `${p.name} alarms`),
-      el('p', { class: 'help' }, 'Alerts when the probe leaves this range. Blank disables.'),
+      el('h3', {}, `${p.name} Alarms`),
+      el('p', { class: 'help' }, 'Alert outside this range. Blank disables.'),
       el('div', { class: 'field inline' }, el('label', {}, `Alarm above (${degUnit()})`), hi),
       el('div', { class: 'field inline' }, el('label', {}, `Alarm below (${degUnit()})`), lo),
       el('div', { class: 'btnrow' }, el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'), el('button', { class: 'btn primary', type: 'submit' }, 'Save')));
@@ -317,10 +317,10 @@ export async function timerDialog() {
     let after = 0;
     const mins = el('input', { type: 'text', inputmode: 'numeric', value: 30, 'aria-label': 'Minutes' });
     return el('form', { onsubmit: (e) => { e.preventDefault(); const m = parseFloat(mins.value); if (m > 0) close({ seconds: Math.round(m * 60), after }); } },
-      el('h3', {}, 'Set timer'),
+      el('h3', {}, 'Set Timer'),
       el('div', { class: 'num-input' }, el('button', { class: 'btn', type: 'button', onclick: () => (mins.value = Math.max(1, (parseFloat(mins.value) || 0) - 5)) }, '−'), mins, el('span', { class: 'muted' }, 'min'), el('button', { class: 'btn', type: 'button', onclick: () => (mins.value = (parseFloat(mins.value) || 0) + 5) }, '+')),
       el('div', { class: 'presets' }, [10, 15, 30, 45, 60, 90, 120].map((m) => el('button', { class: 'btn sm', type: 'button', onclick: () => (mins.value = m) }, `${m} min`))),
-      el('div', { class: 'field' }, el('label', {}, 'When the timer ends'), segmented(AFTER, after, (v) => (after = v))),
+      el('div', { class: 'field' }, el('label', {}, 'At Timer End'), segmented(AFTER, after, (v) => (after = v))),
       el('div', { class: 'btnrow' }, el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'), el('button', { class: 'btn primary', type: 'submit' }, 'Start')));
   });
 }
@@ -342,10 +342,10 @@ const blankEnds = () => ({ op: 'all', conditions: [] });
    "after the lid opens, or I confirm" is how a cook says it, and a row reading "Lid Opened is on"
    is not. Underneath they are the prompt and lid facts the daemon already evaluates. */
 const CARRY = [
-  ['auto', 'Right away'],
-  ['prompt', 'After I confirm'],
-  ['lid_or', 'After the lid opens, or I confirm'],
-  ['lid_and', 'After the lid opens and I confirm'],
+  ['auto', 'Immediately'],
+  ['prompt', 'On Confirm'],
+  ['lid_or', 'On Lid Open or Confirm'],
+  ['lid_and', 'On Lid Open, Then Confirm'],
 ];
 const HANDOVER = new Set(['prompt', 'lid']);
 
@@ -416,7 +416,7 @@ function endingNodes(when) {
   });
   return out;
 }
-const CARRY_SAID = { prompt: 'waits for you', lid_or: 'waits for you or the lid', lid_and: 'waits for the lid, then you' };
+const CARRY_SAID = { prompt: 'awaits confirm', lid_or: 'awaits confirm or lid', lid_and: 'awaits lid, then confirm' };
 function stepHead(s) {
   if (s.mode === 'Startup') return 'Startup' + (s.setpoint ? ` to ${s.setpoint}${degUnit()}` : '');
   if (s.mode === 'Shutdown' || s.mode === 'Stop') return s.mode;
@@ -436,9 +436,9 @@ function handoverEvents(s) {
   const c = splitEnding(s.ends).carry;
   const out = [];
   if (s.message) out.push({ icons: ['message-square'], text: s.message, cls: 'msg' });
-  if (c === 'prompt') out.push({ icons: ['hand'], text: 'Waits for you', cls: 'wait' });
-  if (c === 'lid_or') out.push({ icons: ['hand'], text: 'Waits for you or the lid', cls: 'wait' });
-  if (c === 'lid_and') out.push({ icons: ['door-open'], text: 'Waits for the lid, then you', cls: 'wait' });
+  if (c === 'prompt') out.push({ icons: ['hand'], text: 'Await Confirm', cls: 'wait' });
+  if (c === 'lid_or') out.push({ icons: ['hand'], text: 'Await Confirm or Lid', cls: 'wait' });
+  if (c === 'lid_and') out.push({ icons: ['door-open'], text: 'Await Lid, Then Confirm', cls: 'wait' });
   return out;
 }
 
@@ -452,11 +452,11 @@ function shapeIssues(steps) {
   const out = [];
   if (!steps.length) return out;
   if (steps.some((s) => COOKING.includes(s.mode)) && steps[0].mode !== 'Startup') {
-    out.push({ code: 'no_startup', text: 'Does not light the grill first.',
+    out.push({ code: 'no_startup', text: 'No Startup step.',
       fix: 'Add Startup', apply: () => steps.unshift({ mode: 'Startup' }) });
   }
   if (steps[steps.length - 1].mode !== 'Shutdown') {
-    out.push({ code: 'no_shutdown', text: 'Leaves the grill running when it finishes.',
+    out.push({ code: 'no_shutdown', text: 'No Shutdown step. Grill stays lit.',
       fix: 'Add Shutdown', apply: () => steps.push({ mode: 'Shutdown' }) });
   }
   return out;
@@ -483,11 +483,11 @@ function recipeEditor(rec0, isNew) {
       const title = el('span', { class: 'cc-title' });
       const head = el('summary', { class: 'cc-head' },
         el('span', { class: 'cc-glyph' }, glyphNode), title,
-        iconBtn('trash-2', 'Remove this step', { class: 'danger cc-del',
+        iconBtn('trash-2', 'Remove Step', { class: 'danger cc-del',
           onclick: (e) => { e.preventDefault(); e.stopPropagation(); rec.steps.splice(i, 1); touched(); redraw(); } }));
       const inner = el('div', { class: 'cc-body' });
       det.append(head, inner);
-      const retitle = () => { title.replaceChildren(...stepTitleNodes(s)); if (!title.childNodes.length) title.textContent = 'New step'; };
+      const retitle = () => { title.replaceChildren(...stepTitleNodes(s)); if (!title.childNodes.length) title.textContent = 'New Step'; };
       const changed = () => { touched(); retitle(); };
 
       const field = (label, node, help) => el('div', { class: 'field' },
@@ -515,18 +515,18 @@ function recipeEditor(rec0, isNew) {
           const sync = () => { s.ends = joinEnding(s._e.when, s._e.carry); changed(); };
           inner.append(el('div', { class: 'field' }, el('label', {}, 'Ends When'),
             condNode(s._e.when, 'step', sync, null, 0, { flat: true, exclude: ['prompt', 'lid'] })));
-          inner.append(field('Then Carry On', el('select', { onchange: (e) => { s._e.carry = e.target.value; sync(); } },
+          inner.append(field('Continue', el('select', { onchange: (e) => { s._e.carry = e.target.value; sync(); } },
             CARRY.map(([v, l]) => el('option', { value: v, selected: s._e.carry === v }, l)))));
         }
         inner.append(field('Message', el('input', { type: 'text', value: s.message || '', placeholder: 'e.g. Wrap the ribs',
-          onchange: (e) => { s.message = e.target.value; changed(); } }), 'Sent when the step ends'));
+          onchange: (e) => { s.message = e.target.value; changed(); } }), 'Sent at step end'));
         /* Being told to fetch foil at the moment the ribs need wrapping means opening the lid to go
            and find it. The warning is timed off the estimate, so it works for a step that ends on a
            temperature as well as one that ends on a clock. */
-        inner.append(el('details', { class: 'fold' }, el('summary', {}, el('span', {}, 'Warn Me Before')),
+        inner.append(el('details', { class: 'fold' }, el('summary', {}, el('span', {}, 'Advance Warning')),
           el('div', { class: 'card tight' },
             field('Minutes Before', num(() => s.lead_min, (v) => (s.lead_min = v), { placeholder: '0' })),
-            field('Warning', el('input', { type: 'text', value: s.lead_message || '', placeholder: 'e.g. Get the foil out',
+            field('Warning', el('input', { type: 'text', value: s.lead_message || '', placeholder: 'e.g. Prep foil',
               onchange: (e) => { s.lead_message = e.target.value; changed(); } })))));
         retitle();
       };
@@ -541,7 +541,7 @@ function recipeEditor(rec0, isNew) {
           el('input', { type: 'text', value: rec.name || '', placeholder: 'e.g. Pulled pork',
             onchange: (e) => { rec.name = e.target.value; touched(); } })),
         el('div', { class: 'field' }, el('label', {}, 'Description'),
-          el('input', { type: 'text', value: rec.description || '', placeholder: 'One line about it',
+          el('input', { type: 'text', value: rec.description || '', placeholder: 'Optional',
             onchange: (e) => { rec.description = e.target.value; touched(); } })));
       const steps = el('div', { class: 'card tight' }, el('div', { class: 'field' }, el('label', {}, 'Steps')));
       /* Said while the recipe is being written, with the remedy next to it, rather than after it
@@ -569,8 +569,8 @@ function recipeEditor(rec0, isNew) {
         }
       });
       steps.append(tl);
-      if (!rec.steps.length) steps.append(el('div', { class: 'muted', style: 'padding:6px 2px' }, 'No stages yet.'));
-      steps.append(el('div', { class: 'cc-add' }, actionBtn('add', 'Add stage', {
+      if (!rec.steps.length) steps.append(el('div', { class: 'muted', style: 'padding:6px 2px' }, 'No Stages'));
+      steps.append(el('div', { class: 'cc-add' }, actionBtn('add', 'Add Stage', {
         onclick: () => {
           /* a new stage goes before the shutdown, not after it */
           const last = rec.steps[rec.steps.length - 1];
@@ -583,30 +583,30 @@ function recipeEditor(rec0, isNew) {
 
     const dismiss = async () => {
       if (snapshot() !== base &&
-          !await confirmDialog('Discard changes?', rec.name || '', 'Discard', true)) return;
+          !await confirmDialog('Discard Changes?', rec.name || '', 'Discard', true)) return;
       close(undefined);
     };
     wrap.append(el('div', { class: 'sheet-body' }, body),
       screenActions({
         onDelete: isNew ? null : async () => {
-          if (await confirmDialog('Delete recipe?', rec0.name || '', 'Delete', true)) close('delete');
+          if (await confirmDialog('Delete Recipe?', rec0.name || '', 'Delete', true)) close('delete');
         },
-        deleteTitle: 'Delete recipe',
+        deleteTitle: 'Delete Recipe',
         onCancel: dismiss,
         onSave: async () => {
-          if (!rec.name?.trim()) { toast('Give it a name', true); return; }
+          if (!rec.name?.trim()) { toast('Name Required', true); return; }
           const issues = shapeIssues(rec.steps);
           /* A cooking recipe gets its Startup step whether or not it was asked for. It costs
              nothing -- the runner skips it on a grill that is already lit -- and without it a
              recipe run on a cold grill simply never gets going. */
           const needStart = issues.find((i) => i.code === 'no_startup');
-          if (needStart) { needStart.apply(); toast('Added a Startup step so it lights a cold grill'); }
+          if (needStart) { needStart.apply(); toast('Startup Step Added'); }
           /* Ending without one is allowed, and is the thing to be warned about rather than stopped
              for: the runner asks what to do with the lit grill when it gets there. */
           for (const st of rec.steps) delete st._e;   /* editor scratch, not part of the recipe */
           if (issues.some((i) => i.code === 'no_shutdown')
-              && !await confirmDialog('Leave the grill running?',
-                   'This recipe does not end with a Shutdown step. When it finishes the grill will still be lit, and PiFire will ask you whether to shut it down.',
+              && !await confirmDialog('No Shutdown Step',
+                   'Grill stays lit at recipe end. Shutdown is prompted.',
                    'Save Anyway')) { draw(); return; }
           close(rec);
         },
@@ -628,15 +628,15 @@ export function stepControls(rc) {
   const stepIx = rc.step ?? 0;
   const btn = (ic, label, opts) => el('button', { class: `cb accent ${opts.cls || ''}`, disabled: !!opts.disabled, 'aria-label': label, onclick: opts.onclick }, lucide(ic));
   return el('div', { class: 'cbar mini' }, el('div', { class: 'cgroup steps' },
-    btn('chevron-left', 'Previous step', { disabled: stepIx === 0, onclick: async () => {
-      if (await confirmDialog('Go back a step?', `Starts step ${stepIx} again.`, 'Go back')) cmd({ cmd: 'recipe', op: 'back' });
+    btn('chevron-left', 'Previous Step', { disabled: stepIx === 0, onclick: async () => {
+      if (await confirmDialog('Previous Step?', `Restarts step ${stepIx}.`, 'Back')) cmd({ cmd: 'recipe', op: 'back' });
     } }),
     el('span', { class: 'cb-label', title: rc.name }, `${stepIx + 1}/${rc.nsteps}`),
-    btn('chevron-right', rc.waiting ? 'Continue' : 'Skip to the next step', { cls: rc.waiting ? 'flash' : '', onclick: async () => {
+    btn('chevron-right', rc.waiting ? 'Continue' : 'Next Step', { cls: rc.waiting ? 'flash' : '', onclick: async () => {
       if (rc.waiting) {
-        if (rc.needs_lid) { toast('Open the lid first, then continue'); return; }
-        if (await confirmDialog('Continue to the next step?', rc.message || 'This step is done.', 'Continue')) cmd({ cmd: 'recipe', op: 'next' });
-      } else if (await confirmDialog('Skip this step?', `Ends step ${stepIx + 1} now and starts step ${stepIx + 2}.`, 'Skip')) cmd({ cmd: 'recipe', op: 'skip' });
+        if (rc.needs_lid) { toast('Open Lid to Continue'); return; }
+        if (await confirmDialog('Next Step?', rc.message || 'Step complete.', 'Continue')) cmd({ cmd: 'recipe', op: 'next' });
+      } else if (await confirmDialog('Skip Step?', `Ends step ${stepIx + 1}, starts step ${stepIx + 2}.`, 'Skip')) cmd({ cmd: 'recipe', op: 'skip' });
     } })));
 }
 
@@ -668,7 +668,7 @@ export function renderCook(view) {
     /* One question and one button. Which probes are in the food is the only thing a recipe
        needs to know before it starts, so that is what Run asks, and the answer's button is Start;
        a "Run this?" in front of it was a second tap for nothing. */
-    const labels = await pickFoodProbes(`Run ${r.name}`, 'Which probes are in the food?');
+    const labels = await pickFoodProbes(`Run ${r.name}`, 'Food Probes');
     if (labels === undefined) return;
     await cmd({ cmd: 'probes_in_use', labels });
     cmd({ cmd: 'recipe', op: 'start', id: r.id });
@@ -714,7 +714,7 @@ export function renderCook(view) {
       }));
     }
     if (!list.length) recipeList.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' },
-      'No recipes yet. A recipe is a list of stages the grill runs for you.'));
+      'No Recipes'));
   }).catch(() => {});
   /* One recipe as a file, handed to the phone's share sheet where there is one -- to a friend,
      to Files, to a message -- and downloaded where there is not. The same file Import reads. */
@@ -730,7 +730,7 @@ export function renderCook(view) {
     const a = el('a', { href: url, download: name });
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
-    toast('Saved the recipe file');
+    toast('Recipe File Saved');
   };
   const importRecipes = () => {
     const f = el('input', { type: 'file', accept: 'application/json,.json' });
@@ -738,11 +738,11 @@ export function renderCook(view) {
       const file = f.files?.[0];
       if (!file) return;
       let doc;
-      try { doc = JSON.parse(await file.text()); } catch { toast(`${file.name} is not a recipe file`, true); return; }
+      try { doc = JSON.parse(await file.text()); } catch { toast(`${file.name}: not a recipe file`, true); return; }
       const n = Array.isArray(doc) ? doc.length : (doc.recipes || []).length;
-      if (!await confirmDialog(`Import ${n === 1 ? 'this recipe' : `${n} recipes`}?`, 'A recipe with the same name as one on the grill replaces it; the rest are added.', 'Import')) return;
+      if (!await confirmDialog(`Import ${n === 1 ? '1 Recipe' : `${n} Recipes`}?`, 'Recipes with matching names are replaced.', 'Import')) return;
       try { const r = await api('/recipes/import', { body: doc }); toast(`Imported ${r.imported} recipe${r.imported === 1 ? '' : 's'}${r.replaced ? `, ${r.replaced} replaced` : ''}`); loadRecipes(); }
-      catch (e) { toast(e.message || 'That file does not hold recipes', true); }
+      catch (e) { toast(e.message || 'No recipes in file', true); }
     };
     f.click();
   };
@@ -787,7 +787,7 @@ export function renderCook(view) {
         const title = el('span', { class: 'rr-title' }, ...stepTitleNodes(st));
         if (state === 'rr-now') {
           let said = '';
-          if (rc.waiting) said = rc.needs_lid ? 'lid, then continue' : 'Continue?';
+          if (rc.waiting) said = rc.needs_lid ? 'open lid' : 'Continue?';
           else if (st.mode === 'Hold' && rc.at_temp === false) said = `heating${rc.remaining_s >= 0 ? ` \u00b7 ~${fmtDur(rc.remaining_s)}` : ''}`;
           else if (rc.clock_s >= 0) said = `${fmtDur(rc.clock_s)} left${rc.remaining_s >= 0 && rc.remaining_s < rc.clock_s - 30 ? ` \u00b7 ~${fmtDur(rc.remaining_s)} by probe` : ''}`;
           else if (rc.remaining_s >= 0) said = `~${fmtDur(rc.remaining_s)} by probe`;
@@ -795,9 +795,9 @@ export function renderCook(view) {
         }
         const acts = el('span', { class: 'rr-acts' });
         if (state !== 'rr-done') {
-          acts.append(iconBtn('pause', 'Pause when this step ends', { class: flags[i] === 'hold' ? 'on' : '', onclick: () => setFlag(i, 'hold') }));
-          if (state === 'rr-todo') acts.append(iconBtn('chevrons-right', 'Skip this step', { class: flags[i] === 'skip' ? 'on' : '', onclick: () => setFlag(i, 'skip') }));
-          if (wantsPrompt(st)) acts.append(iconBtn('circle-check', 'Continue on its own', { class: flags[i] === 'auto' ? 'on' : '', onclick: () => setFlag(i, 'auto') }));
+          acts.append(iconBtn('pause', 'Pause at Step End', { class: flags[i] === 'hold' ? 'on' : '', onclick: () => setFlag(i, 'hold') }));
+          if (state === 'rr-todo') acts.append(iconBtn('chevrons-right', 'Skip Step', { class: flags[i] === 'skip' ? 'on' : '', onclick: () => setFlag(i, 'skip') }));
+          if (wantsPrompt(st)) acts.append(iconBtn('circle-check', 'Auto Continue', { class: flags[i] === 'auto' ? 'on' : '', onclick: () => setFlag(i, 'auto') }));
         }
         rail.append(el('div', { class: `rr-step ${state}${flags[i] ? ` rr-${flags[i]}` : ''}` },
           el('span', { class: 'rr-glyph' }, lucide(state === 'rr-done' ? 'check' : flags[i] === 'skip' ? 'chevrons-right' : (MODE_ICON[st.mode] || 'crosshair'))),
@@ -818,8 +818,8 @@ export function renderCook(view) {
             : null,
         el('div', { class: 'form-actions' },
           el('button', { class: 'btn sm ghost', type: 'button', onclick: async () => {
-            if (await confirmDialog('Stop the recipe?', 'The grill keeps running in whatever mode the current step set.', 'Stop recipe', true)) cmd({ cmd: 'recipe', op: 'stop' });
-          } }, 'Stop recipe'))].filter(Boolean));
+            if (await confirmDialog('Stop Recipe?', 'Grill stays in the current step mode.', 'Stop Recipe', true)) cmd({ cmd: 'recipe', op: 'stop' });
+          } }, 'Stop Recipe'))].filter(Boolean));
     }
     const t = s.timer;
     timerCard.innerHTML = '';
@@ -831,7 +831,7 @@ export function renderCook(view) {
           el('button', { class: 'btn sm ghost', onclick: () => cmd({ cmd: 'timer', op: 'cancel' }) }, 'Cancel'))));
       timerCard.append(el('div', { class: 'progress' }, el('div', { style: `width:${Math.max(0, Math.min(100, 100 - (t.remaining / t.duration) * 100))}%` })));
     } else {
-      timerCard.append(el('button', { class: 'btn block', onclick: async () => { const r = await timerDialog(); if (r) cmd({ cmd: 'timer', op: 'start', ...r }); } }, 'Set a timer'));
+      timerCard.append(el('button', { class: 'btn block', onclick: async () => { const r = await timerDialog(); if (r) cmd({ cmd: 'timer', op: 'start', ...r }); } }, 'Set Timer'));
     }
   };
   update(PF.status);

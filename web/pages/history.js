@@ -29,8 +29,8 @@ export function renderHistory(view) {
         actionBtn('cancel', 'Live', { size: '', onclick: () => { viewing = null; drawHeader(); load(); } }, 'refresh-cw'));
       exportLink.href = `/api/v1/cookfiles/${viewing.id}/log`;
       exportLink.download = `cooklog_${String(viewing.name).replace(/[^\w.-]+/g, '_')}.json`;
-      exportLink.title = 'The analysis log for this cook';
-      exportLink.textContent = 'Export analysis log';
+      exportLink.title = 'Analysis log for this cook';
+      exportLink.textContent = 'Export Analysis Log';
     } else {
       header.append(
         segmented([[15, '15m'], [60, '1h'], [180, '3h'], [720, '12h'], [1440, '24h']], minutes, (v) => {
@@ -42,7 +42,7 @@ export function renderHistory(view) {
       exportLink.href = '/api/v1/cooklog';
       exportLink.download = 'pifire-cooklog.json';
       exportLink.title = 'Current or last cook: samples, controller terms, settings, learning state';
-      exportLink.textContent = 'Export analysis log';
+      exportLink.textContent = 'Export Analysis Log';
     }
   };
   drawHeader();
@@ -60,7 +60,7 @@ export function renderHistory(view) {
       header, chartEl,
       el('div', { class: 'form-actions' },
         exportLink,
-        actionBtn('delete', 'Clear History', { onclick: async () => { if (await confirmDialog('Clear history?', 'Removes all stored samples.', 'Clear', true)) { await api('/history/clear', { body: {} }); load(); } } }))),
+        actionBtn('delete', 'Clear History', { onclick: async () => { if (await confirmDialog('Clear History?', 'Removes all stored samples.', 'Clear', true)) { await api('/history/clear', { body: {} }); load(); } } }))),
     el('h2', {}, 'Cook Files'),
     cooks);
 
@@ -88,13 +88,13 @@ export function renderHistory(view) {
         onclick: async () => { viewing = await api(`/cookfiles/${c.id}`); viewing.id = c.id; drawHeader(); render(viewing.history); },
         actions: [
           el('a', { class: 'btn icon', href: `/api/v1/cookfiles/${c.id}/log`, download: `cooklog_${c.name.replace(/[^\w.-]+/g, '_')}.json`,
-            title: 'Download the analysis log: samples with controller terms, settings and learning state', 'aria-label': 'Download analysis log' }, lucide('download', 'ic btn-ic')),
-          iconBtn('trash-2', 'Delete', { class: 'danger', onclick: async () => { if (await confirmDialog('Delete cook file?', c.name, 'Delete', true)) { await api(`/cookfiles/${c.id}/delete`, { body: {} }); loadCooks(); } } }),
+            title: 'Analysis log: samples, controller terms, settings, learning state', 'aria-label': 'Download Analysis Log' }, lucide('download', 'ic btn-ic')),
+          iconBtn('trash-2', 'Delete', { class: 'danger', onclick: async () => { if (await confirmDialog('Delete Cook File?', c.name, 'Delete', true)) { await api(`/cookfiles/${c.id}/delete`, { body: {} }); loadCooks(); } } }),
         ],
       }));
     }
     /* the empty state is a row of the list, not a line laid across its first divider */
-    if (!list.length) cooks.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'Cook files are saved automatically when a cook ends.'));
+    if (!list.length) cooks.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No cook files. Saved automatically at cook end.'));
   }
   loadCooks();
 
@@ -150,11 +150,11 @@ export function renderHistory(view) {
     } catch (e) {
       plot = null;
       chartEl.replaceChildren(el('div', { class: 'muted', style: 'padding:24px 0;text-align:center' },
-        'The chart could not be drawn from this data. It will try again on the next update.'));
+        'Chart render failed. Retrying on next update.'));
       console.error('[history]', e);
     }
     if (!t.length) chartEl.replaceChildren(el('div', { class: 'muted', style: 'padding:24px 0;text-align:center' },
-      'Nothing logged in this window. Recording runs only while the grill does.'));
+      'No data in this window. Recording runs only while the grill is on.'));
   }
   load();
   const ro = new ResizeObserver(() => { if (plot) plot.setSize({ width: chartEl.clientWidth, height: plot.height }); });

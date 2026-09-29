@@ -16,7 +16,7 @@ const RANK = { critical: 0, high: 1, normal: 2, info: 3 };
 const byUrgencyThenName = (a, b) => (RANK[a.level] ?? 2) - (RANK[b.level] ?? 2) ||
   String(a.name || a.id).localeCompare(String(b.name || b.id), undefined, { sensitivity: 'base', numeric: true });
 const SINKS = [['app', 'In App'], ['webpush', 'This Device'], ['pushover', 'Pushover'], ['ntfy', 'ntfy']];
-const ROLES = [['any', 'Any Probe'], ['Food', 'Food Probes'], ['Primary', 'The Pit Probe'], ['Aux', 'Aux Probes']];
+const ROLES = [['any', 'Any Probe'], ['Food', 'Food Probes'], ['Primary', 'Pit Probe'], ['Aux', 'Aux Probes']];
 const LINKS = [['any', 'Wired & Bluetooth'], ['bluetooth', 'Bluetooth Only'], ['wired', 'Wired Only']];
 
 function summarise(r) {
@@ -32,7 +32,7 @@ function summarise(r) {
   }
   const what = describeNode(r.when, r.select?.domain || 'grill', true);
   const held = r.for_s ? ` for ${r.for_s >= 60 ? `${Math.round(r.for_s / 60)} min` : `${r.for_s}s`}` : '';
-  return `${who} · ${what || 'nothing yet'}${held}`;
+  return `${who} · ${what || 'no conditions'}${held}`;
 }
 
 const blankRule = () => ({
@@ -71,9 +71,9 @@ function ruleEditor(rule, isNew, allRules) {
           const p = await api('/rules/preview', { body: r });
           preview.innerHTML = '';
           preview.append(
-            el('div', { class: 'pv-title' }, p.title || '(no title)'),
+            el('div', { class: 'pv-title' }, p.title || '(Untitled)'),
             p.body ? el('div', { class: 'pv-body' }, p.body) : null,
-            el('div', { class: 'meta' }, `${p.selected} watched · ${p.matching} matching right now`));
+            el('div', { class: 'meta' }, `${p.selected} watched · ${p.matching} matching`));
         } catch { /* leave the last preview */ }
       }, 350);
     };
@@ -115,7 +115,7 @@ function ruleEditor(rule, isNew, allRules) {
           if (!instances.length) box.append(el('span', { class: 'muted' }, 'No probes configured'));
           return el('div', { class: 'field' }, el('label', {}, label), box);
         };
-        watch.append(chips('include', 'Only These (blank = all that match above)'), chips('exclude', 'Except'));
+        watch.append(chips('include', 'Only These (blank = all matching)'), chips('exclude', 'Except'));
       }
 
       // ---- the condition
@@ -170,30 +170,30 @@ function ruleEditor(rule, isNew, allRules) {
       const urgency = el('div', { class: 'card tight' },
         el('div', { class: 'field' }, el('label', {}, 'Urgency'), seg),
         r.level === 'critical' ? el('p', { class: 'help' },
-          'Sends the highest priority each service offers (Pushover Emergency repeats until you acknowledge it). Whether it breaks through a Focus mode depends on how you allow the Pushover or ntfy app in your phone\'s notification settings.') : null);
+          'Highest priority per service. Pushover Emergency repeats until acknowledged. Focus bypass depends on phone notification settings.') : null);
       const alert = el('div', { class: 'card tight' },
         el('div', { class: 'field' }, el('label', {}, 'Send To'), sinkBox),
         /* Test sends the real message to the real services, so it belongs with the choice of where
            it goes. It is not a commit action and never went on the bar; it was down beside the
            message preview, which is a long way from where anyone looks for it. */
         el('div', { class: 'form-actions' },
-          actionBtn('test', 'Send a test', { size: '', onclick: async () => {
-            try { await api('/rules/test', { body: r }); toast('Sent \u2014 check your phone'); } catch (e) { toast(e.message, true); }
+          actionBtn('test', 'Send Test', { size: '', onclick: async () => {
+            try { await api('/rules/test', { body: r }); toast('Test Sent'); } catch (e) { toast(e.message, true); }
           } }, 'send')));
 
       // ---- advanced
       const adv = el('details', { class: 'fold' }, el('summary', {}, el('span', {}, 'Advanced')),
         el('div', { class: 'card tight' },
-          el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'Cooldown'), el('div', { class: 'help' }, 'Seconds before this can send again')),
+          el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'Cooldown'), el('div', { class: 'help' }, 'Minimum seconds between sends')),
             el('input', { type: 'text', inputmode: 'numeric', value: r.cooldown_s ?? 600, onchange: (e) => (r.cooldown_s = parseInt(e.target.value, 10) || 0) })),
-          el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'Repeat Every'), el('div', { class: 'help' }, 'Seconds; 0 = send once until it goes false')),
+          el('div', { class: 'field inline' }, el('div', {}, el('label', {}, 'Repeat Every'), el('div', { class: 'help' }, 'Seconds. 0 = once per activation')),
             el('input', { type: 'text', inputmode: 'numeric', value: r.repeat_s ?? 0, onchange: (e) => (r.repeat_s = parseInt(e.target.value, 10) || 0) })),
-          el('label', { class: 'toggle' }, el('div', {}, el('div', {}, 'Only While Cooking'), el('div', { class: 'help' }, 'Off means it can also fire while the grill is stopped')),
+          el('label', { class: 'toggle' }, el('div', {}, el('div', {}, 'Only While Cooking'), el('div', { class: 'help' }, 'Off: also fires while stopped')),
             el('span', { class: 'switch' }, el('input', { type: 'checkbox', checked: r.only_while_cooking !== false, onchange: (e) => (r.only_while_cooking = e.target.checked) }), el('span'))),
           /* One situation, one alarm: while this one stands, the ones it names are silenced. It is
              how "Hopper Critical" keeps "Hopper Low" from sounding beside it about the same hopper. */
           el('div', { class: 'field' }, el('label', {}, 'Stands In For'),
-            el('div', { class: 'help' }, 'While this fires, these stay quiet'),
+            el('div', { class: 'help' }, 'Suppressed while this is active'),
             el('div', { class: 'chips' }, (allRules || []).filter((o) => o.id !== r.id).map((o) => {
               const on = (r.supersedes || []).includes(o.id);
               return el('button', { class: `chip ${on ? 'on' : ''}`, type: 'button', onclick: () => {
@@ -219,14 +219,14 @@ function ruleEditor(rule, isNew, allRules) {
       /* Against what the first draw settled on, not the stored rule: opening one moves its hold
          time, fills its defaults and drops a redundant entity, and none of that is a change the
          person made -- yet Cancel used to ask whether to discard it. */
-      if (JSON.stringify(r) !== base && !await confirmDialog('Discard changes?', r.name || '', 'Discard', true)) return;
+      if (JSON.stringify(r) !== base && !await confirmDialog('Discard Changes?', r.name || '', 'Discard', true)) return;
       close(undefined);
     };
     wrap.append(
       el('div', { class: 'sheet-body' }, body),
       screenActions({
         onDelete: isNew ? null : () => close('delete'),
-        deleteTitle: 'Delete notification',
+        deleteTitle: 'Delete Notification',
         onCancel: dismiss,
         onSave: () => close(r),
         /* A new rule is born changed and is ready to save; an existing one lights Save only once
@@ -260,7 +260,7 @@ export async function renderRules(view) {
     const r = await ruleEditor(rule, isNew, rules);
     if (!r) return;
     if (r === 'delete') {
-      if (!await confirmDialog('Delete notification?', rule.name, 'Delete', true)) return;
+      if (!await confirmDialog('Delete Notification?', rule.name, 'Delete', true)) return;
       rules = rules.filter((x) => x.id !== rule.id);
     } else if (isNew) rules.push(r);
     else rules = rules.map((x) => (x.id === r.id ? r : x));
@@ -284,7 +284,7 @@ export async function renderRules(view) {
               el('span', { class: 's' }, summarise(r)))),
           sw)));
     }
-    if (!rules.length) list.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No conditional notifications yet.'));
+    if (!rules.length) list.append(el('p', { class: 'help', style: 'padding:var(--sp-3)' }, 'No Conditional Notifications'));
   };
   draw();
   /* The page's actions on the bar every list page uses (Probes, Recipes): the file transfer on the
@@ -292,7 +292,7 @@ export async function renderRules(view) {
   const xfer = transferActions({
     what: 'notifications', filename: 'pifire-notifications',
     fetchDoc: () => api('/rules/export'),
-    confirmText: 'A notification with the same id as one on the grill replaces it; the rest are added. Temperatures are converted to this grill\u2019s unit.',
+    confirmText: 'Matching IDs are replaced. Temperatures convert to this grill\u2019s unit.',
     importDoc: async (doc) => { const r = await api('/rules/import', { body: doc }); toast(`Imported ${r.imported} notification${r.imported === 1 ? '' : 's'}${r.replaced ? `, ${r.replaced} replaced` : ''}`); rules = (await api('/rules')).rules || []; draw(); },
   });
   const bar = actionBar(
