@@ -50,6 +50,7 @@ static struct {
 	double sys_checked_at, next_sys_check;
 	char sys_message[160];
 	bool reboot_required;
+	bool checking_pifire, checking_system;   /* what the check under way is looking at */
 } g = { .mu = PTHREAD_MUTEX_INITIALIZER };
 
 /* ---------------- console ----------------
@@ -589,6 +590,7 @@ static void *check_thread(void *arg)
 	if (what & 1) {
 #if PF_WITH_CURL
 		check_pifire();
+		pthread_mutex_lock(&g.mu); g.checking_pifire = false; pthread_mutex_unlock(&g.mu);
 #else
 		fail("built without libcurl");
 #endif
@@ -601,7 +603,7 @@ static void *check_thread(void *arg)
 		pthread_mutex_unlock(&g.mu);
 	}
 	con("Done.");
-	pthread_mutex_lock(&g.mu); g.busy = false; if (g.state == ST_CHECKING) g.state = ST_IDLE; pthread_mutex_unlock(&g.mu);
+	pthread_mutex_lock(&g.mu); g.busy = false; g.checking_pifire = g.checking_system = false; if (g.state == ST_CHECKING) g.state = ST_IDLE; pthread_mutex_unlock(&g.mu);
 	return NULL;
 }
 
@@ -622,6 +624,7 @@ static int check_start(bool pifire, bool system, bool quiet)
 	pthread_mutex_lock(&g.mu);
 	if (g.busy) { pthread_mutex_unlock(&g.mu); return -1; }
 	g.busy = true; g.state = ST_CHECKING; snprintf(g.message, sizeof g.message, "checking");
+	g.checking_pifire = pifire; g.checking_system = system;
 	pthread_mutex_unlock(&g.mu);
 	intptr_t what = (pifire ? 1 : 0) | (system ? 2 : 0) | (quiet ? 4 : 0);
 	if (start_worker(check_thread, (void *)what)) { pthread_mutex_lock(&g.mu); g.busy = false; g.state = ST_ERROR; pthread_mutex_unlock(&g.mu); return -1; }
@@ -893,7 +896,9 @@ cJSON *pf_update_status_json(void)
 	cJSON_AddNumberToObject(o, "progress", g.progress);
 	cJSON_AddNumberToObject(o, "checked_at", fresh ? g.checked_at : 0);
 	cJSON_AddBoolToObject(o, "busy", g.busy);
+	cJSON_AddBoolToObject(o, "checking", g.checking_pifire);
 	cJSON *sys = cJSON_AddObjectToObject(o, "system");
+	cJSON_AddBoolToObject(sys, "checking", g.checking_system);
 	cJSON_AddItemToObject(sys, "packages", g.packages ? cJSON_Duplicate(g.packages, true) : cJSON_CreateArray());
 	cJSON_AddNumberToObject(sys, "checked_at", g.sys_checked_at);
 	cJSON_AddStringToObject(sys, "message", g.sys_message);

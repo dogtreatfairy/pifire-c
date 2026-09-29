@@ -1533,3 +1533,6 @@ main.view:has(> .screen-actions) { padding-bottom: calc(var(--tab-h) + env(safe-
 /* the head of a table of things to tick: the box that answers for every row under it */
 .ios-list .row.thead { background: var(--surface2); }
 .ios-list .row.thead .t { font-weight: 600; }
+/* a check under way: the mark turns until the answer is back */
+.tile.spinning .ic { animation: upd-turn 1.1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .tile.spinning .ic { animation-duration: 3s; } }

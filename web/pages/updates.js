@@ -90,11 +90,17 @@ export function renderUpdates(view) {
        which is the newest unless another release was picked under Source */
     const piNews = !!(u.available && newest && !isCurrent(newest) && !ignored);
     const piWaiting = installable(chosen) && (piNews || u.switching || chosen !== newest);
+    /* While a check is out, each half says so -- a turning mark in blue and the words -- until its
+       answer is back. It is also why Install is greyed: there is nothing settled to install yet. */
+    /* the grill says what it is looking at; between the tap and its first answer, both are */
+    const piChecking = !!u.checking || (!!busyCheck && !u.busy);
+    const sysChecking = !!u.system?.checking || (busyCheck === 'both' && !u.busy);
+    const checkingTile = () => el('span', { class: 'tile spinning', style: tileStyle('#0a84ff') }, lucide('refresh-cw'));
     const status = [
-      row({ lead: tile(piNews ? 'circle-arrow-up' : 'circle-check', piNews ? '#ff8a1f' : '#30d158'), title: 'PiFire',
-        value: failed ? 'Check failed' : !u.checked_at ? 'Not checked' : piNews ? `${bare(newest.version)} available` : ignored ? 'Up to date · newest ignored' : 'Up to date' }),
-      row({ lead: tile(pk.length ? 'circle-arrow-up' : 'circle-check', pk.length ? '#ff8a1f' : '#30d158'), title: 'System',
-        value: !u.system?.checked_at ? 'Not checked' : pk.length ? `${pk.length} update${pk.length === 1 ? '' : 's'}` : 'Up to date' }),
+      row({ lead: piChecking ? checkingTile() : tile(piNews ? 'circle-arrow-up' : 'circle-check', piNews ? '#ff8a1f' : '#30d158'), title: 'PiFire',
+        value: piChecking ? 'Checking for updates…' : failed ? 'Check failed' : !u.checked_at ? 'Not checked' : piNews ? `${bare(newest.version)} available` : ignored ? 'Up to date · newest ignored' : 'Up to date' }),
+      row({ lead: sysChecking ? checkingTile() : tile(pk.length ? 'circle-arrow-up' : 'circle-check', pk.length ? '#ff8a1f' : '#30d158'), title: 'System',
+        value: sysChecking ? 'Checking for updates…' : !u.system?.checked_at ? 'Not checked' : pk.length ? `${pk.length} update${pk.length === 1 ? '' : 's'}` : 'Up to date' }),
       u.system?.reboot_required ? row({ lead: tile('power', '#ff453a'), title: 'Reboot to Finish', chevron: true, onclick: idle() ? reboot : null, cls: 'danger' }) : null,
       failed ? row({ lead: tile('triangle-alert', '#ff453a'), title: 'Error', value: u.message }) : null,
     ];
