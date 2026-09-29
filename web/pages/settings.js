@@ -91,7 +91,8 @@ const PAGES = [
     I('power_loss.igniter_s', 'Relight for (s)', 'Igniter run time before resuming', { min: 30, max: 900 }),
   ] }] },
   { key: 'limits', title: 'Output Limits & Manual Control', sub: 'Igniter and auger caps, overrides', section: 'Safety', icon: 'zap', color: '#ff9f0a', sections: [{ id: 'safety', fields: [
-    I('igniter_max_on_s', 'Igniter maximum on time (s)', 'Igniter forced off after this', { min: 60 }),
+    I('igniter_max_on_s', 'Igniter maximum on time (s)', 'Igniter forced off after this', { min: 60, max: 1800 }),
+    I('max_unburnt_g', 'Fuel without heat (g)', 'Fed into a falling pit before flame-out', { min: 30, max: 300 }),
     I('auger_max_on_s', 'Auger maximum continuous run (s)', 'Absolute cap, regardless of controller or manual control', { min: 5 }),
     B('allow_manual_changes', 'Allow manual outputs while cooking', 'Override outputs from More → Manual Outputs'),
     I('manual_override_time', 'Manual override lasts (s)', '', { min: 5 }),
@@ -155,6 +156,7 @@ const PAGES = [
       X('mqtt.broker', 'Broker host', ''), I('mqtt.port', 'Broker port', '', { min: 1, max: 65535 }),
       X('mqtt.username', 'Username', ''), { path: 'mqtt.password', label: 'Password', type: 'password' },
       X('mqtt.id', 'Device ID', 'Topic prefix'), I('mqtt.update_sec', 'Publish every (s)', '', { min: 5 }),
+      B('mqtt.allow_control', 'Allow control', 'Stop, shutdown, set point, timers, targets'),
     ] },
     { id: 'notify', title: 'Webhook', sub: 'POST events as JSON', icon: 'webhook', color: '#8e8e93', collapsible: 'webhook.enabled', fields: [
       { type: 'note', help: 'POSTs every event as JSON.' },

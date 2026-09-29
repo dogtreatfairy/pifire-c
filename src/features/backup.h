@@ -24,6 +24,11 @@ void   pf_backup_disconnect(const char *loc_id);
  * host, when no share is named). req: {type, path, host, share, user, password}. */
 cJSON *pf_backup_browse(cJSON *req, char *err, size_t n);
 
+/* Whether a value may go into an smbclient invocation (no " ; ! ` $ or control characters), and
+ * the same check over a list of locations as it is about to be saved; 0 = fine. */
+bool   pf_backup_smb_value_ok(const char *v);
+int    pf_backup_check_locations(cJSON *locs, char *err, size_t n);
+
 /* Called by main() before the database is opened: if a restore was staged, put it in place. */
 int    pf_backup_apply_staged(const char *data_dir, const char *config_path);
 

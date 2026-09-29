@@ -70,6 +70,17 @@ static int post(const char *url, const char *json)
 	curl_easy_setopt(c, CURLOPT_TIMEOUT, 10L);
 	curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
 	curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);
+	/* A webhook is a web request and nothing else: no file://, no smb://, no gopher:// either as
+	 * the URL typed in or as somewhere a redirect sends it. The string forms arrived in libcurl
+	 * 7.85 and the bitmask forms are deprecated there. */
+#if LIBCURL_VERSION_NUM >= 0x075500
+	curl_easy_setopt(c, CURLOPT_PROTOCOLS_STR, "http,https");
+	curl_easy_setopt(c, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
+#else
+	curl_easy_setopt(c, CURLOPT_PROTOCOLS, (long)(CURLPROTO_HTTP | CURLPROTO_HTTPS));
+	curl_easy_setopt(c, CURLOPT_REDIR_PROTOCOLS, (long)(CURLPROTO_HTTP | CURLPROTO_HTTPS));
+#endif
+	curl_easy_setopt(c, CURLOPT_MAXREDIRS, 5L);
 	curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, discard);
 	curl_easy_setopt(c, CURLOPT_USERAGENT, "PiFire/" PF_VERSION);
 	CURLcode rc = curl_easy_perform(c);

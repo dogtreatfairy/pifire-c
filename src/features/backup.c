@@ -29,6 +29,7 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <limits.h>
 #include <pthread.h>
 #include <signal.h>
 #include <sqlite3.h>
@@ -128,6 +129,35 @@ static int copy_file(const char *from, const char *to)
 	return rc;
 }
 
+/* A file out of an unpacked archive is only copied when it is a plain file. A tar can carry a
+ * symbolic link named settings.json or pifire.db pointing anywhere on the card, and following it
+ * would copy whatever it names into place as the grill's own. lstat, not stat, so the link itself
+ * is what is judged. */
+static bool regular_file(const char *path)
+{
+	struct stat st;
+	return lstat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+static int copy_staged(const char *from, const char *to)
+{
+	if (!regular_file(from)) { LOGW(TAG, "%s is not a plain file; not restored", from); return -1; }
+	return copy_file(from, to);
+}
+
+/* The staged settings.json has to pass the same validation as an edit on the settings page. */
+static int staged_settings_ok(const char *path, char *err, size_t n)
+{
+	if (!regular_file(path)) { snprintf(err, n, "the backup's settings.json is not a plain file"); return -1; }
+	char *txt = pf_read_file(path, NULL);
+	if (!txt) { snprintf(err, n, "cannot read the backup's settings.json"); return -1; }
+	char why[200];
+	int rc = pf_settings_validate_json(txt, why, sizeof why);
+	free(txt);
+	if (rc) snprintf(err, n, "the backup's settings are invalid: %.160s", why);
+	return rc;
+}
+
 static long file_size(const char *path) { struct stat st; return stat(path, &st) == 0 ? (long)st.st_size : -1; }
 
 /* "1.8 MB" or "640 KB": a size a person reads, not a fraction of a megabyte */
@@ -158,10 +188,14 @@ static void archive_name(char *out, size_t n, double wall)
 	snprintf(out, n, "pifire-%s-%s.tar.gz", slug[0] ? slug : "grill", stamp);
 }
 
+/* A backup's name reaches smbclient's command string, which splits on ';' even inside quotes, so
+ * a name is ours only when it is made of the characters archive_name() writes and nothing else. */
 static bool is_ours(const char *name)
 {
 	size_t l = strlen(name);
-	return l > 14 && !strncmp(name, "pifire-", 7) && !strcmp(name + l - 7, ".tar.gz") && !strchr(name, '/') && !strchr(name, '"');
+	if (l <= 14 || strncmp(name, "pifire-", 7) || strcmp(name + l - 7, ".tar.gz")) return false;
+	for (const char *c = name; *c; c++) if (!isalnum((unsigned char)*c) && *c != '-' && *c != '_' && *c != '.') return false;
+	return true;
 }
 
 /* the moment in the name, for listings that give none or give it in a locale */
@@ -377,7 +411,7 @@ int pf_backup_stage(const char *archive, const char *stage_dir, char *err, size_
 	if (run(tar, out, sizeof out, 300) != 0) { snprintf(err, n, "not a readable archive: %.150s", out); rm_rf(stage_dir); return -1; }
 	char path[700];
 	snprintf(path, sizeof path, "%s/manifest.json", stage_dir);
-	char *txt = pf_read_file(path, NULL);
+	char *txt = regular_file(path) ? pf_read_file(path, NULL) : NULL;
 	cJSON *m = txt ? cJSON_Parse(txt) : NULL;
 	free(txt);
 	if (!m) { snprintf(err, n, "not a PiFire backup (no manifest)"); rm_rf(stage_dir); return -1; }
@@ -388,8 +422,10 @@ int pf_backup_stage(const char *archive, const char *stage_dir, char *err, size_
 	if (fmt != 1 || strcmp(app, "pifire-c")) { snprintf(err, n, "not a PiFire backup this version can read (format %d)", fmt); rm_rf(stage_dir); return -1; }
 	snprintf(path, sizeof path, "%s/settings.json", stage_dir);
 	if (!pf_file_exists(path)) { snprintf(err, n, "the backup has no settings.json"); rm_rf(stage_dir); return -1; }
+	if (staged_settings_ok(path, err, n)) { rm_rf(stage_dir); return -1; }
 	snprintf(path, sizeof path, "%s/pifire.db", stage_dir);
 	if (!pf_file_exists(path)) { snprintf(err, n, "the backup has no database"); rm_rf(stage_dir); return -1; }
+	if (!regular_file(path)) { snprintf(err, n, "the backup's database is not a plain file"); rm_rf(stage_dir); return -1; }
 	/* the database has to open and look like ours before it is allowed anywhere near the real one */
 	{
 		sqlite3 *db = NULL;
@@ -488,6 +524,47 @@ static int folder_get(const loc_t *L, const char *name, const char *local) { cha
 
 /* ---- a network share, through smbclient --------------------------------------------------- */
 
+/* What may go into an smbclient invocation. smbclient runs its -c string as its own little
+ * command language: ';' separates commands (quotes or not), '"' ends a quoted word, and '!' runs
+ * a shell command. A host, share, folder or user name that carried any of those, or a line break
+ * that would add a line to the credentials file, could make the grill do something other than
+ * copy a backup. None of them has a place in a real share name, so they are refused outright:
+ * when a location is saved or browsed, and again here before any command is built. */
+bool pf_backup_smb_value_ok(const char *v)
+{
+	for (const unsigned char *c = (const unsigned char *)(v ? v : ""); *c; c++)
+		if (*c < 0x20 || *c == 0x7f || *c == '"' || *c == ';' || *c == '!' || *c == '`' || *c == '$') return false;
+	return true;
+}
+
+/* A password goes only into the credentials file (never the command string), so it may hold any
+ * printable character a password can; a line break would start a new line in that file. */
+static bool smb_password_ok(const char *v)
+{
+	for (const unsigned char *c = (const unsigned char *)(v ? v : ""); *c; c++) if (*c < 0x20 || *c == 0x7f) return false;
+	return true;
+}
+
+static int smb_fields_ok(const char *host, const char *share, const char *path, const char *user, const char *pass, char *err, size_t n)
+{
+	const char *bad = !pf_backup_smb_value_ok(host) ? "Host" : !pf_backup_smb_value_ok(share) ? "Share"
+	                : !pf_backup_smb_value_ok(path) ? "Folder" : !pf_backup_smb_value_ok(user) ? "User" : NULL;
+	if (bad) { snprintf(err, n, "%s: \" ; ! ` $ and control characters not allowed", bad); return -1; }
+	if (!smb_password_ok(pass)) { snprintf(err, n, "Password: control characters not allowed"); return -1; }
+	return 0;
+}
+
+int pf_backup_check_locations(cJSON *locs, char *err, size_t n)
+{
+	cJSON *j;
+	cJSON_ArrayForEach(j, locs) {
+		if (strcmp(pf_json_str(j, "type", ""), "smb")) continue;
+		if (smb_fields_ok(pf_json_str(j, "host", ""), pf_json_str(j, "share", ""), pf_json_str(j, "path", ""),
+		                  pf_json_str(j, "user", ""), pf_json_str(j, "password", ""), err, n)) return -1;
+	}
+	return 0;
+}
+
 static bool smb_have(void) { const char *argv[] = { "smbclient", "-V", NULL }; return run(argv, NULL, 0, 10) == 0; }
 
 /* //host/share, a credentials file the way smbclient wants it (never the password on a command
@@ -495,6 +572,7 @@ static bool smb_have(void) { const char *argv[] = { "smbclient", "-V", NULL }; r
 static int smb_prep(const loc_t *L, char *svc, size_t sn, char *auth, size_t an, char *dir, size_t dn, char *err, size_t en)
 {
 	if (!L->host[0] || !L->share[0]) { snprintf(err, en, "the share needs a host and a share name"); return -1; }
+	if (smb_fields_ok(L->host, L->share, L->path, L->user, L->pass, err, en)) return -1;
 	if (!g.have_smb && !(g.have_smb = smb_have())) { snprintf(err, en, "smbclient is not installed on the grill (sudo apt install smbclient)"); return -1; }
 	snprintf(svc, sn, "//%s/%s", L->host, L->share);
 	snprintf(auth, an, "%s/.smbauth-%.23s", g.work, L->id);
@@ -510,14 +588,14 @@ static int smb_prep(const loc_t *L, char *svc, size_t sn, char *auth, size_t an,
 	return 0;
 }
 
+/* The folder goes in as -D, an argument of its own, so the -c string holds only the command. */
 static int smb_cmd(const loc_t *L, const char *cmd, char *out, size_t n, char *err, size_t en)
 {
 	char svc[300], auth[600], dir[256];
 	if (smb_prep(L, svc, sizeof svc, auth, sizeof auth, dir, sizeof dir, err, en)) return -1;
-	char full[1200];
-	if (dir[0]) snprintf(full, sizeof full, "cd \"%s\"; %s", dir, cmd); else snprintf(full, sizeof full, "%s", cmd);
-	const char *argv[] = { "smbclient", svc, "-A", auth, "-c", full, NULL };
-	int rc = run(argv, out, n, 120);
+	const char *with_dir[] = { "smbclient", svc, "-A", auth, "-D", dir, "-c", cmd, NULL };
+	const char *no_dir[] = { "smbclient", svc, "-A", auth, "-c", cmd, NULL };
+	int rc = run(dir[0] ? with_dir : no_dir, out, n, 120);
 	if (rc != 0) {
 		/* smbclient's own words are the useful part; the first line usually says it */
 		char *nl = strchr(out, '\n'); if (nl) *nl = 0;
@@ -537,6 +615,7 @@ static int smb_put(const loc_t *L, const char *local, const char *name, char *er
 		const char *argv[] = { "smbclient", svc, "-A", auth, "-c", mk, NULL };
 		run(argv, out, sizeof out, 60);
 	}
+	if (!is_ours(name) || !pf_backup_smb_value_ok(local)) { snprintf(err, n, "not a name smbclient can be given"); return -1; }
 	char cmd[1400];
 	snprintf(cmd, sizeof cmd, "put \"%s\" \"%s\"", local, name);
 	return smb_cmd(L, cmd, out, sizeof out, err, n);
@@ -564,8 +643,18 @@ static cJSON *smb_list(const loc_t *L, char *err, size_t n)
 	return arr;
 }
 
-static int smb_del(const loc_t *L, const char *name) { char cmd[300], out[2048], err[200]; snprintf(cmd, sizeof cmd, "del \"%s\"", name); return smb_cmd(L, cmd, out, sizeof out, err, sizeof err); }
-static int smb_get(const loc_t *L, const char *name, const char *local) { char cmd[1000], out[2048], err[200]; snprintf(cmd, sizeof cmd, "get \"%s\" \"%s\"", name, local); return smb_cmd(L, cmd, out, sizeof out, err, sizeof err); }
+static int smb_del(const loc_t *L, const char *name)
+{
+	if (!is_ours(name)) return -1;
+	char cmd[300], out[2048], err[200]; snprintf(cmd, sizeof cmd, "del \"%s\"", name);
+	return smb_cmd(L, cmd, out, sizeof out, err, sizeof err);
+}
+static int smb_get(const loc_t *L, const char *name, const char *local)
+{
+	if (!is_ours(name) || !pf_backup_smb_value_ok(local)) return -1;
+	char cmd[1000], out[2048], err[200]; snprintf(cmd, sizeof cmd, "get \"%s\" \"%s\"", name, local);
+	return smb_cmd(L, cmd, out, sizeof out, err, sizeof err);
+}
 
 /* ---- browsing: what is at a path, so a location can be picked rather than typed ---------- */
 
@@ -579,19 +668,48 @@ static cJSON *sorted_names(char **names, int k)
 	return arr;
 }
 
+/* Where a backup folder can sensibly be: the grill's own data, a USB stick, a mounted share, a
+ * home directory. Browsing is confined to these so the page cannot be used to list the rest of
+ * the card. "/" is shown as the roots that exist, and every other path is resolved (links and
+ * "..") before it is compared, so it cannot step out of them. */
+static const char *const BROWSE_ROOTS[] = { "/var/lib/pifire", "/media", "/mnt", "/home" };
+#define N_BROWSE_ROOTS (sizeof BROWSE_ROOTS / sizeof BROWSE_ROOTS[0])
+
+static bool under_root(const char *real, bool *is_root)
+{
+	for (size_t i = 0; i < N_BROWSE_ROOTS; i++) {
+		char r[PATH_MAX];
+		if (!realpath(BROWSE_ROOTS[i], r)) continue;
+		size_t rl = strlen(r);
+		if (!strncmp(real, r, rl) && (real[rl] == 0 || real[rl] == '/')) { *is_root = real[rl] == 0; return true; }
+	}
+	return false;
+}
+
 static cJSON *browse_folder(const char *path, char *err, size_t n)
 {
-	char here[512];
-	pf_strlcpy(here, path && path[0] ? path : "/", sizeof here);
-	size_t l = strlen(here);
-	while (l > 1 && here[l - 1] == '/') here[--l] = 0;
+	char here[PATH_MAX];
+	bool at_root = false;
+	/* a folder that is missing or outside the roots opens the picker at the roots, where the
+	 * person can go on from, rather than at an error */
+	if (!path || !path[0] || !realpath(path, here) || !under_root(here, &at_root)) {
+		char *names[N_BROWSE_ROOTS]; int k = 0;
+		for (size_t i = 0; i < N_BROWSE_ROOTS; i++) {
+			struct stat st;
+			if (stat(BROWSE_ROOTS[i], &st) == 0 && S_ISDIR(st.st_mode)) names[k++] = strdup(BROWSE_ROOTS[i] + 1);
+		}
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddStringToObject(o, "path", "/");
+		cJSON_AddItemToObject(o, "dirs", sorted_names(names, k));
+		return o;
+	}
 	DIR *d = opendir(here);
 	if (!d) { snprintf(err, n, "cannot open %.150s: %s", here, strerror(errno)); return NULL; }
 	char *names[512]; int k = 0;
 	struct dirent *e;
 	while ((e = readdir(d)) && k < 512) {
 		if (e->d_name[0] == '.') continue;
-		char p[900]; snprintf(p, sizeof p, "%s/%s", here, e->d_name);
+		char p[PATH_MAX + 260]; snprintf(p, sizeof p, "%s/%s", here, e->d_name);
 		struct stat st;
 		if (stat(p, &st) || !S_ISDIR(st.st_mode)) continue;
 		names[k++] = strdup(e->d_name);
@@ -600,7 +718,8 @@ static cJSON *browse_folder(const char *path, char *err, size_t n)
 	cJSON *o = cJSON_CreateObject();
 	cJSON_AddStringToObject(o, "path", here);
 	cJSON_AddItemToObject(o, "dirs", sorted_names(names, k));
-	if (strcmp(here, "/")) {
+	if (at_root) cJSON_AddStringToObject(o, "parent", "/");
+	else {
 		char *slash = strrchr(here, '/');
 		if (slash) { *slash = 0; cJSON_AddStringToObject(o, "parent", here[0] ? here : "/"); }
 	}
@@ -611,6 +730,7 @@ static cJSON *browse_folder(const char *path, char *err, size_t n)
 static cJSON *browse_shares(const loc_t *L, char *err, size_t n)
 {
 	if (!L->host[0]) { snprintf(err, n, "enter the host first"); return NULL; }
+	if (smb_fields_ok(L->host, L->share, L->path, L->user, L->pass, err, n)) return NULL;
 	if (!g.have_smb && !(g.have_smb = smb_have())) { snprintf(err, n, "smbclient is not installed on the grill (sudo apt install smbclient)"); return NULL; }
 	char auth[600];
 	snprintf(auth, sizeof auth, "%s/.smbauth-browse", g.work);
@@ -705,12 +825,11 @@ static cJSON *browse_share(const loc_t *L, const char *path, char *err, size_t n
 	 * otherwise turn into the PiFire default */
 	char svc[300], auth[600], dir[256];
 	if (smb_prep(&at, svc, sizeof svc, auth, sizeof auth, dir, sizeof dir, err, n)) return NULL;
-	char full[600];
-	if (at.path[0]) snprintf(full, sizeof full, "cd \"%s\"; ls", dir); else snprintf(full, sizeof full, "ls");
-	const char *argv[] = { "smbclient", svc, "-A", auth, "-c", full, NULL };
+	const char *with_dir[] = { "smbclient", svc, "-A", auth, "-D", dir, "-c", "ls", NULL };
+	const char *no_dir[] = { "smbclient", svc, "-A", auth, "-c", "ls", NULL };
 	char *out = malloc(65536);
 	if (!out) { snprintf(err, n, "out of memory"); return NULL; }
-	int rc = run(argv, out, 65536, 60);
+	int rc = run(at.path[0] ? with_dir : no_dir, out, 65536, 60);
 	if (rc != 0 && !strstr(out, "blocks")) {
 		char *nl = strchr(out, '\n'); if (nl) *nl = 0;
 		snprintf(err, n, "%s", out[0] ? out : "smbclient failed");
@@ -737,6 +856,8 @@ cJSON *pf_backup_browse(cJSON *req, char *err, size_t n)
 	const char *path = pf_json_str(req, "path", "");
 	if (!strcmp(type, "folder")) return browse_folder(path, err, n);
 	if (!strcmp(type, "smb")) {
+		if (smb_fields_ok(pf_json_str(req, "host", ""), pf_json_str(req, "share", ""), path,
+		                  pf_json_str(req, "user", ""), pf_json_str(req, "password", ""), err, n)) return NULL;
 		loc_t L; memset(&L, 0, sizeof L);
 		pf_strlcpy(L.id, "browse", sizeof L.id); pf_strlcpy(L.type, "smb", sizeof L.type);
 		pf_strlcpy(L.host, pf_json_str(req, "host", ""), sizeof L.host);
@@ -1468,7 +1589,15 @@ int pf_backup_apply_staged(const char *data_dir, const char *config_path)
 	LOGW(TAG, "restoring a backup from %s", stage);
 
 	snprintf(from, sizeof from, "%s/settings.json", stage);
-	if (copy_file(from, config_path)) { LOGE(TAG, "cannot write %s", config_path); return -1; }
+	/* checked when it was staged, and again here: the stage sat on disk across a restart */
+	{
+		char why[240];
+		if (staged_settings_ok(from, why, sizeof why)) { LOGE(TAG, "restore refused: %s", why); rm_rf(stage); return -1; }
+		snprintf(from, sizeof from, "%s/pifire.db", stage);
+		if (!regular_file(from)) { LOGE(TAG, "restore refused: %s is not a plain file", from); rm_rf(stage); return -1; }
+		snprintf(from, sizeof from, "%s/settings.json", stage);
+	}
+	if (copy_staged(from, config_path)) { LOGE(TAG, "cannot write %s", config_path); return -1; }
 
 	snprintf(from, sizeof from, "%s/pifire.db", stage);
 	snprintf(to, sizeof to, "%s/pifire.db", data_dir);
@@ -1478,12 +1607,15 @@ int pf_backup_apply_staged(const char *data_dir, const char *config_path)
 		snprintf(j, sizeof j, "%s-wal", to); unlink(j);
 		snprintf(j, sizeof j, "%s-shm", to); unlink(j);
 	}
-	if (copy_file(from, to)) { LOGE(TAG, "cannot write %s", to); return -1; }
+	if (copy_staged(from, to)) { LOGE(TAG, "cannot write %s", to); return -1; }
 
 	/* the cook files: the backup's set, whole */
 	char cdir[600], sdir[620];
 	snprintf(cdir, sizeof cdir, "%s/cookfiles", data_dir);
 	snprintf(sdir, sizeof sdir, "%s/cookfiles", stage);
+	/* the folder itself must be a folder in the stage, not a link out of it */
+	struct stat sst;
+	if (lstat(sdir, &sst) == 0 && !S_ISDIR(sst.st_mode)) { LOGW(TAG, "%s is not a folder; no cook files restored", sdir); sdir[0] = 0; }
 	DIR *d = opendir(cdir);
 	struct dirent *e;
 	while (d && (e = readdir(d))) {
@@ -1493,13 +1625,13 @@ int pf_backup_apply_staged(const char *data_dir, const char *config_path)
 	if (d) closedir(d);
 	pf_mkdir_p(cdir);
 	int cooks = 0;
-	d = opendir(sdir);
+	d = sdir[0] ? opendir(sdir) : NULL;
 	while (d && (e = readdir(d))) {
 		size_t l = strlen(e->d_name);
 		if (l < 6 || strcmp(e->d_name + l - 5, ".json")) continue;
 		snprintf(from, sizeof from, "%s/%s", sdir, e->d_name);
 		snprintf(to, sizeof to, "%s/%s", cdir, e->d_name);
-		if (copy_file(from, to) == 0) cooks++;
+		if (copy_staged(from, to) == 0) cooks++;
 	}
 	if (d) closedir(d);
 	rm_rf(stage);

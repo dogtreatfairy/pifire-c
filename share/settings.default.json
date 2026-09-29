@@ -1,5 +1,5 @@
 {
-  "schema_version": 23,
+  "schema_version": 24,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -113,7 +113,7 @@
     "startup_check": true,
     "allow_manual_changes": false,
     "manual_override_time": 30,
-    "igniter_max_on_s": 1200,
+    "igniter_max_on_s": 600,
     "auger_max_on_s": 60,
     "probe_fault_s": 10,
     "error_cooldown_fan_s": 300,
@@ -134,7 +134,8 @@
     "relight_drop": 20,
     "relight_recover": 10,
     "relight_recover_step": 3,
-    "relight_timeout_s": 300
+    "relight_timeout_s": 300,
+    "max_unburnt_g": 100
   },
   "startup": {
     "duration": 240,
@@ -366,7 +367,8 @@
       "password": "",
       "id": "PiFire",
       "homeassistant_autodiscovery_topic": "homeassistant",
-      "update_sec": 30
+      "update_sec": 30,
+      "allow_control": false
     },
     "webhook": {
       "enabled": false,

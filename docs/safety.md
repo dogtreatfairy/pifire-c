@@ -93,3 +93,47 @@ Four things bound it:
 The escalation clock is deliberately *not* reset by the igniter switching off after a recovery: the
 igniter's own heat can lift the pit a few degrees with the fire still out, so the assist can cycle.
 Only the pit genuinely climbing back towards the set point resets it.
+
+
+## Safety audit, 2026-09-29
+
+Three independent reviews (outputs and process failure; control and safety logic; the remote
+surface) and the fixes that followed.
+
+- **Relays after a crash.** On Raspberry Pi kernels a released GPIO line keeps the level it was last
+  driven to (`pinctrl_bcm2835.persist_gpio_outputs=Y`, confirmed on the reference grill), so a crash
+  with the auger on left it on. Now: `ExecStopPost=pifired --outputs-off` drives every relay off
+  after any stop; `StartLimitIntervalSec=0` keeps systemd restarting; the installer adds
+  `persist_gpio_outputs=n` to the kernel command line so released pins fall to their pulls.
+- **Emergency paths** switch the outputs off before logging; the safe latch is re-checked under the
+  HAL lock; PWM frequency is latch-gated; shutdown has an 8 s deadline after which outputs are forced
+  off.
+- **Recovery after a restart** (power loss or crash) relights at most once per cook; never an
+  interrupted startup whose fire Smart Start had not confirmed; never when the Pi rebooted with an
+  unsynchronised clock and the pit has lost more than 30% of its heat; restores relight retries; an
+  interrupted tuning run shuts down instead of resuming. Otherwise E08.
+- **Fuel without heat.** In Hold, Smoke and after a relight's light, grams fed while the pit has
+  fallen over the last five minutes are counted; past `safety.max_unburnt_g` (100 g) the auger stops
+  and it is E02. A hot relight must rise 3 C within the Smart Start time or it is E02.
+- **Hold or Smoke from Manual, Prime or Shutdown** goes through Startup. Reignite and Error cannot be
+  requested; Prime and Manual only from Stop or Monitor; Prime is clamped to 50 g and ends when its
+  feed does.
+- **Set point** is held 25 F below `safety.maxtemp`, whoever sets it.
+- **Error cool-down fan** stops if the pit rises 10 F above where it was when the error was raised
+  (it would be feeding a fire). An overtemperature in Stop or Error raises an alert.
+- **Igniter cap** is enforced even while the probe is invalid and stays tripped for the mode;
+  default 600 s. **Auger cap** is followed by a 15 s rest.
+- **Shutdown** runs its time and then until the pit is below `restart_hot_temp`, capped at 3x.
+- **A clean start with a hot pit** that is not resuming a cook runs the Shutdown cool-down.
+- **Wi-Fi recovery** reloads the radio driver at any time but restarts the Pi only when the grill is
+  stopped and cool (a restart mid-cook leaves the fan off while the pot smoulders, then relights).
+- **Remote surface.** Requests must be addressed to the grill by a name it answers to (DNS rebinding);
+  a browser Origin must match; state-changing requests must be JSON (or gzip for a restore); no
+  CORS; the WebSocket checks the same. Settings limits have ceilings and are reset to defaults when
+  out of range at load. Backup restores are validated and refuse symlinks. SMB values are checked and
+  the folder passed with `-D`. The root helpers resolve and validate their arguments. The setup
+  hotspot gets a random per-device password (shown on the panel) and serves network setup only.
+  MQTT accepts no commands unless `mqtt.allow_control`, and then only stop, shutdown, set point,
+  timers and targets.
+- **Not done yet:** release signing (updates are checked against SHA256SUMS from the same release,
+  which proves integrity, not authorship) and redacting stored secrets from `GET /settings`.

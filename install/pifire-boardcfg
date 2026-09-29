@@ -12,6 +12,42 @@
 # Prints "REBOOT" on stdout when anything changed. Must run as root.
 set -euo pipefail
 
+# Every argument is checked before config.txt is touched: this runs as root from sudo, and what it
+# is given ends up in the boot configuration and in sed expressions, so a value that is not
+# exactly what an option expects (a GPIO number 0-40, a comma list of them, LOW/HIGH, on/off)
+# stops the whole run with nothing written.
+gpio_ok() { [[ "$1" =~ ^(0|[1-9][0-9]?)$ ]] && [ "$1" -le 40 ]; }   # no leading zeros: dtoverlay would read 08 as octal
+need() { [ "$1" -ge "$2" ] || { echo "$3 needs $(( $2 - 1 )) argument(s)" >&2; exit 2; }; }
+args=("$@")
+i=0
+while [ $i -lt ${#args[@]} ]; do
+	opt="${args[$i]}"; left=$(( ${#args[@]} - i ))
+	case "$opt" in
+	--i2c|--spi|--no-onewire|--watchdog) i=$((i + 1)) ;;
+	--pwm)
+		need $left 2 "$opt"
+		case "${args[$((i + 1))]}" in 12|13|18|19) ;; *) echo "unsupported PWM pin ${args[$((i + 1))]}" >&2; exit 1 ;; esac
+		i=$((i + 2)) ;;
+	--onewire)
+		need $left 2 "$opt"
+		gpio_ok "${args[$((i + 1))]}" || { echo "not a GPIO number: ${args[$((i + 1))]}" >&2; exit 2; }
+		i=$((i + 2)) ;;
+	--pulls)
+		need $left 3 "$opt"
+		pl="${args[$((i + 1))]}"
+		[[ "$pl" =~ ^[0-9]{1,2}(,[0-9]{1,2})*$ ]] || { echo "not a GPIO list: $pl" >&2; exit 2; }
+		IFS=, read -ra plist <<< "$pl"
+		for p in "${plist[@]}"; do gpio_ok "$p" || { echo "not a GPIO number: $p" >&2; exit 2; }; done
+		case "${args[$((i + 2))]}" in LOW|HIGH) ;; *) echo "relay level must be LOW or HIGH" >&2; exit 2 ;; esac
+		i=$((i + 3)) ;;
+	--bluetooth)
+		need $left 2 "$opt"
+		case "${args[$((i + 1))]}" in on|off) ;; *) echo "--bluetooth takes on or off" >&2; exit 2 ;; esac
+		i=$((i + 2)) ;;
+	*) echo "unknown option $opt" >&2; exit 2 ;;
+	esac
+done
+
 CFG=/boot/firmware/config.txt
 [ -f "$CFG" ] || CFG=/boot/config.txt
 [ -w "$CFG" ] || { echo "cannot write $CFG (run as root)" >&2; exit 1; }

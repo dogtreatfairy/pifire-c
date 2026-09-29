@@ -96,6 +96,9 @@ static double query_num(const char *query, const char *key, double dflt)
 
 int pf_api_command_json(const char *json, char *err, size_t errn)
 {
+	/* the WebSocket and MQTT reach commands here without passing pf_api_dispatch; the setup
+	 * hotspot's rule (network setup only) holds for them too */
+	if (pf_api_hotspot_active()) { snprintf(err, errn, "setup hotspot: network setup only"); return -1; }
 	cJSON *j = cJSON_Parse(json);
 	if (!j) { snprintf(err, errn, "invalid JSON"); return -1; }
 	const char *cmd = pf_json_str(j, "cmd", "");
@@ -203,9 +206,23 @@ static void settings_get(const char *sub, pf_api_resp *r)
 	reply(r, 200, d);
 }
 
+/* The backup locations reach smbclient, so a share's fields are checked as they are saved, as
+ * well as when they are used. The list can arrive at the root, under "backup", or on its own. */
+static int check_backup_locations(const char *sub, const char *body, char *err, size_t n)
+{
+	bool root = !sub || !*sub, grp = sub && !strcmp(sub, "backup"), arr = sub && !strcmp(sub, "backup.locations");
+	if (!root && !grp && !arr) return 0;
+	cJSON *j = cJSON_Parse(body ? body : "");
+	cJSON *locs = arr ? j : pf_json_path(j, root ? "backup.locations" : "locations");
+	int rc = cJSON_IsArray(locs) ? pf_backup_check_locations(locs, err, n) : 0;
+	cJSON_Delete(j);
+	return rc;
+}
+
 static void settings_patch(const char *sub, const char *body, pf_api_resp *r)
 {
 	char err[160] = "";
+	if (check_backup_locations(sub, body, err, sizeof err)) { reply_err(r, 400, err); return; }
 	if (pf_settings_patch(sub && *sub ? sub : NULL, body, err, sizeof err)) { reply_err(r, 400, err); return; }
 	/* tell the control thread which subsystems to rebuild */
 	if (!sub || !*sub || !strncmp(sub, "controller", 10)) pf_cmd_simple(PF_CMD_CONTROLLER_CHANGED);
@@ -221,6 +238,16 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 	const char *p = req->path;
 	const char *m = req->method;
 	bool get = !strcmp(m, "GET"), post = !strcmp(m, "POST"), put = !strcmp(m, "PUT") || !strcmp(m, "PATCH");
+
+	/* The setup hotspot is an open door by design -- it exists for a phone that has never seen
+	 * this grill -- so while it is up the API answers only what joining a network needs: the
+	 * status, the system summary, and the network pages. Settings (with their stored passwords
+	 * and tokens), commands, backups and the rest wait for the grill to be on a real network. */
+	if (pf_api_hotspot_active()) {
+		bool allowed = (get && (!strcmp(p, "/status") || !strcmp(p, "/system")))
+		               || ((get || post) && !strncmp(p, "/network/", 9));
+		if (!allowed) { reply_err(resp, 403, "setup hotspot: network setup only"); return; }
+	}
 
 	if (get && !strcmp(p, "/status")) {
 		pf_status st;
@@ -403,7 +430,9 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 	if (post && !strcmp(p, "/probes/ble/scan")) {
 		if (!pf_ble_available()) { pf_ble_start(); pf_sleep_ms(1500); }
 		if (!pf_ble_available()) { reply_err(resp, 503, "Bluetooth adapter not available"); return; }
-		reply(resp, 200, pf_ble_scan_json((int)query_num(req->query, "seconds", 8)));
+		/* a scan holds this worker for its length: five seconds to a minute, whatever was asked */
+		double secs = query_num(req->query, "seconds", 8);
+		reply(resp, 200, pf_ble_scan_json(!(secs >= 5) ? 5 : secs > 60 ? 60 : (int)secs));
 		return;
 	}
 	if (get && !strcmp(p, "/system")) { reply(resp, 200, pf_sysinfo_json()); return; }

@@ -4,14 +4,19 @@
 # unpacked it under /var/lib/pifire/update/stage. Runs that release's installer as a transient
 # systemd unit so the reinstall + service restart survives the daemon being stopped underneath it.
 set -euo pipefail
-STAGE="${1:-}"
+BASE=/var/lib/pifire/update
+# Resolved first, links and ".." included, and only then compared: a path that merely starts with
+# the update folder ("/var/lib/pifire/update/../../../tmp/x") must not pass for one inside it.
+STAGE=$(realpath -e -- "${1:-}" 2>/dev/null) || { echo "refusing to apply from ${1:-} (no such directory)" >&2; exit 2; }
 case "$STAGE" in
-	/var/lib/pifire/update/*) ;;
-	*) echo "refusing to apply from $STAGE (must be under /var/lib/pifire/update)" >&2; exit 2 ;;
+	"$BASE"/?*) ;;
+	*) echo "refusing to apply from $STAGE (must be under $BASE)" >&2; exit 2 ;;
 esac
-[ -x "$STAGE/pifired" ] && [ -f "$STAGE/install/install.sh" ] && [ -f "$STAGE/VERSION" ] || { echo "$STAGE is not a PiFire release" >&2; exit 2; }
-VER=$(cat "$STAGE/VERSION")
+[ -d "$STAGE" ] && [ -x "$STAGE/pifired" ] && [ -f "$STAGE/install/install.sh" ] && [ -f "$STAGE/VERSION" ] || { echo "$STAGE is not a PiFire release" >&2; exit 2; }
+VER=$(head -c 64 "$STAGE/VERSION" | tr -cd 'A-Za-z0-9.+_-')
 echo "applying PiFire $VER from $STAGE"
+# The stage reaches the unit as an argument ($1 of the script), never spliced into the script
+# text, so no character in the path can become part of a command.
 systemd-run --unit "pifire-update-$(date +%s)" --collect --quiet --property=After=pifired.service \
-	/bin/bash -c "sleep 1 && cd '$STAGE' && ./install/install.sh --upgrade > /var/lib/pifire/update/apply.log 2>&1"
+	/bin/bash -c 'sleep 1 && cd -- "$1" && ./install/install.sh --upgrade > /var/lib/pifire/update/apply.log 2>&1' pifire-update-apply "$STAGE"
 echo "scheduled"

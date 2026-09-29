@@ -1,6 +1,7 @@
 /* Renders the TFT screens from canned status into PPM files so the layout can be inspected. */
 #include "display/gfx.h"
 #include "display/screens.h"
+#include "core/settings.h"
 #include "unity.h"
 #include <stdio.h>
 #include <string.h>
@@ -93,6 +94,22 @@ static void test_render_screens(void)
 	pf_nav_reset(&ui);
 	pf_nav_push(&ui, PF_SCR_NETINFO, 0);
 	render_to(&g, st, &ui, "netinfo");
+	/* the setup hotspot: a code that joins it, and its name and password written out */
+	{
+		cJSON *net = cJSON_GetObjectItem(st, "net");
+		cJSON_ReplaceItemInObject(net, "ip", cJSON_CreateString("10.42.0.1"));
+		cJSON_ReplaceItemInObject(net, "ssid", cJSON_CreateString("PiFire-3F2A"));
+		cJSON_AddBoolToObject(net, "hotspot", true);
+		remove("/tmp/pf_test_gfx_settings.json");
+		TEST_ASSERT_EQUAL_INT(0, pf_settings_init("/tmp/pf_test_gfx_settings.json"));
+		pf_set_put_str("network.hotspot_password", "k7mq2xhz9p");
+		render_to(&g, st, &ui, "netinfo_hotspot");
+		pf_settings_shutdown();
+		remove("/tmp/pf_test_gfx_settings.json");
+		cJSON_DeleteItemFromObject(net, "hotspot");
+		cJSON_ReplaceItemInObject(net, "ip", cJSON_CreateString("10.0.0.5"));
+		cJSON_ReplaceItemInObject(net, "ssid", cJSON_CreateString("Kitchen"));
+	}
 	pf_nav_reset(&ui);
 	ui.temp_value = 250; ui.temp_focus = 1;
 	snprintf(ui.temp_title, sizeof ui.temp_title, "%s", "STARTUP TO HOLD");

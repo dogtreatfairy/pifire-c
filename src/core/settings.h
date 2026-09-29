@@ -37,6 +37,10 @@ int pf_set_put(const char *path, cJSON *v_owned);
  * `path` may be NULL to merge at root or a dotted path for a subtree. On error fills err. */
 int pf_settings_patch(const char *path, const char *json, char *err, size_t errn);
 
+/* Parse `json` and run the same validation a settings patch gets; 0 when it passes, else -1 with
+ * the reason in err. Does not touch the live settings. */
+int pf_settings_validate_json(const char *json, char *err, size_t errn);
+
 pf_units pf_settings_units(void);
 /* Change units, converting every temperature-valued setting in place, and save. */
 int pf_settings_set_units(pf_units u);

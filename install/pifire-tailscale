@@ -41,6 +41,8 @@ case "$cmd" in
 		;;
 	up)
 		hn="${2:-pifire}"
+		# a DNS label and nothing else: it is handed to tailscale as root
+		[[ "$hn" =~ ^[A-Za-z0-9-]{1,63}$ ]] || { echo "not a valid hostname: $hn" >&2; exit 2; }
 		# runs in the background: when the node is not logged in this blocks until the user finishes
 		# the login on the phone, and `status` exposes the URL meanwhile
 		nohup tailscale up --hostname="$hn" --accept-dns=true --reset >"$LOG" 2>&1 </dev/null &
@@ -52,6 +54,8 @@ case "$cmd" in
 	logout) tailscale logout ;;
 	serve)
 		port="${2:-80}"
+		[[ "$port" =~ ^[0-9]{1,5}$ ]] && [ $((10#$port)) -ge 1 ] && [ $((10#$port)) -le 65535 ] || { echo "not a port: $port" >&2; exit 2; }
+		port=$((10#$port))
 		tailscale serve reset >/dev/null 2>&1 || true
 		if tailscale serve --bg --yes --tls-terminated-tcp=443 "tcp://127.0.0.1:$port" >/dev/null 2>&1; then
 			echo "serving (tls-terminated tcp)"

@@ -18,9 +18,45 @@ static char g_iface[16] = "wlan0";
 static bool g_sim_hotspot;
 static char g_sim_ssid[64] = "SimNet";
 
+/* The hotspot password that shipped, printed in the README and the same on every grill. */
+#define PUBLIC_PSK "pifire1234"
+
+/* A grill still on the shipped hotspot password gets one of its own: ten characters from
+ * /dev/urandom, lower case and digits with the look-alikes (0 o 1 l i) left out so it can be read
+ * off the panel and typed on a phone. Bytes that would favour some characters over others are
+ * thrown away rather than folded in. It is saved at once, so it is the same password on the
+ * panel, the network page and every later start. Writes the password to use into out. */
+static void private_psk(const char *given, char *out, size_t n)
+{
+	pf_strlcpy(out, given ? given : "", n);
+	char saved[64];
+	pf_set_str("network.hotspot_password", saved, sizeof saved, PUBLIC_PSK);
+	if (strcmp(saved, PUBLIC_PSK)) { if (!strcmp(out, PUBLIC_PSK) || strlen(out) < 8) pf_strlcpy(out, saved, n); return; }
+	static const char set[] = "abcdefghjkmnpqrstuvwxyz23456789";
+	const unsigned k = sizeof set - 1, limit = 256 - 256 % k;
+	char psk[11];
+	size_t len = 0;
+	FILE *f = fopen("/dev/urandom", "rb");
+	unsigned char rnd[64];
+	while (f && len < sizeof psk - 1) {
+		size_t got = fread(rnd, 1, sizeof rnd, f);
+		if (!got) break;
+		for (size_t i = 0; i < got && len < sizeof psk - 1; i++) if (rnd[i] < limit) psk[len++] = set[rnd[i] % k];
+	}
+	if (f) fclose(f);
+	if (len < sizeof psk - 1) { LOGW(TAG, "no randomness for a hotspot password; keeping the shipped one"); return; }
+	psk[len] = 0;
+	pf_set_put_str("network.hotspot_password", psk);
+	if (pf_settings_save()) LOGW(TAG, "could not save the new hotspot password");
+	else LOGI(TAG, "hotspot password replaced with one of this grill's own");
+	pf_strlcpy(out, psk, n);
+}
+
 void pf_wifi_init(bool sim)
 {
 	g_sim = sim;
+	/* before the network manager reads the password, so it shows the one the hotspot will use */
+	{ char psk[64]; private_psk(NULL, psk, sizeof psk); }
 	if (sim) return;
 	char out[2048];
 	const char *argv[] = { "nmcli", "-t", "-f", "DEVICE,TYPE", "dev", "status", NULL };
@@ -225,8 +261,10 @@ void pf_hotspot_default_ssid(char *out, size_t n)
 	snprintf(out, n, "PiFire-%s", suffix);
 }
 
-int pf_hotspot_start(const char *ssid, const char *psk)
+int pf_hotspot_start(const char *ssid, const char *psk_in)
 {
+	char psk[64];
+	private_psk(psk_in, psk, sizeof psk);
 	if (g_sim) { g_sim_hotspot = true; LOGI(TAG, "simulated hotspot '%s' up", ssid); return 0; }
 	char out[2048];
 	const char *argv[] = { "nmcli", "dev", "wifi", "hotspot", "ifname", g_iface, "con-name", HOTSPOT_CON, "ssid", ssid, "password", psk, NULL };

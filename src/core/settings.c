@@ -173,6 +173,8 @@ static int validate(cJSON *root, char *err, size_t errn)
 	CHECK(pli >= 60 && pli <= 600, "safety.power_loss.igniter_s must be 60-600 s");
 	double cst = pf_json_num(root, "safety.coldstart.timeout_s", 300);
 	CHECK(cst == 0 || (cst >= 60 && cst <= 1800), "safety.coldstart.timeout_s must be 60-1800 s");
+	double mug = pf_json_num(root, "safety.max_unburnt_g", 100);
+	CHECK(mug >= 30 && mug <= 300, "safety.max_unburnt_g must be 30-300 g");
 	double mo = pf_json_num(root, "safety.manual_override_time", 30);
 	CHECK(mo >= 5 && mo <= 600, "safety.manual_override_time must be 5-600 s");
 	CHECK(pf_json_num(root, "safety.coldstart.delta_rise", 12) > 0, "safety.coldstart.delta_rise must be > 0");
@@ -182,6 +184,18 @@ static int validate(cJSON *root, char *err, size_t errn)
 	CHECK(strlen(pf_json_str(root, "network.hotspot_password", "pifire1234")) >= 8, "network.hotspot_password must be at least 8 characters");
 	return 0;
 #undef CHECK
+}
+
+/* A settings file from outside the running daemon -- a backup about to be restored -- is held
+ * to the same rules as an edit made on the settings page, before it is allowed to replace the
+ * live file. A restore cannot be used to put the safety limits outside their bounds. */
+int pf_settings_validate_json(const char *json, char *err, size_t errn)
+{
+	cJSON *root = json ? cJSON_Parse(json) : NULL;
+	if (!cJSON_IsObject(root)) { snprintf(err, errn, "settings are not a JSON object"); cJSON_Delete(root); return -1; }
+	int rc = validate(root, err, errn);
+	cJSON_Delete(root);
+	return rc;
 }
 
 /* ---------------- lifecycle ---------------- */
@@ -800,6 +814,17 @@ int pf_settings_init(const char *path)
 			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
 			if (sv) cJSON_SetNumberValue(sv, 23); else cJSON_AddNumberToObject(g_root, "schema_version", 23);
 			LOGI(TAG, "settings migrated to schema 23 (Smart Start on, 5 min)");
+			added = 1;
+		}
+		if (ver < 24) {
+			/* Safety audit: the igniter's cap comes down from twenty minutes to ten -- a startup and
+			 * a relight each light in under five -- where it is still what shipped. */
+			cJSON *sf = cJSON_GetObjectItem(g_root, "safety");
+			cJSON *ig = sf ? cJSON_GetObjectItem(sf, "igniter_max_on_s") : NULL;
+			if (cJSON_IsNumber(ig) && ig->valuedouble == 1200) cJSON_SetNumberValue(ig, 600);
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 24); else cJSON_AddNumberToObject(g_root, "schema_version", 24);
+			LOGI(TAG, "settings migrated to schema 24 (igniter cap 600 s)");
 			added = 1;
 		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
