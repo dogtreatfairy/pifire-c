@@ -65,6 +65,24 @@ static void test_put_creates_path(void)
 	cJSON_Delete(d);
 }
 
+static void test_igniter_never_over_five_minutes(void)
+{
+	char err[128] = "";
+	TEST_ASSERT_EQUAL_DOUBLE(300, pf_set_num("safety.igniter_max_on_s", 0));
+	TEST_ASSERT_NOT_EQUAL(0, pf_settings_patch("safety", "{\"igniter_max_on_s\":301}", err, sizeof err));
+	TEST_ASSERT_NOT_EQUAL(0, pf_settings_patch("safety", "{\"power_loss\":{\"igniter_s\":301}}", err, sizeof err));
+	TEST_ASSERT_EQUAL_INT(0, pf_settings_patch("safety", "{\"igniter_max_on_s\":240}", err, sizeof err));
+	/* a file from before the ceiling, at the old 600 s cap, comes down to five minutes */
+	pf_settings_shutdown();
+	FILE *f = fopen(path, "w");
+	TEST_ASSERT_NOT_NULL(f);
+	fputs("{\"schema_version\":24,\"safety\":{\"igniter_max_on_s\":600,\"power_loss\":{\"igniter_s\":600}}}", f);
+	fclose(f);
+	TEST_ASSERT_EQUAL_INT(0, pf_settings_init(path));
+	TEST_ASSERT_EQUAL_DOUBLE(300, pf_set_num("safety.igniter_max_on_s", 0));
+	TEST_ASSERT_EQUAL_DOUBLE(300, pf_set_num("safety.power_loss.igniter_s", 0));
+}
+
 int main(void)
 {
 	pf_log_init(PF_LOG_ERROR);
@@ -73,5 +91,6 @@ int main(void)
 	RUN_TEST(test_patch_and_reload);
 	RUN_TEST(test_units_conversion);
 	RUN_TEST(test_put_creates_path);
+	RUN_TEST(test_igniter_never_over_five_minutes);
 	return UNITY_END();
 }

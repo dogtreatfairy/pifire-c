@@ -66,11 +66,14 @@ static void load_cfg(pf_cfg *g)
 	g->power_loss_recovery = B("safety.power_loss.recovery", true);
 	g->power_loss_max_s = N("safety.power_loss.max_s", 300);
 	g->power_loss_igniter_s = N("safety.power_loss.igniter_s", 180);
+	if (g->power_loss_igniter_s > PF_IGNITER_MAX_S) g->power_loss_igniter_s = PF_IGNITER_MAX_S;
 	g->reignite_retries = (int)N("safety.reigniteretries", 1);
 	g->startup_check = B("safety.startup_check", true);
 	g->allow_manual = B("safety.allow_manual_changes", false);
 	g->manual_override_s = N("safety.manual_override_time", 30);
-	g->igniter_max_on_s = N("safety.igniter_max_on_s", 600);
+	g->igniter_max_on_s = N("safety.igniter_max_on_s", PF_IGNITER_MAX_S);
+	/* a hard ceiling, not only a validated one: the igniter is never on longer than this */
+	if (!(g->igniter_max_on_s > 0) || g->igniter_max_on_s > PF_IGNITER_MAX_S) g->igniter_max_on_s = PF_IGNITER_MAX_S;
 	g->auger_max_on_s = N("safety.auger_max_on_s", 60);
 	g->probe_fault_s = N("safety.probe_fault_s", 10);
 	g->relight_enabled = B("safety.relight_enabled", true);

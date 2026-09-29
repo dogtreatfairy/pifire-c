@@ -32,7 +32,7 @@ const PAGES = [
       /* Smart Start: the pit must rise, or startup stops in error. Stored under safety. */
       { ...B('coldstart.enabled', 'Smart Start', 'Error if the pit does not rise in time'), group: 'safety' },
       { path: 'coldstart.delta_rise', label: 'Smart Start rise', help: 'Above the lowest reading in the first minute', type: 'tempdelta', group: 'safety' },
-      { ...I('coldstart.timeout_s', 'Smart Start timeout (s)', 'No rise in this time: error', { min: 60, max: 1800 }), group: 'safety' },
+      { ...I('coldstart.timeout_s', 'Smart Start timeout (s)', 'No rise in this time: error', { min: 60, max: 300 }), group: 'safety' },
       T('startup_exit_temp', 'End startup early at', 'Exit startup at this pit temperature (0 = timer only)', { allowZero: true }),
       { path: 'exit_rise', label: 'End startup after a rise of', help: 'Rise above starting temperature that confirms ignition (0 = off)', type: 'tempdelta' },
       B('start_to_mode.ask', 'Ask when starting', 'Start prompts for mode and temperature. Off: uses the defaults below'),
@@ -88,7 +88,7 @@ const PAGES = [
   { key: 'powerloss', title: 'Power Loss', sub: 'Cook recovery after an outage', section: 'Safety', icon: 'zap', color: '#ff9f0a', sections: [{ id: 'safety', title: '', fields: [
     B('power_loss.recovery', 'Recover after a power loss', 'Relight and resume if power returns in time'),
     I('power_loss.max_s', 'Longest outage to recover from (s)', 'Longer outages go to Error instead of relighting', { min: 30, max: 3600 }),
-    I('power_loss.igniter_s', 'Relight for (s)', 'Igniter run time before resuming', { min: 30, max: 900 }),
+    I('power_loss.igniter_s', 'Relight for (s)', 'Igniter run time before resuming', { min: 60, max: 300 }),
   ] }] },
   { key: 'limits', title: 'Output Limits & Manual Control', sub: 'Igniter and auger caps, overrides', section: 'Safety', icon: 'zap', color: '#ff9f0a', sections: [{ id: 'safety', fields: [
     I('igniter_max_on_s', 'Igniter maximum on time (s)', 'Igniter forced off after this', { min: 60, max: 1800 }),

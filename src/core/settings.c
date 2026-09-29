@@ -161,8 +161,8 @@ static int validate(cJSON *root, char *err, size_t errn)
 	CHECK(maxtemp > (c ? 65 : 150) && maxtemp <= (c ? 343 : 650), "safety.maxtemp must be between %s", c ? "66 and 343 C" : "151 and 650 F");
 	double aug = pf_json_num(root, "safety.auger_max_on_s", 60);
 	CHECK(aug >= 5 && aug <= 120, "safety.auger_max_on_s must be 5-120 s");
-	double ign = pf_json_num(root, "safety.igniter_max_on_s", 1200);
-	CHECK(ign >= 60 && ign <= 1800, "safety.igniter_max_on_s must be 60-1800 s");
+	double ign = pf_json_num(root, "safety.igniter_max_on_s", 300);
+	CHECK(ign >= 60 && ign <= PF_IGNITER_MAX_S, "safety.igniter_max_on_s must be 60-300 s");
 	double rr = pf_json_num(root, "safety.reigniteretries", 1);
 	CHECK(rr >= 0 && rr <= 3, "safety.reigniteretries must be 0-3");
 	double pf = pf_json_num(root, "safety.probe_fault_s", 10);
@@ -170,7 +170,7 @@ static int validate(cJSON *root, char *err, size_t errn)
 	double plm = pf_json_num(root, "safety.power_loss.max_s", 300);
 	CHECK(plm >= 0 && plm <= 900, "safety.power_loss.max_s must be 0-900 s");
 	double pli = pf_json_num(root, "safety.power_loss.igniter_s", 180);
-	CHECK(pli >= 60 && pli <= 600, "safety.power_loss.igniter_s must be 60-600 s");
+	CHECK(pli >= 60 && pli <= PF_IGNITER_MAX_S, "safety.power_loss.igniter_s must be 60-300 s");
 	double cst = pf_json_num(root, "safety.coldstart.timeout_s", 300);
 	CHECK(cst == 0 || (cst >= 60 && cst <= 1800), "safety.coldstart.timeout_s must be 60-1800 s");
 	double mug = pf_json_num(root, "safety.max_unburnt_g", 100);
@@ -827,6 +827,20 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 24 (igniter cap 600 s)");
 			added = 1;
 		}
+		if (ver < 25) {
+			/* The igniter is never on for more than five minutes at a stretch, whatever the file
+			 * says: the cap and the power-loss relight both come down to it. */
+			cJSON *sf = cJSON_GetObjectItem(g_root, "safety");
+			cJSON *ig = sf ? cJSON_GetObjectItem(sf, "igniter_max_on_s") : NULL;
+			if (cJSON_IsNumber(ig) && ig->valuedouble > PF_IGNITER_MAX_S) cJSON_SetNumberValue(ig, PF_IGNITER_MAX_S);
+			cJSON *pl = sf ? cJSON_GetObjectItem(sf, "power_loss") : NULL;
+			cJSON *pi = pl ? cJSON_GetObjectItem(pl, "igniter_s") : NULL;
+			if (cJSON_IsNumber(pi) && pi->valuedouble > PF_IGNITER_MAX_S) cJSON_SetNumberValue(pi, PF_IGNITER_MAX_S);
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 25); else cJSON_AddNumberToObject(g_root, "schema_version", 25);
+			LOGI(TAG, "settings migrated to schema 25 (igniter cap 300 s)");
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);
@@ -843,7 +857,7 @@ int pf_settings_init(const char *path)
 		 * The safety group falls back to what ships, value by value, and the rest stands. */
 		LOGE(TAG, "settings validation: %s -- resetting out-of-range safety limits to defaults", err);
 		static const struct { const char *path; double f, c; } SAFE[] = {
-			{ "safety.maxtemp", 550, 288 }, { "safety.auger_max_on_s", 60, 60 }, { "safety.igniter_max_on_s", 1200, 1200 },
+			{ "safety.maxtemp", 550, 288 }, { "safety.auger_max_on_s", 60, 60 }, { "safety.igniter_max_on_s", 300, 300 },
 			{ "safety.reigniteretries", 1, 1 }, { "safety.probe_fault_s", 10, 10 }, { "safety.power_loss.max_s", 300, 300 },
 			{ "safety.power_loss.igniter_s", 180, 180 }, { "safety.coldstart.timeout_s", 300, 300 }, { "safety.manual_override_time", 30, 30 },
 		};

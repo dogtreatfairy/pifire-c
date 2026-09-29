@@ -3,6 +3,9 @@
 #include <cJSON.h>
 #include <stddef.h>
 
+/* The igniter is never on for longer than this at a stretch, whatever the settings say. */
+#define PF_IGNITER_MAX_S 300
+
 /* Load settings from `path`, filling any missing keys from the embedded defaults.
  * If the file does not exist it is created. Returns 0 on success. */
 int pf_settings_init(const char *path);
