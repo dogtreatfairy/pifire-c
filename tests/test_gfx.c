@@ -501,6 +501,24 @@ static void test_the_flash_and_the_recipe_banner(void)
 	pf_gfx_free(&g);
 }
 
+/* The start-up screen: the name and version on the left, how to reach it under them, a QR code
+ * for the web app on the right. */
+static void test_the_splash(void)
+{
+	pf_gfx g;
+	TEST_ASSERT_EQUAL_INT(0, pf_gfx_init(&g, 320, 240));
+	pf_gfx_set_theme(&g, "dark");
+	cJSON *st = cJSON_Parse("{\"mode\":\"Stop\",\"net\":{\"ip\":\"192.168.4.13\",\"ssid\":\"HomeWiFi\",\"port\":80,\"signal\":70}}");
+	pf_ui_state ui;
+	memset(&ui, 0, sizeof ui);
+	ui.splash = true;
+	render_to(&g, st, &ui, "splash");
+	/* the QR's quiet zone is white, on the right half */
+	TEST_ASSERT_EQUAL_UINT16(0xFFFF, g.px[120 * g.w + 120]);
+	cJSON_Delete(st);
+	pf_gfx_free(&g);
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -514,5 +532,6 @@ int main(void)
 	RUN_TEST(test_text_metrics);
 	RUN_TEST(test_main_screen_focus_and_its_menus);
 	RUN_TEST(test_the_flash_and_the_recipe_banner);
+	RUN_TEST(test_the_splash);
 	return UNITY_END();
 }

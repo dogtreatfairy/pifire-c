@@ -55,6 +55,7 @@ typedef struct {
 	atomic_bool run;
 	atomic_bool estop;              /* long press seen: reported to the daemon through poll_input */
 	double last_activity, backlight_timeout;
+	double splash_until;   /* the start-up screen shows until then */
 	bool backlight_on;
 	unsigned last_hash;
 	char theme[8];
@@ -880,6 +881,13 @@ static void handle_key(tft_t *t, pf_key k, double now)
 static void input(tft_t *t, pf_key k)
 {
 	pthread_mutex_lock(&t->mu);
+	if (t->ui.splash) {   /* a press during the start-up screen only puts it away */
+		t->ui.splash = false;
+		t->last_activity = pf_now();
+		redraw(t);
+		pthread_mutex_unlock(&t->mu);
+		return;
+	}
 	if (t->ui.attention[0]) {
 		/* the press is the acknowledgement: the flash stops here and on the phone, and the press
 		 * does nothing else -- it was aimed at the flash, not at whatever is under it */
@@ -1008,6 +1016,9 @@ static void *create(const char *cfg_json, const pf_env *env)
 	pf_screens_render(&t->fb, NULL, &t->ui);
 	push_frame(t);
 	t->last_activity = pf_now();
+	/* who this is and how to reach it, for three seconds, before anything else */
+	t->ui.splash = true;
+	t->splash_until = pf_now() + 3.0;
 
 	if (t->encoder) {
 		/* as the original (pyky040): CLK/DT pulled down, switch pulled up and active-low regardless of buttonslevel */
@@ -1100,6 +1111,7 @@ static void status(void *self, const char *json)
 	t->status = cJSON_Parse(json);
 	double now = pf_now();
 	t->ui.blink = !t->ui.blink;   /* 2 Hz tick -> 1 Hz flash */
+	if (t->ui.splash && now >= t->splash_until) t->ui.splash = false;
 	bool stopped = !strcmp(pf_json_str(t->status, "mode", ""), "Stop");
 	bt_collect(t);
 	if (t->ui.depth > 0 && pf_nav_screen(&t->ui) != PF_SCR_MESSAGE && !t->ui.bt_scanning && now - t->last_activity > MENU_TIMEOUT_S) pf_nav_reset(&t->ui);

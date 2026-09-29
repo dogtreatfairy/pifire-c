@@ -188,6 +188,7 @@ typedef struct {
 	char message[64];
 	double message_until;
 	bool blink;                /* toggled each tick: drives the done / over-target flash */
+	bool splash;               /* the start-up screen: name, version, how to connect */
 } pf_ui_state;
 
 /* Build the list for whatever PF_SCR_LIST screen is showing. Returns the row count. */

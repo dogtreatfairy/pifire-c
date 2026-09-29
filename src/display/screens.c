@@ -994,6 +994,52 @@ static void render_netinfo(pf_gfx *g, const cJSON *s)
 	}
 }
 
+/* Start-up: what this is and how to reach it, for three seconds. "PiFire-C" and the version on the
+ * left with the address and the network under them, and a QR code for the web app on the right. */
+static void render_splash(pf_gfx *g, const cJSON *s)
+{
+	int W = g->vw, H = g->vh;
+	const char *ip = s ? pf_json_str((cJSON *)s, "net.ip", "") : "";
+	const char *ssid = s ? pf_json_str((cJSON *)s, "net.ssid", "") : "";
+	int port = s ? (int)pf_json_num((cJSON *)s, "net.port", 80) : 80;
+	char url[80];
+	if (ip[0] && port != 80) snprintf(url, sizeof url, "http://%.40s:%d/", ip, port % 100000);
+	else snprintf(url, sizeof url, "http://%.40s/", ip[0] ? ip : "pifire.local");
+	/* the code on the right, as tall as the screen allows */
+	pf_qr q;
+	int qr_side = 0;
+	if (pf_qr_encode(url, &q)) {
+		int scale = (H - 24) / (q.size + 8);
+		if (scale < 2) scale = 2;
+		qr_side = (q.size + 8) * scale;
+		int ox = W - qr_side - 8, oy = (H - qr_side) / 2;
+		pf_gfx_rect(g, ox, oy, qr_side, qr_side, 0xFFFF);
+		for (int y = 0; y < q.size; y++)
+			for (int x = 0; x < q.size; x++)
+				if (q.m[y][x]) pf_gfx_rect(g, ox + (x + 4) * scale, oy + (y + 4) * scale, scale, scale, 0x0000);
+	}
+	int lw = W - qr_side - 24, x = 12;
+	int px = 34;
+	while (px > 20 && pf_gfx_text_width(B, px, "PiFire-C") > lw) px -= 2;
+	int y = H / 2 - 60;
+	pf_gfx_text(g, B, px, x, y, "PiFire-C", g->th.accent);
+	y += pf_gfx_line_height(B, px) + 2;
+	char ver[40];
+	snprintf(ver, sizeof ver, "%.30s", PF_VERSION);
+	int vp = 16;
+	while (vp > 11 && pf_gfx_text_width(R, vp, ver) > lw) vp--;
+	pf_gfx_text(g, R, vp, x, y, ver, g->th.text);
+	y += pf_gfx_line_height(R, vp) + 14;
+	char line[64];
+	snprintf(line, sizeof line, "%.40s", ip[0] ? ip : "Connecting...");
+	pf_gfx_text(g, B, 15, x, y, line, g->th.text);
+	y += pf_gfx_line_height(B, 15) + 2;
+	if (ssid[0]) {
+		snprintf(line, sizeof line, "%.26s", ssid);
+		pf_gfx_text(g, R, 13, x, y, line, g->th.text);
+	}
+}
+
 /* Monitor control: the grill screen with the three outputs selectable, plus Exit. One press
  * toggles whatever is highlighted; leaving the screen turns them all off again. */
 static void render_manual(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
@@ -1103,6 +1149,7 @@ void pf_screens_render(pf_gfx *g, const cJSON *status, const pf_ui_state *ui)
 	/* Something is waiting to be seen -- a timer has run out, a probe has arrived -- and the panel
 	 * says so with the whole screen: orange, with the word, alternating with the interface once a
 	 * second until a press here or a clear on the phone acknowledges it. */
+	if (ui->splash) { render_splash(g, status); return; }
 	if (ui->attention[0] && ui->blink) {
 		pf_gfx_clear(g, g->th.accent);
 		/* What to do, as large as it will go, and under it which probe and what it reads now:
