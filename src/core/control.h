@@ -44,6 +44,7 @@ typedef struct {
 	bool dc_fan, pwm_control_default; double pwm_update_s; int pwm_hz, pwm_min_duty, pwm_max_duty;
 	int pwm_n; double pwm_ranges_c[PF_SS_MAX]; int pwm_profiles[PF_SS_MAX + 1];
 	double augerrate; bool prime_ignition;
+	double max_unburnt_g;     /* fuel without heat: grams fed into a falling pit before it is a flame-out */
 	double keepwarm_c; bool keepwarm_splus;
 	double history_sample_s; bool clear_history_on_startup;
 	char controller_id[32];
@@ -71,6 +72,13 @@ typedef struct {
 	bool   igniter_locked_out;
 	int    ctrl_fault_count;
 	double error_fan_until;
+	double error_pit_c;         /* the pit when the error was raised (the overtemperature fan watches it) */
+	/* Fuel without heat: grams the auger has delivered while the pit fell, since it last held or
+	 * rose. A live fire holds; a dead pot keeps falling, and pellets pile up in it. */
+	double unburnt_g, fuel_ring_c[12], fuel_ring_t; int fuel_ring_n, fuel_ring_head;
+	/* a relight of a hot grill must show a rise too: the lowest pit since it began, and by when */
+	double hot_relight_low_c, hot_relight_deadline; bool hot_relight;
+	bool   stop_overtemp_said;
 	char   error_code[32];
 	char   error_msg[128];
 } pf_safety;
@@ -109,6 +117,8 @@ typedef struct {
 	 * tell a cook checking the meat from a fire going out. */
 	bool lid_event; double lid_event_t;
 	char restart_reason[96]; double restart_wall; bool restart_resumed;
+	int recoveries;            /* power-loss/crash recoveries already made during this cook */
+	double auger_rest_until;   /* after the auger cap trips, it stays off until then */
 	double lid_hist_t[20], lid_hist_c[20]; int lid_hist_n, lid_hist_head; double lid_hist_last;
 	double fan_toggle_t, fan_update_t; bool fan_ramping; double ramp_end_t;
 	/* manual */
@@ -229,7 +239,7 @@ void pf_control_step(pf_control *c, double now);
 /* Request a mode change (from the queue handler or tests). setpoint_c <= 0 keeps the current one. */
 void pf_control_request(pf_control *c, pf_mode mode, double setpoint_c);
 /* Called once after the first sensor poll: handle unclean-restart recovery. */
-void pf_control_boot_check(pf_control *c, bool unclean_restart, double now);
+void pf_control_boot_check(pf_control *c, bool unclean_restart, bool resuming, double now);
 /* Power-loss recovery: the checkpoint the last daemon wrote while cooking, read after an unclean
  * start. Within safety.power_loss.max_s of it the cook is taken back up through a relight of
  * safety.power_loss.igniter_s; beyond that the grill goes to Error and stays there, since a pot
@@ -250,6 +260,7 @@ bool  pf_control_resume(pf_control *c, const char *json, double now);
 void pf_safety_reset(pf_control *c);
 void pf_safety_on_startup_enter(pf_control *c, double now);
 void pf_safety_on_startup_exit(pf_control *c, double now);
+void pf_safety_ensure_floor(pf_control *c);
 /* Evaluate every tick. Returns 0, or a requested mode (PF_MODE_REIGNITE / PF_MODE_ERROR) with
  * error_code set for ERROR. May also force individual outputs off via pf_outputs. */
 int  pf_safety_tick(pf_control *c, double now);

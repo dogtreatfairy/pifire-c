@@ -6,7 +6,9 @@
 #include "core/util.h"
 #include "net/wifi.h"
 #include "core/status.h"
+#include "probes/probes.h"
 #include "features/tuner.h"
+#include <math.h>
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
@@ -108,13 +110,18 @@ static void watchdog(double now)
 		next = now + 30;
 		return;
 	}
-	/* two reloads have not brought it back: restart the Pi, and resume */
+	/* Two reloads have not brought it back: restart the Pi -- but only a grill that is stopped and
+	 * cool. The control loop does not need the network, and a restart mid-cook leaves the fan off
+	 * for the minute or two the Pi takes to come back while the pot smoulders without a draft, then
+	 * relights into it: a puff-back. So during a cook the grill carries on without Wi-Fi and says so
+	 * on the panel, and restarts once the cook is over. */
 	pf_status st;
 	pf_status_get(&st);
-	bool cooking = st.mode == PF_MODE_STARTUP || st.mode == PF_MODE_REIGNITE || st.mode == PF_MODE_SMOKE || st.mode == PF_MODE_HOLD;
-	if (st.mode == PF_MODE_SHUTDOWN || st.mode == PF_MODE_PRIME || st.mode == PF_MODE_MANUAL || pf_tuner_active(NULL, NULL, NULL)) return;   /* after that */
-	if (cooking && !pf_set_bool("safety.power_loss.recovery", true)) {
-		if ((int)(now - fail_since) % 900 < 15) LOGW(TAG, "the radio is hung and power-loss recovery is off: carrying on without a network rather than restarting a cook that would not resume");
+	double pit = NAN;
+	for (int i = 0; i < st.sensors.n; i++) if (st.sensors.p[i].role == PF_PROBE_PRIMARY && st.sensors.p[i].valid) pit = st.sensors.p[i].temp_c;
+	bool cool = isfinite(pit) && pit < pf_f_to_c(150);
+	if (st.mode != PF_MODE_STOP || !cool) {
+		if ((int)(now - fail_since) % 900 < 15) LOGW(TAG, "the Wi-Fi radio is hung; the grill restarts to recover it once it is stopped and cool");
 		return;
 	}
 	if (pf_wall() - last_reboot_wall() < 3600) {
@@ -128,7 +135,7 @@ static void watchdog(double now)
 	snprintf(p, sizeof p, "%s/restart_resume", g_data_dir);
 	const char *why = "Wi-Fi radio not responding";
 	pf_write_file_atomic(p, why, strlen(why));
-	LOGW(TAG, "restarting the grill to recover the Wi-Fi radio%s", cooking ? "; the cook resumes" : "");
+	LOGW(TAG, "restarting the grill to recover the Wi-Fi radio");
 	if (pf_db_handle()) pf_db_event(PF_LVL_WARN, "NET_RADIO_REBOOT", "Restarting to recover the Wi-Fi radio");
 	helper("reboot", out, sizeof out, 5);   /* the helper outlives us; it forces the restart if need be */
 }

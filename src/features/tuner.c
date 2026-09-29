@@ -155,6 +155,12 @@ static void finish(bool ok, const char *why, double now)
 		               nv ? " Measured: " : " Nothing measured.", nv ? vals : "");
 }
 
+bool pf_tuner_was_interrupted(void)
+{
+	char buf[16] = "";
+	return pf_db_handle() && pf_db_kv_get("tuner", "inflight", buf, sizeof buf) == 0 && !strcmp(buf, "true");
+}
+
 void pf_tuner_init(void)
 {
 	pthread_mutex_lock(&g_mu);

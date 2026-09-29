@@ -1,4 +1,5 @@
 #include "core/control.h"
+#include <sys/timex.h>
 #include "core/cmdq.h"
 #include "core/db.h"
 #include "core/env.h"
@@ -69,7 +70,7 @@ static void load_cfg(pf_cfg *g)
 	g->startup_check = B("safety.startup_check", true);
 	g->allow_manual = B("safety.allow_manual_changes", false);
 	g->manual_override_s = N("safety.manual_override_time", 30);
-	g->igniter_max_on_s = N("safety.igniter_max_on_s", 1200);
+	g->igniter_max_on_s = N("safety.igniter_max_on_s", 600);
 	g->auger_max_on_s = N("safety.auger_max_on_s", 60);
 	g->probe_fault_s = N("safety.probe_fault_s", 10);
 	g->relight_enabled = B("safety.relight_enabled", true);
@@ -136,6 +137,7 @@ static void load_cfg(pf_cfg *g)
 	for (; k <= PF_SS_MAX; k++) g->pwm_profiles[k] = g->pwm_max_duty;
 
 	g->augerrate = N("globals.augerrate", 0.3);
+	g->max_unburnt_g = N("safety.max_unburnt_g", 100);
 	g->prime_ignition = B("globals.prime_ignition", false);
 	g->keepwarm_c = T("keep_warm.temp", 165);
 	g->keepwarm_splus = B("keep_warm.s_plus", false);
@@ -388,6 +390,7 @@ static void ambient_remember(pf_control *c)
 
 static void enter_mode(pf_control *c, pf_mode m, double now)
 {
+	if (m == PF_MODE_STOP) c->recoveries = 0;   /* the cook is over; the next one may be recovered once again */
 	pf_mode prev = c->mode;
 	c->mode = m;
 	c->mode_start = now;
@@ -434,7 +437,13 @@ static void enter_mode(pf_control *c, pf_mode m, double now)
 	case PF_MODE_PRIME:
 		pf_outputs_set(PF_OUT_FAN, false);
 		pf_outputs_set(PF_OUT_POWER, true);
+		/* A prime is a few grams to seat the auger, and it ends when the feed does. It used to last
+		 * amount / rate whatever the auger cap cut the feed to, so a 1 kg prime sat for most of an
+		 * hour and then lit the grill with nobody there. */
+		if (c->prime_amount_g > 50) c->prime_amount_g = 50;
+		if (c->prime_amount_g < 0) c->prime_amount_g = 0;
 		c->prime_duration_s = c->cfg.augerrate > 0 ? c->prime_amount_g / c->cfg.augerrate : 0;
+		if (c->cfg.auger_max_on_s > 0 && c->prime_duration_s > c->cfg.auger_max_on_s) c->prime_duration_s = c->cfg.auger_max_on_s;
 		if (c->cfg.prime_ignition && c->next_mode == PF_MODE_STARTUP) pf_outputs_set(PF_OUT_IGNITER, true);
 		pf_cycle_begin_fixed(&c->cycle, &c->ccfg, now, c->prime_duration_s, 1);
 		pf_outputs_set(PF_OUT_AUGER, true);
@@ -469,12 +478,14 @@ static void enter_mode(pf_control *c, pf_mode m, double now)
 		pf_outputs_set(PF_OUT_AUGER, true);
 		break;
 	case PF_MODE_SMOKE:
+		pf_safety_ensure_floor(c);
 		pf_outputs_set(PF_OUT_POWER, true);
 		fan_on(c, c->duty_cycle);
 		smoke_cycle(c, now);
 		pf_outputs_set(PF_OUT_AUGER, true);
 		break;
 	case PF_MODE_HOLD:
+		pf_safety_ensure_floor(c);
 		pf_outputs_set(PF_OUT_POWER, true);
 		fan_on(c, c->duty_cycle);
 		c->ctrl_reset_needed = true;
@@ -487,6 +498,7 @@ static void enter_mode(pf_control *c, pf_mode m, double now)
 		fan_on(c, c->duty_cycle);
 		break;
 	case PF_MODE_ERROR:
+		c->safety.error_pit_c = c->pit_valid ? c->pit_c : NAN;
 		c->safety.error_fan_until = (c->pit_valid && c->pit_c > c->cfg.restart_hot_c) ? now + c->cfg.error_cooldown_fan_s : 0;
 		if (c->safety.error_fan_until > now) { pf_outputs_set(PF_OUT_POWER, true); fan_on(c, 100); }
 		else pf_outputs_all_off();
@@ -515,11 +527,24 @@ static void apply_request(pf_control *c, double now)
 	if (c->req_setpoint_c > 0) c->setpoint_c = c->req_setpoint_c;
 
 	if (c->mode == PF_MODE_ERROR && m != PF_MODE_STOP) { LOGW(TAG, "in ERROR: only Stop is accepted"); return; }
+	/* What may be asked for. Reignite and Error are the grill's own decisions, never a request.
+	 * Prime and Manual put the outputs in somebody's hands, so only from a grill that is not
+	 * burning. */
+	if (m == PF_MODE_REIGNITE || m == PF_MODE_ERROR) { LOGW(TAG, "%s cannot be requested", pf_mode_name(m)); return; }
+	if ((m == PF_MODE_PRIME || m == PF_MODE_MANUAL) && c->mode != PF_MODE_STOP && c->mode != PF_MODE_MONITOR) {
+		LOGW(TAG, "%s refused in %s: stop the grill first", pf_mode_name(m), pf_mode_name(c->mode));
+		return;
+	}
 	/* Finish, asked for while a recipe has the grill: the recipe goes to its own finish rather than
 	 * being left on a step whose ending, when it came, would carry on into the next one -- a Hold
 	 * after the fire had been put out. */
 	if (m == PF_MODE_SHUTDOWN && c->recipe.active) { recipe_finish_now(c, now, "by the user"); return; }
-	if (m == PF_MODE_STOP) { c->safety.error_code[0] = 0; c->safety.error_msg[0] = 0; }
+	if (m == PF_MODE_STOP) {
+		c->safety.error_code[0] = 0; c->safety.error_msg[0] = 0;
+		/* Stop means stop, however it arrived: a recipe left running would read the Stop as its
+		 * step ending and light the grill again for the next one */
+		if (c->recipe.active) { c->recipe.active = false; cJSON_Delete(c->recipe.ends); c->recipe.ends = NULL; LOGI(TAG, "recipe stopped by a Stop request"); }
+	}
 
 	if (m == PF_MODE_HOLD && c->setpoint_c <= 0) c->setpoint_c = c->cfg.after_startup_setpoint_c;
 
@@ -533,9 +558,14 @@ static void apply_request(pf_control *c, double now)
 			return;
 		}
 	}
-	bool idle = c->mode == PF_MODE_STOP || c->mode == PF_MODE_MONITOR;
+	/* "Idle" is anything that is not burning under control: Stop and Monitor, but also Manual,
+	 * Prime and Shutdown. Hold or Smoke asked for from any of them goes through Startup, which is the
+	 * only mode that lights the pot and checks that it caught. Going straight to Hold from Manual or
+	 * Prime fed a cold pot with no igniter until the hopper was empty, and nothing noticed. */
+	bool idle = c->mode == PF_MODE_STOP || c->mode == PF_MODE_MONITOR || c->mode == PF_MODE_MANUAL ||
+	            c->mode == PF_MODE_PRIME || c->mode == PF_MODE_SHUTDOWN;
 	if (m == PF_MODE_HOLD && idle) {
-		/* Hold from cold (Stop or Monitor): run startup first, then hold */
+		/* Hold from cold: run startup first, then hold */
 		c->next_mode = PF_MODE_HOLD;
 		enter_mode(c, PF_MODE_STARTUP, now);
 		return;
@@ -615,6 +645,7 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 		if (pf_outputs_get(PF_OUT_FAN)) pf_outputs_fan_pct(c->duty_cycle);
 		break;
 	case PF_CMD_MANUAL_OUTPUT: {
+		if (c->mode == PF_MODE_ERROR) { LOGW(TAG, "manual output change refused in Error"); break; }   /* an error holds the outputs until Stop */
 		bool free_mode = c->mode == PF_MODE_MANUAL || c->mode == PF_MODE_MONITOR;   /* outputs are idle: direct control is safe */
 		if (!free_mode && !c->cfg.allow_manual) { LOGW(TAG, "manual output change refused (not in Manual/Monitor mode)"); break; }
 		double until = free_mode ? 1e18 : now + c->cfg.manual_override_s;
@@ -993,7 +1024,8 @@ static void recipe_begin_step(pf_control *c, double now)
 		else if (c->mode != PF_MODE_STARTUP) enter_mode(c, PF_MODE_STARTUP, now);
 		break;
 	case PF_MODE_SMOKE: case PF_MODE_HOLD:
-		if (c->mode == PF_MODE_STOP || c->mode == PF_MODE_MONITOR) { c->next_mode = s->mode; enter_mode(c, PF_MODE_STARTUP, now); }
+		/* a step that burns, on a grill that is not burning, lights it first (see apply_request) */
+		if (c->mode == PF_MODE_STOP || c->mode == PF_MODE_MONITOR || c->mode == PF_MODE_MANUAL || c->mode == PF_MODE_PRIME || c->mode == PF_MODE_SHUTDOWN) { c->next_mode = s->mode; enter_mode(c, PF_MODE_STARTUP, now); }
 		else if (c->mode == PF_MODE_STARTUP || c->mode == PF_MODE_REIGNITE) c->next_mode = s->mode; /* startup finishes into it */
 		else if (c->mode != s->mode) enter_mode(c, s->mode, now);
 		else if (s->mode == PF_MODE_HOLD) { c->target_reached = false; c->ctrl_reset_needed = true; }
@@ -2399,8 +2431,9 @@ static void run_mode(pf_control *c, double now)
 			LOGI(TAG, "lid opened: the pit fell %.1f C faster than the grill cools", c->lid_hist_c[(c->lid_hist_head + 20 - 1) % 20] - c->pit_c);
 			event(PF_LVL_INFO, "LID_EVENT", "Lid opened");
 		}
-		/* recovered: back within 3 C of the set point, or a quarter hour on, whichever is first */
-		if (c->lid_event && !dropped && (c->pit_c >= c->setpoint_c - 3.0 || now - c->lid_event_t > 900)) {
+		/* at most five minutes: a fire that went out looks like a lid at first, and the stall and
+		 * flame-out notifications are held back only for as long as a cook at the meat plausibly takes */
+		if (c->lid_event && !dropped && (c->pit_c >= c->setpoint_c - 3.0 || now - c->lid_event_t > 300)) {
 			c->lid_event = false;
 			LOGI(TAG, "lid event over after %.0f s", now - c->lid_event_t);
 		}
@@ -2430,12 +2463,14 @@ static void run_mode(pf_control *c, double now)
 		bool want = pf_cycle_auger_on(&c->cycle, now);
 		if (c->manual_until[PF_OUT_AUGER] <= now) {
 			bool is = pf_outputs_get(PF_OUT_AUGER);
-			if (want && !is) { pf_outputs_set(PF_OUT_AUGER, true); c->auger_on_since = now; }
+			if (want && !is && now >= c->auger_rest_until) { pf_outputs_set(PF_OUT_AUGER, true); c->auger_on_since = now; }
 			else if (!want && is) { pf_outputs_set(PF_OUT_AUGER, false); c->auger_total_on_s += now - c->auger_on_since; }
 		}
 	} else if (c->mode != PF_MODE_MANUAL && pf_outputs_get(PF_OUT_AUGER) && c->manual_until[PF_OUT_AUGER] <= now) {
 		pf_outputs_set(PF_OUT_AUGER, false);
 	}
+	/* resting after a cap: off, whoever turned it on */
+	if (now < c->auger_rest_until && pf_outputs_get(PF_OUT_AUGER)) { pf_outputs_set(PF_OUT_AUGER, false); c->auger_total_on_s += now - c->auger_on_since; }
 	/* absolute auger cap regardless of source (manual included) */
 	if (pf_outputs_get(PF_OUT_AUGER) && now - c->auger_on_since > g->auger_max_on_s) {
 		pf_outputs_set(PF_OUT_AUGER, false);
@@ -2444,6 +2479,9 @@ static void run_mode(pf_control *c, double now)
 		 * hopper estimate never saw. */
 		c->auger_total_on_s += now - c->auger_on_since;
 		c->manual_until[PF_OUT_AUGER] = 0;
+		/* and it rests: without this the cycle switched it straight back on the next tick, and the
+		 * cap was a fifteen-millisecond pause in a feed that never stopped */
+		c->auger_rest_until = now + 15;
 		LOGW(TAG, "auger on for %.0f s: forced off (safety cap)", g->auger_max_on_s);
 		event(PF_LVL_WARN, "W08_AUGER_CAP", "Auger exceeded maximum continuous on time and was switched off");
 	}
@@ -2478,7 +2516,11 @@ static void run_mode(pf_control *c, double now)
 		break;
 	}
 	case PF_MODE_SHUTDOWN:
-		if (now - c->mode_start > g->shutdown_s) {
+		/* The cool-down runs its time and then until the pit is below the hot mark, up to three times
+		 * as long: a pot still burning when the fan stops has no draft, and that is when fire creeps
+		 * back up the auger. */
+		if (now - c->mode_start > g->shutdown_s &&
+		    (!c->pit_valid || c->pit_c <= c->cfg.restart_hot_c || now - c->mode_start > 3 * g->shutdown_s)) {
 			enter_mode(c, PF_MODE_STOP, now);
 			if (g->auto_power_off) c->power_off_requested = true;
 		}
@@ -2494,6 +2536,15 @@ static void run_mode(pf_control *c, double now)
 		if (c->safety.error_fan_until && now > c->safety.error_fan_until) {
 			c->safety.error_fan_until = 0;
 			pf_outputs_all_off();
+		}
+		/* The cool-down fan is for a pot that is going out. If the pit climbs while it runs, the fan
+		 * is feeding a fire -- a grease fire after an overtemperature is the case that matters -- and
+		 * it stops: a closed grill with no air is how that fire goes out. */
+		if (c->safety.error_fan_until && c->pit_valid && isfinite(c->safety.error_pit_c) && c->pit_c > c->safety.error_pit_c + pf_delta_to_c(10, PF_UNITS_F)) {
+			c->safety.error_fan_until = 0;
+			pf_outputs_all_off();
+			LOGW(TAG, "pit rising in Error (%.0f C): cool-down fan stopped", c->pit_c);
+			pf_events_emit("E01_FIRE", "Pit Rising in Error", "Fan stopped. Keep the lid closed.");
 		}
 		break;
 	default: break;
@@ -2566,14 +2617,18 @@ void pf_control_shutdown(pf_control *c)
 	c->recipe.ends = NULL;
 }
 
-void pf_control_boot_check(pf_control *c, bool unclean_restart, double now)
+void pf_control_boot_check(pf_control *c, bool unclean_restart, bool resuming, double now)
 {
-	if (!unclean_restart) return;
+	/* A start that is about to pick a cook back up leaves the grill to that. Any other start with a
+	 * hot pit -- after a crash, or a clean restart whose resume was refused or never written -- runs
+	 * the cool-down fan: a pot that may still be burning, with no draft and nobody feeding or
+	 * watching it, is how burn-back into the auger starts. */
+	if (resuming) return;
 	if (c->pit_valid && c->pit_c > c->cfg.restart_hot_c) {
-		LOGW(TAG, "unclean restart with a hot pit (%.0f C): entering Shutdown for cooldown", c->pit_c);
-		event(PF_LVL_WARN, "W09_HOT_RESTART", "Restarted after a crash with a hot pit; running Shutdown cooldown");
+		LOGW(TAG, "%s restart with a hot pit (%.0f C): entering Shutdown for cooldown", unclean_restart ? "unclean" : "clean", c->pit_c);
+		event(PF_LVL_WARN, "W09_HOT_RESTART", "Restart with a hot pit. Shutdown cooldown running.");
 		enter_mode(c, PF_MODE_SHUTDOWN, now);
-	} else {
+	} else if (unclean_restart) {
 		event(PF_LVL_WARN, "W10_UNCLEAN_RESTART", "Restarted after an unclean shutdown");
 	}
 }
@@ -2613,6 +2668,17 @@ char *pf_control_resume_json(const pf_control *c, double now)
 	cJSON_AddBoolToObject(o, "floor_set", c->safety.floor_set);
 	cJSON_AddNumberToObject(o, "floor_c", c->safety.floor_c);
 	cJSON_AddNumberToObject(o, "reignite_retries_left", c->safety.reignite_retries_left);
+	/* what a restart needs to judge whether relighting is safe */
+	cJSON_AddNumberToObject(o, "recoveries", c->recoveries);
+	cJSON_AddBoolToObject(o, "coldstart_active", c->safety.coldstart_active);
+	cJSON_AddBoolToObject(o, "coldstart_reached", c->safety.coldstart_reached);
+	cJSON_AddNumberToObject(o, "pit_c", c->pit_valid ? c->pit_c : -1000);
+	{
+		char bid[64] = "";
+		char *t = pf_read_file("/proc/sys/kernel/random/boot_id", NULL);
+		if (t) { pf_strlcpy(bid, t, sizeof bid); bid[strcspn(bid, "\n")] = 0; free(t); }
+		cJSON_AddStringToObject(o, "boot_id", bid);
+	}
 	/* A recipe outlives a restart. Losing it mid-cook left the grill holding at whatever the
 	 * last step had set, with nothing to advance it and nothing on screen to say so -- and a
 	 * recipe is six hours long precisely when an update or a watchdog restart is most likely to
@@ -2950,17 +3016,63 @@ bool pf_control_recover(pf_control *c, const char *json, double now)
 	bool cooking = m == PF_MODE_STARTUP || m == PF_MODE_REIGNITE || m == PF_MODE_SMOKE || m == PF_MODE_HOLD;
 	if (!cooking || age < 0) { cJSON_Delete(o); return false; }
 	if (!c->cfg.power_loss_recovery) { cJSON_Delete(o); return false; }
-	if (age > c->cfg.power_loss_max_s) {
-		/* out too long: the pot may be full of unburnt pellets or still smouldering, and relighting
-		 * it blind is how a grill burns. Error, and stay there until somebody has looked. */
+	/* Relighting after a restart is only safe when the grill knows how long it was out and what the
+	 * pot was doing. Each of these says it does not, and each ends in E08 with nothing lit. */
+	const char *refuse = NULL;
+	char why[200] = "";
+	/* 1. Once per cook. A daemon that keeps falling over would otherwise relight on every restart,
+	 * and a relight writes a fresh checkpoint, so the outage never looks long. */
+	if (pf_json_int(o, "recoveries", 0) >= 1) refuse = "Repeated restarts during the cook";
+	/* 2. A light that was never confirmed. The pot may be full of pellets that did not catch;
+	 * lighting it again is how a grill flares. Smart Start's rule, applied to a restart. */
+	else if (m == PF_MODE_STARTUP && pf_json_bool(o, "coldstart_active", false) && !pf_json_bool(o, "coldstart_reached", false))
+		refuse = "Restart during ignition before the fire was confirmed";
+	/* 3. A tuning run is not a cook to resume: it said to leave the grill empty, and nobody is
+	 * waiting on it. It is put out instead (below). */
+	else if (pf_tuner_was_interrupted()) {
 		cJSON_Delete(o);
-		pf_safety_set_error(c, "E08_POWER_LOSS", "Power was lost for %.0f min during a cook; not restarting", age / 60);
-		char msg[200];
-		snprintf(msg, sizeof msg, "Power lost %.0f min during a cook. Not relit: inspect the fire pot before lighting.", age / 60);
+		LOGW(TAG, "restart during a tuning run: shutting the grill down rather than resuming it");
+		event(PF_LVL_WARN, "W13_TUNE_INTERRUPTED", "Restart during tuning. Grill shut down.");
+		enter_mode(c, PF_MODE_SHUTDOWN, now);
+		return true;
+	}
+	/* 4. The Pi has no clock of its own. After a power cut the time comes back from the last one
+	 * saved, and only NTP makes it right, so an outage of hours can read as seconds. When the Pi
+	 * itself restarted and the clock is not synchronised, the outage is judged by the pit instead:
+	 * one that has lost more than 30% of its heat above the air was out too long to relight. */
+	else {
+		char bid[64] = "";
+		char *t = pf_read_file("/proc/sys/kernel/random/boot_id", NULL);
+		if (t) { pf_strlcpy(bid, t, sizeof bid); bid[strcspn(bid, "\n")] = 0; free(t); }
+		bool rebooted = strcmp(bid, pf_json_str(o, "boot_id", "")) != 0;
+		struct timex tx;
+		memset(&tx, 0, sizeof tx);
+		bool synced = adjtimex(&tx) >= 0 && !(tx.status & STA_UNSYNC);
+		if (rebooted && !synced) {
+			double was = pf_json_num(o, "pit_c", -1000), amb = pf_json_num(o, "ambient_c", 20);
+			if (amb < -40 || amb > 60) amb = 20;
+			bool kept = c->pit_valid && was > amb + 20 && (c->pit_c - amb) >= 0.7 * (was - amb);
+			if (!kept) { refuse = "Outage length unknown and the pit has cooled"; age = -1; }
+		}
+	}
+	if (!refuse && age > c->cfg.power_loss_max_s) {
+		snprintf(why, sizeof why, "Power lost %.0f min", age / 60);
+		refuse = why;
+	}
+	if (refuse) {
+		/* out too long, or not known to be safe: the pot may be full of unburnt pellets or still
+		 * smouldering, and relighting it blind is how a grill burns. Error, and stay there until
+		 * somebody has looked. */
+		cJSON_Delete(o);
+		pf_safety_set_error(c, "E08_POWER_LOSS", "%s. Not relit: inspect the fire pot before lighting.", refuse);
+		char msg[240];
+		snprintf(msg, sizeof msg, "%s. Not relit: inspect the fire pot before lighting.", refuse);
 		event(PF_LVL_ERROR, "E08_POWER_LOSS", msg);
 		enter_mode(c, PF_MODE_ERROR, now);
 		return true;
 	}
+	c->recoveries = pf_json_int(o, "recoveries", 0) + 1;
+	c->safety.reignite_retries_left = pf_json_int(o, "reignite_retries_left", c->safety.reignite_retries_left);
 	double sp = pf_json_num(o, "setpoint_c", 0);
 	if (sp > 0) c->setpoint_c = sp;
 	c->s_plus = pf_json_bool(o, "s_plus", c->s_plus);
@@ -3001,6 +3113,24 @@ void pf_control_step(pf_control *c, double now)
 
 	read_sensors(c);
 	apply_request(c, now);
+	/* Over the limit with nothing running: Stop and Error switch nothing, so the safety tick does not
+	 * judge them, but a fire in a grill that has been stopped -- a grease fire after an Emergency
+	 * Stop -- is still something to be told about. */
+	if ((c->mode == PF_MODE_STOP || c->mode == PF_MODE_ERROR) && c->pit_valid) {
+		if (c->pit_c > c->cfg.max_temp_c && !c->safety.stop_overtemp_said) {
+			c->safety.stop_overtemp_said = true;
+			pf_events_emit("E01_OVERTEMP_IDLE", "Over Temperature", "Pit %.0f with the grill in %s. Keep the lid closed.", pf_from_c(c->pit_c, c->cfg.units), pf_mode_name(c->mode));
+		} else if (c->pit_c < c->cfg.max_temp_c - pf_delta_to_c(20, PF_UNITS_F)) c->safety.stop_overtemp_said = false;
+	}
+	/* The set point never reaches the overtemperature limit, whoever set it -- the app, a recipe, the
+	 * tuner, keep-warm. A target the limit sits under is a guaranteed shutdown on the way to it. */
+	{
+		double top = c->cfg.max_temp_c - pf_delta_to_c(25, PF_UNITS_F);
+		if (c->setpoint_c > top && top > 0) {
+			LOGW(TAG, "set point %.0f C is above the limit; held to %.0f C", c->setpoint_c, top);
+			c->setpoint_c = top;
+		}
+	}
 	run_notify(c, now);
 	run_recipe(c, now);
 	recipe_aftercare(c);

@@ -10,6 +10,8 @@
 #include <stddef.h>
 
 void pf_tuner_init(void);
+/* a tuning run was in progress when the daemon last stopped (readable before pf_tuner_init) */
+bool pf_tuner_was_interrupted(void);
 /* Begin a run.
  *
  * `setpoints_json` may be an array of set points in the user's units, or NULL for the configured

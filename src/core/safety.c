@@ -53,6 +53,7 @@ void pf_safety_on_startup_enter(pf_control *c, double now)
 	s->filt_c = c->pit_c;
 	s->coldstart_active = false;
 	s->coldstart_reached = false;
+	s->hot_relight = false;
 	if (cfg->coldstart) {
 		/* A hot grill is not a cold start: a relight after a power blip, or a new set point on a
 		 * grill that is already running, cannot be asked to climb another twelve degrees on cue. The
@@ -61,6 +62,11 @@ void pf_safety_on_startup_enter(pf_control *c, double now)
 		double hot_c = fmax(pf_f_to_c(140), cfg->startup_exit_c);
 		if (c->pit_c >= hot_c) {
 			LOGI(TAG, "smart start skipped: grill already at %.0f C", c->pit_c);
+			if (c->mode == PF_MODE_REIGNITE) {
+				s->hot_relight = true;
+				s->hot_relight_low_c = c->pit_c;
+				s->hot_relight_deadline = now + (cfg->coldstart_timeout_s > 0 ? cfg->coldstart_timeout_s : 300);
+			}
 		} else {
 			s->coldstart_active = true;
 			s->baseline_c = c->pit_c;
@@ -71,6 +77,16 @@ void pf_safety_on_startup_enter(pf_control *c, double now)
 		}
 	}
 	LOGI(TAG, "startup floor set to %.1f C", s->floor_c);
+}
+
+/* Hold and Smoke always have a flame-out floor. One entered without a startup behind it -- after a
+ * restart, a resume that did not carry one -- had none, and the floor check never ran. */
+void pf_safety_ensure_floor(pf_control *c)
+{
+	if (c->safety.floor_set) return;
+	c->safety.floor_c = classic_floor_c(&c->cfg, c->pit_c);
+	c->safety.floor_set = true;
+	LOGI(TAG, "flame-out floor set to %.1f C", c->safety.floor_c);
 }
 
 void pf_safety_on_startup_exit(pf_control *c, double now)
@@ -122,6 +138,70 @@ int pf_safety_tick(pf_control *c, double now)
 		return PF_MODE_ERROR;
 	}
 
+	/* 1b. igniter cap -- before the probe check, which returns early while the probe is invalid: the
+	 * igniter must be capped whether or not the pit can be read. Once it has tripped in a mode, the
+	 * igniter is refused for the rest of that mode, whoever switches it back on. */
+	if (pf_outputs_get(PF_OUT_IGNITER)) {
+		if (s->igniter_locked_out) {
+			pf_outputs_set(PF_OUT_IGNITER, false);
+		} else if (s->igniter_on_since == 0) s->igniter_on_since = now;
+		else if (now - s->igniter_on_since > cfg->igniter_max_on_s) {
+			s->igniter_locked_out = true;
+			pf_outputs_set(PF_OUT_IGNITER, false);
+			LOGW(TAG, "igniter on for %.0f s: forced off for the rest of this mode", cfg->igniter_max_on_s);
+			if (pf_db_handle()) pf_db_event(PF_LVL_WARN, "W07_IGNITER_CAP", "Igniter exceeded maximum on time and was switched off");
+		}
+	} else {
+		s->igniter_on_since = 0;
+	}
+
+	/* 1c. fuel without heat (Hold, Smoke, Reignite after its light).
+	 *
+	 * Every other flame-out check waits for something: the relight assist for the set point to have
+	 * been reached once, the floor for the pit to fall a long way. Meanwhile the controller, seeing
+	 * the pit fall, feeds harder, and a dead pot takes it all -- twenty to forty minutes of pellets,
+	 * which the next light then ignites at once. So the grill counts what it feeds while the pit is
+	 * falling. A pit that has held within a degree over five minutes is a fire that is burning, and
+	 * the count starts again; past the limit (100 g by default), with the pit still going down, the
+	 * auger stops and it is a flame-out. */
+	if ((m == PF_MODE_HOLD || m == PF_MODE_SMOKE || (m == PF_MODE_REIGNITE && !s->coldstart_active && !s->hot_relight)) && c->pit_valid) {
+		double dt = c->last_step > 0 ? now - c->last_step : 0.1;
+		if (now - s->fuel_ring_t >= 30) {
+			s->fuel_ring_t = now;
+			s->fuel_ring_c[s->fuel_ring_head] = c->pit_c;
+			s->fuel_ring_head = (s->fuel_ring_head + 1) % 12;
+			if (s->fuel_ring_n < 12) s->fuel_ring_n++;
+		}
+		bool falling = false;
+		if (s->fuel_ring_n >= 10) {
+			/* the reading five minutes ago (ten samples back) against now */
+			double then = s->fuel_ring_c[(s->fuel_ring_head + 12 - 10) % 12];
+			falling = c->pit_c < then - 1.0;
+		} else falling = true;   /* not enough history yet: count, the limit is still far off */
+		if (!falling || c->lid_event) s->unburnt_g = 0;   /* holding, rising, or a cook at the meat */
+		else if (pf_outputs_get(PF_OUT_AUGER)) s->unburnt_g += cfg->augerrate * dt;
+		double limit = cfg->max_unburnt_g > 0 ? cfg->max_unburnt_g : 100;
+		if (s->unburnt_g > limit) {
+			pf_outputs_set(PF_OUT_AUGER, false);
+			pf_safety_set_error(c, "E02_FLAMEOUT", "Pit falling with %.0f g fed. Fire out. Clear the fire pot before lighting.", s->unburnt_g);
+			return PF_MODE_ERROR;
+		}
+	} else {
+		s->unburnt_g = 0; s->fuel_ring_n = 0; s->fuel_ring_t = 0;
+	}
+
+	/* 1d. a relight of a hot grill must show a rise, as a cold start must: the lowest pit since the
+	 * relight began, and three degrees above it within the Smart Start time. Otherwise a relight
+	 * that did not take ran its whole startup feeding a dead pot and went back to Hold. */
+	if (m == PF_MODE_REIGNITE && s->hot_relight && c->pit_valid) {
+		if (c->pit_c < s->hot_relight_low_c) s->hot_relight_low_c = c->pit_c;
+		if (c->pit_c >= s->hot_relight_low_c + 3.0) s->hot_relight = false;   /* it caught */
+		else if (now > s->hot_relight_deadline) {
+			pf_safety_set_error(c, "E02_FLAMEOUT", "Relight failed: no rise. Clear the fire pot before lighting.");
+			return PF_MODE_ERROR;
+		}
+	}
+
 	/* 2. primary probe fault while we depend on it */
 	if (active) {
 		if (!c->pit_valid) {
@@ -135,18 +215,6 @@ int pf_safety_tick(pf_control *c, double now)
 		s->primary_invalid_since = 0;
 	}
 
-	/* 3. igniter continuous-on cap */
-	if (pf_outputs_get(PF_OUT_IGNITER)) {
-		if (s->igniter_on_since == 0) s->igniter_on_since = now;
-		else if (now - s->igniter_on_since > cfg->igniter_max_on_s && !s->igniter_locked_out) {
-			s->igniter_locked_out = true;
-			pf_outputs_set(PF_OUT_IGNITER, false);
-			LOGW(TAG, "igniter on for %.0f s: forced off for the rest of this mode", cfg->igniter_max_on_s);
-			if (pf_db_handle()) pf_db_event(PF_LVL_WARN, "W07_IGNITER_CAP", "Igniter exceeded maximum on time and was switched off");
-		}
-	} else {
-		s->igniter_on_since = 0;
-	}
 
 	/* 4. cold-start progress (STARTUP / REIGNITE) */
 	if ((m == PF_MODE_STARTUP || m == PF_MODE_REIGNITE) && s->coldstart_active) {

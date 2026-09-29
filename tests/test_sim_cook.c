@@ -108,7 +108,10 @@ static void test_full_cook(void)
 	TEST_ASSERT_EQUAL(PF_MODE_SHUTDOWN, ctrl.mode);
 	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_AUGER));
 	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_FAN));
+	/* the cool-down runs its four minutes, then until the pit is under the hot mark (at most 12) */
 	tick(245);
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.mode == PF_MODE_STOP || ctrl.pit_c > ctrl.cfg.restart_hot_c, "a cool pit stops on time");
+	for (int i = 0; i < 480 && ctrl.mode != PF_MODE_STOP; i++) tick(1);
 	TEST_ASSERT_EQUAL(PF_MODE_STOP, ctrl.mode);
 	TEST_ASSERT_EQUAL_UINT(0, pf_outputs_mask());
 }
@@ -182,6 +185,135 @@ static void test_a_grill_cooling_by_itself_is_not_a_lid(void)
 	TEST_ASSERT_FALSE(seen);
 }
 
+/* An overtemperature on a pit that then falls keeps its cool-down fan. */
+static void test_overtemp_with_a_falling_pit_keeps_the_fan(void)
+{
+	pf_cmd_mode(PF_MODE_HOLD, 225);
+	tick(250 + 10 * 60);
+	pf_sim_model()->pit_c = pf_f_to_c(560);
+	for (int i = 0; i < 8; i++) pf_sim_model()->delay[i] = pf_sim_model()->pit_c;
+	for (int i = 0; i < 30 && ctrl.mode != PF_MODE_ERROR; i++) tick(1);
+	TEST_ASSERT_EQUAL(PF_MODE_ERROR, ctrl.mode);
+	pf_sim_model()->pit_c = pf_f_to_c(500);
+	for (int i = 0; i < 8; i++) pf_sim_model()->delay[i] = pf_sim_model()->pit_c;
+	tick(20);
+	TEST_ASSERT_TRUE_MESSAGE(pf_outputs_get(PF_OUT_FAN), "falling pit: cool-down fan runs");
+	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_AUGER));
+}
+
+/* ---- the safety audit's findings, each proven ---- */
+
+/* Fuel without heat: the fire goes out mid-Hold and stays out. The grill must stop feeding and
+ * call it a flame-out long before the old checks would have -- which waited twenty to forty
+ * minutes, feeding all the while. */
+static void test_a_dead_pot_is_not_fed_for_long(void)
+{
+	pf_cmd_mode(PF_MODE_HOLD, 225);
+	tick(250 + 30 * 60);
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	double fed0 = ctrl.auger_total_on_s;
+	int t = 0;
+	for (; t < 30 * 60 && ctrl.mode != PF_MODE_ERROR; t += 5) { pf_sim_model()->fire_lit = false; pf_sim_model()->pot_pellets_g = 0; tick(5); }
+	double fed_g = (ctrl.auger_total_on_s - fed0) * ctrl.cfg.augerrate;
+	printf("dead pot: %s after %d s, %.0f g fed\n", ctrl.safety.error_code, t, fed_g);
+	TEST_ASSERT_EQUAL(PF_MODE_ERROR, ctrl.mode);
+	TEST_ASSERT_TRUE_MESSAGE(t <= 20 * 60, "a flame-out within twenty minutes");
+	TEST_ASSERT_TRUE_MESSAGE(fed_g < 200, "and nowhere near a hopper's worth fed into it");
+	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_AUGER));
+}
+
+/* Hold from Manual goes through Startup: straight to Hold fed a cold pot with no igniter. */
+static void test_hold_from_manual_lights_first(void)
+{
+	pf_cmd_mode(PF_MODE_MANUAL, 0);
+	tick(2);
+	TEST_ASSERT_EQUAL(PF_MODE_MANUAL, ctrl.mode);
+	pf_cmd_mode(PF_MODE_HOLD, 225);
+	tick(2);
+	TEST_ASSERT_EQUAL(PF_MODE_STARTUP, ctrl.mode);
+	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_IGNITER));
+}
+
+/* A kilogram prime is a few grams and a minute at most, not an hour-long wait before lighting. */
+static void test_a_huge_prime_is_clamped(void)
+{
+	pf_cmd c = { .type = PF_CMD_PRIME, .num = 1000 };
+	strcpy(c.str, "Startup");
+	pf_cmdq_push(&c);
+	tick(2);
+	TEST_ASSERT_EQUAL(PF_MODE_PRIME, ctrl.mode);
+	TEST_ASSERT_TRUE(ctrl.prime_amount_g <= 50);
+	TEST_ASSERT_TRUE(ctrl.prime_duration_s <= ctrl.cfg.auger_max_on_s);
+	tick(ctrl.prime_duration_s + 3);
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.mode != PF_MODE_PRIME, "prime over when the feed is");
+}
+
+/* Reignite and Prime are not requests anyone may make of a burning grill. */
+static void test_reignite_and_prime_cannot_be_requested_mid_cook(void)
+{
+	pf_cmd_mode(PF_MODE_HOLD, 225);
+	tick(250 + 5 * 60);
+	pf_cmd_mode(PF_MODE_REIGNITE, 0); tick(2);
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	pf_cmd_mode(PF_MODE_PRIME, 0); tick(2);
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+}
+
+/* A set point above the overtemperature limit is held below it. */
+static void test_a_set_point_cannot_reach_the_limit(void)
+{
+	pf_cmd_mode(PF_MODE_HOLD, 900);
+	tick(3);
+	TEST_ASSERT_TRUE(ctrl.setpoint_c <= ctrl.cfg.max_temp_c - pf_delta_to_c(25, PF_UNITS_F) + 0.01);
+}
+
+/* Recovery is once per cook, and never for a light that was not confirmed. */
+static void test_recovery_is_refused_when_it_is_not_safe(void)
+{
+	pf_settings_patch("safety", "{\"power_loss\":{\"recovery\":true,\"max_s\":300,\"igniter_s\":180}}", NULL, 0);
+	pf_control_shutdown(&ctrl);
+	pf_control_init(&ctrl, true);
+	tick(2);
+	char once[512];
+	snprintf(once, sizeof once, "{\"mode\":\"Hold\",\"saved_wall\":%.0f,\"setpoint_c\":107,\"recoveries\":1,\"boot_id\":\"x\"}", pf_wall() - 30);
+	TEST_ASSERT_TRUE(pf_control_recover(&ctrl, once, now));
+	TEST_ASSERT_EQUAL_MESSAGE(PF_MODE_ERROR, ctrl.mode, "a second recovery in one cook");
+	TEST_ASSERT_EQUAL_STRING("E08_POWER_LOSS", ctrl.safety.error_code);
+
+	pf_control_shutdown(&ctrl);
+	pf_control_init(&ctrl, true);
+	tick(2);
+	char unlit[512];
+	snprintf(unlit, sizeof unlit, "{\"mode\":\"Startup\",\"saved_wall\":%.0f,\"coldstart_active\":true,\"coldstart_reached\":false}", pf_wall() - 30);
+	TEST_ASSERT_TRUE(pf_control_recover(&ctrl, unlit, now));
+	TEST_ASSERT_EQUAL_MESSAGE(PF_MODE_ERROR, ctrl.mode, "a light never confirmed is not lit again");
+	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_IGNITER));
+}
+
+/* Stop, however it arrives, ends a recipe: it used to read the Stop as its step ending and relight. */
+static void test_a_stop_request_ends_a_recipe(void)
+{
+	ctrl.recipe.active = true;
+	pf_cmd_mode(PF_MODE_STOP, 0);
+	tick(2);
+	TEST_ASSERT_FALSE(ctrl.recipe.active);
+}
+
+/* Smoke has no relight assist at all: the fuel-without-heat guard is what stops a dead pot there. */
+static void test_a_dead_pot_in_smoke_is_caught(void)
+{
+	pf_cmd_mode(PF_MODE_SMOKE, 0);
+	tick(250 + 20 * 60);
+	TEST_ASSERT_EQUAL(PF_MODE_SMOKE, ctrl.mode);
+	double fed0 = ctrl.auger_total_on_s;
+	int t = 0;
+	for (; t < 90 * 60 && ctrl.mode != PF_MODE_ERROR; t += 5) { pf_sim_model()->fire_lit = false; pf_sim_model()->pot_pellets_g = 0; tick(5); }
+	double fed_g = (ctrl.auger_total_on_s - fed0) * ctrl.cfg.augerrate;
+	printf("dead pot in smoke: %s after %d s, %.0f g fed\n", ctrl.safety.error_code, t, fed_g);
+	TEST_ASSERT_EQUAL(PF_MODE_ERROR, ctrl.mode);
+	TEST_ASSERT_TRUE(fed_g <= ctrl.cfg.max_unburnt_g + 20);
+}
+
 static void test_overtemp_errors(void)
 {
 	pf_cmd_mode(PF_MODE_HOLD, 225);
@@ -193,7 +325,9 @@ static void test_overtemp_errors(void)
 	TEST_ASSERT_EQUAL_STRING("E01_OVERTEMP", ctrl.safety.error_code);
 	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_AUGER));
 	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_IGNITER));
-	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_FAN)); /* cooldown */
+	/* the pit went on climbing after the error (600 F against a trip at 563 F): a fan now would be
+	 * feeding a fire, so the cool-down stops */
+	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_FAN));
 	/* only Stop is accepted */
 	pf_cmd_mode(PF_MODE_HOLD, 225);
 	tick(1);
@@ -677,6 +811,15 @@ int main(void)
 	RUN_TEST(test_a_lid_drop_is_recognised_and_restarts_the_clock);
 	RUN_TEST(test_a_grill_cooling_by_itself_is_not_a_lid);
 	RUN_TEST(test_overtemp_errors);
+	RUN_TEST(test_a_dead_pot_is_not_fed_for_long);
+	RUN_TEST(test_a_dead_pot_in_smoke_is_caught);
+	RUN_TEST(test_hold_from_manual_lights_first);
+	RUN_TEST(test_a_huge_prime_is_clamped);
+	RUN_TEST(test_reignite_and_prime_cannot_be_requested_mid_cook);
+	RUN_TEST(test_a_set_point_cannot_reach_the_limit);
+	RUN_TEST(test_recovery_is_refused_when_it_is_not_safe);
+	RUN_TEST(test_a_stop_request_ends_a_recipe);
+	RUN_TEST(test_overtemp_with_a_falling_pit_keeps_the_fan);
 	RUN_TEST(test_stop_records_nothing);
 	RUN_TEST(test_flameout_protection_lights_the_igniter_and_recovers);
 	RUN_TEST(test_a_big_step_down_lights_the_igniter_at_the_crossing);
