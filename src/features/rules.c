@@ -597,6 +597,21 @@ static bool when_has_trait(const cJSON *node, const char *trait)
 	return false;
 }
 
+/* Does this condition ask where the pit is? The grill's temperature or its distance from the set
+ * point, named directly or through a rule that watches the grill. */
+static bool when_about_pit(const cJSON *node, const char *domain)
+{
+	if (!node) return false;
+	const cJSON *tr = jget(node, "trait");
+	if (cJSON_IsString(tr) && (!strcmp(tr->valuestring, "over") || !strcmp(tr->valuestring, "temp"))) {
+		const char *ent = pf_json_str((cJSON *)node, "entity", "");
+		if (!strcmp(ent, "grill") || ((!ent[0] || !strcmp(ent, "this")) && !strcmp(domain, "grill"))) return true;
+	}
+	const cJSON *kids = jget(node, "conditions"), *k;
+	cJSON_ArrayForEach(k, kids) if (when_about_pit(k, domain)) return true;
+	return false;
+}
+
 /* `renotify` is a deliberate re-announcement of a condition that is still true -- the rule's own
  * repeat interval, which exists so a critical standing alarm keeps asking to be dealt with. It is
  * the one reason to speak again about something already on the list. */
@@ -618,8 +633,15 @@ static void fire(const cJSON *rule, const cJSON *status, const inst *in, const v
 	 * probe's name until somebody acknowledges it, on the panel or the phone */
 	/* The probe is named, not its reading: what flashes is the temperature it is at while it
 	 * flashes, not the one it had when the alert fired, which went stale within the minute. */
-	if (fresh && in && in->name && when_has_trait(jget(rule, "when"), "target"))
-		pf_alarms_flash_probe(key, in->label ? in->label : in->name, in->name);
+	/* Only the arrival flashes, not a warning that looks ahead to it: a rule about the time to the
+	 * target ("Almost There") is a heads-up for the phone, and flashing "Remove from Heat" fifteen
+	 * minutes early would be an instruction to do the wrong thing. A rule may name its own action. */
+	const cJSON *when = jget(rule, "when");
+	bool arrival = when_has_trait(when, "target") && !when_has_trait(when, "eta");
+	if (fresh && in && in->name && (arrival || jget(rule, "flash"))) {
+		const char *act = pf_json_str((cJSON *)rule, "flash", "Remove from Heat");
+		pf_alarms_flash_probe(key, in->label ? in->label : in->name, in->name, act);
+	}
 	if (!fresh && !renotify) return;
 	pf_events_emit_ex(code, crit_of(rule), sink_mask(rule), title, "%s", body);
 	g_fired_total++;
@@ -634,6 +656,12 @@ void pf_rules_tick(const cJSON *status, double now)
 	if (!cJSON_IsArray(rules)) { cJSON_Delete(rules); return; }
 
 	const char *mode = pf_json_str((cJSON *)status, "mode", "Stop");
+	/* The lid is open, or the pit is climbing back after it was. What the pit does meanwhile is the
+	 * cook checking the meat, not the grill failing to hold: a rule about the pit's temperature is
+	 * left exactly as it was -- not fired, not cleared and re-armed -- until the pit has recovered.
+	 * Otherwise every look under the lid was "running cold" twenty minutes later and "reached
+	 * temperature" again once it came back. */
+	bool lid = pf_json_bool((cJSON *)status, "lid_event", false) || pf_json_bool((cJSON *)status, "lid_open", false);
 	bool cooking = !strcmp(mode, "Startup") || !strcmp(mode, "Reignite") || !strcmp(mode, "Smoke") ||
 	               !strcmp(mode, "Hold") || !strcmp(mode, "Shutdown");
 
@@ -664,6 +692,7 @@ void pf_rules_tick(const cJSON *status, double now)
 		bool covered = false;
 		for (int i = 0; i < nsup && !covered; i++) if (!strcmp(superseded[i], id)) covered = true;
 		if (covered) { retire_rule(id); continue; }
+		if (lid && when_about_pit(jget(rule, "when"), pf_json_str((cJSON *)rule, "select.domain", "grill"))) continue;
 
 		inst instances[MAX_INST];
 		int ni = select_instances(status, rule, instances, MAX_INST);

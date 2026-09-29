@@ -978,25 +978,48 @@ static void test_a_probe_flash_shows_the_current_reading(void)
 {
 	pf_alarms_init();
 	pf_alarms_raise("RULE_probe-target:BT1", "RULE_probe-target", "Probe Reached Target", PF_CRIT_HIGH, PF_SINK_APP, "t", "b");
-	pf_alarms_flash_probe("RULE_probe-target:BT1", "BT1", "Brisket");
+	pf_alarms_flash_probe("RULE_probe-target:BT1", "BT1", "Probe 1", "Remove from Heat");
 	pf_status st;
 	memset(&st, 0, sizeof st);
 	st.sensors.n = 1;
 	snprintf(st.sensors.p[0].label, sizeof st.sensors.p[0].label, "BT1");
-	snprintf(st.sensors.p[0].name, sizeof st.sensors.p[0].name, "Brisket");
+	snprintf(st.sensors.p[0].name, sizeof st.sensors.p[0].name, "Probe 1");
 	st.sensors.p[0].valid = true;
 	st.sensors.p[0].temp_c = 90;
 	cJSON *j = pf_status_to_json(&st, PF_UNITS_F);
-	TEST_ASSERT_EQUAL_STRING("Brisket 194\xC2\xB0", pf_json_str(j, "attention", ""));
+	TEST_ASSERT_EQUAL_STRING("Remove from Heat\nProbe 1 194\xC2\xB0", pf_json_str(j, "attention", ""));
 	cJSON_Delete(j);
 	st.sensors.p[0].temp_c = 95;
 	j = pf_status_to_json(&st, PF_UNITS_F);
-	TEST_ASSERT_EQUAL_STRING("Brisket 203\xC2\xB0", pf_json_str(j, "attention", ""));
+	TEST_ASSERT_EQUAL_STRING("Remove from Heat\nProbe 1 203\xC2\xB0", pf_json_str(j, "attention", ""));
 	cJSON_Delete(j);
 	st.sensors.p[0].valid = false;
 	j = pf_status_to_json(&st, PF_UNITS_F);
-	TEST_ASSERT_EQUAL_STRING_MESSAGE("Brisket", pf_json_str(j, "attention", ""), "no reading: the name alone");
+	TEST_ASSERT_EQUAL_STRING_MESSAGE("Remove from Heat\nProbe 1", pf_json_str(j, "attention", ""), "no reading: the name alone");
 	cJSON_Delete(j);
+}
+
+/* Running cold while the lid is open is the cook checking the meat. The stall rule neither fires
+ * nor re-arms during the lid event; once the pit has recovered it is judged again. */
+static void test_the_lid_holds_back_the_stall_rules(void)
+{
+	only_rule("{\"id\":\"cold\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":[{\"entity\":\"grill\",\"trait\":\"over\",\"op\":\"<\",\"value\":-20}]},"
+	          "\"title\":\"cold\",\"body\":\"\",\"level\":\"high\",\"sinks\":[\"app\"],\"cooldown_s\":0}");
+	cJSON *st = status();
+	cJSON_ReplaceItemInObject(st, "mode", cJSON_CreateString("Hold"));
+	cJSON_ReplaceItemInObject(st, "setpoint", cJSON_CreateNumber(225));
+	cJSON *p;
+	cJSON_ArrayForEach(p, cJSON_GetObjectItem(st, "probes"))
+		if (!strcmp(pf_json_str(p, "role", ""), "Primary")) cJSON_ReplaceItemInObject(p, "temp", cJSON_CreateNumber(180));
+	cJSON_AddBoolToObject(st, "lid_event", true);
+	for (int t = 0; t < 60; t++) pf_rules_tick(st, 1000 + t);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_ncap, "45 F cold with the lid open is not news");
+	cJSON_ReplaceItemInObject(st, "lid_event", cJSON_CreateBool(false));
+	pf_rules_tick(st, 1100);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_ncap, "still cold after the lid event is");
+	cJSON_Delete(st);
 }
 
 int main(void)
@@ -1033,5 +1056,6 @@ int main(void)
 	RUN_TEST(test_a_timed_condition_starts_over_when_it_lapses);
 	RUN_TEST(test_an_unnamed_grill_is_called_something_in_a_message);
 	RUN_TEST(test_a_probe_flash_shows_the_current_reading);
+	RUN_TEST(test_the_lid_holds_back_the_stall_rules);
 	return UNITY_END();
 }
