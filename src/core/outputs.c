@@ -46,6 +46,9 @@ int pf_outputs_set(pf_output o, bool on)
 	if ((unsigned)o >= PF_OUT_COUNT) return -EINVAL;
 	if (atomic_load(&g_latched)) return -EPERM;
 	pthread_mutex_lock(&g_mu);
+	/* Again under the lock: a write that passed the check above and then waited for the lock while
+	 * an emergency off held it would otherwise switch its output back on straight afterwards. */
+	if (atomic_load(&g_latched) && on) { pthread_mutex_unlock(&g_mu); return -EPERM; }
 	int rc = -ENODEV;
 	if (g_ops && g_inst) {
 		if (g_state[o] != on) {
@@ -62,6 +65,7 @@ int pf_outputs_fan_pct(int pct)
 {
 	if (atomic_load(&g_latched)) return -EPERM;
 	pthread_mutex_lock(&g_mu);
+	if (atomic_load(&g_latched) && pct > 0) { pthread_mutex_unlock(&g_mu); return -EPERM; }
 	int rc = -ENODEV;
 	if (g_ops && g_inst) {
 		rc = g_ops->set_fan_pct(g_inst, pct);
@@ -73,6 +77,7 @@ int pf_outputs_fan_pct(int pct)
 
 int pf_outputs_pwm_frequency(int hz)
 {
+	if (atomic_load(&g_latched)) return -EPERM;
 	pthread_mutex_lock(&g_mu);
 	int rc = (g_ops && g_inst) ? g_ops->set_pwm_frequency(g_inst, hz) : -ENODEV;
 	pthread_mutex_unlock(&g_mu);
@@ -128,10 +133,12 @@ int pf_outputs_emergency_off(int timeout_ms)
 		 * so drive the outputs anyway. Writing them without the lock risks racing a call already in
 		 * flight on the wedged thread; leaving a grill feeding itself does not risk anything, it
 		 * simply happens. The latch is already set, so nothing else of ours can turn them back on. */
-		LOGE(TAG, "emergency off: HAL busy, driving outputs off without the lock");
+		/* outputs first, words after: the log has a lock of its own, and a thread wedged inside
+		 * it must not stand between the grill and its relays */
 		if (g_ops && g_inst) g_ops->all_off(g_inst);
 		memset(g_state, 0, sizeof g_state);
 		g_fan_pct = 0;
+		LOGE(TAG, "emergency off: HAL busy, drove outputs off without the lock");
 		return -EBUSY;
 	}
 	if (g_ops && g_inst) g_ops->all_off(g_inst);

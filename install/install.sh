@@ -69,6 +69,21 @@ if [ $UPGRADE -eq 0 ]; then
 	/usr/local/bin/pifire-boardcfg --i2c --spi --watchdog >/tmp/pifire-boardcfg.out || true
 fi
 
+# A relay pin must fall back to its pull-down when the daemon that drives it dies. On Raspberry Pi
+# kernels a released GPIO line keeps the level it was last driven to (persist_gpio_outputs, on by
+# default), so a crash with the auger on left it on. Off on the kernel command line; the service's
+# ExecStopPost drives the relays off as well, for the boot until this takes effect. Every install,
+# upgrades included.
+for CMDLINE in /boot/firmware/cmdline.txt /boot/cmdline.txt; do
+	[ -f "$CMDLINE" ] || continue
+	if ! grep -q 'pinctrl_bcm2835.persist_gpio_outputs=n' "$CMDLINE" && [ "$(wc -l < "$CMDLINE")" -le 1 ]; then
+		cp "$CMDLINE" "$CMDLINE.pifire-bak"
+		sed -i '1 s/[[:space:]]*$/ pinctrl_bcm2835.persist_gpio_outputs=n/' "$CMDLINE"
+		echo "Kernel command line: released relay pins now fall back to their pulls (takes effect after a reboot)."
+	fi
+	break
+done
+
 echo "+ service"
 systemctl daemon-reload
 systemctl enable pifired >/dev/null 2>&1 || true

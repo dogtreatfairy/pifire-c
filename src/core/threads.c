@@ -132,8 +132,9 @@ static void *watchdog_thread(void *arg)
 		double now = pf_now();
 		double age = now - atomic_load(&g_last_tick);
 		if (age > STALL_S) {
-			LOGE(TAG, "control thread stalled for %.1f s - forcing outputs off and aborting", age);
+			/* outputs first: if the stall is a thread wedged inside the logger, logging first would wedge us too */
 			pf_outputs_emergency_off(200);
+			LOGE(TAG, "control thread stalled for %.1f s - outputs forced off, aborting", age);
 			abort();
 		}
 		if (now - last_pet > 5) { pf_sd_notify("WATCHDOG=1"); last_pet = now; }

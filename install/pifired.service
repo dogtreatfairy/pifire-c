@@ -1,11 +1,17 @@
 [Unit]
 Description=PiFire pellet grill controller
+# Never give up restarting: every start switches the outputs off first, and a daemon systemd has
+# stopped trying to run is one nobody is watching the fire for.
+StartLimitIntervalSec=0
 After=network-online.target bluetooth.service
 Wants=network-online.target
 
 [Service]
 Type=notify
 ExecStart=/usr/local/bin/pifired
+# After every stop, a crash or a kill included: a GPIO line keeps its level when the daemon dies, so
+# the relays are driven off from outside it before anything else happens.
+ExecStopPost=/usr/local/bin/pifired --outputs-off
 Restart=always
 RestartSec=2
 WatchdogSec=15

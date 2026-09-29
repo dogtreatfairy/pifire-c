@@ -74,8 +74,8 @@ static void *shutdown_deadline(void *arg)
 {
 	int secs = (int)(intptr_t)arg;
 	pf_sleep_ms((unsigned)secs * 1000u);
-	LOGW(TAG, "shutdown still not finished after %d s: forcing the outputs off and leaving", secs);
 	pf_outputs_emergency_off(500);
+	LOGW(TAG, "shutdown still not finished after %d s: outputs forced off, leaving", secs);
 	_exit(0);
 	return NULL;
 }
@@ -89,12 +89,38 @@ static void shutdown_deadline_start(int secs)
 	pthread_attr_destroy(&at);
 }
 
+/* `pifired --outputs-off`: drive every relay off and leave. systemd runs this after the daemon
+ * has stopped for any reason -- a crash, a kill, the watchdog -- because on the Pi a GPIO line keeps
+ * the level it was last driven to when its owner dies (pinctrl persist_gpio_outputs), so a daemon
+ * that died with the auger or igniter on would otherwise leave it on until something started again.
+ * It needs nothing but the settings and the platform: no database, no network, no threads. */
+static int outputs_off(bool sim)
+{
+	char sys_type[16];
+	pf_set_str("platform.system_type", sys_type, sizeof sys_type, "sim");
+	const pf_platform_ops *pops = (sim || !strcmp(sys_type, "sim")) ? pf_platform_sim() : pf_platform_rpi();
+	cJSON *pj = pf_set_dup("platform");
+	char *pjs = cJSON_PrintUnformatted(pj);
+	cJSON_Delete(pj);
+	pf_env penv;
+	pf_env_init(&penv, "platform");
+	void *pinst = pops->create(pjs, &penv);
+	free(pjs);
+	if (!pinst) { LOGE(TAG, "outputs-off: platform '%s' failed to initialise", pops->id); return 1; }
+	pf_outputs_init(pops, pinst);     /* initialising drives everything off */
+	pf_outputs_all_off();
+	pf_outputs_shutdown();
+	LOGI(TAG, "outputs-off: all relays driven off");
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
 	const char *config = PF_DEFAULT_CONFIG;
 	const char *data_dir = PF_DEFAULT_DATA_DIR;
 	const char *plugin_dir = PLUGIN_DIR;
 	bool sim = false;
+	bool outputs_off_only = false;
 	double speed = 1;
 	int port_override = 0;
 	pf_log_level level = PF_LOG_INFO;
@@ -103,7 +129,7 @@ int main(int argc, char **argv)
 		{ "config", required_argument, NULL, 'c' }, { "data", required_argument, NULL, 'd' },
 		{ "sim", no_argument, NULL, 's' },           { "speed", required_argument, NULL, 'x' },
 		{ "port", required_argument, NULL, 'p' },    { "log", required_argument, NULL, 'l' },
-		{ "plugins", required_argument, NULL, 'P' },
+		{ "plugins", required_argument, NULL, 'P' },  { "outputs-off", no_argument, NULL, 'O' },
 		{ "version", no_argument, NULL, 'v' },       { "help", no_argument, NULL, 'h' },  { 0, 0, 0, 0 }
 	};
 	int c;
@@ -113,6 +139,7 @@ int main(int argc, char **argv)
 		case 'd': data_dir = optarg; break;
 		case 'P': plugin_dir = optarg; break;
 		case 's': sim = true; break;
+		case 'O': outputs_off_only = true; break;
 		case 'x': speed = atof(optarg); break;
 		case 'p': port_override = atoi(optarg); break;
 		case 'l': { int l = pf_log_level_from_name(optarg); if (l < 0) { usage(argv[0]); return 2; } level = (pf_log_level)l; break; }
@@ -135,6 +162,7 @@ int main(int argc, char **argv)
 	/* a restore staged by the last run goes in before anything reads settings or opens the database */
 	pf_backup_apply_staged(data_dir, config);
 	if (pf_settings_init(config)) return 1;
+	if (outputs_off_only) return outputs_off(sim);
 	if (pf_set_bool("globals.debug_mode", false) && level > PF_LOG_DEBUG) pf_log_set_level(PF_LOG_DEBUG);
 	if (sim) pf_settings_force_sim();
 	if (port_override) pf_set_put_num("web.port", port_override);
@@ -208,7 +236,7 @@ int main(int argc, char **argv)
 	free(restart_reason);
 	if ((unclean || ctrl.restart_reason[0]) && checkpoint) recovered = pf_control_recover(&ctrl, checkpoint, pf_now());
 	free(checkpoint);
-	if (!recovered) pf_control_boot_check(&ctrl, unclean, pf_now());
+	if (!recovered) pf_control_boot_check(&ctrl, unclean, resume != NULL, pf_now());
 	pf_control_set_checkpoint_path(&ctrl, checkpoint_path);
 	if (resume) {
 		if (pf_control_resume(&ctrl, resume, pf_now())) pf_control_step(&ctrl, pf_now());
@@ -221,7 +249,10 @@ int main(int argc, char **argv)
 
 	char bind[64];
 	pf_set_str("web.bind", bind, sizeof bind, "0.0.0.0");
-	if (pf_web_start(bind, pf_set_int("web.port", 80))) return 1;
+	/* The web app is how the grill is watched, not how it is kept safe: the control loop may already
+	 * be running a recovered cook by now, and walking out of main here would leave it without its
+	 * watchdog and its services. The panel still works; the failure is logged and we carry on. */
+	if (pf_web_start(bind, pf_set_int("web.port", 80))) LOGE(TAG, "web server did not start; continuing without it");
 	pf_netmgr_set_data_dir(data_dir);
 	pf_netmgr_start(sim);
 	pf_mqtt_init();
