@@ -27,6 +27,7 @@ typedef struct {
 	int saturated;
 	double cycle_s;
 	bool lid_open;
+	bool lid_event;   /* a lid opening, and the recovery after it */
 	double lid_open_until;
 	bool target_reached;
 	double startup_duration, shutdown_duration, prime_duration, prime_amount;

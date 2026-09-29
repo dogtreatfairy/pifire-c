@@ -137,6 +137,51 @@ static void test_lid_open_pauses_feed(void)
 	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_FAN));
 }
 
+/* Opening the lid, with the feed pause left off (the default). The pit falls much faster than the
+ * grill can cool by itself; the controller recognises that as the lid, and the "is it getting
+ * there" clock starts again, so the stall notifications wait for a recovery rather than calling a
+ * cook checking the meat a grill that cannot hold. A real lid takes the pit down 20-40 C a minute;
+ * the simulator's barrel is gentler, so the drop is applied directly. */
+static void test_a_lid_drop_is_recognised_and_restarts_the_clock(void)
+{
+	pf_cmd_mode(PF_MODE_HOLD, 225);
+	tick(250 + 40 * 60);
+	TEST_ASSERT_TRUE(ctrl.target_reached);
+	TEST_ASSERT_FALSE(ctrl.lid_event);
+	double aim_before = ctrl.aim_since;
+	/* 30 seconds of a lid: 0.6 C a second off the pit */
+	pf_sim_model()->lid_open = true;
+	for (int k = 0; k < 30; k++) {
+		pf_sim_model()->pit_c -= 0.6;
+		for (int i = 0; i < 8; i++) pf_sim_model()->delay[i] = pf_sim_model()->pit_c;
+		tick(1);
+	}
+	printf("lid event %d at pit %.1f C (set point %.1f)\n", ctrl.lid_event, ctrl.pit_c, ctrl.setpoint_c);
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.lid_event, "a fall that fast is the lid");
+	TEST_ASSERT_FALSE_MESSAGE(ctrl.lid_open, "the feed pause is a separate switch, and it is off");
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.aim_since > aim_before, "the clock the stall notifications read starts again");
+	pf_status st; pf_status_get(&st);
+	TEST_ASSERT_TRUE(st.lid_event);
+	pf_sim_model()->lid_open = false;
+	int t = 0;
+	while (ctrl.lid_event && t < 1200) { tick(10); t += 10; }
+	printf("lid event over after %d s at pit %.1f C\n", t, ctrl.pit_c);
+	TEST_ASSERT_FALSE_MESSAGE(ctrl.lid_event, "and ends when the pit has recovered");
+}
+
+/* The grill's own slow drift is not a lid: a set point lowered by 20 C lets the pit fall as fast
+ * as it can by itself, and that is nowhere near the lid's rate. */
+static void test_a_grill_cooling_by_itself_is_not_a_lid(void)
+{
+	pf_cmd_mode(PF_MODE_HOLD, 275);
+	tick(250 + 40 * 60);
+	pf_cmd c = { .type = PF_CMD_SETPOINT, .num = 225 };
+	pf_cmdq_push(&c);
+	bool seen = false;
+	for (int i = 0; i < 20 * 60; i++) { tick(1); if (ctrl.lid_event) seen = true; }
+	TEST_ASSERT_FALSE(seen);
+}
+
 static void test_overtemp_errors(void)
 {
 	pf_cmd_mode(PF_MODE_HOLD, 225);
@@ -602,6 +647,8 @@ int main(void)
 	UNITY_BEGIN();
 	RUN_TEST(test_full_cook);
 	RUN_TEST(test_lid_open_pauses_feed);
+	RUN_TEST(test_a_lid_drop_is_recognised_and_restarts_the_clock);
+	RUN_TEST(test_a_grill_cooling_by_itself_is_not_a_lid);
 	RUN_TEST(test_overtemp_errors);
 	RUN_TEST(test_stop_records_nothing);
 	RUN_TEST(test_flameout_protection_lights_the_igniter_and_recovers);

@@ -1219,7 +1219,7 @@ static void learn_track_steady(pf_control *c, double now)
 	 * observation taken during one describes the test rather than an ordinary cook. */
 	if (!pf_learning_enabled() || c->autotune.active || pf_tuner_active(NULL, NULL, NULL)) return;
 	double err = c->pit_c - c->setpoint_c;
-	bool calm = fabs(err) < 3.0 && !c->lid_open && now - c->learn.last_disturb_t > 300 && c->saturated >= 0 && c->u_applied > c->cfg.u_min + 0.005;
+	bool calm = fabs(err) < 3.0 && !c->lid_open && !c->lid_event && now - c->learn.last_disturb_t > 300 && c->saturated >= 0 && c->u_applied > c->cfg.u_min + 0.005;
 	if (!calm) { c->learn.steady_since = 0; c->learn.u_sum = c->learn.pit_sum = c->learn.pit_sq = 0; c->learn.n = 0; return; }
 	if (c->learn.steady_since == 0) c->learn.steady_since = now;
 	c->learn.u_sum += c->u_applied; c->learn.pit_sum += c->pit_c; c->learn.pit_sq += c->pit_c * c->pit_c; c->learn.n++;
@@ -2229,6 +2229,7 @@ static void run_hold_cycle(pf_control *c, double now)
 			.cycle_time_s = c->ccfg.cycle_s, .u_min = c->ccfg.u_min, .u_max = c->ccfg.u_max,
 			.target_reached = c->target_reached, .fan_on = pf_outputs_get(PF_OUT_FAN), .fan_pct = pf_outputs_get_fan_pct(),
 			.tuning = c->autotune.active || pf_tuner_active(NULL, NULL, NULL),
+			.lid = c->lid_event || c->lid_open,
 			.hist = pf_history_ctrl_view(),
 			/* three observations' worth of settled holds near this set point before it counts */
 			.hold_K = pf_learning_hold_gain(c->setpoint_c, 3.0),
@@ -2342,6 +2343,34 @@ static void setpoint_countdown(pf_control *c, double now)
 	c->eta_s += a * (raw - c->eta_s);
 }
 
+/* Has the pit just fallen faster than a grill can cool by itself? With no fuel at all the pit loses
+ * at most about 4 C a minute; opening the lid takes it down 15 to 40 C a minute. A drop of more than
+ * 0.3 C a second held over fifteen seconds (and at least 4 C of it), from a pit that was near its set
+ * point, is the lid. Sampled once a second into a short ring. */
+#define LID_RATE_C_S 0.3
+#define LID_SPAN_S   15.0
+static bool lid_watch(pf_control *c, double now)
+{
+	if (!c->pit_valid) return false;
+	if (now - c->lid_hist_last >= 1.0) {
+		c->lid_hist_last = now;
+		c->lid_hist_t[c->lid_hist_head] = now;
+		c->lid_hist_c[c->lid_hist_head] = c->pit_c;
+		c->lid_hist_head = (c->lid_hist_head + 1) % 20;
+		if (c->lid_hist_n < 20) c->lid_hist_n++;
+	}
+	/* the sample from about fifteen seconds ago */
+	for (int k = 0; k < c->lid_hist_n; k++) {
+		int i = (c->lid_hist_head - 1 - k + 40) % 20;
+		double age = now - c->lid_hist_t[i];
+		if (age < LID_SPAN_S) continue;
+		double then = c->lid_hist_c[i], drop = then - c->pit_c;
+		bool was_near = then >= c->setpoint_c - 8.0;   /* holding, not still climbing from cold */
+		return was_near && drop >= 4.0 && drop / age >= LID_RATE_C_S;
+	}
+	return false;
+}
+
 static void run_mode(pf_control *c, double now)
 {
 	const pf_cfg *g = &c->cfg;
@@ -2354,7 +2383,26 @@ static void run_mode(pf_control *c, double now)
 		setpoint_countdown(c, now);
 		/* threshold is a percentage of the setpoint in the user's units, as in the original */
 		double lid_thresh_c = pf_to_c(pf_from_c(c->setpoint_c, g->units) * (100.0 - g->lid_threshold_pct) / 100.0, g->units);
-		if (c->target_reached && g->lid_detect && !c->lid_open && c->pit_c < lid_thresh_c) {
+		bool dropped = lid_watch(c, now);
+		if (dropped && !c->lid_event) {
+			/* The lid, recognised by how fast the pit fell. Everything that asks "is the grill
+			 * getting there" starts its clock again from here: a pit short of its target while it
+			 * recovers from the cook checking the meat is not a grill that cannot hold. */
+			c->lid_event = true;
+			c->lid_event_t = now;
+			c->aim_since = now;
+			c->aim_pit_c = c->pit_c;
+			c->eta_s = -1;
+			learn_reset_window(c, now);
+			LOGI(TAG, "lid opened: the pit fell %.1f C faster than the grill cools", c->lid_hist_c[(c->lid_hist_head + 20 - 1) % 20] - c->pit_c);
+			event(PF_LVL_INFO, "LID_EVENT", "Lid opened");
+		}
+		/* recovered: back within 3 C of the set point, or a quarter hour on, whichever is first */
+		if (c->lid_event && !dropped && (c->pit_c >= c->setpoint_c - 3.0 || now - c->lid_event_t > 900)) {
+			c->lid_event = false;
+			LOGI(TAG, "lid event over after %.0f s", now - c->lid_event_t);
+		}
+		if (c->target_reached && g->lid_detect && !c->lid_open && (c->pit_c < lid_thresh_c || dropped)) {
 			c->lid_open = true;
 			c->lid_open_until = now + g->lid_pause_s;
 			c->target_reached = false;
@@ -2773,6 +2821,7 @@ static void publish(pf_control *c, double now)
 	s.saturated = c->saturated;
 	s.cycle_s = c->ccfg.cycle_s;
 	s.lid_open = c->lid_open;
+	s.lid_event = c->lid_event;
 	s.lid_open_until = c->lid_open_until;
 	s.target_reached = c->target_reached;
 	s.startup_duration = c->startup_duration_s;

@@ -405,7 +405,7 @@ static void monitor(ad_t *s, const pf_ctrl_in *in, double e)
 	/* A tuning run drives the loop on purpose. Every window through it would look like hunting,
 	 * and the correction learned from it would be a correction for the test rather than for the
 	 * grill -- clouding the very measurement it is standing next to. */
-	if (in->tuning) { window_reset(s, in->now_s); return; }
+	if (in->tuning || in->lid) { window_reset(s, in->now_s); return; }
 	double a = fabs(e);
 	s->win_abs_sum += a; s->win_sum += e; s->win_n++;
 	if (in->now_s - s->win_start < WINDOW_S / 2) { s->win_sum1 += e; s->win_n1++; } else { s->win_sum2 += e; s->win_n2++; }

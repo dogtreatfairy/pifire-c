@@ -104,6 +104,11 @@ typedef struct {
 	bool fan_pid_active;
 	/* lid / fan */
 	bool lid_open; double lid_open_until;
+	/* A lid event: the pit falling faster than a grill can cool by itself, and the recovery after it.
+	 * Recognised whether or not the feed pause is switched on, so notifications and learning can
+	 * tell a cook checking the meat from a fire going out. */
+	bool lid_event; double lid_event_t;
+	double lid_hist_t[20], lid_hist_c[20]; int lid_hist_n, lid_hist_head; double lid_hist_last;
 	double fan_toggle_t, fan_update_t; bool fan_ramping; double ramp_end_t;
 	/* manual */
 	double manual_until[PF_OUT_COUNT];

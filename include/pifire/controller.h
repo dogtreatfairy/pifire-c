@@ -68,6 +68,9 @@ typedef struct {
 	 * many direct measurements, and a controller that models the plant should prefer it to a gain
 	 * fitted across a cold start. Added at the end: older plugins never read it. */
 	double hold_K;
+	/* The lid is open, or the pit is recovering from its being opened. The loop still runs; what it
+	 * must not do is learn from it -- a lid is not the grill hunting. */
+	bool lid;
 } pf_ctrl_in;
 
 typedef struct {
