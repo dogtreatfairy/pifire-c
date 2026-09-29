@@ -108,6 +108,7 @@ typedef struct {
 	 * Recognised whether or not the feed pause is switched on, so notifications and learning can
 	 * tell a cook checking the meat from a fire going out. */
 	bool lid_event; double lid_event_t;
+	char restart_reason[96]; double restart_wall; bool restart_resumed;
 	double lid_hist_t[20], lid_hist_c[20]; int lid_hist_n, lid_hist_head; double lid_hist_last;
 	double fan_toggle_t, fan_update_t; bool fan_ramping; double ramp_end_t;
 	/* manual */
@@ -235,6 +236,9 @@ void pf_control_boot_check(pf_control *c, bool unclean_restart, double now);
  * that has been out for that long has to be looked at before it is lit again. Returns true when
  * it decided the mode (either way). */
 bool pf_control_recover(pf_control *c, const char *json, double now);
+/* Why this start follows a restart that was not asked for from the app (NULL when it was a normal
+ * start). Shown in the status for ten minutes, so the "Grill Restarted" rule can say so. */
+void pf_control_note_restart(pf_control *c, const char *reason);
 /* where the checkpoint is written; nothing is written until this is set */
 void pf_control_set_checkpoint_path(pf_control *c, const char *path);
 /* Warm restart (software update while cooking): snapshot the running cook as JSON (NULL when nothing

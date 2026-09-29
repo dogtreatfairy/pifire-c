@@ -28,6 +28,7 @@ typedef struct {
 	double cycle_s;
 	bool lid_open;
 	bool lid_event;   /* a lid opening, and the recovery after it */
+	char restart_reason[96]; double restart_wall; bool restart_resumed;
 	double lid_open_until;
 	bool target_reached;
 	double startup_duration, shutdown_duration, prime_duration, prime_amount;

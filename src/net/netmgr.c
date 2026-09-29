@@ -5,6 +5,11 @@
 #include "core/settings.h"
 #include "core/util.h"
 #include "net/wifi.h"
+#include "core/status.h"
+#include "features/tuner.h"
+#include <stdlib.h>
+#include <time.h>
+#include <unistd.h>
 #include "web/api.h"
 #include <pthread.h>
 #include <stdatomic.h>
@@ -23,6 +28,110 @@ static bool g_hs_active;
 /* pending request */
 static bool g_req_connect, g_req_hotspot, g_req_hotspot_on;
 static char g_req_ssid[64], g_req_psk[64];
+static char g_data_dir[256];
+static bool g_sim;
+
+void pf_netmgr_set_data_dir(const char *dir) { pf_strlcpy(g_data_dir, dir ? dir : "", sizeof g_data_dir); }
+
+/* ---------------- the radio's watchdog ----------------
+ * The Pi's Wi-Fi firmware can stop answering the driver altogether ("brcmf ... -110" in the kernel
+ * log, SDIO checksum errors). NetworkManager goes on reporting a connection, nothing reaches the
+ * grill -- not the app, not Tailscale, not SSH -- and nothing recovers it short of power: it
+ * happened on 2026-09-29 in the middle of a cook. So once the grill has been online, it keeps
+ * checking that it can reach its own gateway. When it cannot for a minute it asks whether the radio
+ * has hung (a router that is down is NetworkManager's business, not this); a hung radio gets its
+ * driver reloaded, which does not touch the cook; and if two reloads do not bring it back, the Pi
+ * restarts and the cook resumes through the power-loss path. At most one such restart an hour. */
+static bool gateway(char *gw, size_t n)
+{
+	char out[256] = "";
+	const char *argv[] = { "ip", "route", "show", "default", NULL };
+	if (pf_run_capture(argv, out, sizeof out, 5) != 0) return false;
+	const char *v = strstr(out, "via ");
+	if (!v) return false;
+	v += 4;
+	size_t l = strcspn(v, " \n");
+	if (!l || l >= n) return false;
+	memcpy(gw, v, l); gw[l] = 0;
+	return true;
+}
+static bool reachable(void)
+{
+	char gw[64];
+	if (!gateway(gw, sizeof gw)) return false;
+	char out[128];
+	const char *argv[] = { "ping", "-c", "1", "-W", "3", gw, NULL };
+	return pf_run_capture(argv, out, sizeof out, 6) == 0;
+}
+static int helper(const char *verb, char *out, size_t n, int timeout_s)
+{
+	const char *argv[] = { "sudo", "-n", "/usr/local/bin/pifire-wifi-reset", verb, NULL };
+	return pf_run_capture(argv, out, n, timeout_s);
+}
+static double last_reboot_wall(void)
+{
+	char p[320]; snprintf(p, sizeof p, "%s/.net_reboot", g_data_dir);
+	char *t = pf_read_file(p, NULL);
+	double v = t ? atof(t) : 0;
+	free(t);
+	return v;
+}
+static void watchdog(double now)
+{
+	static double next, fail_since;
+	static int resets;
+	static bool ever_online;
+	if (g_sim || now < next) return;
+	next = now + 15;
+	if (g_state == PF_NET_ONLINE) ever_online = true;
+	if (!ever_online || g_hs_active || g_state == PF_NET_HOTSPOT || g_state == PF_NET_CONNECTING) { fail_since = 0; return; }
+	if (reachable()) {
+		if (fail_since > 0) LOGI(TAG, "network reachable again after %.0f s", now - fail_since);
+		fail_since = 0; resets = 0;
+		return;
+	}
+	if (fail_since == 0) { fail_since = now; LOGW(TAG, "cannot reach the gateway"); return; }
+	if (now - fail_since < 60) return;
+	char out[256] = "";
+	helper("diagnose", out, sizeof out, 20);
+	if (strncmp(out, "hung", 4)) {
+		/* the radio is answering: the router or the signal, which NetworkManager deals with */
+		if ((int)(now - fail_since) % 600 < 15) LOGW(TAG, "no network for %.0f s; the radio is answering (%s)", now - fail_since, out);
+		return;
+	}
+	if (resets < 2) {
+		resets++;
+		LOGW(TAG, "the Wi-Fi radio has stopped answering (%s); reloading its driver (try %d)", out, resets);
+		if (pf_db_handle()) pf_db_event(PF_LVL_WARN, "NET_RADIO_RESET", "The Wi-Fi radio stopped answering; its driver was reloaded");
+		int rc = helper("reset", out, sizeof out, 90);
+		LOGI(TAG, "radio reset -> %d: %.120s", rc, out);
+		next = now + 30;
+		return;
+	}
+	/* two reloads have not brought it back: restart the Pi, and resume */
+	pf_status st;
+	pf_status_get(&st);
+	bool cooking = st.mode == PF_MODE_STARTUP || st.mode == PF_MODE_REIGNITE || st.mode == PF_MODE_SMOKE || st.mode == PF_MODE_HOLD;
+	if (st.mode == PF_MODE_SHUTDOWN || st.mode == PF_MODE_PRIME || st.mode == PF_MODE_MANUAL || pf_tuner_active(NULL, NULL, NULL)) return;   /* after that */
+	if (cooking && !pf_set_bool("safety.power_loss.recovery", true)) {
+		if ((int)(now - fail_since) % 900 < 15) LOGW(TAG, "the radio is hung and power-loss recovery is off: carrying on without a network rather than restarting a cook that would not resume");
+		return;
+	}
+	if (pf_wall() - last_reboot_wall() < 3600) {
+		if ((int)(now - fail_since) % 900 < 15) LOGW(TAG, "the radio is hung, and the grill restarted for this within the hour; carrying on without a network");
+		return;
+	}
+	char p[320], txt[64];
+	snprintf(p, sizeof p, "%s/.net_reboot", g_data_dir);
+	snprintf(txt, sizeof txt, "%.0f", pf_wall());
+	pf_write_file_atomic(p, txt, strlen(txt));
+	snprintf(p, sizeof p, "%s/restart_resume", g_data_dir);
+	const char *why = "The Wi-Fi radio stopped responding";
+	pf_write_file_atomic(p, why, strlen(why));
+	LOGW(TAG, "restarting the grill to recover the Wi-Fi radio%s", cooking ? "; the cook resumes" : "");
+	if (pf_db_handle()) pf_db_event(PF_LVL_WARN, "NET_RADIO_REBOOT", "Restarting to recover the Wi-Fi radio");
+	helper("reboot", out, sizeof out, 5);   /* the helper outlives us; it forces the restart if need be */
+}
 
 static const char *state_name(pf_net_state s)
 {
@@ -111,6 +220,7 @@ static void *net_thread(void *arg)
 		} else {
 			static int tick;
 			if (++tick % 10 == 0) refresh();
+			watchdog(pf_now());
 		}
 		pf_sleep_ms(1000);
 	}
@@ -119,6 +229,7 @@ static void *net_thread(void *arg)
 
 int pf_netmgr_start(bool sim)
 {
+	g_sim = sim;
 	pf_wifi_init(sim);
 	char ssid[64];
 	pf_set_str("network.hotspot_ssid", ssid, sizeof ssid, "");

@@ -65,6 +65,14 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 	cJSON_AddNumberToObject(o, "duty_cycle", s->duty_cycle);
 	cJSON_AddBoolToObject(o, "lid_open", s->lid_open);
 	cJSON_AddBoolToObject(o, "lid_event", s->lid_event);
+	{
+		/* a restart nobody asked for from the app, for ten minutes: what the "Grill Restarted" rule reads */
+		cJSON *r = cJSON_AddObjectToObject(o, "restarted");
+		bool recent = s->restart_wall > 0 && pf_wall() - s->restart_wall < 600;
+		cJSON_AddBoolToObject(r, "active", recent);
+		cJSON_AddStringToObject(r, "reason", recent ? s->restart_reason : "");
+		cJSON_AddStringToObject(r, "resuming", recent && s->restart_resumed ? " and is resuming the cook" : "");
+	}
 	cJSON_AddNumberToObject(o, "lid_open_remaining", s->lid_open ? fmax(0, s->lid_open_until - s->t) : 0);
 	cJSON_AddBoolToObject(o, "target_reached", s->target_reached);
 	/* How long the grill has been working towards what it is aiming at now. A pit short of its

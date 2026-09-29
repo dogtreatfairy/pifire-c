@@ -1022,6 +1022,25 @@ static void test_the_lid_holds_back_the_stall_rules(void)
 	cJSON_Delete(st);
 }
 
+/* The grill came back by itself and says why, and that the cook is going on. */
+static void test_the_grill_says_it_restarted(void)
+{
+	only_rule("{\"id\":\"grill-restarted\",\"enabled\":true,\"only_while_cooking\":false,"
+	          "\"select\":{\"domain\":\"system\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":[{\"entity\":\"system\",\"trait\":\"restarted\",\"op\":\"is_on\"}]},"
+	          "\"title\":\"{grill} restarted\",\"body\":\"{restart_reason}{restart_resuming}.\",\"level\":\"high\",\"sinks\":[\"app\"]}");
+	cJSON *st = status();
+	cJSON *r = cJSON_AddObjectToObject(st, "restarted");
+	cJSON_AddBoolToObject(r, "active", true);
+	cJSON_AddStringToObject(r, "reason", "The Wi-Fi radio stopped responding");
+	cJSON_AddStringToObject(r, "resuming", " and is resuming the cook");
+	pf_rules_tick(st, 1000);
+	TEST_ASSERT_EQUAL_INT(1, g_ncap);
+	TEST_ASSERT_EQUAL_STRING("The Wi-Fi radio stopped responding and is resuming the cook.", g_cap[0].body);
+	TEST_ASSERT_TRUE(strstr(g_cap[0].title, "restarted") != NULL);
+	cJSON_Delete(st);
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -1057,5 +1076,6 @@ int main(void)
 	RUN_TEST(test_an_unnamed_grill_is_called_something_in_a_message);
 	RUN_TEST(test_a_probe_flash_shows_the_current_reading);
 	RUN_TEST(test_the_lid_holds_back_the_stall_rules);
+	RUN_TEST(test_the_grill_says_it_restarted);
 	return UNITY_END();
 }

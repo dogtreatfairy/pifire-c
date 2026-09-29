@@ -1,0 +1,39 @@
+#!/bin/bash
+# pifire-wifi-reset: the privileged side of PiFire's network watchdog (sudoers lets the pifire user
+# run this). Sub-commands:
+#   diagnose   print "hung" when the Wi-Fi driver has been timing out talking to the radio in the
+#              last three minutes (the Pi's brcmfmac firmware stops answering: "-110" in the kernel
+#              log, SDIO checksum errors), else "ok". A router being down is not this, and is left
+#              to NetworkManager.
+#   reset      reload the Wi-Fi driver, which restarts the radio's firmware without a reboot, and
+#              wait up to 45 s for wlan0 to get an address back. Exit 0 if it did.
+#   reboot     restart the Pi. If the system is still up 90 s later -- a driver stuck in the kernel
+#              can hold a normal shutdown -- force it.
+set -uo pipefail
+cmd="${1:-diagnose}"
+case "$cmd" in
+	diagnose)
+		n=$(journalctl -k --since "-3min" --no-pager 2>/dev/null | grep -cE 'brcmf.*(-110|failed w/status)|brcmf_sdio_(txfail|rxfail)|mmc_submit_one.*-110')
+		if [ "${n:-0}" -gt 0 ]; then echo "hung ($n driver errors)"; else echo "ok"; fi
+		;;
+	reset)
+		echo "reloading the Wi-Fi driver"
+		timeout 25 modprobe -r brcmfmac_wcc brcmfmac 2>&1 || timeout 25 modprobe -r brcmfmac 2>&1 || { echo "the driver would not unload"; exit 3; }
+		sleep 2
+		timeout 25 modprobe brcmfmac 2>&1 || { echo "the driver would not load"; exit 4; }
+		nmcli radio wifi on >/dev/null 2>&1 || true
+		for i in $(seq 1 45); do
+			if ip -4 addr show wlan0 2>/dev/null | grep -q "inet "; then echo "wlan0 is back"; exit 0; fi
+			sleep 1
+		done
+		echo "wlan0 has no address after the reset"; exit 5
+		;;
+	reboot)
+		echo "restarting"
+		systemctl reboot
+		sleep 90
+		echo "still up after 90 s: forcing the restart"
+		systemctl reboot --force --force
+		;;
+	*) echo "usage: pifire-wifi-reset diagnose|reset|reboot" >&2; exit 2 ;;
+esac

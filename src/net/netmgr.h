@@ -8,6 +8,8 @@
 typedef enum { PF_NET_BOOT = 0, PF_NET_ONLINE, PF_NET_HOTSPOT, PF_NET_CONNECTING, PF_NET_OFFLINE } pf_net_state;
 
 int  pf_netmgr_start(bool sim);
+/* where the watchdog leaves its notes (restart_resume, .net_reboot); set before start */
+void pf_netmgr_set_data_dir(const char *dir);
 void pf_netmgr_stop(void);
 /* {"state","ssid","ip","signal","hotspot":{"ssid","password","active"},"last_error"} */
 cJSON *pf_netmgr_status(void);

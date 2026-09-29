@@ -124,6 +124,8 @@ static val trait_of(const cJSON *status, const inst *in, const char *entity, con
 		{ "system", "update_available", "update.available" }, { "system", "update_version", "update.latest" },
 		{ "system", "system_updates", "update.system" },
 		{ "system", "backup_done", "backup.done" }, { "system", "backup_failed", "backup.failed" },
+		{ "system", "restarted", "restarted.active" }, { "system", "restart_reason", "restarted.reason" },
+		{ "system", "restart_resuming", "restarted.resuming" },
 		{ "timer", "remaining", "timer.remaining" }, { "timer", "running", "timer.running" },
 		/* A recipe step, asked about while it is running. These only exist inside the facts a step
 		 * is evaluated against, which is why they are not in the status the UI receives. */
@@ -866,6 +868,10 @@ static const struct trait_def TRAIT_TABLE[] = {
 		/* true for ten minutes after a backup finishes, so a rule on it fires once per backup */
 		{ "system", "backup_done", "bool", "", "Backup Just Finished", false },
 		{ "system", "backup_failed", "bool", "", "Last Backup Failed", false },
+		/* for ten minutes after a restart nobody asked for: a power blip, a crash, or the grill
+		 * restarting itself to recover its Wi-Fi */
+		{ "system", "restarted", "bool", "", "Grill Restarted", false },
+		{ "system", "restart_reason", "string", "", "Restart Reason", false },
 		{ "timer", "remaining", "duration", "s", "Time Remaining", false }, { "timer", "running", "bool", "", "Timer Running", false },
 		/* What a recipe step can be asked about. The food probes are given as the hottest and the
 		 * coolest of the ones in this cook, so "any of them has got there" and "all of them have"

@@ -1079,6 +1079,38 @@
         "cooldown_s": 0,
         "repeat_s": 0,
         "only_while_cooking": false
+      },
+      {
+        "id": "grill-restarted",
+        "name": "Grill Restarted",
+        "enabled": true,
+        "select": {
+          "domain": "system",
+          "match": "any"
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "entity": "system",
+              "trait": "restarted",
+              "op": "is_on"
+            }
+          ]
+        },
+        "title": "{grill} restarted",
+        "body": "{restart_reason}{restart_resuming}.",
+        "level": "high",
+        "sinks": [
+          "app",
+          "webpush",
+          "pushover",
+          "ntfy"
+        ],
+        "for_s": 0,
+        "cooldown_s": 0,
+        "repeat_s": 0,
+        "only_while_cooking": false
       }
     ],
     "probe_steps": {}

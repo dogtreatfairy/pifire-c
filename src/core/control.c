@@ -2822,6 +2822,9 @@ static void publish(pf_control *c, double now)
 	s.cycle_s = c->ccfg.cycle_s;
 	s.lid_open = c->lid_open;
 	s.lid_event = c->lid_event;
+	pf_strlcpy(s.restart_reason, c->restart_reason, sizeof s.restart_reason);
+	s.restart_wall = c->restart_wall;
+	s.restart_resumed = c->restart_resumed;
 	s.lid_open_until = c->lid_open_until;
 	s.target_reached = c->target_reached;
 	s.startup_duration = c->startup_duration_s;
@@ -2930,6 +2933,12 @@ void pf_control_set_checkpoint_path(pf_control *c, const char *path)
 	c->checkpoint_on_disk = path && pf_file_exists(path);
 }
 
+void pf_control_note_restart(pf_control *c, const char *reason)
+{
+	pf_strlcpy(c->restart_reason, reason ? reason : "", sizeof c->restart_reason);
+	c->restart_wall = reason ? pf_wall() : 0;
+}
+
 bool pf_control_recover(pf_control *c, const char *json, double now)
 {
 	cJSON *o = json ? cJSON_Parse(json) : NULL;
@@ -2970,9 +2979,11 @@ bool pf_control_recover(pf_control *c, const char *json, double now)
 	if (csw > 0) c->cook_start_wall = csw;
 	c->auger_total_on_s = total;
 	c->cook_max_pit_c = maxpit;
+	c->restart_resumed = true;
 	{
-		char msg[200];
-		snprintf(msg, sizeof msg, "Power was lost for %.0f s during a cook. Relighting for %.0f s, then back to %s.", age, c->startup_duration_s, pf_mode_name(c->safety.reignite_last));
+		char msg[240];
+		if (c->restart_reason[0]) snprintf(msg, sizeof msg, "%s; the grill restarted after %.0f s and is resuming %s.", c->restart_reason, age, pf_mode_name(c->safety.reignite_last));
+		else snprintf(msg, sizeof msg, "Power was lost for %.0f s during a cook. Relighting for %.0f s, then back to %s.", age, c->startup_duration_s, pf_mode_name(c->safety.reignite_last));
 		event(PF_LVL_WARN, "W12_POWER_LOSS", msg);
 	}
 	LOGW(TAG, "power loss of %.0f s: relighting for %.0f s, then %s", age, c->startup_duration_s, pf_mode_name(c->safety.reignite_last));

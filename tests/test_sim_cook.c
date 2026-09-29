@@ -493,8 +493,19 @@ static void test_power_loss_recovery(void)
 	pf_control_shutdown(&ctrl);
 	pf_control_init(&ctrl, true);
 	tick(2);
+	/* this one the grill chose itself, to recover its Wi-Fi: it says so, and says the cook resumes */
+	pf_control_note_restart(&ctrl, "The Wi-Fi radio stopped responding");
 	TEST_ASSERT_TRUE(pf_control_recover(&ctrl, soon, now));
 	TEST_ASSERT_EQUAL(PF_MODE_REIGNITE, ctrl.mode);
+	{
+		tick(1);
+		pf_status st; pf_status_get(&st);
+		cJSON *j = pf_status_to_json(&st, PF_UNITS_F);
+		TEST_ASSERT_TRUE(pf_json_bool(j, "restarted.active", false));
+		TEST_ASSERT_EQUAL_STRING("The Wi-Fi radio stopped responding", pf_json_str(j, "restarted.reason", ""));
+		TEST_ASSERT_EQUAL_STRING(" and is resuming the cook", pf_json_str(j, "restarted.resuming", ""));
+		cJSON_Delete(j);
+	}
 	TEST_ASSERT_DOUBLE_WITHIN(1, 180, ctrl.startup_duration_s);
 	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.safety.reignite_last);
 	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_IGNITER));
