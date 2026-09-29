@@ -616,13 +616,10 @@ static void fire(const cJSON *rule, const cJSON *status, const inst *in, const v
 	bool fresh = pf_alarms_raise(key, code, name, crit_of(rule), sink_mask(rule), title, body);
 	/* a probe arriving at its target is the moment the cook is waiting for: the panel flashes the
 	 * probe's name until somebody acknowledges it, on the panel or the phone */
-	if (fresh && in && in->name && when_has_trait(jget(rule, "when"), "target")) {
-		char word[24];
-		const cJSON *tv = in->obj ? cJSON_GetObjectItem((cJSON *)in->obj, "temp") : NULL;
-		if (cJSON_IsNumber(tv)) snprintf(word, sizeof word, "%.14s %.0f\xC2\xB0", in->name, tv->valuedouble);
-		else snprintf(word, sizeof word, "%.20s", in->name);
-		pf_alarms_flash(key, word);
-	}
+	/* The probe is named, not its reading: what flashes is the temperature it is at while it
+	 * flashes, not the one it had when the alert fired, which went stale within the minute. */
+	if (fresh && in && in->name && when_has_trait(jget(rule, "when"), "target"))
+		pf_alarms_flash_probe(key, in->label ? in->label : in->name, in->name);
 	if (!fresh && !renotify) return;
 	pf_events_emit_ex(code, crit_of(rule), sink_mask(rule), title, "%s", body);
 	g_fired_total++;

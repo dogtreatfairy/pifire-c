@@ -42,7 +42,7 @@ typedef struct {
 	 * the remedy lives on. */
 	char fix[24];
 	double snooze_s;
-	char flash[24];   /* what the panel flashes until this is acknowledged */
+	char flash[48];   /* what the panel flashes until this is acknowledged; "\x01label\x01name" names a probe whose reading is shown live */
 } alarm_t;
 
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
@@ -284,6 +284,13 @@ void pf_alarms_flash(const char *key, const char *word)
 	pthread_mutex_unlock(&g_mu);
 }
 
+void pf_alarms_flash_probe(const char *key, const char *label, const char *name)
+{
+	char w[48];
+	snprintf(w, sizeof w, "\x01%.16s\x01%.24s", label ? label : "", name ? name : "");
+	pf_alarms_flash(key, w);
+}
+
 void pf_alarms_flash_code(const char *code, const char *word)
 {
 	pthread_mutex_lock(&g_mu);
@@ -335,7 +342,7 @@ cJSON *pf_alarms_json(void)
 		if (a->raises > 1) cJSON_AddNumberToObject(e, "raises", a->raises);
 		if (a->shelved_until > now) cJSON_AddNumberToObject(e, "shelved_for", round(a->shelved_until - now));
 		if (a->fix[0]) cJSON_AddStringToObject(e, "fix", a->fix);
-		if (a->flash[0]) cJSON_AddStringToObject(e, "flash", a->flash);
+		if (a->flash[0] && a->flash[0] != '\x01') cJSON_AddStringToObject(e, "flash", a->flash);
 		if (a->snooze_s > 0) cJSON_AddNumberToObject(e, "snooze_s", a->snooze_s);
 		cJSON_AddItemToArray(arr, e);
 		if (!a->acked) unacked++;

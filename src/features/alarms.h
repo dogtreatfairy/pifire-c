@@ -68,6 +68,9 @@ int  pf_alarms_shelve(const char *key, double seconds);
 /* A word the panel flashes for this one until it is acknowledged -- "TIMER", a probe's name.
  * Only the moments that stop a cook mid-thought carry one; the rest sit in the list. */
 void pf_alarms_flash(const char *key, const char *word);
+/* Flash a probe: its name and whatever it reads at the moment it is drawn, not what it read when
+ * the alert fired. pf_alarms_flash_word hands back "\x01label\x01name" for the status to fill in. */
+void pf_alarms_flash_probe(const char *key, const char *label, const char *name);
 void pf_alarms_flash_code(const char *code, const char *word);   /* the newest entry with this code */
 /* The word to flash right now: the newest unacknowledged entry carrying one. 0 = nothing. */
 int  pf_alarms_flash_word(char *out, size_t n);

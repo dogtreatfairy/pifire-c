@@ -11,6 +11,7 @@
 #include "net/tailscale.h"
 #include <math.h>
 #include <pthread.h>
+#include <stdio.h>
 #include <string.h>
 
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
@@ -74,8 +75,24 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 	 * line fitted through the last few minutes. -1 while it does not know enough to say. */
 	cJSON_AddNumberToObject(o, "setpoint_eta_s", s->setpoint_eta_s >= 0 ? round(s->setpoint_eta_s) : -1);
 	{
-		char word[24] = "";
+		char word[48] = "";
 		pf_alarms_flash_word(word, sizeof word);
+		/* a probe's flash is filled in now, with what it reads now */
+		if (word[0] == '\x01') {
+			char label[24] = "", name[32] = "";
+			const char *sep = strchr(word + 1, '\x01');
+			if (sep) {
+				size_t ll = (size_t)(sep - word - 1);
+				if (ll >= sizeof label) ll = sizeof label - 1;
+				memcpy(label, word + 1, ll);
+				pf_strlcpy(name, sep + 1, sizeof name);
+			}
+			double t = NAN;
+			for (int i = 0; i < s->sensors.n; i++)
+				if (!strcmp(s->sensors.p[i].label, label) && s->sensors.p[i].valid) t = conv(s->sensors.p[i].temp_c, units);
+			if (isfinite(t)) snprintf(word, sizeof word, "%.14s %.0f\xC2\xB0", name, t);
+			else snprintf(word, sizeof word, "%.20s", name);
+		}
 		cJSON_AddStringToObject(o, "attention", word);   /* what the panel flashes until it is acknowledged */
 	}
 	cJSON_AddBoolToObject(o, "sim", s->sim);

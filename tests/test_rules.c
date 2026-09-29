@@ -6,6 +6,8 @@
 #include "features/rules.h"
 #include "features/alarms.h"
 #include "features/push.h"
+#include "core/status.h"
+#include <math.h>
 #include "unity.h"
 #include <stdio.h>
 #include <string.h>
@@ -970,6 +972,33 @@ static void test_an_unnamed_grill_is_called_something_in_a_message(void)
 	cJSON_Delete(r);
 }
 
+/* A probe that reached its target flashes on the panel with the temperature it reads NOW: the
+ * number moves while it flashes, rather than staying at what it read when the alert fired. */
+static void test_a_probe_flash_shows_the_current_reading(void)
+{
+	pf_alarms_init();
+	pf_alarms_raise("RULE_probe-target:BT1", "RULE_probe-target", "Probe Reached Target", PF_CRIT_HIGH, PF_SINK_APP, "t", "b");
+	pf_alarms_flash_probe("RULE_probe-target:BT1", "BT1", "Brisket");
+	pf_status st;
+	memset(&st, 0, sizeof st);
+	st.sensors.n = 1;
+	snprintf(st.sensors.p[0].label, sizeof st.sensors.p[0].label, "BT1");
+	snprintf(st.sensors.p[0].name, sizeof st.sensors.p[0].name, "Brisket");
+	st.sensors.p[0].valid = true;
+	st.sensors.p[0].temp_c = 90;
+	cJSON *j = pf_status_to_json(&st, PF_UNITS_F);
+	TEST_ASSERT_EQUAL_STRING("Brisket 194\xC2\xB0", pf_json_str(j, "attention", ""));
+	cJSON_Delete(j);
+	st.sensors.p[0].temp_c = 95;
+	j = pf_status_to_json(&st, PF_UNITS_F);
+	TEST_ASSERT_EQUAL_STRING("Brisket 203\xC2\xB0", pf_json_str(j, "attention", ""));
+	cJSON_Delete(j);
+	st.sensors.p[0].valid = false;
+	j = pf_status_to_json(&st, PF_UNITS_F);
+	TEST_ASSERT_EQUAL_STRING_MESSAGE("Brisket", pf_json_str(j, "attention", ""), "no reading: the name alone");
+	cJSON_Delete(j);
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -1003,5 +1032,6 @@ int main(void)
 	RUN_TEST(test_a_condition_can_carry_its_own_time);
 	RUN_TEST(test_a_timed_condition_starts_over_when_it_lapses);
 	RUN_TEST(test_an_unnamed_grill_is_called_something_in_a_message);
+	RUN_TEST(test_a_probe_flash_shows_the_current_reading);
 	return UNITY_END();
 }
