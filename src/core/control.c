@@ -3065,7 +3065,7 @@ bool pf_control_recover(pf_control *c, const char *json, double now)
 		 * somebody has looked. */
 		cJSON_Delete(o);
 		pf_safety_set_error(c, "E08_POWER_LOSS", "%s. Not relit: inspect the fire pot before lighting.", refuse);
-		char msg[240];
+		char msg[320];
 		snprintf(msg, sizeof msg, "%s. Not relit: inspect the fire pot before lighting.", refuse);
 		event(PF_LVL_ERROR, "E08_POWER_LOSS", msg);
 		enter_mode(c, PF_MODE_ERROR, now);
