@@ -140,7 +140,6 @@ static void load_cfg(pf_cfg *g)
 	for (; k <= PF_SS_MAX; k++) g->pwm_profiles[k] = g->pwm_max_duty;
 
 	g->augerrate = N("globals.augerrate", 0.3);
-	g->max_unburnt_g = N("safety.max_unburnt_g", 100);
 	g->prime_ignition = B("globals.prime_ignition", false);
 	g->keepwarm_c = T("keep_warm.temp", 165);
 	g->keepwarm_splus = B("keep_warm.s_plus", false);
@@ -339,7 +338,8 @@ static void fan_on(pf_control *c, int pct)
 static void smoke_cycle(pf_control *c, double now)
 {
 	double on = c->cfg.smoke_on_s, off = c->cfg.smoke_off_s + c->cfg.pmode * 10;
-	if (c->cfg.smartstart && (c->mode == PF_MODE_STARTUP || c->mode == PF_MODE_REIGNITE || c->mode == PF_MODE_SMOKE)) {
+	if (c->cfg.smartstart && (c->mode == PF_MODE_STARTUP || c->mode == PF_MODE_REIGNITE || c->mode == PF_MODE_SMOKE ||
+	                          (c->mode == PF_MODE_HOLD && c->safety.relight_active))) {
 		on = c->cfg.ss_prof[c->ss_profile].augerontime;
 		off = c->cfg.smoke_off_s + c->cfg.ss_prof[c->ss_profile].p_mode * 10;
 	}
@@ -2240,6 +2240,15 @@ static double autotune_step(pf_control *c, double now)
 static void run_hold_cycle(pf_control *c, double now)
 {
 	if (!pf_cycle_done(&c->cycle, now)) return;
+	/* A relight is fed as a startup is: a pit that has fallen away has the controller asking for
+	 * everything it can, and pouring that into a pot that may be out is what floods it. The
+	 * controller picks up from this feed once the fire has caught. */
+	if (c->safety.relight_active && !c->autotune.active) {
+		smoke_cycle(c, now);
+		c->saturated = 0;
+		c->ctrl_reset_needed = true;
+		return;
+	}
 	double u;
 	if (c->lid_open || !c->cinst) {
 		u = c->cfg.u_min;

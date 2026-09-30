@@ -31,6 +31,7 @@ void pf_safety_reset(pf_control *c)
 	s->baseline_c = NAN;
 	s->filt_c = NAN;
 	s->floor_c = NAN;
+	s->hold_peak_c = NAN;
 }
 
 /* Classic floor: clamp(0.9 * T_F, minstartup, maxstartup), computed in Fahrenheit like the original. */
@@ -155,41 +156,6 @@ int pf_safety_tick(pf_control *c, double now)
 		s->igniter_on_since = 0;
 	}
 
-	/* 1c. fuel without heat (Hold, Smoke, Reignite after its light).
-	 *
-	 * Every other flame-out check waits for something: the relight assist for the set point to have
-	 * been reached once, the floor for the pit to fall a long way. Meanwhile the controller, seeing
-	 * the pit fall, feeds harder, and a dead pot takes it all -- twenty to forty minutes of pellets,
-	 * which the next light then ignites at once. So the grill counts what it feeds while the pit is
-	 * falling. A pit that has held within a degree over five minutes is a fire that is burning, and
-	 * the count starts again; past the limit (100 g by default), with the pit still going down, the
-	 * auger stops and it is a flame-out. */
-	if ((m == PF_MODE_HOLD || m == PF_MODE_SMOKE || (m == PF_MODE_REIGNITE && !s->coldstart_active && !s->hot_relight)) && c->pit_valid) {
-		double dt = c->last_step > 0 ? now - c->last_step : 0.1;
-		if (now - s->fuel_ring_t >= 30) {
-			s->fuel_ring_t = now;
-			s->fuel_ring_c[s->fuel_ring_head] = c->pit_c;
-			s->fuel_ring_head = (s->fuel_ring_head + 1) % 12;
-			if (s->fuel_ring_n < 12) s->fuel_ring_n++;
-		}
-		bool falling = false;
-		if (s->fuel_ring_n >= 10) {
-			/* the reading five minutes ago (ten samples back) against now */
-			double then = s->fuel_ring_c[(s->fuel_ring_head + 12 - 10) % 12];
-			falling = c->pit_c < then - 1.0;
-		} else falling = true;   /* not enough history yet: count, the limit is still far off */
-		if (!falling || c->lid_event) s->unburnt_g = 0;   /* holding, rising, or a cook at the meat */
-		else if (pf_outputs_get(PF_OUT_AUGER)) s->unburnt_g += cfg->augerrate * dt;
-		double limit = cfg->max_unburnt_g > 0 ? cfg->max_unburnt_g : 100;
-		if (s->unburnt_g > limit) {
-			pf_outputs_set(PF_OUT_AUGER, false);
-			pf_safety_set_error(c, "E02_FLAMEOUT", "Pit falling with %.0f g fed. Fire out. Clear the fire pot before lighting.", s->unburnt_g);
-			return PF_MODE_ERROR;
-		}
-	} else {
-		s->unburnt_g = 0; s->fuel_ring_n = 0; s->fuel_ring_t = 0;
-	}
-
 	/* 1d. a relight of a hot grill must show a rise, as a cold start must: the lowest pit since the
 	 * relight began, and three degrees above it within the Smart Start time. Otherwise a relight
 	 * that did not take ran its whole startup feeding a dead pot and went back to Hold. */
@@ -249,9 +215,10 @@ int pf_safety_tick(pf_control *c, double now)
 	 *
 	 *   HOLDING. The grill reached its set point and the pit is sliding away from it. Nothing has
 	 *   been asked of the grill, so any real distance below the target is a fault: the trigger is
-	 *   falling `relight_drop` below it. This only applies to a pit that had arrived -- a grill on
-	 *   its way up is far below its target for entirely ordinary reasons, and lighting the igniter
-	 *   for that would fire on every cook.
+	 *   falling `relight_drop` below it. A grill still on its way up is far below its target for
+	 *   ordinary reasons, so there the measure is the highest the pit has reached in this Hold: a
+	 *   climbing pit that falls `relight_drop` back from its own peak, with the controller feeding
+	 *   to raise it, is a fire going out, and is caught at that point rather than at the floor.
 	 *
 	 *   COMING DOWN. The set point was lowered a long way, so the grill deliberately starves the
 	 *   fire and coasts. That coast is exactly when a fire dies, and by the end of it there may be
@@ -300,16 +267,23 @@ int pf_safety_tick(pf_control *c, double now)
 		s->stepdown_armed = false;
 	}
 
+	/* the highest the pit has reached in this Hold, never above the set point */
+	if (m == PF_MODE_HOLD && c->pit_valid && !c->lid_open) {
+		if (isnan(s->hold_peak_c) || c->pit_c > s->hold_peak_c) s->hold_peak_c = c->pit_c;
+	} else if (m != PF_MODE_HOLD) s->hold_peak_c = NAN;
+
 	if (relight_ok) {
 		double gap = c->setpoint_c - c->pit_c;
+		double ref = c->target_reached || isnan(s->hold_peak_c) ? c->setpoint_c : fmin(c->setpoint_c, s->hold_peak_c);
+		double drop = ref - c->pit_c;   /* how far the pit has fallen from where the fire had it */
 
 		/* The escalation clock, kept apart from the igniter itself. Judging recovery by the rise
 		 * off the lowest point is right for switching the igniter off, but it is the wrong clock to
 		 * escalate on: the igniter's own heat can lift the pit a few degrees with the fire still
 		 * out, so the assist cycles, and a deadline that restarted on every cycle would never
 		 * expire. Only the pit genuinely climbing back towards the set point resets this. */
-		if (gap <= cfg->relight_drop_c / 2 || !c->target_reached) s->relight_below_since = 0;
-		else if (gap >= cfg->relight_drop_c && s->relight_below_since == 0) s->relight_below_since = now;
+		if (drop <= cfg->relight_drop_c / 2) s->relight_below_since = 0;
+		else if (drop >= cfg->relight_drop_c && s->relight_below_since == 0) s->relight_below_since = now;
 
 		if (s->relight_below_since > 0 && now - s->relight_below_since > cfg->relight_timeout_s) {
 			/* A rescue is an attempt, not a way to run. The igniter has had its window and the pit
@@ -323,12 +297,12 @@ int pf_safety_tick(pf_control *c, double now)
 			pf_outputs_set(PF_OUT_IGNITER, false);
 			pf_alarms_clear("SAFETY:relight");
 			LOGW(TAG, "pit stayed %.0f C below the set point for %.0f s: treating it as a flame-out",
-			     gap, cfg->relight_timeout_s);
+			     drop, cfg->relight_timeout_s);
 			return flameout(c);
 		}
 
 		if (!s->relight_active) {
-			bool holding = c->target_reached && gap >= cfg->relight_drop_c;
+			bool holding = drop >= cfg->relight_drop_c;
 			bool crossed = s->stepdown_armed && gap > 0;   /* through the new set point, going down */
 			if ((holding || crossed) && !s->igniter_locked_out) {
 				s->relight_active = true;

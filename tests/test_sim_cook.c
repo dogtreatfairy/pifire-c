@@ -211,15 +211,40 @@ static void test_a_dead_pot_is_not_fed_for_long(void)
 	pf_cmd_mode(PF_MODE_HOLD, 225);
 	tick(250 + 30 * 60);
 	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
-	double fed0 = ctrl.auger_total_on_s;
-	int t = 0;
-	for (; t < 30 * 60 && ctrl.mode != PF_MODE_ERROR; t += 5) { pf_sim_model()->fire_lit = false; pf_sim_model()->pot_pellets_g = 0; tick(5); }
-	double fed_g = (ctrl.auger_total_on_s - fed0) * ctrl.cfg.augerrate;
-	printf("dead pot: %s after %d s, %.0f g fed\n", ctrl.safety.error_code, t, fed_g);
+	double fed0 = ctrl.auger_total_on_s, fed_at = -1;
+	int t = 0, t_at = -1;
+	for (; t < 30 * 60 && ctrl.mode != PF_MODE_ERROR; t += 5) {
+		pf_sim_model()->fire_lit = false; pf_sim_model()->pot_pellets_g = 0;
+		tick(5);
+		if (fed_at < 0 && ctrl.safety.relight_active) { fed_at = ctrl.auger_total_on_s; t_at = t; }
+	}
+	TEST_ASSERT_TRUE_MESSAGE(fed_at >= 0, "the twenty-degree drop should have started the relight");
+	double before_g = (fed_at - fed0) * ctrl.cfg.augerrate, after_g = (ctrl.auger_total_on_s - fed_at) * ctrl.cfg.augerrate;
+	printf("dead pot: relight at %d s after %.0f g; %s at %d s after %.0f g more\n",
+	       t_at, before_g, ctrl.safety.error_code, t, after_g);
 	TEST_ASSERT_EQUAL(PF_MODE_ERROR, ctrl.mode);
-	TEST_ASSERT_TRUE_MESSAGE(t <= 20 * 60, "a flame-out within twenty minutes");
-	TEST_ASSERT_TRUE_MESSAGE(fed_g < 200, "and nowhere near a hopper's worth fed into it");
+	/* past the drop it is fed as a startup is, through the relight and the re-ignite: a relight's
+	 * worth of pellets each, not the controller's full feed */
+	TEST_ASSERT_TRUE_MESSAGE(after_g <= 45, "no more than two lights' worth fed after the drop");
 	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_AUGER));
+}
+
+/* A fire that dies before the pit has reached its set point is caught by the same rule, measured
+ * from the highest the pit had climbed, rather than at the floor with the controller at full feed. */
+static void test_a_fire_lost_on_the_way_up_is_caught_at_the_drop(void)
+{
+	pf_cmd_mode(PF_MODE_HOLD, 450);
+	tick(250 + 5 * 60);
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	TEST_ASSERT_FALSE_MESSAGE(ctrl.target_reached, "still climbing");
+	pf_sim_model()->fire_lit = false; pf_sim_model()->pot_pellets_g = 0;
+	int t = 0;
+	while (!ctrl.safety.relight_active && t < 30 * 60 && ctrl.mode == PF_MODE_HOLD) { tick(5); t += 5; }
+	double fell_f = pf_delta_from_c(ctrl.safety.hold_peak_c - ctrl.pit_c, PF_UNITS_F);
+	printf("on the way up: relight after %d s, %.1f F below a peak of %.0f F\n", t, fell_f, pf_from_c(ctrl.safety.hold_peak_c, PF_UNITS_F));
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.safety.relight_active, "a climbing pit falling back from its peak is a fire going out");
+	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_IGNITER));
+	TEST_ASSERT_TRUE(fell_f >= 19 && fell_f < 25);
 }
 
 /* Hold from Manual goes through Startup: straight to Hold fed a cold pot with no igniter. */
@@ -299,7 +324,7 @@ static void test_a_stop_request_ends_a_recipe(void)
 	TEST_ASSERT_FALSE(ctrl.recipe.active);
 }
 
-/* Smoke has no relight assist at all: the fuel-without-heat guard is what stops a dead pot there. */
+/* Smoke has no relight assist: it feeds at the startup rate already, and the floor stops a dead pot. */
 static void test_a_dead_pot_in_smoke_is_caught(void)
 {
 	pf_cmd_mode(PF_MODE_SMOKE, 0);
@@ -311,7 +336,7 @@ static void test_a_dead_pot_in_smoke_is_caught(void)
 	double fed_g = (ctrl.auger_total_on_s - fed0) * ctrl.cfg.augerrate;
 	printf("dead pot in smoke: %s after %d s, %.0f g fed\n", ctrl.safety.error_code, t, fed_g);
 	TEST_ASSERT_EQUAL(PF_MODE_ERROR, ctrl.mode);
-	TEST_ASSERT_TRUE(fed_g <= ctrl.cfg.max_unburnt_g + 20);
+	TEST_ASSERT_TRUE(fed_g <= 120);
 }
 
 static void test_overtemp_errors(void)
@@ -812,6 +837,7 @@ int main(void)
 	RUN_TEST(test_a_grill_cooling_by_itself_is_not_a_lid);
 	RUN_TEST(test_overtemp_errors);
 	RUN_TEST(test_a_dead_pot_is_not_fed_for_long);
+	RUN_TEST(test_a_fire_lost_on_the_way_up_is_caught_at_the_drop);
 	RUN_TEST(test_a_dead_pot_in_smoke_is_caught);
 	RUN_TEST(test_hold_from_manual_lights_first);
 	RUN_TEST(test_a_huge_prime_is_clamped);

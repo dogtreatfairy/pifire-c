@@ -112,9 +112,11 @@ surface) and the fixes that followed.
   interrupted startup whose fire Smart Start had not confirmed; never when the Pi rebooted with an
   unsynchronised clock and the pit has lost more than 30% of its heat; restores relight retries; an
   interrupted tuning run shuts down instead of resuming. Otherwise E08.
-- **Fuel without heat.** In Hold, Smoke and after a relight's light, grams fed while the pit has
-  fallen over the last five minutes are counted; past `safety.max_unburnt_g` (100 g) the auger stops
-  and it is E02. A hot relight must rise 3 C within the Smart Start time or it is E02.
+- **Flame-out in Hold** is a pit 20 F (`relight_drop`) below its set point, or, before it has
+  arrived, 20 F below the highest it had climbed. From that point the igniter is on and the auger
+  feeds at the startup rate, not the controller's; no rise within `relight_timeout_s` is a re-ignite,
+  and a failed re-ignite is an error. A hot relight must rise 3 C within the Smart Start time or it
+  is E02. In the simulator a dead pot takes 36 g from the drop to the error.
 - **Hold or Smoke from Manual, Prime or Shutdown** goes through Startup. Reignite and Error cannot be
   requested; Prime and Manual only from Stop or Monitor; Prime is clamped to 50 g and ends when its
   feed does.

@@ -173,8 +173,6 @@ static int validate(cJSON *root, char *err, size_t errn)
 	CHECK(pli >= 60 && pli <= PF_IGNITER_MAX_S, "safety.power_loss.igniter_s must be 60-300 s");
 	double cst = pf_json_num(root, "safety.coldstart.timeout_s", 300);
 	CHECK(cst == 0 || (cst >= 60 && cst <= 1800), "safety.coldstart.timeout_s must be 60-1800 s");
-	double mug = pf_json_num(root, "safety.max_unburnt_g", 100);
-	CHECK(mug >= 30 && mug <= 300, "safety.max_unburnt_g must be 30-300 g");
 	double mo = pf_json_num(root, "safety.manual_override_time", 30);
 	CHECK(mo >= 5 && mo <= 600, "safety.manual_override_time must be 5-600 s");
 	CHECK(pf_json_num(root, "safety.coldstart.delta_rise", 12) > 0, "safety.coldstart.delta_rise must be > 0");
@@ -839,6 +837,15 @@ int pf_settings_init(const char *path)
 			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
 			if (sv) cJSON_SetNumberValue(sv, 25); else cJSON_AddNumberToObject(g_root, "schema_version", 25);
 			LOGI(TAG, "settings migrated to schema 25 (igniter cap 300 s)");
+			added = 1;
+		}
+		if (ver < 26) {
+			/* the fuel-without-heat limit is gone: the flame-out relight bounds the feed instead */
+			cJSON *sf = cJSON_GetObjectItem(g_root, "safety");
+			if (sf) cJSON_DeleteItemFromObject(sf, "max_unburnt_g");
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 26); else cJSON_AddNumberToObject(g_root, "schema_version", 26);
+			LOGI(TAG, "settings migrated to schema 26 (fuel-without-heat limit removed)");
 			added = 1;
 		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */

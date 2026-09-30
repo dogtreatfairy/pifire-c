@@ -1,5 +1,5 @@
 {
-  "schema_version": 25,
+  "schema_version": 26,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -134,8 +134,7 @@
     "relight_drop": 20,
     "relight_recover": 10,
     "relight_recover_step": 3,
-    "relight_timeout_s": 300,
-    "max_unburnt_g": 100
+    "relight_timeout_s": 300
   },
   "startup": {
     "duration": 240,

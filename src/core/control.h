@@ -44,7 +44,6 @@ typedef struct {
 	bool dc_fan, pwm_control_default; double pwm_update_s; int pwm_hz, pwm_min_duty, pwm_max_duty;
 	int pwm_n; double pwm_ranges_c[PF_SS_MAX]; int pwm_profiles[PF_SS_MAX + 1];
 	double augerrate; bool prime_ignition;
-	double max_unburnt_g;     /* fuel without heat: grams fed into a falling pit before it is a flame-out */
 	double keepwarm_c; bool keepwarm_splus;
 	double history_sample_s; bool clear_history_on_startup;
 	char controller_id[32];
@@ -55,6 +54,7 @@ typedef struct {
 	bool   floor_set;
 	bool   relight_active;      /* the igniter is on because the pit fell away from the set point */
 	double relight_low_c;       /* the lowest the pit has been since that began */
+	double hold_peak_c;         /* the highest the pit has been in this Hold (NAN outside Hold) */
 	double relight_below_since; /* when the pit first fell away, and did not come back */
 	bool   stepdown_armed;      /* the set point was lowered a long way; watch for the pit crossing it */
 	bool   relight_from_step;   /* this run began at a coast-down crossing, not at a fire falling away */
@@ -73,9 +73,6 @@ typedef struct {
 	int    ctrl_fault_count;
 	double error_fan_until;
 	double error_pit_c;         /* the pit when the error was raised (the overtemperature fan watches it) */
-	/* Fuel without heat: grams the auger has delivered while the pit fell, since it last held or
-	 * rose. A live fire holds; a dead pot keeps falling, and pellets pile up in it. */
-	double unburnt_g, fuel_ring_c[12], fuel_ring_t; int fuel_ring_n, fuel_ring_head;
 	/* a relight of a hot grill must show a rise too: the lowest pit since it began, and by when */
 	double hot_relight_low_c, hot_relight_deadline; bool hot_relight;
 	bool   stop_overtemp_said;
