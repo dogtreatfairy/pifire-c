@@ -39,7 +39,7 @@ typedef struct {
 	unsigned outputs; /* bitmask of pf_output */
 	/* controller detail for cook-log analysis */
 	double u_ff, p, i, d, ff, ambient, cycle_s;
-	unsigned flags;   /* 1 lid_open, 2 s_plus, 4 pwm_control, 8 target_reached, 16 coldstart_active, 32 sat_low, 64 sat_high */
+	unsigned flags;   /* 1 lid_open, 2 s_plus, 4 pwm_control, 8 target_reached, 16 proving ignition (Smart Start), 32 sat_low, 64 sat_high */
 	int pmode;
 	int nprobes;
 	pf_hist_probe probes[PF_MAX_PROBES];

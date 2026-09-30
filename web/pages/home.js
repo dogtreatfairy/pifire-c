@@ -11,6 +11,8 @@ import { icon as lucide, MODE_ICON } from '../icons.js';
 const presetsF = [180, 225, 250, 275, 300, 350, 400, 450, 500];
 const presetsC = [80, 107, 120, 135, 150, 175, 205, 230, 260];
 const presets = () => (PF.units === 'C' ? presetsC : presetsF);
+/* the set points the grill accepts (Settings > Safety > Temperature Limits) */
+const spRange = () => ({ min: PF.settings?.safety?.min_target ?? (PF.units === 'C' ? 71 : 160), max: PF.settings?.safety?.max_target ?? (PF.units === 'C' ? 288 : 550) });
 const gaugeMax = () => (PF.units === 'C' ? 320 : 600);
 
 /* The control bar names actions, and two of those actions are modes: holding and smoking. Those two
@@ -54,7 +56,7 @@ function updateGauge(svg, s, primary, stopped) {
   svg.querySelector('#g-unit').textContent = degUnit();
   svg.querySelector('#g-label').textContent = primary?.name || 'Grill';
   const sp = svg.querySelector('#g-sp');
-  const holdLike = s.mode === 'Hold' || s.mode === 'Reignite' || (s.mode === 'Startup' && s.next_mode === 'Hold');
+  const holdLike = s.mode === 'Hold' || s.mode === 'Relight' || (s.mode === 'Startup' && s.next_mode === 'Hold');
   if (holdLike && s.setpoint > 0) {
     const a = START + SWEEP * Math.min(1, s.setpoint / max);
     const [x1, y1] = polar(a, R - 10), [x2, y2] = polar(a, R + 10);
@@ -80,7 +82,7 @@ function updateGauge(svg, s, primary, stopped) {
 
 // ---- actions
 const holdAt = async (s, change, force = false) => {
-  const v = await numberDialog('Hold Temperature', s.setpoint || PF.settings?.startup?.start_to_mode?.primary_setpoint || (PF.units === 'C' ? 107 : 225), { presets: presets() });
+  const v = await numberDialog('Hold Temperature', s.setpoint || PF.settings?.startup?.start_to_mode?.primary_setpoint || (PF.units === 'C' ? 107 : 225), { presets: presets(), ...spRange() });
   if (!v) return;
   if (change) cmd({ cmd: 'setpoint', setpoint: v }); else cmd({ cmd: 'mode', mode: 'Hold', setpoint: v, force });
 };
@@ -107,7 +109,7 @@ async function startGrill() {
       el('button', { class: `btn ${st.after_startup_mode === 'Hold' ? 'primary' : ''}`, type: 'button', onclick: () => close('Hold') }, lucide(MODE_ICON.Hold, 'ic btn-ic'), ' Hold'))));
   if (!choice) return;
   if (choice === 'Smoke') { cmd({ cmd: 'mode', mode: 'Smoke' }); return; }
-  const v = await numberDialog('Hold Temperature', def, { presets: presets() });
+  const v = await numberDialog('Hold Temperature', def, { presets: presets(), ...spRange() });
   if (v) cmd({ cmd: 'mode', mode: 'Hold', setpoint: v });
 }
 function primeMenu() {
@@ -150,7 +152,7 @@ function controlBar(s) {
         b('glasses', '', { active: s.mode === 'Monitor', onclick: () => cmd({ cmd: 'mode', mode: s.mode === 'Monitor' ? 'Stop' : 'Monitor' }), aria: 'Monitor' }),
         b('stop', '', { cls: 'danger', active: s.mode === 'Stop', disabled: s.mode === 'Stop', onclick: () => cmd({ cmd: 'stop' }), aria: 'Stop' }));
       break;
-    case 'Startup': case 'Reignite':
+    case 'Startup': case 'Relight':
       right.push(b('play', '', { active: true, cls: 'ok', disabled: true, aria: s.mode }),
         b('smoke', '', { cls: 'accent', onclick: () => confirmDialog('Skip to Smoke?', 'Ends startup. Confirm the fire is lit.', 'Smoke').then((ok) => ok && cmd({ cmd: 'mode', mode: 'Smoke', force: true })), aria: 'Smoke' }),
         b('target', '', { cls: 'ok', onclick: () => confirmDialog('Skip to Hold?', 'Ends startup. Confirm the fire is lit.', 'Hold').then((ok) => ok && holdAt(s, false, true)), aria: 'Hold' }),
@@ -233,7 +235,7 @@ export function renderHome(view) {
     let t = { text: 'Ready', cls: 'muted' };
     switch (s.mode) {
       case 'Hold': t = { text: `Target ${fmtTemp(s.setpoint)}${u}`, cls: '', tap: true }; break;
-      case 'Startup': case 'Reignite': t = s.next_mode === 'Hold' && s.setpoint > 0 ? { text: `Igniting → hold ${fmtTemp(s.setpoint)}${u}`, cls: '', tap: true } : { text: 'Igniting → smoke', cls: '' }; break;
+      case 'Startup': case 'Relight': t = s.next_mode === 'Hold' && s.setpoint > 0 ? { text: `Igniting → hold ${fmtTemp(s.setpoint)}${u}`, cls: '', tap: true } : { text: 'Igniting → smoke', cls: '' }; break;
       case 'Smoke': t = { text: s.s_plus ? 'Smoke+' : 'Smoke', cls: 'accent' }; break;
       case 'Shutdown': t = { text: 'Cooling', cls: 'info' }; break;
       case 'Prime': t = { text: `Priming ${s.timers.prime_amount} g`, cls: '' }; break;
@@ -246,8 +248,9 @@ export function renderHome(view) {
     const bits = [];
     if (s.cook_elapsed > 0) bits.push(`Running ${fmtDur(s.cook_elapsed)}`);
     if (s.mode === 'Hold' && s.lid_open) bits.push('Lid open · auger paused');
-    if ((s.mode === 'Startup' || s.mode === 'Reignite') && s.coldstart.active && !s.coldstart.reached) bits.push('Cold start · awaiting rise');
-    else if ((s.mode === 'Startup' || s.mode === 'Reignite') && s.timers.startup_exit_temp > 0) bits.push(`Exits at ${fmtTemp(s.timers.startup_exit_temp)}${u}`);
+    if ((s.mode === 'Startup' || s.mode === 'Relight') && s.smartstart?.active) bits.push(s.smartstart.proven ? 'Ignition proven' : 'Proving ignition');
+    else if (s.heating?.active) bits.push(s.heating.text);
+    if (s.safety?.proving) bits.push('Igniter proving');
     detail.textContent = bits.join(' · ') || '\u00a0';
     const rc = s.recipe;
     recipeLine.hidden = !rc?.active;

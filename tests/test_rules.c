@@ -1041,10 +1041,32 @@ static void test_the_grill_says_it_restarted(void)
 	cJSON_Delete(st);
 }
 
+/* Startup hands over: the Heating rule says which mode and what it is heating to */
+static void test_heating_after_startup(void)
+{
+	only_rule("{\"id\":\"grill-heating\",\"enabled\":true,\"only_while_cooking\":true,"
+	          "\"select\":{\"domain\":\"grill\",\"match\":\"any\"},"
+	          "\"when\":{\"op\":\"all\",\"conditions\":[{\"entity\":\"grill\",\"trait\":\"heating\",\"op\":\"is_on\"}]},"
+	          "\"title\":\"{grill}: {mode}\",\"body\":\"{heating_to}\",\"level\":\"normal\",\"sinks\":[\"app\"]}");
+	cJSON *st = status();
+	cJSON_ReplaceItemInObject(st, "mode", cJSON_CreateString("Hold"));
+	cJSON *h = cJSON_AddObjectToObject(st, "heating");
+	cJSON_AddBoolToObject(h, "active", true);
+	cJSON_AddStringToObject(h, "text", "Heating to 225°F");
+	pf_rules_tick(st, 1000);
+	TEST_ASSERT_EQUAL_INT(1, g_ncap);
+	TEST_ASSERT_EQUAL_STRING("Heating to 225°F", g_cap[0].body);
+	TEST_ASSERT_TRUE(strstr(g_cap[0].title, ": Hold") != NULL);
+	pf_rules_tick(st, 1001);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_ncap, "once per handover");
+	cJSON_Delete(st);
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
 	RUN_TEST(test_class_rule_fires_per_probe);
+	RUN_TEST(test_heating_after_startup);
 	RUN_TEST(test_selectors);
 	RUN_TEST(test_hold_time);
 	RUN_TEST(test_condition_groups);

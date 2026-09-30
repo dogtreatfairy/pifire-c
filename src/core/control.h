@@ -19,23 +19,26 @@ typedef struct {
 	bool lid_detect; double lid_threshold_pct, lid_pause_s;
 	bool fan_pid;
 	/* safety */
-	double min_startup_c, max_startup_c, max_temp_c, restart_hot_c;
-	/* power loss: whether to pick a cook back up, how long a loss may be, how long to relight */
-	bool power_loss_recovery; double power_loss_max_s, power_loss_igniter_s;
+	double max_temp_c, restart_hot_c;
+	double min_target_c, max_target_c;   /* the set points the grill accepts */
+	double smoke_min_c;                  /* Smoke's working temperature: P-mode keeps it at or above */
+	/* power loss: whether to pick a cook back up, and how long a loss may be */
+	bool power_loss_recovery; double power_loss_max_s;
 	int reignite_retries;
-	bool startup_check, allow_manual;
+	bool allow_manual;
 	double manual_override_s, igniter_max_on_s, auger_max_on_s, probe_fault_s, error_cooldown_fan_s;
-	/* Dynamic flame-out assist: how far below the set point counts as the fire failing, and how
-	 * much recovery from the lowest point counts as it having caught again. */
 	bool   use_library;         /* let measured anchors override the typed-in PB/Ti/Td */
+	/* Flame-out: how far the pit may fall from where the fire had it, whether that relights or
+	 * stops, and how long the igniter proves the fire after a set-point decrease. */
 	bool   relight_enabled;
-	double relight_drop_c, relight_recover_c, relight_recover_step_c, relight_timeout_s;
-	bool coldstart; double coldstart_delta_c, coldstart_timeout_s, coldstart_window_s; bool coldstart_exit_on_rise;
+	double relight_drop_c, relight_prove_s;
+	/* Smart Start: a rise within the time proves ignition; a larger one ends startup */
+	double ss_prove_s, ss_prove_rise_c, ss_exit_rise_c;
 	/* startup / shutdown */
-	double startup_duration_s, prime_on_startup_g, startup_exit_c, startup_exit_rise_c;
+	double prime_on_startup_g;
 	pf_mode after_startup_mode; double after_startup_setpoint_c;
-	bool smartstart; double ss_exit_c; int ss_n; double ss_ranges_c[PF_SS_MAX];
-	struct { double startuptime, augerontime; int p_mode; } ss_prof[PF_SS_MAX + 1];
+	int ss_n; double ss_ranges_c[PF_SS_MAX];
+	struct { double augerontime; int p_mode; } ss_prof[PF_SS_MAX + 1];
 	int startup_pwm_duty;
 	double shutdown_s; bool auto_power_off;
 	/* smoke plus */
@@ -50,21 +53,27 @@ typedef struct {
 } pf_cfg;
 
 typedef struct {
-	double floor_c;             /* SMOKE/HOLD flame-out floor */
-	bool   floor_set;
-	bool   relight_active;      /* the igniter is on because the pit fell away from the set point */
-	double relight_low_c;       /* the lowest the pit has been since that began */
-	double hold_peak_c;         /* the highest the pit has been in this Hold (NAN outside Hold) */
-	double relight_below_since; /* when the pit first fell away, and did not come back */
-	bool   stepdown_armed;      /* the set point was lowered a long way; watch for the pit crossing it */
-	bool   relight_from_step;   /* this run began at a coast-down crossing, not at a fire falling away */
+	/* Smart Start, in Startup and Relight: ignition is proven by a rise over the lowest reading */
+	bool   ss_active, ss_proven;
+	double ss_baseline_c;       /* lowest filtered pit since the light began */
+	double ss_deadline;         /* the rise by then; once proven, the exit rise by then */
+	double ss_above_since;      /* when the filtered pit first held the rise, 0 if it is not */
+	double ss_start, ss_entry_c; /* when the light began, and the filtered pit then */
+	bool   ss_held;             /* proven by a hot pit held up, rather than by a rise */
+	double ss_flat_c, ss_flat_t; /* the lowest reading and since when it has not slipped */
+	double filt_c;              /* filtered pit (PROVE_FILTER_S) */
+	/* flame supervision in Smoke and Hold */
+	double peak_c;              /* the highest the pit has been since it left startup (NAN outside) */
+	bool   heating;             /* from the end of startup until the working temperature */
+	double handover_c;          /* the pit when startup handed over */
+	bool   established;         /* the pit has climbed exit_rise past the handover */
+	double progress_c, progress_t;   /* where and when the pit last gained while heating */
+	bool   stepdown_armed;      /* a coast: the pit above the working temperature, coming down to it */
+	bool   proving;             /* igniter on after the pit reached a lowered set point */
+	bool   reached;             /* the pit has been at the working temperature in this mode */
+	bool   stall_said;          /* "not heating" reported for this stall */
+	double prove_until;
 	double last_sp_c;           /* the set point on the previous tick, to notice it being changed */
-	double baseline_c;          /* cold-start: running minimum during the baseline window */
-	double baseline_window_end;
-	bool   coldstart_active, coldstart_reached;
-	double coldstart_deadline;
-	double filt_c;              /* 30 s filtered pit for cold-start decisions */
-	int    above_count;
 	int    reignite_retries_left;
 	pf_mode reignite_last;
 	double primary_invalid_since;
@@ -73,8 +82,6 @@ typedef struct {
 	int    ctrl_fault_count;
 	double error_fan_until;
 	double error_pit_c;         /* the pit when the error was raised (the overtemperature fan watches it) */
-	/* a relight of a hot grill must show a rise too: the lowest pit since it began, and by when */
-	double hot_relight_low_c, hot_relight_deadline; bool hot_relight;
 	bool   stop_overtemp_said;
 	char   error_code[32];
 	char   error_msg[128];
@@ -94,7 +101,6 @@ typedef struct {
 	double aim_pit_c, eta_s, eta_last_t;
 	/* a checkpoint of the cook, written every few seconds while one is on, for power-loss recovery */
 	char checkpoint_path[512]; double checkpoint_t; bool checkpoint_on_disk;
-	double recover_ignite_s;   /* >0: the relight to run on entering Reignite after a power loss */
 	bool req_pending; pf_mode req_mode; double req_setpoint_c; bool req_prime_then_startup;
 	double setpoint_c;
 	bool s_plus, pwm_control; int duty_cycle;
@@ -122,8 +128,7 @@ typedef struct {
 	double manual_until[PF_OUT_COUNT];
 	/* prime / startup / shutdown */
 	double prime_duration_s, prime_amount_g;
-	double startup_duration_s, raw_startup_c, startup_exit_c; int ss_profile;
-	double startup_base_c;      /* pit when the current Startup/Reignite began (exit_rise reference), NAN if unknown */
+	int ss_profile;
 	double pit_rate_c_min, pit_rate_last_c, pit_rate_last_t;   /* filtered pit slope, C per minute */
 	pf_safety safety;
 	pf_notify notify;
@@ -255,11 +260,14 @@ bool  pf_control_resume(pf_control *c, const char *json, double now);
 
 /* safety.c */
 void pf_safety_reset(pf_control *c);
+/* Smart Start: on entering Startup or Relight, on leaving it for Smoke or Hold, and whether the
+ * fire has done enough to leave (proven, and the exit rise reached or its time run out) */
 void pf_safety_on_startup_enter(pf_control *c, double now);
 void pf_safety_on_startup_exit(pf_control *c, double now);
-void pf_safety_ensure_floor(pf_control *c);
+bool pf_safety_startup_done(pf_control *c, double now);
+/* entering Smoke or Hold by any route: flame supervision starts from the pit as it is */
+void pf_safety_on_run_enter(pf_control *c, pf_mode prev, double now);
 /* Evaluate every tick. Returns 0, or a requested mode (PF_MODE_REIGNITE / PF_MODE_ERROR) with
  * error_code set for ERROR. May also force individual outputs off via pf_outputs. */
 int  pf_safety_tick(pf_control *c, double now);
-bool pf_safety_startup_can_finish(pf_control *c, double now);
 void pf_safety_set_error(pf_control *c, const char *code, const char *fmt, ...) __attribute__((format(printf, 3, 4)));

@@ -28,20 +28,15 @@ const PAGES = [
   { key: 'hardware', title: 'Grill Hardware', sub: 'Board, pins, display, hopper sensor', section: 'Hardware', icon: 'cpu', color: '#64d2ff', custom: (v) => import('./more.js').then((m) => m.hardware(v)) },
   { key: 'startup', title: 'Startup & Shutdown', sub: 'Ignition, next mode, cool-down', section: 'Cooking', icon: MODE_ICON.Shutdown, color: '#30d158', sections: [
     { id: 'startup', title: 'Startup', fields: [
-      I('duration', 'Startup time (s)', 'Igniter and startup feed duration', { min: 60, max: 900 }),
-      /* Smart Start: the pit must rise, or startup stops in error. Stored under safety. */
-      { ...B('coldstart.enabled', 'Smart Start', 'Error if the pit does not rise in time'), group: 'safety' },
-      { path: 'coldstart.delta_rise', label: 'Smart Start rise', help: 'Above the lowest reading in the first minute', type: 'tempdelta', group: 'safety' },
-      { ...I('coldstart.timeout_s', 'Smart Start timeout (s)', 'No rise in this time: error', { min: 60, max: 300 }), group: 'safety' },
-      T('startup_exit_temp', 'End startup early at', 'Exit startup at this pit temperature (0 = timer only)', { allowZero: true }),
-      { path: 'exit_rise', label: 'End startup after a rise of', help: 'Rise above starting temperature that confirms ignition (0 = off)', type: 'tempdelta' },
       B('start_to_mode.ask', 'Ask when starting', 'Start prompts for mode and temperature. Off: uses the defaults below'),
       S('start_to_mode.after_startup_mode', 'Default mode', 'Mode after startup; preselected when Start prompts', [['Smoke', 'Smoke'], ['Hold', 'Hold']]),
       T('start_to_mode.primary_setpoint', 'Default hold temperature', 'Preset for Hold; used directly when Start does not prompt'),
       I('prime_on_startup', 'Prime before startup (g)', 'Pellets fed to the pot before ignition (0 = off)', { min: 0 }),
       I('pwm_duty_cycle', 'Fan speed during startup (%)', 'DC fan only', { min: 10, max: 100 }),
-      B('smartstart.enabled', 'Startup profiles', 'Startup time and feed by initial pit temperature'),
-      T('smartstart.exit_temp', 'Startup profile exit temperature', ''),
+      /* Smart Start: how the grill decides it is lit, for a first light and a Relight alike */
+      I('smartstart.prove_s', 'Smart Start time (s)', 'Each rise must come within this, or failed start', { min: 60, max: 300 }),
+      { path: 'smartstart.prove_rise', label: 'Ignition rise', help: 'Over the lowest reading: proves ignition', type: 'tempdelta' },
+      { path: 'smartstart.exit_rise', label: 'Exit rise', help: 'Over the lowest reading: ends startup', type: 'tempdelta' },
     ] },
     { id: 'shutdown', title: 'Shutdown', fields: [
       I('shutdown_duration', 'Cool-down fan time (s)', 'Fan run time after the auger stops', { min: 30 }),
@@ -55,6 +50,7 @@ const PAGES = [
       I('PMode', 'P-mode', 'Higher = longer pauses, less feed, more smoke (0–9)', { min: 0, max: 9 }),
       I('SmokeOnCycleTime', 'Auger on (s)', 'Auger run time per cycle in Smoke and during startup', { min: 1 }),
       I('SmokeOffCycleTime', 'Auger off (s)', 'Base pause between runs; each P-mode level adds 10 s', { min: 1 }),
+      { ...T('smoke_min', 'Smoke minimum', 'Set P-mode to hold at or above this. Below: flame-out or feed too low'), group: 'safety' },
     ] },
     { id: 'smoke_plus', title: 'Smoke+', fields: [
     S('enabled', 'Default smoke mode', 'Initial Smoke mode; switchable from Home', [['false', 'Smoke'], ['true', 'Smoke+']], true),
@@ -71,27 +67,24 @@ const PAGES = [
     I('max_duty_cycle', 'Maximum fan speed (%)', '', { min: 10, max: 100 }),
     I('update_time', 'Speed update interval (s)', '', { min: 1 }),
   ] }] },
-  { key: 'safety', title: 'Temperature Limits', sub: 'High-temp cutoff, flame-out', section: 'Safety', icon: 'shield-check', color: '#ff453a', sections: [{ id: 'safety', fields: [
-    T('maxtemp', 'High-temperature cutoff', 'Any mode: all outputs off, grill to Error'),
-    B('relight_enabled', 'Flame-out protection', 'Relights the igniter on a pit drop in Hold'),
-    { path: 'relight_drop', label: 'Drop that triggers it', help: 'Drop below set point', type: 'tempdelta' },
-    { path: 'relight_recover', label: 'Rise that ends it', help: 'Rise from the low point that ends relighting', type: 'tempdelta' },
-    { path: 'relight_recover_step', label: 'Rise that ends it, coasting down', help: 'Used after a set-point decrease', type: 'tempdelta' },
-    I('relight_timeout_s', 'Give up after (s)', 'No recovery by then = flame-out', { min: 60 }),
-    B('startup_check', 'Flame-out detection', 'Pit below the flame-out floor in Smoke and Hold'),
-    T('minstartuptemp', 'Flame-out floor (minimum)', 'Lowest floor used after a normal startup'),
-    T('maxstartuptemp', 'Flame-out floor (maximum)', ''),
-    I('reigniteretries', 'Re-ignite attempts', 'Relight attempts before Error', { min: 0, max: 5 }),
+  { key: 'safety', title: 'Temperature Limits', sub: 'Overheat, set point range, flame-out', section: 'Safety', icon: 'shield-check', color: '#ff453a', sections: [
+  { id: 'safety', fields: [
+    T('maxtemp', 'Overheat', 'Any mode: all outputs off, grill to Error'),
+    T('min_target', 'Minimum set point', 'Lower set points are refused'),
+    T('max_target', 'Maximum set point', 'Higher set points are refused; below Overheat'),
     I('probe_fault_s', 'Pit probe timeout (s)', 'Seconds without a valid pit reading before Error', { min: 3 }),
     I('error_cooldown_fan_s', 'Fan run after an error (s)', 'Cools the pot after an error while hot', { min: 0 }),
+    { path: 'relight_drop', label: 'Flame-out drop', help: 'Below the set point, or below the peak while heating', type: 'tempdelta' },
+    B('relight_enabled', 'Relight on flame-out', 'Off: a flame-out stops the grill'),
+    I('reigniteretries', 'Relight attempts', 'Per cook, before Error', { min: 0, max: 3 }),
+    I('relight_prove_s', 'Proving time (s)', 'Igniter on when the pit comes down to a lower set point', { min: 0, max: 300 }),
   ] }] },
   { key: 'powerloss', title: 'Power Loss', sub: 'Cook recovery after an outage', section: 'Safety', icon: 'zap', color: '#ff9f0a', sections: [{ id: 'safety', title: '', fields: [
-    B('power_loss.recovery', 'Recover after a power loss', 'Relight and resume if power returns in time'),
+    B('power_loss.recovery', 'Recover after a power loss', 'Relight through Smart Start and resume if power returns in time'),
     I('power_loss.max_s', 'Longest outage to recover from (s)', 'Longer outages go to Error instead of relighting', { min: 30, max: 3600 }),
-    I('power_loss.igniter_s', 'Relight for (s)', 'Igniter run time before resuming', { min: 60, max: 300 }),
   ] }] },
   { key: 'limits', title: 'Output Limits & Manual Control', sub: 'Igniter and auger caps, overrides', section: 'Safety', icon: 'zap', color: '#ff9f0a', sections: [{ id: 'safety', fields: [
-    I('igniter_max_on_s', 'Igniter maximum on time (s)', 'Igniter forced off after this', { min: 60, max: 1800 }),
+    I('igniter_max_on_s', 'Igniter maximum on time (s)', 'Igniter forced off after this', { min: 60, max: 300 }),
     I('auger_max_on_s', 'Auger maximum continuous run (s)', 'Absolute cap, regardless of controller or manual control', { min: 5 }),
     B('allow_manual_changes', 'Allow manual outputs while cooking', 'Override outputs from More → Manual Outputs'),
     I('manual_override_time', 'Manual override lasts (s)', '', { min: 5 }),
@@ -378,8 +371,8 @@ function pageCard(pg) {
     const form = el('form', { onsubmit: async (e) => {
       e.preventDefault();
       /* A field may belong to another settings group (`group`): one form on screen, one Save, and
-         each group patched with its own part. Smart Start is stored under safety and shown with
-         the rest of startup, where it is used. */
+         each group patched with its own part. The Smoke minimum is stored under safety and shown
+         with the rest of Smoke, where it is set. */
       const patches = { [sec.id]: {} };
       try {
         for (const f of sec.fields) {

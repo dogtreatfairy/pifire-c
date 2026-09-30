@@ -12,7 +12,7 @@ settings      controller (selected + every variant's config), cycle_data, safety
 learning      feed-forward fit (a, b, n, rms, examples), plant estimate (K, tau, theta), autotune result
 samples       columnar, one entry per history sample (settings.history.sample_s, default 3 s):
   t           wall-clock seconds
-  mode        0 Stop 1 Monitor 2 Prime 3 Startup 4 Reignite 5 Smoke 6 Hold 7 Shutdown 8 Manual 9 Error
+  mode        0 Stop 1 Monitor 2 Prime 3 Startup 4 Relight 5 Smoke 6 Hold 7 Shutdown 8 Manual 9 Error
   setpoint    °C, 0 outside Hold
   u_raw       controller output before clamping
   u_applied   auger duty actually run this cycle (after [u_min, u_max] and safety caps)
@@ -21,7 +21,7 @@ samples       columnar, one entry per history sample (settings.history.sample_s,
   fan_pct     0 when the fan is off, else the commanded speed (100 for an AC fan)
   outputs     bitmask: 1 power, 2 fan, 4 auger, 8 igniter
   ambient     °C, from the ambient probe or the cold-start baseline
-  flags       1 lid_open, 2 smoke_plus, 4 pwm_control, 8 target_reached, 16 coldstart_active, 32 saturated at u_min, 64 saturated at u_max
+  flags       1 lid_open, 2 smoke_plus, 4 pwm_control, 8 target_reached, 16 proving ignition (Smart Start), 32 saturated at u_min, 64 saturated at u_max
   pmode       P-mode in force
   cycle_s     controller cycle length
   probes      {<label>: {temp[], target[]}} aligned to t by index (null when the probe had no valid reading)

@@ -23,106 +23,134 @@ void pf_safety_set_error(pf_control *c, const char *code, const char *fmt, ...)
 	pf_events_emit(code, "Grill Error", "%s", s->error_msg);
 }
 
+
 void pf_safety_reset(pf_control *c)
 {
 	pf_safety *s = &c->safety;
 	memset(s, 0, sizeof *s);
 	s->reignite_retries_left = c->cfg.reignite_retries;
-	s->baseline_c = NAN;
+	s->ss_baseline_c = NAN;
 	s->filt_c = NAN;
-	s->floor_c = NAN;
-	s->hold_peak_c = NAN;
+	s->peak_c = NAN;
 }
 
-/* Classic floor: clamp(0.9 * T_F, minstartup, maxstartup), computed in Fahrenheit like the original. */
-static double classic_floor_c(const pf_cfg *cfg, double t_c)
-{
-	double f = pf_c_to_f(t_c) * 0.9;
-	f = pf_clamp(f, pf_c_to_f(cfg->min_startup_c), pf_c_to_f(cfg->max_startup_c));
-	return pf_f_to_c(f);
-}
+/* ------------------------------------------------------------------ Smart Start
+ *
+ * The one way this grill decides it is lit, for a first light and for a relight alike. It is built
+ * on what a burner control does -- a trial for ignition with a hard time limit, and a second proof
+ * before the fire is handed over -- with a temperature in place of a flame sensor:
+ *
+ *   PROVE. The pit must climb `prove_rise` above the lowest it has read since the light began,
+ *   and hold it for PROVE_HOLD_S, within `prove_s`. Measured from the running minimum, not from
+ *   where it started: the fan blows the pit down first, and a relight begins on a falling pit, and
+ *   in both the turn upward is the evidence. No proof in time is a failed start, and the grill
+ *   stops: a pot that did not catch is a pot full of pellets, and every pellet appliance says to
+ *   empty it before lighting again.
+ *
+ *   A HOT PIT may not show the rise in time and does not need to: a pot that catches in a barrel
+ *   already at 300 F, or a fire that lived through a short power cut, holds the pit up rather than
+ *   lifting it. There the proof is the fall that stopped. A barrel HOT_DELTA_C or more above the
+ *   outdoor air with no fire in it cannot stop cooling -- even one three times slower than Ryan's
+ *   (time constant 4000 s against his 1470 s) loses more than 4 F in two minutes -- so a lowest
+ *   reading that has not moved down by HOT_SLIP_C in HOT_FLAT_S is a fire holding it. Nothing
+ *   learned is trusted here: a fitted time constant that was half the real one would let a dead
+ *   pot pass. A cold start, which has nothing to fall from, is always proven by the rise.
+ *
+ *   EXIT. Proven, startup carries on until the pit is `exit_rise` above that minimum, and then
+ *   hands over to Smoke or Hold -- within a second `prove_s`, or it is a failed start too. The
+ *   small rise alone cannot tell a fire from the igniter: a few hundred watts in the pot can lift a
+ *   still, cold barrel a few degrees in five minutes (Ryan's warm restart showed none, but there
+ *   the fan was cooling a warm pit and hid it). Twelve degrees is past what the igniter can do, and
+ *   a real fire makes it at once: 27 s from the small rise to the large one on his grill. The same
+ *   holds at -30 F outside -- every threshold is a rise over the grill's own lowest reading, not a
+ *   temperature, so the weather moves where it starts and nothing else. */
+/* How the rise is read. Ryan's grill, restarted warm on 2026-09-29, fell for 219 s under the fan
+ * with the igniter on and caught at about 220 s: +3 F at 258 s raw. A 30 s filter and a 30 s hold
+ * put the proof at 309 s -- a failed start on a fire that had lit. Readings on a flat pit move by
+ * 0.3 F at most, so a 10 s filter and a 15 s hold reject noise just as well and prove at 279 s. */
+#define PROVE_FILTER_S 10.0
+#define PROVE_HOLD_S 15.0
+#define LID_ALLOW_S  300.0
+#define HOT_DELTA_C  83.3    /* 150 F above the outdoor air */
+#define HOT_FLAT_S   120.0
+#define HOT_SLIP_C   0.56    /* 1 F */
 
 void pf_safety_on_startup_enter(pf_control *c, double now)
 {
 	pf_safety *s = &c->safety;
-	const pf_cfg *cfg = &c->cfg;
-	s->floor_c = classic_floor_c(cfg, c->pit_c);
-	s->floor_set = true;
 	s->igniter_on_since = 0;
 	s->igniter_locked_out = false;
-	s->above_count = 0;
-	s->filt_c = c->pit_c;
-	s->coldstart_active = false;
-	s->coldstart_reached = false;
-	s->hot_relight = false;
-	if (cfg->coldstart) {
-		/* A hot grill is not a cold start: a relight after a power blip, or a new set point on a
-		 * grill that is already running, cannot be asked to climb another twelve degrees on cue. The
-		 * check is for a cold pot -- below 140 F, or the startup exit temperature if that is higher.
-		 * A fire that fails on a hot grill is the flame-out protection's to catch. */
-		double hot_c = fmax(pf_f_to_c(140), cfg->startup_exit_c);
-		if (c->pit_c >= hot_c) {
-			LOGI(TAG, "smart start skipped: grill already at %.0f C", c->pit_c);
-			if (c->mode == PF_MODE_REIGNITE) {
-				s->hot_relight = true;
-				s->hot_relight_low_c = c->pit_c;
-				s->hot_relight_deadline = now + (cfg->coldstart_timeout_s > 0 ? cfg->coldstart_timeout_s : 300);
-			}
-		} else {
-			s->coldstart_active = true;
-			s->baseline_c = c->pit_c;
-			s->baseline_window_end = now + cfg->coldstart_window_s;
-			double timeout = cfg->coldstart_timeout_s > 0 ? cfg->coldstart_timeout_s : c->startup_duration_s;
-			s->coldstart_deadline = now + timeout;
-			LOGI(TAG, "smart start armed: baseline %.1f C, need +%.1f C within %.0f s", s->baseline_c, cfg->coldstart_delta_c, timeout);
-		}
-	}
-	LOGI(TAG, "startup floor set to %.1f C", s->floor_c);
-}
-
-/* Hold and Smoke always have a flame-out floor. One entered without a startup behind it -- after a
- * restart, a resume that did not carry one -- had none, and the floor check never ran. */
-void pf_safety_ensure_floor(pf_control *c)
-{
-	if (c->safety.floor_set) return;
-	c->safety.floor_c = classic_floor_c(&c->cfg, c->pit_c);
-	c->safety.floor_set = true;
-	LOGI(TAG, "flame-out floor set to %.1f C", c->safety.floor_c);
+	s->ss_active = true;
+	s->ss_proven = false;
+	s->ss_above_since = 0;
+	s->filt_c = c->pit_valid ? c->pit_c : NAN;
+	s->ss_baseline_c = s->filt_c;
+	s->ss_deadline = now + c->cfg.ss_prove_s;
+	s->ss_start = now;
+	s->ss_entry_c = s->filt_c;
+	s->ss_held = false;
+	s->ss_flat_t = 0;
+	s->peak_c = NAN;
+	s->heating = false;
+	s->proving = false;
+	s->stepdown_armed = false;
+	LOGI(TAG, "smart start: need +%.1f C over the lowest reading within %.0f s", c->cfg.ss_prove_rise_c, c->cfg.ss_prove_s);
 }
 
 void pf_safety_on_startup_exit(pf_control *c, double now)
 {
-	(void)now;
 	pf_safety *s = &c->safety;
-	const pf_cfg *cfg = &c->cfg;
-	if (s->coldstart_active) {
-		/* no minstartuptemp clamp here: a cold grill legitimately exits startup below it */
-		double exit_based = fmin(pf_f_to_c(pf_c_to_f(c->pit_c) * 0.9), cfg->max_startup_c);
-		double cold = s->baseline_c + cfg->coldstart_delta_c;
-		s->floor_c = fmax(cold, exit_based);
-		s->coldstart_active = false;
-		LOGI(TAG, "smart start complete; flame-out floor %.1f C", s->floor_c);
-	}
+	s->ss_active = false;
+	s->heating = true;
+	s->established = false;
+	s->peak_c = c->pit_valid ? c->pit_c : NAN;
+	s->progress_c = s->peak_c;
+	s->progress_t = now;
+	s->handover_c = s->peak_c;
+	LOGI(TAG, "smart start complete at %.1f C", c->pit_c);
 }
 
-bool pf_safety_startup_can_finish(pf_control *c, double now)
+bool pf_safety_startup_done(pf_control *c, double now)
 {
+	const pf_safety *s = &c->safety;
 	(void)now;
-	return !c->safety.coldstart_active || c->safety.coldstart_reached;
+	if (!s->ss_active || !s->ss_proven) return false;
+	return s->ss_held || s->filt_c >= s->ss_baseline_c + c->cfg.ss_exit_rise_c;
 }
 
-static int flameout(pf_control *c)
+void pf_safety_on_run_enter(pf_control *c, pf_mode prev, double now)
 {
 	pf_safety *s = &c->safety;
-	if (s->reignite_retries_left <= 0) {
-		pf_safety_set_error(c, "E02_FLAMEOUT", "Pit temperature %.0f C fell below the startup floor %.0f C and no re-ignite retries remain",
-		                    c->pit_c, s->floor_c);
+	(void)prev;
+	/* Smoke to Hold and back keep the peak: the fire is the same fire. A mode entered other than
+	 * from a light has a fire already known to be burning. */
+	if (isnan(s->peak_c) && c->pit_valid) s->peak_c = c->pit_c;
+	if (c->pit_valid) { s->progress_c = c->pit_c; s->progress_t = now; }
+	if (prev != PF_MODE_STARTUP && prev != PF_MODE_REIGNITE) s->established = true;
+	s->reached = false;
+	s->stall_said = false;
+	/* entered with the pit above where this mode works is a coast, as a lowered set point is */
+	double work = c->mode == PF_MODE_HOLD ? c->setpoint_c : c->cfg.smoke_min_c;
+	s->stepdown_armed = c->pit_valid && work > 0 && c->pit_c > work;
+}
+
+/* ------------------------------------------------------------------ flame-out
+ *
+ * A proven fire that loses its heat is relit, once by default, through the Smart Start sequence;
+ * past that, or with relighting switched off, the grill stops in error. */
+static int flameout(pf_control *c, const char *why)
+{
+	pf_safety *s = &c->safety;
+	s->proving = false;
+	pf_outputs_set(PF_OUT_IGNITER, false);
+	if (!c->cfg.relight_enabled || s->reignite_retries_left <= 0) {
+		pf_safety_set_error(c, "E02_FLAMEOUT", "Flame lost: %s. Clear the fire pot before lighting.", why);
 		return PF_MODE_ERROR;
 	}
 	s->reignite_retries_left--;
 	s->reignite_last = c->mode;
-	LOGW(TAG, "possible flame-out (%.0f C < floor %.0f C): re-igniting (%d retries left)", c->pit_c, s->floor_c, s->reignite_retries_left);
-	if (pf_db_handle()) pf_db_event(PF_LVL_WARN, "W03_REIGNITE", "Possible flame-out detected, re-igniting");
+	LOGW(TAG, "flame lost (%s): relighting (%d attempt(s) left)", why, s->reignite_retries_left);
+	if (pf_db_handle()) pf_db_event(PF_LVL_WARN, "W03_RELIGHT", "Flame lost, relighting");
 	return PF_MODE_REIGNITE;
 }
 
@@ -135,7 +163,8 @@ int pf_safety_tick(pf_control *c, double now)
 
 	/* 1. over-temperature: every mode except STOP */
 	if (m != PF_MODE_STOP && m != PF_MODE_ERROR && c->pit_valid && c->pit_c > cfg->max_temp_c) {
-		pf_safety_set_error(c, "E01_OVERTEMP", "Pit temperature %.0f exceeded the maximum %.0f", c->pit_c, cfg->max_temp_c);
+		pf_safety_set_error(c, "E01_OVERTEMP", "Overheat: pit %.0f°%s, limit %.0f°%s", pf_from_c(c->pit_c, cfg->units), cfg->units == PF_UNITS_C ? "C" : "F",
+		                    pf_from_c(cfg->max_temp_c, cfg->units), cfg->units == PF_UNITS_C ? "C" : "F");
 		return PF_MODE_ERROR;
 	}
 
@@ -156,17 +185,6 @@ int pf_safety_tick(pf_control *c, double now)
 		s->igniter_on_since = 0;
 	}
 
-	/* 1d. a relight of a hot grill must show a rise, as a cold start must: the lowest pit since the
-	 * relight began, and three degrees above it within the Smart Start time. Otherwise a relight
-	 * that did not take ran its whole startup feeding a dead pot and went back to Hold. */
-	if (m == PF_MODE_REIGNITE && s->hot_relight && c->pit_valid) {
-		if (c->pit_c < s->hot_relight_low_c) s->hot_relight_low_c = c->pit_c;
-		if (c->pit_c >= s->hot_relight_low_c + 3.0) s->hot_relight = false;   /* it caught */
-		else if (now > s->hot_relight_deadline) {
-			pf_safety_set_error(c, "E02_FLAMEOUT", "Relight failed: no rise. Clear the fire pot before lighting.");
-			return PF_MODE_ERROR;
-		}
-	}
 
 	/* 2. primary probe fault while we depend on it */
 	if (active) {
@@ -182,169 +200,156 @@ int pf_safety_tick(pf_control *c, double now)
 	}
 
 
-	/* 4. cold-start progress (STARTUP / REIGNITE) */
-	if ((m == PF_MODE_STARTUP || m == PF_MODE_REIGNITE) && s->coldstart_active) {
-		/* 30 s single-pole filter at the 100 ms tick */
+
+	/* the filtered pit Smart Start judges on */
+	if (active) {
 		double dt = c->last_step > 0 ? now - c->last_step : 0.1;
-		double a = dt / 30.0; if (a > 1) a = 1;
+		double a = dt / PROVE_FILTER_S; if (a > 1) a = 1;
 		s->filt_c = isnan(s->filt_c) ? c->pit_c : s->filt_c + (c->pit_c - s->filt_c) * a;
-		if (now < s->baseline_window_end) {
-			if (s->filt_c < s->baseline_c) s->baseline_c = s->filt_c;
-		} else if (!s->coldstart_reached) {
-			if (s->filt_c >= s->baseline_c + cfg->coldstart_delta_c) {
-				if (++s->above_count >= 2) { s->coldstart_reached = true; LOGI(TAG, "smart start: temperature rise confirmed (%.1f C)", s->filt_c); }
-			} else s->above_count = 0;
-			if (!s->coldstart_reached && now > s->coldstart_deadline) {
-				/* Smart Start: no rise in the time allowed is an error, not another light. A pot that
-				 * did not catch is a pot full of pellets, and lighting it again is how a grill flares. */
-				double mins = (cfg->coldstart_timeout_s > 0 ? cfg->coldstart_timeout_s : c->startup_duration_s) / 60.0;
-				pf_safety_set_error(c, "E04_STARTUP_FAILED", "No temperature rise in %.0f min. Check igniter and fire pot.", mins);
-				return PF_MODE_ERROR;
-			}
-		}
 	}
 
-	/* 5. flame-out protection.
-	 *
-	 * The fixed floor below is the last word: by the time the pit has fallen that far the fire is
-	 * out and the grill has to start again. Long before that, a pit that is not where the grill is
-	 * trying to keep it is a fire that is failing, and the cheapest answer is the igniter -- it
-	 * costs nothing but electricity and it catches the fire before there is nothing left to catch.
-	 *
-	 * There are two ways to arrive at that, and they need different triggers.
-	 *
-	 *   HOLDING. The grill reached its set point and the pit is sliding away from it. Nothing has
-	 *   been asked of the grill, so any real distance below the target is a fault: the trigger is
-	 *   falling `relight_drop` below it. A grill still on its way up is far below its target for
-	 *   ordinary reasons, so there the measure is the highest the pit has reached in this Hold: a
-	 *   climbing pit that falls `relight_drop` back from its own peak, with the controller feeding
-	 *   to raise it, is a fire going out, and is caught at that point rather than at the floor.
-	 *
-	 *   COMING DOWN. The set point was lowered a long way, so the grill deliberately starves the
-	 *   fire and coasts. That coast is exactly when a fire dies, and by the end of it there may be
-	 *   nothing left to catch. Waiting for another twenty degrees of undershoot would be waiting
-	 *   through the most dangerous part of the manoeuvre, so the trigger here is the moment the
-	 *   pit crosses the new set point on the way down -- the point from which it should be
-	 *   recovering rather than still falling.
-	 *
-	 * Both end on the pit climbing back above the lowest point it reached -- recovery from the
-	 * bottom of the dip is the evidence the fire is winning, where waiting for the whole way back
-	 * to the set point would hold the igniter on through the entire recovery. The lowest point
-	 * keeps moving down while the pit is still falling, so the test is always against the bottom of
-	 * this dip and not where the igniter came on.
-	 *
-	 * How much of a climb counts depends on which trigger started it, because the two are asking
-	 * different questions. After a fire has fallen away from its target the question is whether
-	 * there is a fire at all, and only a substantial rise answers it: `relight_recover`, ten
-	 * degrees. On a coast down the fire was never in doubt, only starved, and the question is
-	 * merely whether the pit has stopped falling -- so a couple of degrees of turnaround is the
-	 * whole answer: `relight_recover_step`, three.
-	 *
-	 * An open lid is excluded from both: the pit falls because the heat walked out, not because
-	 * the fire went out, and the igniter has nothing to fix. The igniter's own continuous-on cap
-	 * above always applies and always wins.
-	 *
-	 * None of it applies during a tuning measurement. The relay deliberately drives the pit to
-	 * both sides of the set point and leaves it there for minutes at a time: that is the
-	 * measurement, not a fire in trouble, and lighting the igniter would both corrupt it and have
-	 * nothing to fix. */
-	bool relight_ok = m == PF_MODE_HOLD && cfg->relight_enabled && c->pit_valid && c->setpoint_c > 0 &&
-	                  !c->lid_open && !c->autotune.active;
-
-	/* Notice the set point being lowered a long way, and arm the coast. It is only armed when the
-	 * pit is above the new target, because a set point dropped to somewhere the grill has not
-	 * reached yet involves no coast at all. */
-	if (m == PF_MODE_HOLD && c->pit_valid) {
-		if (s->last_sp_c > 0 && c->setpoint_c > 0 && s->last_sp_c - c->setpoint_c >= cfg->relight_drop_c &&
-		    c->pit_c > c->setpoint_c) {
-			s->stepdown_armed = true;
-			LOGI(TAG, "set point lowered %.0f C to %.0f C: watching the coast down for the fire going out",
-			     s->last_sp_c - c->setpoint_c, c->setpoint_c);
+	/* 3. Smart Start (Startup, Relight) */
+	if ((m == PF_MODE_STARTUP || m == PF_MODE_REIGNITE) && s->ss_active) {
+		if (!s->ss_proven) {
+			if (isnan(s->ss_baseline_c) || s->filt_c < s->ss_baseline_c) s->ss_baseline_c = s->filt_c;
+			if (s->filt_c >= s->ss_baseline_c + cfg->ss_prove_rise_c) {
+				if (s->ss_above_since == 0) s->ss_above_since = now;
+				else if (now - s->ss_above_since >= PROVE_HOLD_S) {
+					s->ss_proven = true;
+					s->ss_deadline = now + cfg->ss_prove_s;
+					LOGI(TAG, "smart start: ignition proven (%.1f C over a low of %.1f C)", s->filt_c, s->ss_baseline_c);
+					if (pf_db_handle()) pf_db_event(PF_LVL_INFO, "I03_IGNITION_PROVEN", "Ignition proven");
+				}
+			} else s->ss_above_since = 0;
+			/* the hot-pit proof: the lowest reading has stopped moving down */
+			if (s->filt_c < s->ss_flat_c - HOT_SLIP_C || s->ss_flat_t == 0) { s->ss_flat_c = s->filt_c; s->ss_flat_t = now; }
+			double amb = isnan(c->ambient_c) ? 20.0 : c->ambient_c;
+			if (!s->ss_proven && s->filt_c - amb >= HOT_DELTA_C && now - s->ss_flat_t >= HOT_FLAT_S) {
+				s->ss_proven = s->ss_held = true;
+				LOGI(TAG, "smart start: fire holding the pit at %.1f C (no fall in %.0f s)", s->filt_c, HOT_FLAT_S);
+				if (pf_db_handle()) pf_db_event(PF_LVL_INFO, "I03_IGNITION_PROVEN", "Ignition proven: fire holding the pit");
+			}
 		}
-		if (c->setpoint_c > 0) s->last_sp_c = c->setpoint_c;
-	} else {
+		if (now > s->ss_deadline) {
+			/* no rise in the time, or a small rise that never became a fire */
+			double mins = cfg->ss_prove_s / 60.0;
+			const char *what = s->ss_proven ? "no fire after the first rise in" : "no rise in";
+			pf_outputs_set(PF_OUT_AUGER, false);
+			pf_outputs_set(PF_OUT_IGNITER, false);
+			if (m == PF_MODE_REIGNITE)
+				pf_safety_set_error(c, "E04_STARTUP_FAILED", "Relight failed: %s %.0f min. Clear the fire pot before lighting.", what, mins);
+			else
+				pf_safety_set_error(c, "E04_STARTUP_FAILED", "Failed start: %s %.0f min. Check the igniter and clear the fire pot.", what, mins);
+			return PF_MODE_ERROR;
+		}
+		return 0;
+	}
+
+	/* 4. Flame supervision in Smoke and Hold.
+	 *
+	 * Ryan's rule: startup raises the pit from its baseline, and Smoke and Hold go on raising it from
+	 * where startup handed over until it reaches the working temperature -- the set point in Hold,
+	 * `smoke_min` (180 F) in Smoke, where P-mode is set so that Smoke sits at or above it. A pit that
+	 * does anything else is a flame-out or a feed that is too low.
+	 *
+	 *   FALL. The reference is the working temperature once the pit has reached it, and before that
+	 *   the highest the pit has been. Falling `relight_drop` below it is a flame-out: relit, or the
+	 *   grill stops.
+	 *
+	 *   CLIMB. Below the working temperature (by more than half the drop, so the slow last degrees of
+	 *   an approach are not held against it) the pit must gain `prove_rise` in every `prove_s`. Just
+	 *   after a light, until it is `exit_rise` past the handover, a pit that does not is a fire that
+	 *   never got going -- a failed start, and the grill stops, since relighting a pot that never
+	 *   caught is relighting a pot full of pellets. After that a pit that has stopped short is burning
+	 *   what it is given: nothing is piling up, so it is reported (feed too low, or the fire failing)
+	 *   rather than stopped; if the fire is failing the fall will say so.
+	 *
+	 *   COAST. The pit above the working temperature -- a set point lowered, or Smoke from a hotter
+	 *   Hold -- is a coast: the grill starves the fire on purpose, and a starved fire and a dead one
+	 *   cool alike. Nothing is judged on the way down. When the pit reaches the working temperature
+	 *   the igniter runs for `relight_prove_s` while the feed comes back, catching the fire if it has
+	 *   died down; from there the fall and the climb apply as usual.
+	 *
+	 * An open lid (and the recovery after it) and a tuning measurement are neither: the heat walked
+	 * out, or the relay is swinging the pit on purpose. The climb clock stands still meanwhile. */
+	if ((m == PF_MODE_SMOKE || m == PF_MODE_HOLD) && c->pit_valid) {
+		bool hold = m == PF_MODE_HOLD;
+		double work = hold ? c->setpoint_c : cfg->smoke_min_c;
+		/* the lid for as long as a cook at the meat plausibly takes, as the notifications allow it:
+		 * a fall that is still going after that is not the lid */
+		bool lid = c->lid_open || (c->lid_event && now - c->lid_event_t < LID_ALLOW_S);
+		bool paused = lid || c->autotune.active;
+
+		/* a set point lowered below the pit starts a coast */
+		if (hold && s->last_sp_c > 0 && c->setpoint_c > 0 && c->setpoint_c < s->last_sp_c - 0.01 && c->pit_c > c->setpoint_c) {
+			s->stepdown_armed = true;
+			LOGI(TAG, "set point lowered to %.0f C: igniter proves the fire when the pit reaches it", c->setpoint_c);
+		}
+		s->last_sp_c = hold ? c->setpoint_c : 0;
+		if (!hold && c->pit_c >= work) s->reached = true;
+
+		if (paused || s->stepdown_armed) {
+			s->progress_c = c->pit_c;
+			s->progress_t = now;
+		} else {
+			if (isnan(s->peak_c) || c->pit_c > s->peak_c) s->peak_c = c->pit_c;
+			/* Hold asks the controller, whose "reached" starts again with every new set point */
+			double ref = (hold ? c->target_reached : s->reached) ? work : fmin(s->peak_c, work);
+			if (c->pit_c <= ref - cfg->relight_drop_c) {
+				char why[96];
+				snprintf(why, sizeof why, "pit %.0f° below %.0f°", pf_delta_from_c(ref - c->pit_c, cfg->units), pf_from_c(ref, cfg->units));
+				return flameout(c, why);
+			}
+			if (s->heating && c->pit_c >= work) {
+				s->heating = false;
+				LOGI(TAG, "working temperature reached (%.0f C)", c->pit_c);
+			}
+			if (!s->established && c->pit_c >= s->handover_c + cfg->ss_exit_rise_c) s->established = true;
+			if (c->pit_c >= work - cfg->relight_drop_c / 2 || c->pit_c >= s->progress_c + cfg->ss_prove_rise_c) {
+				s->progress_c = c->pit_c;
+				s->progress_t = now;
+				s->stall_said = false;
+			} else if (now - s->progress_t > cfg->ss_prove_s) {
+				if (!s->established) {
+					pf_outputs_set(PF_OUT_AUGER, false);
+					pf_safety_set_error(c, "E04_STARTUP_FAILED", "No heat gain in %.0f min after lighting: fire not taking or feed too low%s. Clear the fire pot before lighting.",
+					                    cfg->ss_prove_s / 60.0, hold ? "" : " (lower the P-mode)");
+					return PF_MODE_ERROR;
+				}
+				if (!s->stall_said) {
+					s->stall_said = true;
+					const char *u = cfg->units == PF_UNITS_C ? "C" : "F";
+					pf_events_emit("W10_NOT_HEATING", "Not Heating", "Pit %.0f°%s, needs %.0f°%s. Flame failing or feed too low%s.",
+					               pf_from_c(c->pit_c, cfg->units), u, pf_from_c(work, cfg->units), u, hold ? "" : ": lower the P-mode");
+				}
+				s->progress_c = c->pit_c;
+				s->progress_t = now;
+			}
+		}
+		/* the end of a coast: the pit has come down to the working temperature */
+		if (s->stepdown_armed && c->pit_c <= work) {
+			s->stepdown_armed = false;
+			if (!hold) s->reached = true;
+			s->peak_c = c->pit_c;
+			if (cfg->relight_prove_s > 0 && !s->igniter_locked_out) {
+				s->proving = true;
+				s->prove_until = now + cfg->relight_prove_s;
+				LOGI(TAG, "pit down to %.0f C: igniter on for %.0f s", work, cfg->relight_prove_s);
+				if (pf_db_handle()) pf_db_event(PF_LVL_INFO, "I04_PROVING", "Coast over: igniter proving the fire");
+			}
+		}
+		if (s->proving) {
+			if (now >= s->prove_until || s->igniter_locked_out) {
+				s->proving = false;
+				pf_outputs_set(PF_OUT_IGNITER, false);
+			} else pf_outputs_set(PF_OUT_IGNITER, true);
+		}
+	} else if (m != PF_MODE_SMOKE && m != PF_MODE_HOLD) {
 		s->last_sp_c = 0;
 		s->stepdown_armed = false;
+		s->proving = false;
+		if (m != PF_MODE_STARTUP && m != PF_MODE_REIGNITE) { s->peak_c = NAN; s->heating = false; }
 	}
-
-	/* the highest the pit has reached in this Hold, never above the set point */
-	if (m == PF_MODE_HOLD && c->pit_valid && !c->lid_open) {
-		if (isnan(s->hold_peak_c) || c->pit_c > s->hold_peak_c) s->hold_peak_c = c->pit_c;
-	} else if (m != PF_MODE_HOLD) s->hold_peak_c = NAN;
-
-	if (relight_ok) {
-		double gap = c->setpoint_c - c->pit_c;
-		double ref = c->target_reached || isnan(s->hold_peak_c) ? c->setpoint_c : fmin(c->setpoint_c, s->hold_peak_c);
-		double drop = ref - c->pit_c;   /* how far the pit has fallen from where the fire had it */
-
-		/* The escalation clock, kept apart from the igniter itself. Judging recovery by the rise
-		 * off the lowest point is right for switching the igniter off, but it is the wrong clock to
-		 * escalate on: the igniter's own heat can lift the pit a few degrees with the fire still
-		 * out, so the assist cycles, and a deadline that restarted on every cycle would never
-		 * expire. Only the pit genuinely climbing back towards the set point resets this. */
-		if (drop <= cfg->relight_drop_c / 2) s->relight_below_since = 0;
-		else if (drop >= cfg->relight_drop_c && s->relight_below_since == 0) s->relight_below_since = now;
-
-		if (s->relight_below_since > 0 && now - s->relight_below_since > cfg->relight_timeout_s) {
-			/* A rescue is an attempt, not a way to run. The igniter has had its window and the pit
-			 * has not climbed back, so the fire is out rather than struggling: hand it to the
-			 * flame-out path, which knows how to start the grill again and when to stop trying.
-			 * Without this the assist would hold the igniter on until its own cap and keep the pit
-			 * just warm enough that nothing else noticed. */
-			s->relight_active = false;
-			s->relight_below_since = 0;
-			s->stepdown_armed = false;
-			pf_outputs_set(PF_OUT_IGNITER, false);
-			pf_alarms_clear("SAFETY:relight");
-			LOGW(TAG, "pit stayed %.0f C below the set point for %.0f s: treating it as a flame-out",
-			     drop, cfg->relight_timeout_s);
-			return flameout(c);
-		}
-
-		if (!s->relight_active) {
-			bool holding = drop >= cfg->relight_drop_c;
-			bool crossed = s->stepdown_armed && gap > 0;   /* through the new set point, going down */
-			if ((holding || crossed) && !s->igniter_locked_out) {
-				s->relight_active = true;
-				s->relight_low_c = c->pit_c;
-				s->relight_from_step = crossed;
-				s->stepdown_armed = false;
-				pf_outputs_set(PF_OUT_IGNITER, true);
-				LOGW(TAG, "%s: igniter on to catch the fire (pit %.0f C, set point %.0f C)",
-				     crossed ? "pit crossed the lowered set point on the way down" : "pit fell away from the set point",
-				     c->pit_c, c->setpoint_c);
-				pf_alarms_raise("SAFETY:relight", "W08_RELIGHT", "Flame-out protection", PF_CRIT_HIGH, PF_SINK_ALL,
-				                "Flame-out protection",
-				                crossed ? "The grill is coasting down to a lower temperature, so the igniter is on until the pit stops falling."
-				                        : "The pit fell away from the set point, so the igniter is on until the fire catches.");
-				if (pf_db_handle()) pf_db_event(PF_LVL_WARN, "W08_RELIGHT", "Flame-out protection: igniter on");
-			}
-		} else {
-			if (c->pit_c < s->relight_low_c) s->relight_low_c = c->pit_c;
-			double need = s->relight_from_step ? cfg->relight_recover_step_c : cfg->relight_recover_c;
-			if (c->pit_c >= s->relight_low_c + need) {
-				/* the fire has taken: stop feeding it electricity and let the grill work */
-				s->relight_active = false;
-				pf_outputs_set(PF_OUT_IGNITER, false);
-				LOGI(TAG, "pit recovered to %.0f C from a low of %.0f C: igniter off", c->pit_c, s->relight_low_c);
-				pf_alarms_clear("SAFETY:relight");
-			} else if (s->igniter_locked_out) {
-				s->relight_active = false;   /* the cap has taken it; stop claiming otherwise */
-				pf_alarms_clear("SAFETY:relight");
-			} else {
-				pf_outputs_set(PF_OUT_IGNITER, true);
-			}
-		}
-	} else if (s->relight_active || s->relight_below_since > 0) {
-		s->relight_active = false;
-		s->relight_below_since = 0;
-		pf_outputs_set(PF_OUT_IGNITER, false);
-		pf_alarms_clear("SAFETY:relight");
-	}
-
-	/* 6. flame-out in SMOKE / HOLD */
-	if ((m == PF_MODE_SMOKE || m == PF_MODE_HOLD) && cfg->startup_check && s->floor_set && c->pit_c < s->floor_c)
-		return flameout(c);
 
 	return 0;
 }

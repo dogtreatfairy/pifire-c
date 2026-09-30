@@ -240,7 +240,7 @@ small, .muted { color: var(--muted); }
 .pill-mode { background: var(--surface2); }
 .pill-mode[data-mode="Hold"] { background: color-mix(in oklab, var(--ok) 25%, var(--surface2)); }
 .pill-mode[data-mode="Smoke"] { background: color-mix(in oklab, var(--accent) 30%, var(--surface2)); }
-.pill-mode[data-mode="Startup"], .pill-mode[data-mode="Reignite"], .pill-mode[data-mode="Prime"] { background: color-mix(in oklab, var(--accent) 30%, var(--surface2)); }
+.pill-mode[data-mode="Startup"], .pill-mode[data-mode="Relight"], .pill-mode[data-mode="Prime"] { background: color-mix(in oklab, var(--accent) 30%, var(--surface2)); }
 .pill-mode[data-mode="Shutdown"] { background: color-mix(in oklab, var(--info) 30%, var(--surface2)); }
 .pill-mode[data-mode="Error"] { background: var(--danger); color: var(--on-danger); }
 
@@ -685,7 +685,7 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .readout .rd-val { display: flex; align-items: center; padding: 0 8px; font-size: var(--fs-md); font-weight: 700; color: var(--text); }
 .readout .rd-val[hidden] { display: none; }
 .readout[data-mode="Hold"] .rd-mode { background: var(--ok); color: var(--on-ok); }
-.readout[data-mode="Smoke"] .rd-mode, .readout[data-mode="Startup"] .rd-mode, .readout[data-mode="Reignite"] .rd-mode, .readout[data-mode="Prime"] .rd-mode { background: var(--accent); color: var(--on-accent); }
+.readout[data-mode="Smoke"] .rd-mode, .readout[data-mode="Startup"] .rd-mode, .readout[data-mode="Relight"] .rd-mode, .readout[data-mode="Prime"] .rd-mode { background: var(--accent); color: var(--on-accent); }
 .readout[data-mode="Shutdown"] .rd-mode { background: var(--info); color: var(--on-info); }
 .readout[data-mode="Manual"] .rd-mode { background: var(--warn); color: var(--on-warn); }
 .readout[data-mode="Error"] .rd-mode { background: var(--danger); color: var(--on-danger); }

@@ -222,13 +222,14 @@ int pf_run_stream(const char *const argv[], int timeout_s, void (*line)(const ch
 
 /* ---- enum names (declared in pifire/common.h) ---- */
 static const char *mode_names[PF_MODE_COUNT] = {
-	"Stop", "Monitor", "Prime", "Startup", "Reignite", "Smoke", "Hold", "Shutdown", "Manual", "Error"
+	"Stop", "Monitor", "Prime", "Startup", "Relight", "Smoke", "Hold", "Shutdown", "Manual", "Error"
 };
 const char *pf_mode_name(pf_mode m) { return (unsigned)m < PF_MODE_COUNT ? mode_names[m] : "?"; }
 int pf_mode_from_name(const char *s)
 {
 	for (int i = 0; i < PF_MODE_COUNT; i++)
 		if (!strcasecmp(s, mode_names[i])) return i;
+	if (!strcasecmp(s, "Reignite")) return PF_MODE_REIGNITE;   /* its name before Relight */
 	return -1;
 }
 static const char *output_names[PF_OUT_COUNT] = { "power", "fan", "auger", "igniter" };

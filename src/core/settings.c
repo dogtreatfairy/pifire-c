@@ -3,6 +3,7 @@
 #include "core/embedded.h"
 #include "core/log.h"
 #include "core/util.h"
+#include <math.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,14 +18,14 @@ static unsigned g_gen;
 
 /* Settings whose values are temperatures and must be converted when units change. */
 static const char *const temp_paths[] = {
-	"safety.minstartuptemp", "safety.maxstartuptemp", "safety.maxtemp", "safety.restart_hot_temp",
-	"startup.startup_exit_temp", "startup.start_to_mode.primary_setpoint", "startup.smartstart.exit_temp",
+	"safety.maxtemp", "safety.min_target", "safety.max_target", "safety.smoke_min", "safety.restart_hot_temp",
+	"startup.start_to_mode.primary_setpoint",
 	"keep_warm.temp", "smoke_plus.min_temp", "smoke_plus.max_temp",
 	NULL
 };
 /* Temperature *deltas* (no offset). */
 static const char *const delta_paths[] = {
-	"safety.coldstart.delta_rise", "startup.exit_rise", NULL
+	"startup.smartstart.prove_rise", "startup.smartstart.exit_rise", "safety.relight_drop", NULL
 };
 
 /* ---------------- generic JSON path helpers ---------------- */
@@ -157,8 +158,24 @@ static int validate(cJSON *root, char *err, size_t errn)
 	 * a limit: an overtemperature at 900 F, an auger allowed to run for ten minutes, or an igniter
 	 * left on for an hour is a grill with its protection switched off. */
 	bool c = !strcmp(units, "C");
-	double maxtemp = pf_json_num(root, "safety.maxtemp", 550);
+	double maxtemp = pf_json_num(root, "safety.maxtemp", 650);
 	CHECK(maxtemp > (c ? 65 : 150) && maxtemp <= (c ? 343 : 650), "safety.maxtemp must be between %s", c ? "66 and 343 C" : "151 and 650 F");
+	/* the set points the grill accepts: a floor it can hold a fire at, and a ceiling under the
+	 * overheat limit so a set point is never a guaranteed trip on the way to it */
+	double tmin = pf_json_num(root, "safety.min_target", c ? 71 : 160), tmax = pf_json_num(root, "safety.max_target", c ? 288 : 550);
+	CHECK(tmax > tmin && tmax < maxtemp, "safety.max_target must be above the minimum target and below the overheat limit");
+	CHECK(tmin >= (c ? 38 : 100), "safety.min_target must be at least %s", c ? "38 C" : "100 F");
+	double smin = pf_json_num(root, "safety.smoke_min", c ? 82 : 180);
+	CHECK(smin >= (c ? 38 : 100) && smin < tmax, "safety.smoke_min must be at least %s and below the maximum target", c ? "38 C" : "100 F");
+	double prove = pf_json_num(root, "startup.smartstart.prove_s", 300);
+	CHECK(prove >= 60 && prove <= PF_IGNITER_MAX_S, "startup.smartstart.prove_s must be 60-300 s");
+	double prise = pf_json_num(root, "startup.smartstart.prove_rise", c ? 2 : 3), xrise = pf_json_num(root, "startup.smartstart.exit_rise", c ? 7 : 12);
+	CHECK(prise > 0 && prise <= (c ? 14 : 25), "startup.smartstart.prove_rise must be above 0 and at most %s", c ? "14 C" : "25 F");
+	CHECK(xrise > prise && xrise <= (c ? 28 : 50), "startup.smartstart.exit_rise must be above the ignition rise and at most %s", c ? "28 C" : "50 F");
+	double rdrop = pf_json_num(root, "safety.relight_drop", c ? 11 : 20);
+	CHECK(rdrop >= (c ? 3 : 5) && rdrop <= (c ? 28 : 50), "safety.relight_drop must be %s", c ? "3-28 C" : "5-50 F");
+	double rprove = pf_json_num(root, "safety.relight_prove_s", 180);
+	CHECK(rprove >= 0 && rprove <= PF_IGNITER_MAX_S, "safety.relight_prove_s must be 0-300 s");
 	double aug = pf_json_num(root, "safety.auger_max_on_s", 60);
 	CHECK(aug >= 5 && aug <= 120, "safety.auger_max_on_s must be 5-120 s");
 	double ign = pf_json_num(root, "safety.igniter_max_on_s", 300);
@@ -169,13 +186,8 @@ static int validate(cJSON *root, char *err, size_t errn)
 	CHECK(pf >= 2 && pf <= 60, "safety.probe_fault_s must be 2-60 s");
 	double plm = pf_json_num(root, "safety.power_loss.max_s", 300);
 	CHECK(plm >= 0 && plm <= 900, "safety.power_loss.max_s must be 0-900 s");
-	double pli = pf_json_num(root, "safety.power_loss.igniter_s", 180);
-	CHECK(pli >= 60 && pli <= PF_IGNITER_MAX_S, "safety.power_loss.igniter_s must be 60-300 s");
-	double cst = pf_json_num(root, "safety.coldstart.timeout_s", 300);
-	CHECK(cst == 0 || (cst >= 60 && cst <= 1800), "safety.coldstart.timeout_s must be 60-1800 s");
 	double mo = pf_json_num(root, "safety.manual_override_time", 30);
 	CHECK(mo >= 5 && mo <= 600, "safety.manual_override_time must be 5-600 s");
-	CHECK(pf_json_num(root, "safety.coldstart.delta_rise", 12) > 0, "safety.coldstart.delta_rise must be > 0");
 	int port = pf_json_int(root, "web.port", 80);
 	CHECK(port > 0 && port < 65536, "web.port out of range");
 	CHECK(pf_json_num(root, "history.sample_s", 3) >= 1, "history.sample_s must be >= 1");
@@ -216,6 +228,65 @@ static int save_locked(void)
 	if (rc) LOGE(TAG, "save %s failed: %s", g_path, strerror(-rc));
 	else g_gen++;
 	return rc;
+}
+
+static void del_path(cJSON *root, const char *parent, const char *leaf)
+{
+	cJSON *p = pf_json_path(root, parent);
+	if (p) cJSON_DeleteItemFromObject(p, leaf);
+}
+
+static void set_num(cJSON *root, const char *parent, const char *leaf, double v)
+{
+	cJSON *p = pf_json_path(root, parent);
+	if (!p) return;
+	cJSON_DeleteItemFromObject(p, leaf);
+	cJSON_AddNumberToObject(p, leaf, v);
+}
+
+/* "Reignite" became "Relight" wherever a rule names the mode */
+static void rename_mode_in(cJSON *node)
+{
+	for (cJSON *it = node ? node->child : NULL; it; it = it->next) {
+		if (cJSON_IsString(it) && !strcmp(it->valuestring, "Reignite")) cJSON_SetValuestring(it, "Relight");
+		else if (cJSON_IsObject(it) || cJSON_IsArray(it)) rename_mode_in(it);
+	}
+}
+
+/* Schema 29. Startup had three answers to "is it lit" -- a timer, an exit temperature and the
+ * cold-start check under safety -- and they are one now: Smart Start, under startup. The keys the
+ * defaults just added arrive in Fahrenheit, so a Celsius grill has them converted here; a user's
+ * own timeout and rise carry over. The set point gets its own limits, the overheat limit moves to
+ * 650 F where it was still the 550 F that shipped, and Reignite is Relight. */
+static void migrate_smart_start(cJSON *r)
+{
+	bool c = !strcmp(pf_json_str(r, "globals.units", "F"), "C");
+	if (c) {
+		set_num(r, "safety", "min_target", 71);
+		set_num(r, "safety", "max_target", 288);
+		set_num(r, "safety", "smoke_min", 82);
+		set_num(r, "startup.smartstart", "prove_rise", 2);
+		set_num(r, "startup.smartstart", "exit_rise", 7);
+	}
+	cJSON *to = pf_json_path(r, "safety.coldstart.timeout_s");
+	if (cJSON_IsNumber(to) && to->valuedouble >= 60)
+		set_num(r, "startup.smartstart", "prove_s", fmin(to->valuedouble, PF_IGNITER_MAX_S));
+	cJSON *dr = pf_json_path(r, "safety.coldstart.delta_rise");
+	if (cJSON_IsNumber(dr) && dr->valuedouble > (c ? 2 : 3) && dr->valuedouble <= (c ? 28 : 50))
+		set_num(r, "startup.smartstart", "exit_rise", dr->valuedouble);
+	cJSON *mt = pf_json_path(r, "safety.maxtemp");
+	if (cJSON_IsNumber(mt) && mt->valuedouble == (c ? 288 : 550)) cJSON_SetNumberValue(mt, c ? 343 : 650);
+	cJSON *profs = pf_json_path(r, "startup.smartstart.profiles");
+	cJSON *p;
+	cJSON_ArrayForEach(p, profs) cJSON_DeleteItemFromObject(p, "startuptime");
+	static const char *const gone[][2] = {
+		{ "safety", "minstartuptemp" }, { "safety", "maxstartuptemp" }, { "safety", "startup_check" }, { "safety", "coldstart" },
+		{ "safety.power_loss", "igniter_s" }, { "safety", "relight_recover" }, { "safety", "relight_recover_step" },
+		{ "safety", "relight_timeout_s" }, { "startup", "duration" }, { "startup", "startup_exit_temp" }, { "startup", "exit_rise" },
+		{ "startup.smartstart", "enabled" }, { "startup.smartstart", "exit_temp" },
+	};
+	for (size_t i = 0; i < sizeof gone / sizeof gone[0]; i++) del_path(r, gone[i][0], gone[i][1]);
+	rename_mode_in(pf_json_path(r, "notify.rules"));
 }
 
 int pf_settings_init(const char *path)
@@ -871,6 +942,13 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 28 (MQTT control restored)");
 			added = 1;
 		}
+		if (ver < 29) {
+			migrate_smart_start(g_root);
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 29); else cJSON_AddNumberToObject(g_root, "schema_version", 29);
+			LOGI(TAG, "settings migrated to schema 29 (Smart Start, set point limits, Relight)");
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);
@@ -887,9 +965,11 @@ int pf_settings_init(const char *path)
 		 * The safety group falls back to what ships, value by value, and the rest stands. */
 		LOGE(TAG, "settings validation: %s -- resetting out-of-range safety limits to defaults", err);
 		static const struct { const char *path; double f, c; } SAFE[] = {
-			{ "safety.maxtemp", 550, 288 }, { "safety.auger_max_on_s", 60, 60 }, { "safety.igniter_max_on_s", 300, 300 },
+			{ "safety.maxtemp", 650, 343 }, { "safety.max_target", 550, 288 }, { "safety.min_target", 160, 71 }, { "safety.smoke_min", 180, 82 },
+			{ "safety.auger_max_on_s", 60, 60 }, { "safety.igniter_max_on_s", 300, 300 },
 			{ "safety.reigniteretries", 1, 1 }, { "safety.probe_fault_s", 10, 10 }, { "safety.power_loss.max_s", 300, 300 },
-			{ "safety.power_loss.igniter_s", 180, 180 }, { "safety.coldstart.timeout_s", 300, 300 }, { "safety.manual_override_time", 30, 30 },
+			{ "startup.smartstart.prove_s", 300, 300 }, { "startup.smartstart.prove_rise", 3, 2 }, { "startup.smartstart.exit_rise", 12, 7 }, { "safety.relight_drop", 20, 11 }, { "safety.relight_prove_s", 180, 180 },
+			{ "safety.manual_override_time", 30, 30 },
 		};
 		bool celsius = !strcmp(pf_json_str(g_root, "globals.units", "F"), "C");
 		for (int pass = 0; pass < 12 && validate(g_root, err, sizeof err); pass++) {

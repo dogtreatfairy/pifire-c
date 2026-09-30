@@ -1,5 +1,5 @@
 {
-  "schema_version": 28,
+  "schema_version": 29,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -106,11 +106,11 @@
     }
   },
   "safety": {
-    "minstartuptemp": 75,
-    "maxstartuptemp": 100,
-    "maxtemp": 550,
+    "maxtemp": 650,
+    "min_target": 160,
+    "max_target": 550,
+    "smoke_min": 180,
     "reigniteretries": 1,
-    "startup_check": true,
     "allow_manual_changes": false,
     "manual_override_time": 30,
     "igniter_max_on_s": 300,
@@ -118,38 +118,19 @@
     "probe_fault_s": 10,
     "error_cooldown_fan_s": 300,
     "restart_hot_temp": 150,
-    "coldstart": {
-      "enabled": true,
-      "delta_rise": 12,
-      "timeout_s": 300,
-      "baseline_window_s": 60,
-      "exit_on_rise": false
-    },
     "power_loss": {
       "recovery": true,
-      "max_s": 300,
-      "igniter_s": 180
+      "max_s": 300
     },
     "relight_enabled": true,
     "relight_drop": 20,
-    "relight_recover": 10,
-    "relight_recover_step": 3,
-    "relight_timeout_s": 300
+    "relight_prove_s": 180
   },
   "startup": {
-    "duration": 240,
-    "prime_on_startup": 0,
-    "startup_exit_temp": 140,
-    "exit_rise": 15,
-    "start_to_mode": {
-      "after_startup_mode": "Hold",
-      "primary_setpoint": 350,
-      "start_to_hold_prompt": true,
-      "ask": true
-    },
     "smartstart": {
-      "enabled": true,
-      "exit_temp": 120,
+      "prove_s": 300,
+      "prove_rise": 3,
+      "exit_rise": 12,
       "temp_range_list": [
         60,
         80,
@@ -157,26 +138,29 @@
       ],
       "profiles": [
         {
-          "startuptime": 360,
           "augerontime": 15,
           "p_mode": 0
         },
         {
-          "startuptime": 360,
           "augerontime": 15,
           "p_mode": 1
         },
         {
-          "startuptime": 240,
           "augerontime": 15,
           "p_mode": 3
         },
         {
-          "startuptime": 240,
           "augerontime": 15,
           "p_mode": 5
         }
       ]
+    },
+    "prime_on_startup": 0,
+    "start_to_mode": {
+      "after_startup_mode": "Hold",
+      "primary_setpoint": 350,
+      "start_to_hold_prompt": true,
+      "ask": true
     },
     "pwm_duty_cycle": 100
   },
@@ -602,6 +586,38 @@
         "only_while_cooking": true
       },
       {
+        "id": "grill-heating",
+        "name": "Heating",
+        "enabled": true,
+        "select": {
+          "domain": "grill",
+          "match": "any"
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "entity": "grill",
+              "trait": "heating",
+              "op": "is_on"
+            }
+          ]
+        },
+        "title": "{grill}: {mode}",
+        "body": "{heating_to}",
+        "level": "normal",
+        "sinks": [
+          "app",
+          "webpush",
+          "pushover",
+          "ntfy"
+        ],
+        "for_s": 0,
+        "cooldown_s": 0,
+        "repeat_s": 0,
+        "only_while_cooking": true
+      },
+      {
         "id": "grill-at-temp",
         "name": "At Temperature",
         "enabled": true,
@@ -904,6 +920,39 @@
         "repeat_s": 0,
         "only_while_cooking": true,
         "deadband": 3
+      },
+      {
+        "id": "grill-relight",
+        "name": "Relight",
+        "enabled": true,
+        "select": {
+          "domain": "grill",
+          "match": "any"
+        },
+        "when": {
+          "op": "all",
+          "conditions": [
+            {
+              "entity": "grill",
+              "trait": "mode",
+              "op": "is",
+              "value": "Relight"
+            }
+          ]
+        },
+        "title": "{grill}: Relight",
+        "body": "Flame lost at {grill_temp}. Relighting.",
+        "level": "high",
+        "sinks": [
+          "app",
+          "webpush",
+          "pushover",
+          "ntfy"
+        ],
+        "for_s": 0,
+        "cooldown_s": 0,
+        "repeat_s": 0,
+        "only_while_cooking": true
       },
       {
         "id": "probe-step-soon",

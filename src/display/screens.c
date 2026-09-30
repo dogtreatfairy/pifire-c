@@ -29,7 +29,7 @@ static void upper(char *s) { for (; *s; s++) if (*s >= 'a' && *s <= 'z') *s -= 3
 static uint16_t mode_fill(const pf_gfx *g, const char *mode)
 {
 	if (!strcmp(mode, "Hold")) return g->th.ok;
-	if (!strcmp(mode, "Smoke") || !strcmp(mode, "Startup") || !strcmp(mode, "Reignite") || !strcmp(mode, "Prime")) return g->th.accent;
+	if (!strcmp(mode, "Smoke") || !strcmp(mode, "Startup") || !strcmp(mode, "Relight") || !strcmp(mode, "Prime")) return g->th.accent;
 	if (!strcmp(mode, "Error")) return g->th.danger;
 	if (!strcmp(mode, "Shutdown")) return g->th.info;
 	if (!strcmp(mode, "Manual")) return g->th.warn;
@@ -50,7 +50,7 @@ static uint16_t on_fill_text(const pf_gfx *g, uint16_t fill)
 
 static bool is_timed(const char *mode)
 {
-	return !strcmp(mode, "Startup") || !strcmp(mode, "Reignite") || !strcmp(mode, "Shutdown") || !strcmp(mode, "Prime");
+	return !strcmp(mode, "Startup") || !strcmp(mode, "Relight") || !strcmp(mode, "Shutdown") || !strcmp(mode, "Prime");
 }
 
 /* --------------------------------------------------------------- navigation */
@@ -469,7 +469,7 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 			ADD(PF_ACT_LIST, PF_LIST_STARTUP, "Startup");
 			ADD(PF_ACT_MONITOR, 0, "Monitor");
 			ADD(timer_on ? PF_ACT_TIMER_CANCEL : PF_ACT_TIMER, 0, timer_on ? "Cancel Timer" : "Timer");
-		} else {   /* the active menu: Startup, Reignite, Smoke, Hold, Shutdown, Manual */
+		} else {   /* the active menu: Startup, Relight, Smoke, Hold, Shutdown, Manual */
 			if (!strcmp(mode, "Hold")) ADD(PF_ACT_SMOKE, 0, "Smoke Mode");
 			else ADD(PF_ACT_HOLD, 0, "Hold Mode");
 			ADD(PF_ACT_LIST, PF_LIST_PROBE, "Probe Target");
@@ -533,8 +533,8 @@ static void draw_banner(pf_gfx *g, const cJSON *s, const char *mode, int ring)  
 	char clk[16] = "";
 	double remaining = pf_json_num((cJSON *)s, "timers.mode_remaining", 0), cook = pf_json_num((cJSON *)s, "cook_elapsed", 0);
 	if (is_timed(mode)) {
-		bool waiting = (!strcmp(mode, "Startup") || !strcmp(mode, "Reignite")) && pf_json_bool((cJSON *)s, "coldstart.active", false) && !pf_json_bool((cJSON *)s, "coldstart.reached", false) && remaining <= 0;
-		fmt_clock(clk, sizeof clk, waiting ? pf_json_num((cJSON *)s, "coldstart.remaining", 0) : remaining);
+		/* in Startup and Relight this is the Smart Start window running: the proof, then the exit rise */
+		fmt_clock(clk, sizeof clk, remaining);
 	} else if (pf_json_bool((cJSON *)s, "timer.running", false)) {
 		/* a running timer takes the corner from the cook time: it is the one the cook set and is
 		 * waiting on. A mode's own countdown still comes first. */
@@ -578,7 +578,7 @@ static void draw_datablock(pf_gfx *g, const cJSON *s, const cJSON *primary, cons
 	bool valid = primary && cJSON_IsNumber(cJSON_GetObjectItem((cJSON *)primary, "temp"));
 	double pit = valid ? cJSON_GetObjectItem((cJSON *)primary, "temp")->valuedouble : 0;
 	double sp = pf_json_num((cJSON *)s, "setpoint", 0);
-	bool hold_like = !strcmp(mode, "Hold") || (!strcmp(mode, "Startup") && !strcmp(pf_json_str((cJSON *)s, "next_mode", ""), "Hold")) || !strcmp(mode, "Reignite");
+	bool hold_like = !strcmp(mode, "Hold") || (!strcmp(mode, "Startup") && !strcmp(pf_json_str((cJSON *)s, "next_mode", ""), "Hold")) || !strcmp(mode, "Relight");
 	char line[32];
 	int ly = y;
 	g_sp_h = 0;
@@ -602,10 +602,10 @@ static void draw_datablock(pf_gfx *g, const cJSON *s, const cJSON *primary, cons
 		snprintf(line, sizeof line, "P-MODE %d", pf_set_int("cycle_data.PMode", 2));
 		pf_gfx_text(g, B, p2, x, ly, line, g->th.accent); ly += l2;
 		if (pf_json_bool((cJSON *)s, "s_plus", false)) { pf_gfx_text(g, B, p2, x, ly, "SMOKE+", g->th.ok); ly += l2; }
-	} else if (!strcmp(mode, "Startup") || !strcmp(mode, "Reignite")) {
+	} else if (!strcmp(mode, "Startup") || !strcmp(mode, "Relight")) {
 		pf_gfx_text(g, B, p1, x, ly, "IGNITING", g->th.accent); ly += l1;
-		double exit_t = pf_json_num((cJSON *)s, "timers.startup_exit_temp", 0);
-		if (exit_t > 0) { snprintf(line, sizeof line, "EXIT %.0f" DEG, exit_t); pf_gfx_text(g, R, p3, x, ly, line, g->th.muted); ly += l3 + 2; }
+		bool proven = pf_json_bool((cJSON *)s, "smartstart.proven", false);
+		pf_gfx_text(g, R, p3, x, ly, proven ? "IGNITION PROVEN" : "PROVING IGNITION", proven ? g->th.ok : g->th.muted); ly += l3 + 2;
 	} else if (!strcmp(mode, "Shutdown")) {
 		pf_gfx_text(g, B, p1, x, ly, "COOLING", g->th.info); ly += l1;
 	} else if (!strcmp(mode, "Error")) {

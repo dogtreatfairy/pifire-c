@@ -111,9 +111,9 @@ cJSON *pf_cooklog_json(double from, double to, const char *name)
 		sqlite3_finalize(s2);
 	}
 	cJSON *legend = cJSON_AddObjectToObject(o, "legend");
-	cJSON_AddStringToObject(legend, "mode", "0 Stop 1 Monitor 2 Prime 3 Startup 4 Reignite 5 Smoke 6 Hold 7 Shutdown 8 Manual 9 Error");
+	cJSON_AddStringToObject(legend, "mode", "0 Stop 1 Monitor 2 Prime 3 Startup 4 Relight 5 Smoke 6 Hold 7 Shutdown 8 Manual 9 Error");
 	cJSON_AddStringToObject(legend, "outputs", "bit0 power, bit1 fan, bit2 auger, bit3 igniter (pf_output order)");
-	cJSON_AddStringToObject(legend, "flags", "1 lid_open, 2 smoke_plus, 4 pwm_control, 8 target_reached, 16 coldstart_active, 32 saturated_low, 64 saturated_high");
+	cJSON_AddStringToObject(legend, "flags", "1 lid_open, 2 smoke_plus, 4 pwm_control, 8 target_reached, 16 proving_ignition, 32 saturated_low, 64 saturated_high");
 	cJSON_AddStringToObject(legend, "u", "auger duty fraction per cycle: u_raw = controller output, u_applied = after clamping to [u_min,u_max], u_ff = learned feed-forward; p/i/d/ff = controller terms");
 	cJSON_AddStringToObject(legend, "temps", "Celsius; setpoint 0 outside Hold; probes.<label>.temp aligned to t by index");
 	return o;

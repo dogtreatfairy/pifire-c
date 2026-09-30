@@ -174,28 +174,35 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 	}
 
 	cJSON *tm = cJSON_AddObjectToObject(o, "timers");
-	cJSON_AddNumberToObject(tm, "startup_duration", s->startup_duration);
 	cJSON_AddNumberToObject(tm, "shutdown_duration", s->shutdown_duration);
 	cJSON_AddNumberToObject(tm, "prime_duration", s->prime_duration);
 	cJSON_AddNumberToObject(tm, "prime_amount", s->prime_amount);
-	cJSON_AddNumberToObject(tm, "startup_exit_temp", s->startup_exit_c > 0 ? r1(conv(s->startup_exit_c, units)) : 0);
-	/* seconds left in the current timed mode (Startup/Reignite/Shutdown/Prime), 0 otherwise; cold-start may hold Startup past this */
+	/* seconds left: in Startup and Relight, of the Smart Start window running (the proof, then the
+	 * exit rise); in Shutdown and Prime, of the mode; 0 otherwise */
 	double left = 0;
-	if (s->mode == PF_MODE_STARTUP || s->mode == PF_MODE_REIGNITE) left = s->startup_duration - (s->t - s->mode_start);
+	if (s->mode == PF_MODE_STARTUP || s->mode == PF_MODE_REIGNITE) left = s->ss_active ? s->ss_deadline - s->t : 0;
 	else if (s->mode == PF_MODE_SHUTDOWN) left = s->shutdown_duration - (s->t - s->mode_start);
 	else if (s->mode == PF_MODE_PRIME) left = s->prime_duration - (s->t - s->mode_start);
 	cJSON_AddNumberToObject(tm, "mode_remaining", round(fmax(0, left)));
 
-	cJSON *cs = cJSON_AddObjectToObject(o, "coldstart");
-	cJSON_AddBoolToObject(cs, "active", s->coldstart_active);
-	cJSON_AddBoolToObject(cs, "reached", s->coldstart_reached);
-	add_num_or_null(cs, "baseline", s->coldstart_active ? r1(conv(s->coldstart_baseline_c, units)) : NAN);
-	cJSON_AddNumberToObject(cs, "remaining", s->coldstart_active ? fmax(0, s->coldstart_deadline - s->t) : 0);
+	cJSON *cs = cJSON_AddObjectToObject(o, "smartstart");
+	cJSON_AddBoolToObject(cs, "active", s->ss_active);
+	cJSON_AddBoolToObject(cs, "proven", s->ss_proven);
+	add_num_or_null(cs, "baseline", s->ss_active ? r1(conv(s->ss_baseline_c, units)) : NAN);
+	cJSON_AddNumberToObject(cs, "remaining", s->ss_active ? round(fmax(0, s->ss_deadline - s->t)) : 0);
+	/* after startup, until the pit reaches its working temperature: what the "Heating" rule says */
+	cJSON *ht = cJSON_AddObjectToObject(o, "heating");
+	cJSON_AddBoolToObject(ht, "active", s->heating);
+	char htxt[48] = "Heating";
+	if (s->heating && s->mode == PF_MODE_HOLD && s->setpoint_c > 0)
+		snprintf(htxt, sizeof htxt, "Heating to %.0f°%s", conv(s->setpoint_c, units), units == PF_UNITS_C ? "C" : "F");
+	cJSON_AddStringToObject(ht, "text", htxt);
 
 	cJSON *sf = cJSON_AddObjectToObject(o, "safety");
 	cJSON_AddStringToObject(sf, "error_code", s->error_code);
 	cJSON_AddStringToObject(sf, "error_msg", s->error_msg);
 	cJSON_AddNumberToObject(sf, "reignite_retries_left", s->reignite_retries_left);
+	cJSON_AddBoolToObject(sf, "proving", s->proving);
 
 	cJSON *ct = cJSON_AddObjectToObject(o, "controller");
 	cJSON_AddStringToObject(ct, "id", s->controller_id);

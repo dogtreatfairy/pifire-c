@@ -59,16 +59,14 @@ static void load_cfg(pf_cfg *g)
 	g->lid_pause_s = N("cycle_data.LidOpenPauseTime", 60);
 	g->fan_pid = B("cycle_data.FanPidEnabled", false);
 
-	g->min_startup_c = T("safety.minstartuptemp", 75);
-	g->max_startup_c = T("safety.maxstartuptemp", 100);
-	g->max_temp_c = T("safety.maxtemp", 550);
+	g->max_temp_c = T("safety.maxtemp", 650);
+	g->min_target_c = T("safety.min_target", 160);
+	g->max_target_c = T("safety.max_target", 550);
+	g->smoke_min_c = T("safety.smoke_min", 180);
 	g->restart_hot_c = T("safety.restart_hot_temp", 150);
 	g->power_loss_recovery = B("safety.power_loss.recovery", true);
 	g->power_loss_max_s = N("safety.power_loss.max_s", 300);
-	g->power_loss_igniter_s = N("safety.power_loss.igniter_s", 180);
-	if (g->power_loss_igniter_s > PF_IGNITER_MAX_S) g->power_loss_igniter_s = PF_IGNITER_MAX_S;
 	g->reignite_retries = (int)N("safety.reigniteretries", 1);
-	g->startup_check = B("safety.startup_check", true);
 	g->allow_manual = B("safety.allow_manual_changes", false);
 	g->manual_override_s = N("safety.manual_override_time", 30);
 	g->igniter_max_on_s = N("safety.igniter_max_on_s", PF_IGNITER_MAX_S);
@@ -78,29 +76,20 @@ static void load_cfg(pf_cfg *g)
 	g->probe_fault_s = N("safety.probe_fault_s", 10);
 	g->relight_enabled = B("safety.relight_enabled", true);
 	g->relight_drop_c = D("safety.relight_drop", 20);
-	g->relight_recover_c = D("safety.relight_recover", 10);
-	g->relight_recover_step_c = D("safety.relight_recover_step", 3);
-	g->relight_timeout_s = N("safety.relight_timeout_s", 300);
+	g->relight_prove_s = pf_clamp(N("safety.relight_prove_s", 180), 0, PF_IGNITER_MAX_S);
 	g->use_library = B("learning.use_library", true);
 	g->error_cooldown_fan_s = N("safety.error_cooldown_fan_s", 300);
-	/* Smart Start: the pit must rise, or startup errors out. Stored under safety.coldstart, its
-	 * original name. */
-	g->coldstart = B("safety.coldstart.enabled", true);
-	g->coldstart_delta_c = D("safety.coldstart.delta_rise", 12);
-	g->coldstart_timeout_s = N("safety.coldstart.timeout_s", 300);
-	g->coldstart_window_s = N("safety.coldstart.baseline_window_s", 60);
-	g->coldstart_exit_on_rise = B("safety.coldstart.exit_on_rise", false);
-
-	g->startup_duration_s = N("startup.duration", 240);
+	/* Smart Start: a rise within the time proves ignition, a larger one ends startup. The time is
+	 * the igniter's too, so it is never longer than the igniter may run. */
+	g->ss_prove_s = pf_clamp(N("startup.smartstart.prove_s", 300), 60, PF_IGNITER_MAX_S);
+	g->ss_prove_rise_c = D("startup.smartstart.prove_rise", 3);
+	g->ss_exit_rise_c = D("startup.smartstart.exit_rise", 12);
+	if (!(g->ss_prove_rise_c > 0)) g->ss_prove_rise_c = pf_delta_to_c(3, PF_UNITS_F);
+	if (!(g->ss_exit_rise_c > g->ss_prove_rise_c)) g->ss_exit_rise_c = g->ss_prove_rise_c + pf_delta_to_c(9, PF_UNITS_F);
 	g->prime_on_startup_g = N("startup.prime_on_startup", 0);
-	double exit_user = N("startup.startup_exit_temp", 0);
-	g->startup_exit_c = exit_user > 0 ? pf_to_c(exit_user, u) : 0;
-	g->startup_exit_rise_c = D("startup.exit_rise", 15);
 	const char *am = pf_json_str(r, "startup.start_to_mode.after_startup_mode", "Smoke");
 	g->after_startup_mode = !strcasecmp(am, "Hold") ? PF_MODE_HOLD : PF_MODE_SMOKE;
 	g->after_startup_setpoint_c = T("startup.start_to_mode.primary_setpoint", 165);
-	g->smartstart = B("startup.smartstart.enabled", false);
-	g->ss_exit_c = T("startup.smartstart.exit_temp", 120);
 	cJSON *ranges = pf_json_path(r, "startup.smartstart.temp_range_list");
 	cJSON *profs = pf_json_path(r, "startup.smartstart.profiles");
 	g->ss_n = 0;
@@ -109,7 +98,6 @@ static void load_cfg(pf_cfg *g)
 	int k = 0;
 	cJSON_ArrayForEach(it, profs) {
 		if (k > PF_SS_MAX) break;
-		g->ss_prof[k].startuptime = pf_json_num(it, "startuptime", 240);
 		g->ss_prof[k].augerontime = pf_json_num(it, "augerontime", 15);
 		g->ss_prof[k].p_mode = pf_json_int(it, "p_mode", 2);
 		k++;
@@ -338,10 +326,24 @@ static void fan_on(pf_control *c, int pct)
 static void smoke_cycle(pf_control *c, double now)
 {
 	double on = c->cfg.smoke_on_s, off = c->cfg.smoke_off_s + c->cfg.pmode * 10;
-	if (c->cfg.smartstart && (c->mode == PF_MODE_STARTUP || c->mode == PF_MODE_REIGNITE || c->mode == PF_MODE_SMOKE ||
-	                          (c->mode == PF_MODE_HOLD && c->safety.relight_active))) {
+	/* the startup feed comes from the profile for the pit it began at; Smoke keeps its P-mode */
+	if (c->mode == PF_MODE_STARTUP || c->mode == PF_MODE_REIGNITE) {
 		on = c->cfg.ss_prof[c->ss_profile].augerontime;
 		off = c->cfg.smoke_off_s + c->cfg.ss_prof[c->ss_profile].p_mode * 10;
+	}
+	/* A light in a hot barrel is fed at the learned rate for 36 F above the pit, when that is more
+	 * than the startup feed -- enough to raise the pit, which is how a light is proven (a feed for
+	 * just above it creeps up too slowly on a barrel with a 25-minute time constant). The startup feed holds a pit near 250 F on Ryan's grill; relit at 400 F
+	 * on it, a fire that had caught would still cool and the relight would fail with the fire
+	 * burning. Ryan's choice, 2026-09-29: the holding rate, accepting that a pot that stays dead
+	 * gets that feed for the Smart Start time. Recomputed each cycle, so it falls with a dead pit. */
+	if ((c->mode == PF_MODE_REIGNITE || c->mode == PF_MODE_STARTUP) && c->pit_valid) {
+		double uff = pf_learning_uff(c->pit_c + 3 * c->cfg.ss_exit_rise_c, c->ambient_c, c->cfg.u_min, c->cfg.u_max, NULL);
+		if (uff > on / (on + off)) {
+			pf_cycle_begin(&c->cycle, &c->ccfg, now, uff);
+			c->u_raw = c->u_applied = c->cycle.u_applied;
+			return;
+		}
 	}
 	pf_cycle_begin_fixed(&c->cycle, &c->ccfg, now, on, off);
 	c->u_raw = c->u_applied = c->cycle.u_applied;
@@ -453,7 +455,6 @@ static void enter_mode(pf_control *c, pf_mode m, double now)
 		break;
 	case PF_MODE_STARTUP:
 	case PF_MODE_REIGNITE:
-		c->startup_base_c = c->pit_valid ? c->pit_c : NAN;   /* reference for startup.exit_rise */
 		if (m == PF_MODE_STARTUP) {
 			c->cook_start_wall = pf_wall();
 			c->auger_total_on_s = 0;
@@ -466,29 +467,20 @@ static void enter_mode(pf_control *c, pf_mode m, double now)
 		pf_outputs_set(PF_OUT_POWER, true);
 		fan_on(c, c->cfg.dc_fan ? c->cfg.startup_pwm_duty : 100);
 		pf_outputs_set(PF_OUT_IGNITER, true);
-		c->raw_startup_c = c->pit_c;
-		c->startup_duration_s = c->recover_ignite_s > 0 && m == PF_MODE_REIGNITE ? c->recover_ignite_s : c->cfg.startup_duration_s;
-		if (m == PF_MODE_REIGNITE) c->recover_ignite_s = 0;
-		c->startup_exit_c = c->cfg.startup_exit_c;
-		if (c->cfg.smartstart) {
-			select_smartstart_profile(c);
-			c->startup_duration_s = c->cfg.ss_prof[c->ss_profile].startuptime;
-			c->startup_exit_c = c->cfg.ss_exit_c;
-		}
-		if (c->startup_exit_c > 0 && c->raw_startup_c >= c->startup_exit_c) c->startup_exit_c = 0; /* starting hot: force full ignite */
+		select_smartstart_profile(c);
 		pf_safety_on_startup_enter(c, now);
 		smoke_cycle(c, now);
 		pf_outputs_set(PF_OUT_AUGER, true);
 		break;
 	case PF_MODE_SMOKE:
-		pf_safety_ensure_floor(c);
+		pf_safety_on_run_enter(c, prev, now);
 		pf_outputs_set(PF_OUT_POWER, true);
 		fan_on(c, c->duty_cycle);
 		smoke_cycle(c, now);
 		pf_outputs_set(PF_OUT_AUGER, true);
 		break;
 	case PF_MODE_HOLD:
-		pf_safety_ensure_floor(c);
+		pf_safety_on_run_enter(c, prev, now);
 		pf_outputs_set(PF_OUT_POWER, true);
 		fan_on(c, c->duty_cycle);
 		c->ctrl_reset_needed = true;
@@ -610,16 +602,14 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 		break;
 	case PF_CMD_MODE:
 		if (cmd->flag && (c->mode == PF_MODE_STARTUP || c->mode == PF_MODE_REIGNITE) && (cmd->mode == PF_MODE_SMOKE || cmd->mode == PF_MODE_HOLD)) {
-			/* user forces the end of startup: the fire is lit by their judgement, so the flame-out floor must
-			 * not sit above the pit they are looking at (it would trip on the next tick) */
+			/* user forces the end of startup: the fire is lit by their judgement. The heating watch still
+			 * holds them to it: a pit that does not climb from here is a failed start. */
 			double sp = cmd->num > 0 ? pf_to_c(cmd->num, u) : c->setpoint_c;
 			if (cmd->mode == PF_MODE_HOLD && sp <= 0) sp = c->cfg.after_startup_setpoint_c;
 			c->setpoint_c = sp;
 			pf_safety_on_startup_exit(c, now);
-			if (c->pit_valid && c->safety.floor_c > c->pit_c - 3.0) c->safety.floor_c = c->pit_c - 3.0;
-			c->safety.floor_set = true;
 			c->s_plus = c->s_plus || c->cfg.splus_default;
-			LOGW(TAG, "startup ended by user at %.0f C; flame-out floor %.0f C", c->pit_c, c->safety.floor_c);
+			LOGW(TAG, "startup ended by user at %.0f C", c->pit_c);
 			event(PF_LVL_WARN, "W09_STARTUP_SKIPPED", "Startup ended early by the user");
 			enter_mode(c, cmd->mode, now);
 			break;
@@ -2240,15 +2230,6 @@ static double autotune_step(pf_control *c, double now)
 static void run_hold_cycle(pf_control *c, double now)
 {
 	if (!pf_cycle_done(&c->cycle, now)) return;
-	/* A relight is fed as a startup is: a pit that has fallen away has the controller asking for
-	 * everything it can, and pouring that into a pot that may be out is what floods it. The
-	 * controller picks up from this feed once the fire has caught. */
-	if (c->safety.relight_active && !c->autotune.active) {
-		smoke_cycle(c, now);
-		c->saturated = 0;
-		c->ctrl_reset_needed = true;
-		return;
-	}
 	double u;
 	if (c->lid_open || !c->cinst) {
 		u = c->cfg.u_min;
@@ -2508,16 +2489,8 @@ static void run_mode(pf_control *c, double now)
 	switch (c->mode) {
 	case PF_MODE_STARTUP:
 	case PF_MODE_REIGNITE: {
-		bool timer = now - c->mode_start > c->startup_duration_s;
-		bool exit_temp = c->startup_exit_c > 0 && c->pit_c >= c->startup_exit_c;
-		/* the fire is evidently lit once the pit has climbed exit_rise above where this startup began */
-		/* rise-based exit needs the fire to be evidently established: the rise, a sustained climb rate, and at least 90 s */
-		bool exit_rise_up = g->startup_exit_rise_c > 0 && !isnan(c->startup_base_c) && c->pit_valid && now - c->mode_start > 90
-		                    && c->pit_c - c->startup_base_c >= g->startup_exit_rise_c && c->pit_rate_c_min >= 2.0
-		                    && (c->safety.coldstart_active || !c->safety.floor_set || c->pit_c >= c->safety.floor_c);   /* never hand over below the flame-out floor */
-		/* optional: leave startup as soon as cold-start has confirmed a rise and the pit is past the classic minimum */
-		bool exit_rise = g->coldstart_exit_on_rise && c->safety.coldstart_active && c->safety.coldstart_reached && c->pit_c >= g->min_startup_c;
-		if ((timer && pf_safety_startup_can_finish(c, now)) || exit_temp || exit_rise || exit_rise_up) {
+		/* Smart Start decides: ignition proven, and the exit rise made (or its time up) */
+		if (pf_safety_startup_done(c, now)) {
 			pf_safety_on_startup_exit(c, now);
 			pf_mode nm = c->mode == PF_MODE_REIGNITE ? c->safety.reignite_last : c->next_mode;
 			if (nm != PF_MODE_SMOKE && nm != PF_MODE_HOLD) nm = PF_MODE_SMOKE;
@@ -2672,18 +2645,22 @@ char *pf_control_resume_json(const pf_control *c, double now)
 	cJSON_AddNumberToObject(o, "cook_start_wall", c->cook_start_wall);
 	cJSON_AddNumberToObject(o, "auger_total_on_s", c->auger_total_on_s);
 	cJSON_AddNumberToObject(o, "cook_max_pit_c", c->cook_max_pit_c);
-	cJSON_AddNumberToObject(o, "startup_duration_s", c->startup_duration_s);
-	cJSON_AddNumberToObject(o, "startup_exit_c", c->startup_exit_c);
-	cJSON_AddNumberToObject(o, "startup_base_c", isnan(c->startup_base_c) ? -1000 : c->startup_base_c);
-	cJSON_AddNumberToObject(o, "raw_startup_c", c->raw_startup_c);
 	cJSON_AddNumberToObject(o, "ambient_c", isnan(c->ambient_c) ? -1000 : c->ambient_c);
-	cJSON_AddBoolToObject(o, "floor_set", c->safety.floor_set);
-	cJSON_AddNumberToObject(o, "floor_c", c->safety.floor_c);
+	/* Smart Start and the flame watch, so a handover mid-light or mid-heat carries on where it was */
+	cJSON_AddNumberToObject(o, "ss_baseline_c", isnan(c->safety.ss_baseline_c) ? -1000 : c->safety.ss_baseline_c);
+	cJSON_AddNumberToObject(o, "ss_left_s", c->safety.ss_active ? fmax(0, c->safety.ss_deadline - now) : 0);
+	cJSON_AddNumberToObject(o, "ss_elapsed_s", c->safety.ss_active ? now - c->safety.ss_start : 0);
+	cJSON_AddNumberToObject(o, "ss_entry_c", isnan(c->safety.ss_entry_c) ? -1000 : c->safety.ss_entry_c);
+	cJSON_AddBoolToObject(o, "ss_held", c->safety.ss_held);
+	cJSON_AddBoolToObject(o, "heating", c->safety.heating);
+	cJSON_AddBoolToObject(o, "established", c->safety.established);
+	cJSON_AddNumberToObject(o, "handover_c", c->safety.handover_c);
+	cJSON_AddNumberToObject(o, "peak_c", isnan(c->safety.peak_c) ? -1000 : c->safety.peak_c);
 	cJSON_AddNumberToObject(o, "reignite_retries_left", c->safety.reignite_retries_left);
 	/* what a restart needs to judge whether relighting is safe */
 	cJSON_AddNumberToObject(o, "recoveries", c->recoveries);
-	cJSON_AddBoolToObject(o, "coldstart_active", c->safety.coldstart_active);
-	cJSON_AddBoolToObject(o, "coldstart_reached", c->safety.coldstart_reached);
+	cJSON_AddBoolToObject(o, "ss_active", c->safety.ss_active);
+	cJSON_AddBoolToObject(o, "ss_proven", c->safety.ss_proven);
 	cJSON_AddNumberToObject(o, "pit_c", c->pit_valid ? c->pit_c : -1000);
 	{
 		char bid[64] = "";
@@ -2804,15 +2781,23 @@ bool pf_control_resume(pf_control *c, const char *json, double now)
 		} else LOGW(TAG, "recipe %d could not be resumed after the restart", rid);
 	}
 	if (m == PF_MODE_STARTUP || m == PF_MODE_REIGNITE) {
-		c->startup_duration_s = pf_json_num(o, "startup_duration_s", c->startup_duration_s);
-		c->startup_exit_c = pf_json_num(o, "startup_exit_c", c->startup_exit_c);
-		double b = pf_json_num(o, "startup_base_c", -1000);
-		c->startup_base_c = b > -999 ? b : NAN;
-		c->raw_startup_c = pf_json_num(o, "raw_startup_c", c->raw_startup_c);
+		/* the light carries on: proven or not, from the same low, with the time it had left. A
+		 * snapshot from before Smart Start had these starts the proof again, which is only slower. */
+		double b = pf_json_num(o, "ss_baseline_c", -1000);
+		if (b > -999) c->safety.ss_baseline_c = fmin(b, c->safety.ss_baseline_c);
+		c->safety.ss_proven = pf_json_bool(o, "ss_proven", false);
+		double left = pf_json_num(o, "ss_left_s", 0);
+		if (left > 0) c->safety.ss_deadline = now + left;
+		double el = pf_json_num(o, "ss_elapsed_s", 0), en = pf_json_num(o, "ss_entry_c", -1000);
+		if (el > 0 && en > -999) { c->safety.ss_start = now - el; c->safety.ss_entry_c = en; }
+		c->safety.ss_held = pf_json_bool(o, "ss_held", false);
 	}
 	if (m == PF_MODE_SMOKE || m == PF_MODE_HOLD) {
-		c->safety.floor_set = pf_json_bool(o, "floor_set", false);
-		c->safety.floor_c = pf_json_num(o, "floor_c", 0);
+		c->safety.heating = pf_json_bool(o, "heating", false);
+		c->safety.established = pf_json_bool(o, "established", true);
+		c->safety.handover_c = pf_json_num(o, "handover_c", c->pit_c);
+		double pk = pf_json_num(o, "peak_c", -1000);
+		if (pk > -999) c->safety.peak_c = pk;
 	}
 	c->safety.reignite_retries_left = (int)pf_json_num(o, "reignite_retries_left", c->safety.reignite_retries_left);
 	if (m == PF_MODE_HOLD) {
@@ -2874,7 +2859,7 @@ static void read_sensors(pf_control *c)
 		pf_weather_get(&w);
 		if (w.valid && !isnan(w.temp_c) && w.temp_c <= AMBIENT_MAX_C) { c->ambient_c = w.temp_c; c->ambient_from_probe = true; }
 	}
-	if (!c->ambient_from_probe && c->safety.coldstart_active && !isnan(c->safety.baseline_c) && c->safety.baseline_c <= AMBIENT_MAX_C) c->ambient_c = c->safety.baseline_c;
+	if (!c->ambient_from_probe && c->safety.ss_active && !isnan(c->safety.ss_baseline_c) && c->safety.ss_baseline_c <= AMBIENT_MAX_C) c->ambient_c = c->safety.ss_baseline_c;
 	if (isnan(c->ambient_c) || c->ambient_c > AMBIENT_MAX_C) ambient_provisional(c);
 	ambient_remember(c);
 }
@@ -2907,17 +2892,17 @@ static void publish(pf_control *c, double now)
 	s.restart_resumed = c->restart_resumed;
 	s.lid_open_until = c->lid_open_until;
 	s.target_reached = c->target_reached;
-	s.startup_duration = c->startup_duration_s;
 	s.shutdown_duration = c->cfg.shutdown_s;
 	s.prime_duration = c->mode == PF_MODE_PRIME ? c->prime_duration_s : 0;
 	s.prime_amount = c->mode == PF_MODE_PRIME ? c->prime_amount_g : 0;
-	s.coldstart_active = c->safety.coldstart_active;
-	s.coldstart_reached = c->safety.coldstart_reached;
-	s.startup_exit_c = c->startup_exit_c;
+	s.ss_active = c->safety.ss_active;
+	s.ss_proven = c->safety.ss_proven;
+	s.heating = c->safety.heating && (c->mode == PF_MODE_HOLD || c->mode == PF_MODE_SMOKE);
+	s.proving = c->safety.proving;
 	s.pmode = c->cfg.pmode;
 	s.cook_start_wall = c->cook_start_wall;
-	s.coldstart_baseline_c = c->safety.baseline_c;
-	s.coldstart_deadline = c->safety.coldstart_deadline;
+	s.ss_baseline_c = c->safety.ss_baseline_c;
+	s.ss_deadline = c->safety.ss_deadline;
 	pf_strlcpy(s.error_code, c->safety.error_code, sizeof s.error_code);
 	pf_strlcpy(s.error_msg, c->safety.error_msg, sizeof s.error_msg);
 	pf_strlcpy(s.controller_id, c->cops ? c->cops->id : "", sizeof s.controller_id);
@@ -3037,8 +3022,9 @@ bool pf_control_recover(pf_control *c, const char *json, double now)
 	if (pf_json_int(o, "recoveries", 0) >= 1) refuse = "Repeated restarts during the cook";
 	/* 2. A light that was never confirmed. The pot may be full of pellets that did not catch;
 	 * lighting it again is how a grill flares. Smart Start's rule, applied to a restart. */
-	else if (m == PF_MODE_STARTUP && pf_json_bool(o, "coldstart_active", false) && !pf_json_bool(o, "coldstart_reached", false))
-		refuse = "Restart during ignition before the fire was confirmed";
+	else if (m == PF_MODE_STARTUP && ((pf_json_bool(o, "ss_active", false) && !pf_json_bool(o, "ss_proven", false)) ||
+	                                  (pf_json_bool(o, "coldstart_active", false) && !pf_json_bool(o, "coldstart_reached", false))))
+		refuse = "Restart during ignition before the fire was proven";
 	/* 3. A tuning run is not a cook to resume: it said to leave the grill empty, and nobody is
 	 * waiting on it. It is put out instead (below). */
 	else if (pf_tuner_was_interrupted()) {
@@ -3097,9 +3083,8 @@ bool pf_control_recover(pf_control *c, const char *json, double now)
 		c->next_mode = nm >= 0 ? (pf_mode)nm : PF_MODE_SMOKE;
 		enter_mode(c, PF_MODE_STARTUP, now);
 	} else {
-		/* it was cooking: relight for the configured time, then back to the mode it was in */
+		/* it was cooking: relight through Smart Start, then back to the mode it was in */
 		c->safety.reignite_last = m == PF_MODE_REIGNITE ? (nm == PF_MODE_HOLD ? PF_MODE_HOLD : PF_MODE_SMOKE) : (pf_mode)m;
-		c->recover_ignite_s = c->cfg.power_loss_igniter_s > 0 ? c->cfg.power_loss_igniter_s : 180;
 		enter_mode(c, PF_MODE_REIGNITE, now);
 	}
 	if (csw > 0) c->cook_start_wall = csw;
@@ -3109,10 +3094,10 @@ bool pf_control_recover(pf_control *c, const char *json, double now)
 	{
 		char msg[240];
 		if (c->restart_reason[0]) snprintf(msg, sizeof msg, "%s · Down %.0f s · Relighting, then %s", c->restart_reason, age, pf_mode_name(c->safety.reignite_last));
-		else snprintf(msg, sizeof msg, "Power lost %.0f s · Relighting %.0f s, then %s", age, c->startup_duration_s, pf_mode_name(c->safety.reignite_last));
+		else snprintf(msg, sizeof msg, "Power lost %.0f s · Relighting, then %s", age, pf_mode_name(c->safety.reignite_last));
 		event(PF_LVL_WARN, "W12_POWER_LOSS", msg);
 	}
-	LOGW(TAG, "power loss of %.0f s: relighting for %.0f s, then %s", age, c->startup_duration_s, pf_mode_name(c->safety.reignite_last));
+	LOGW(TAG, "power loss of %.0f s: relighting, then %s", age, pf_mode_name(c->safety.reignite_last));
 	cJSON_Delete(o);
 	return true;
 }
@@ -3134,13 +3119,13 @@ void pf_control_step(pf_control *c, double now)
 			pf_events_emit("E01_OVERTEMP_IDLE", "Over Temperature", "Pit %.0f with the grill in %s. Keep the lid closed.", pf_from_c(c->pit_c, c->cfg.units), pf_mode_name(c->mode));
 		} else if (c->pit_c < c->cfg.max_temp_c - pf_delta_to_c(20, PF_UNITS_F)) c->safety.stop_overtemp_said = false;
 	}
-	/* The set point never reaches the overtemperature limit, whoever set it -- the app, a recipe, the
-	 * tuner, keep-warm. A target the limit sits under is a guaranteed shutdown on the way to it. */
-	{
-		double top = c->cfg.max_temp_c - pf_delta_to_c(25, PF_UNITS_F);
-		if (c->setpoint_c > top && top > 0) {
-			LOGW(TAG, "set point %.0f C is above the limit; held to %.0f C", c->setpoint_c, top);
-			c->setpoint_c = top;
+	/* The set point stays within the targets the grill accepts, whoever set it -- the app, a recipe,
+	 * the tuner, keep-warm. The API refuses one outside them; this is the backstop for the rest. */
+	if (c->setpoint_c > 0) {
+		double sp = pf_clamp(c->setpoint_c, c->cfg.min_target_c, c->cfg.max_target_c);
+		if (fabs(sp - c->setpoint_c) > 0.01) {
+			LOGW(TAG, "set point %.0f C is outside %.0f-%.0f C; held to %.0f C", c->setpoint_c, c->cfg.min_target_c, c->cfg.max_target_c, sp);
+			c->setpoint_c = sp;
 		}
 	}
 	run_notify(c, now);

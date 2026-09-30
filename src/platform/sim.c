@@ -41,6 +41,7 @@ void pf_sim_reset(double ambient_c)
 	pf_sim_state *m = g_model;
 	memset(m, 0, sizeof *m);
 	m->ambient_c = ambient_c;
+	m->igniter_heat_c = IGNITER_HEAT_C;
 	m->time_scale = 1;
 	m->pit_c = ambient_c;
 	for (int i = 0; i < 3; i++) m->food_c[i] = ambient_c;
@@ -95,7 +96,7 @@ void pf_sim_step(double dt)
 	 * absolute temperature. That second term is why a pellet grill needs far more fuel per degree
 	 * at 450 F than at 180 F, and why one proportional band cannot suit the whole range. */
 	double gain = GAIN_C_PER_GPS * (1.0 - 0.35 * m->wind) * (m->lid_open ? LID_LOSS_FACTOR : 1.0);
-	double t_eq = m->ambient_c + equilibrium_rise(gain * burn, m->ambient_c) + (m->out[PF_OUT_IGNITER] ? IGNITER_HEAT_C : 0);
+	double t_eq = m->ambient_c + equilibrium_rise(gain * burn, m->ambient_c) + (m->out[PF_OUT_IGNITER] ? m->igniter_heat_c : 0);
 
 	/* dead time: push t_eq through a short delay line, then first-order lag */
 	double slot = DEAD_TIME_S / 8.0;

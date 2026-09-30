@@ -103,7 +103,7 @@ export const ICONS = {
  * far as anyone glancing at it is concerned. */
 export const MODE_ICON = {
   Stop: 'square', Monitor: 'glasses', Prime: 'chevrons-right',
-  Startup: 'flame', Reignite: 'flame',
+  Startup: 'flame', Relight: 'flame',
   Smoke: 'cloud', Hold: 'crosshair', Shutdown: 'flag-checkered',   /* the chequered flag is the graceful stop, everywhere; the square is the immediate one */
   Manual: 'sliders-horizontal', Error: 'triangle-alert', Tuning: 'activity',
   /* A recipe holding for the cook to do something: the hand, not the mode it happens to be in. */

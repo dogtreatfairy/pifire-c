@@ -13,6 +13,7 @@
 #include "platform/sim.h"
 #include "probes/probes.h"
 #include "probes/registry.h"
+#include "features/learning.h"
 #include "unity.h"
 #include <sqlite3.h>
 #include <math.h>
@@ -38,6 +39,25 @@ static void tick(double dt)
 	}
 }
 
+/* tick until the grill is in `m`, or `max_s` has passed; the seconds it took */
+static double until_mode(pf_mode m, double max_s)
+{
+	double t = 0;
+	while (ctrl.mode != m && t < max_s) { tick(1); t += 1; }
+	return t;
+}
+
+/* Ryan's grill as fitted from his cook files: a time constant near 1470 s and a dead time near 90 s.
+ * The default plant cools four or five times faster than any real barrel can with the fire out, so
+ * fast that the lid recognition reads it as the lid; a flame-out is judged on the real one. */
+static void real_plant(void) { pf_sim_set_plant(1471, 89); }
+
+/* keep the fire out and the pot empty for `dt` seconds */
+static void dead_pot(double dt)
+{
+	for (double t = 0; t < dt; t += 1) { pf_sim_model()->fire_lit = false; pf_sim_model()->pot_pellets_g = 0; tick(1); }
+}
+
 void setUp(void)
 {
 	snprintf(cfg_path, sizeof cfg_path, "/tmp/pf_simcook_%d.json", (int)getpid());
@@ -45,7 +65,7 @@ void setUp(void)
 	unlink(cfg_path); unlink(db_path);
 	TEST_ASSERT_EQUAL_INT(0, pf_settings_init(cfg_path));
 	pf_settings_force_sim();
-	pf_settings_patch("startup", "{\"smartstart\":{\"enabled\":false},\"startup_exit_temp\":0,\"start_to_mode\":{\"after_startup_mode\":\"Smoke\",\"primary_setpoint\":165}}", NULL, 0);
+	pf_settings_patch("startup", "{\"start_to_mode\":{\"after_startup_mode\":\"Smoke\",\"primary_setpoint\":165}}", NULL, 0);
 	TEST_ASSERT_EQUAL_INT(0, pf_db_open(db_path));
 	pf_controllers_init(NULL);
 	pf_probe_drivers_init(NULL);
@@ -63,6 +83,7 @@ void setUp(void)
 
 void tearDown(void)
 {
+	pf_sim_set_plant(240.0, 45.0);   /* the default plant for the next test */
 	pf_control_shutdown(&ctrl);
 	pf_probes_shutdown();
 	pf_outputs_shutdown();
@@ -190,11 +211,11 @@ static void test_overtemp_with_a_falling_pit_keeps_the_fan(void)
 {
 	pf_cmd_mode(PF_MODE_HOLD, 225);
 	tick(250 + 10 * 60);
-	pf_sim_model()->pit_c = pf_f_to_c(560);
+	pf_sim_model()->pit_c = pf_f_to_c(660);
 	for (int i = 0; i < 8; i++) pf_sim_model()->delay[i] = pf_sim_model()->pit_c;
 	for (int i = 0; i < 30 && ctrl.mode != PF_MODE_ERROR; i++) tick(1);
 	TEST_ASSERT_EQUAL(PF_MODE_ERROR, ctrl.mode);
-	pf_sim_model()->pit_c = pf_f_to_c(500);
+	pf_sim_model()->pit_c = pf_f_to_c(600);
 	for (int i = 0; i < 8; i++) pf_sim_model()->delay[i] = pf_sim_model()->pit_c;
 	tick(20);
 	TEST_ASSERT_TRUE_MESSAGE(pf_outputs_get(PF_OUT_FAN), "falling pit: cool-down fan runs");
@@ -203,33 +224,40 @@ static void test_overtemp_with_a_falling_pit_keeps_the_fan(void)
 
 /* ---- the safety audit's findings, each proven ---- */
 
-/* Fuel without heat: the fire goes out mid-Hold and stays out. The grill must stop feeding and
- * call it a flame-out long before the old checks would have -- which waited twenty to forty
- * minutes, feeding all the while. */
+/* The fire goes out mid-Hold and stays out. Twenty degrees under the set point is a flame-out and
+ * is relit; the relight that does not catch is a failed start, and the grill stops. */
 static void test_a_dead_pot_is_not_fed_for_long(void)
 {
+	real_plant();
 	pf_cmd_mode(PF_MODE_HOLD, 225);
-	tick(250 + 30 * 60);
+	until_mode(PF_MODE_HOLD, 900);
+	tick(30 * 60);
 	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
-	double fed0 = ctrl.auger_total_on_s, fed_at = -1;
-	int t = 0, t_at = -1;
-	for (; t < 30 * 60 && ctrl.mode != PF_MODE_ERROR; t += 5) {
-		pf_sim_model()->fire_lit = false; pf_sim_model()->pot_pellets_g = 0;
-		tick(5);
-		if (fed_at < 0 && ctrl.safety.relight_active) { fed_at = ctrl.auger_total_on_s; t_at = t; }
-	}
-	TEST_ASSERT_TRUE_MESSAGE(fed_at >= 0, "the twenty-degree drop should have started the relight");
-	double before_g = (fed_at - fed0) * ctrl.cfg.augerrate, after_g = (ctrl.auger_total_on_s - fed_at) * ctrl.cfg.augerrate;
-	printf("dead pot: relight at %d s after %.0f g; %s at %d s after %.0f g more\n",
-	       t_at, before_g, ctrl.safety.error_code, t, after_g);
+	TEST_ASSERT_TRUE(ctrl.target_reached);
+	double sp = ctrl.setpoint_c;
+	/* the fire goes out for good: the twenty-degree drop is a flame-out, and it is relit */
+	int t = 0;
+	while (ctrl.mode == PF_MODE_HOLD && t < 30 * 60) { dead_pot(5); t += 5; }
+	double fell_f = pf_delta_from_c(sp - ctrl.pit_c, PF_UNITS_F);
+	printf("dead pot: Relight after %d s, %.1f F below the set point\n", t, fell_f);
+	TEST_ASSERT_EQUAL_MESSAGE(PF_MODE_REIGNITE, ctrl.mode, "a twenty-degree drop is relit");
+	TEST_ASSERT_TRUE(fell_f >= 19 && fell_f < 23);
+	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_IGNITER));
+	/* the relight does not catch: no rise in its time is a failed start, and the grill stops */
+	double fed0 = ctrl.auger_total_on_s;
+	int r = 0;
+	while (ctrl.mode == PF_MODE_REIGNITE && r < 15 * 60) { dead_pot(5); r += 5; }
+	double on = ctrl.cfg.ss_prof[ctrl.ss_profile].augerontime, off = ctrl.cfg.smoke_off_s + ctrl.cfg.ss_prof[ctrl.ss_profile].p_mode * 10;
+	double duty = (ctrl.auger_total_on_s - fed0) / (double)r;
+	double hold = pf_learning_uff(sp, ctrl.ambient_c, ctrl.cfg.u_min, ctrl.cfg.u_max, NULL);   /* the most it can be: fed for below the set point */
+	printf("dead pot: %s after %d s of Relight, auger duty %.2f against the startup feed's %.2f and the holding rate's %.2f\n",
+	       ctrl.safety.error_code, r, duty, on / (on + off), hold);
 	TEST_ASSERT_EQUAL(PF_MODE_ERROR, ctrl.mode);
-	/* Past the drop it is fed as a startup is, through the relight and the re-ignite, not at the
-	 * controller's full feed. Judged as a duty, so it holds for any auger and any pot. */
-	double on = ctrl.cfg.smoke_on_s, off = ctrl.cfg.smoke_off_s + ctrl.cfg.pmode * 10;
-	double duty = (ctrl.auger_total_on_s - fed_at) / (double)(t - t_at);
-	printf("dead pot: auger duty after the drop %.2f against the startup cycle's %.2f\n", duty, on / (on + off));
-	TEST_ASSERT_TRUE_MESSAGE(duty <= on / (on + off) + 0.05, "fed no faster than a startup after the drop");
+	TEST_ASSERT_EQUAL_STRING("E04_STARTUP_FAILED", ctrl.safety.error_code);
+	TEST_ASSERT_TRUE_MESSAGE(r <= ctrl.cfg.ss_prove_s + 5, "within the Smart Start time");
+	TEST_ASSERT_TRUE_MESSAGE(duty <= fmax(on / (on + off), hold) + 0.05, "fed no faster than the holding rate");
 	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_AUGER));
+	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_IGNITER));
 }
 
 /* A fire that dies before the pit has reached its set point is caught by the same rule, measured
@@ -237,16 +265,16 @@ static void test_a_dead_pot_is_not_fed_for_long(void)
 static void test_a_fire_lost_on_the_way_up_is_caught_at_the_drop(void)
 {
 	pf_cmd_mode(PF_MODE_HOLD, 450);
-	tick(250 + 5 * 60);
+	until_mode(PF_MODE_HOLD, 900);
+	tick(4 * 60);
 	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
 	TEST_ASSERT_FALSE_MESSAGE(ctrl.target_reached, "still climbing");
-	pf_sim_model()->fire_lit = false; pf_sim_model()->pot_pellets_g = 0;
+	double peak = ctrl.safety.peak_c;
 	int t = 0;
-	while (!ctrl.safety.relight_active && t < 30 * 60 && ctrl.mode == PF_MODE_HOLD) { tick(5); t += 5; }
-	double fell_f = pf_delta_from_c(ctrl.safety.hold_peak_c - ctrl.pit_c, PF_UNITS_F);
-	printf("on the way up: relight after %d s, %.1f F below a peak of %.0f F\n", t, fell_f, pf_from_c(ctrl.safety.hold_peak_c, PF_UNITS_F));
-	TEST_ASSERT_TRUE_MESSAGE(ctrl.safety.relight_active, "a climbing pit falling back from its peak is a fire going out");
-	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_IGNITER));
+	while (ctrl.mode == PF_MODE_HOLD && t < 30 * 60) { dead_pot(5); t += 5; if (ctrl.safety.peak_c > peak) peak = ctrl.safety.peak_c; }
+	double fell_f = pf_delta_from_c(peak - ctrl.pit_c, PF_UNITS_F);
+	printf("on the way up: Relight after %d s, %.1f F below a peak of %.0f F\n", t, fell_f, pf_from_c(peak, PF_UNITS_F));
+	TEST_ASSERT_EQUAL_MESSAGE(PF_MODE_REIGNITE, ctrl.mode, "a climbing pit falling back from its peak is a flame-out");
 	TEST_ASSERT_TRUE(fell_f >= 19 && fell_f < 25);
 }
 
@@ -291,13 +319,17 @@ static void test_a_set_point_cannot_reach_the_limit(void)
 {
 	pf_cmd_mode(PF_MODE_HOLD, 900);
 	tick(3);
-	TEST_ASSERT_TRUE(ctrl.setpoint_c <= ctrl.cfg.max_temp_c - pf_delta_to_c(25, PF_UNITS_F) + 0.01);
+	TEST_ASSERT_DOUBLE_WITHIN(0.1, pf_f_to_c(550), ctrl.setpoint_c);
+	pf_cmd c = { .type = PF_CMD_SETPOINT, .num = 120 };
+	pf_cmdq_push(&c);
+	tick(1);
+	TEST_ASSERT_DOUBLE_WITHIN(0.1, pf_f_to_c(160), ctrl.setpoint_c);
 }
 
 /* Recovery is once per cook, and never for a light that was not confirmed. */
 static void test_recovery_is_refused_when_it_is_not_safe(void)
 {
-	pf_settings_patch("safety", "{\"power_loss\":{\"recovery\":true,\"max_s\":300,\"igniter_s\":180}}", NULL, 0);
+	pf_settings_patch("safety", "{\"power_loss\":{\"recovery\":true,\"max_s\":300}}", NULL, 0);
 	pf_control_shutdown(&ctrl);
 	pf_control_init(&ctrl, true);
 	tick(2);
@@ -329,30 +361,38 @@ static void test_a_stop_request_ends_a_recipe(void)
 /* Smoke has no relight assist: it feeds at the startup rate already, and the floor stops a dead pot. */
 static void test_a_dead_pot_in_smoke_is_caught(void)
 {
+	real_plant();
 	pf_cmd_mode(PF_MODE_SMOKE, 0);
-	tick(250 + 20 * 60);
+	until_mode(PF_MODE_SMOKE, 900);
+	tick(20 * 60);
 	TEST_ASSERT_EQUAL(PF_MODE_SMOKE, ctrl.mode);
-	double fed0 = ctrl.auger_total_on_s;
 	int t = 0;
-	for (; t < 90 * 60 && ctrl.mode != PF_MODE_ERROR; t += 5) { pf_sim_model()->fire_lit = false; pf_sim_model()->pot_pellets_g = 0; tick(5); }
-	double fed_g = (ctrl.auger_total_on_s - fed0) * ctrl.cfg.augerrate;
-	printf("dead pot in smoke: %s after %d s, %.0f g fed\n", ctrl.safety.error_code, t, fed_g);
+	while (ctrl.mode == PF_MODE_SMOKE && t < 90 * 60) { dead_pot(5); t += 5; }
+	printf("dead pot in smoke: %s after %d s at pit %.0f F\n", pf_mode_name(ctrl.mode), t, pf_from_c(ctrl.pit_c, PF_UNITS_F));
+	TEST_ASSERT_EQUAL(PF_MODE_REIGNITE, ctrl.mode);
+	int r = 0;
+	while (ctrl.mode == PF_MODE_REIGNITE && r < 15 * 60) { dead_pot(5); r += 5; }
 	TEST_ASSERT_EQUAL(PF_MODE_ERROR, ctrl.mode);
+	TEST_ASSERT_EQUAL_STRING("E04_STARTUP_FAILED", ctrl.safety.error_code);
 }
 
 static void test_overtemp_errors(void)
 {
 	pf_cmd_mode(PF_MODE_HOLD, 225);
 	tick(250 + 10 * 60);
-	pf_sim_model()->pit_c = pf_f_to_c(600);
+	pf_sim_model()->pit_c = pf_f_to_c(660);
 	for (int i = 0; i < 8; i++) pf_sim_model()->delay[i] = pf_sim_model()->pit_c;
 	tick(15);
 	TEST_ASSERT_EQUAL(PF_MODE_ERROR, ctrl.mode);
 	TEST_ASSERT_EQUAL_STRING("E01_OVERTEMP", ctrl.safety.error_code);
+	TEST_ASSERT_EQUAL_STRING("Overheat: pit 660°F, limit 650°F", ctrl.safety.error_msg);
 	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_AUGER));
 	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_IGNITER));
-	/* the pit went on climbing after the error (600 F against a trip at 563 F): a fan now would be
-	 * feeding a fire, so the cool-down stops */
+	TEST_ASSERT_TRUE_MESSAGE(pf_outputs_get(PF_OUT_FAN), "the cool-down fan runs");
+	/* the pit goes on climbing after the error: a fan now would be feeding a fire, so it stops */
+	pf_sim_model()->pit_c = pf_f_to_c(690);
+	for (int i = 0; i < 8; i++) pf_sim_model()->delay[i] = pf_sim_model()->pit_c;
+	tick(15);
 	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_FAN));
 	/* only Stop is accepted */
 	pf_cmd_mode(PF_MODE_HOLD, 225);
@@ -401,153 +441,166 @@ static void test_stop_records_nothing(void)
 	tick(10);
 }
 
-/* The pit falling away from a set point it was holding is a fire that is failing. The igniter is
-   the cheap answer, and it goes on long before the grill has cooled far enough for the old fixed
-   floor to call it a flame-out. It comes off again once the pit has climbed back from its lowest
-   point, which is the evidence the fire has taken rather than that the igniter is warming the pot. */
+/* A flame-out in Hold -- the pit twenty degrees under its set point -- is relit through the Smart
+   Start sequence, once per cook by default; the next one stops the grill. */
 static void test_flameout_protection_lights_the_igniter_and_recovers(void)
 {
-	pf_settings_patch("safety", "{\"relight_enabled\":true,\"relight_drop\":20,\"relight_recover\":10}", NULL, 0);
-	pf_control_reload_settings(&ctrl);
+	real_plant();
 	pf_cmd_mode(PF_MODE_HOLD, 225);
-	tick(250 + 20 * 60);
-	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	until_mode(PF_MODE_HOLD, 900);
+	tick(20 * 60);
 	TEST_ASSERT_TRUE(ctrl.target_reached);
 	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_IGNITER));
-
-	/* the fire goes out with the grill sitting on its target */
+	/* the fire goes out with the grill on its target; the pot empties */
 	pf_sim_model()->fire_lit = false;
 	pf_sim_model()->pot_pellets_g = 0;
-	double t = 0;
-	while (!ctrl.safety.relight_active && t < 30 * 60) { tick(5); t += 5; }
-	printf("relight after %.0f s at pit %.1f C (set point %.1f C)\n", t, ctrl.pit_c, ctrl.setpoint_c);
-	TEST_ASSERT_TRUE_MESSAGE(ctrl.safety.relight_active, "a pit falling away from its target should light the igniter");
-	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_IGNITER));
-	TEST_ASSERT_EQUAL_MESSAGE(PF_MODE_HOLD, ctrl.mode, "it stays in Hold: this is a rescue, not a restart");
-	/* it triggered on the way down, so the drop should be about the configured twenty degrees */
-	TEST_ASSERT_TRUE(pf_delta_from_c(ctrl.setpoint_c - ctrl.pit_c, PF_UNITS_F) >= 19);
-
-	/* the fire catches: once the pit is back up from its low, the igniter is no longer needed */
-	double low = ctrl.safety.relight_low_c;
-	t = 0;
-	while (ctrl.safety.relight_active && t < 20 * 60) { tick(5); t += 5; }
-	printf("igniter off after %.0f s, pit %.1f C from a low of %.1f C\n", t, ctrl.pit_c, low);
-	TEST_ASSERT_FALSE_MESSAGE(ctrl.safety.relight_active, "the igniter should not stay on once the fire has taken");
-	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
-}
-
-/* Lowering the set point a long way makes the grill starve the fire on purpose and coast down, and
-   that coast is exactly when a fire dies -- by the end of it there may be nothing left to catch.
-   Waiting for another twenty degrees of undershoot would mean waiting through the most dangerous
-   part of it, so the igniter goes on the moment the pit crosses the new set point on the way down,
-   and comes off once the pit has stopped falling and climbed back. */
-static void test_a_big_step_down_lights_the_igniter_at_the_crossing(void)
-{
-	pf_settings_patch("safety", "{\"relight_enabled\":true,\"relight_drop\":20,\"relight_recover\":10,\"relight_recover_step\":3}", NULL, 0);
-	pf_control_reload_settings(&ctrl);
-	pf_cmd_mode(PF_MODE_HOLD, 300);
-	tick(250 + 25 * 60);
-	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
-	TEST_ASSERT_TRUE(ctrl.target_reached);
-	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_IGNITER));
-
-	/* down a long way: the grill stops feeding and the barrel coasts */
-	{ pf_cmd sp = { .type = PF_CMD_SETPOINT, .num = 225 }; pf_cmdq_push(&sp); }
-	tick(5);
-	TEST_ASSERT_TRUE_MESSAGE(ctrl.safety.stepdown_armed, "a big step down should arm the coast watch");
-	TEST_ASSERT_FALSE_MESSAGE(pf_outputs_get(PF_OUT_IGNITER), "nothing to do while the pit is still above the target");
-
-	/* nothing happens on the way down until the pit reaches the new set point */
-	double t = 0;
-	while (!ctrl.safety.relight_active && t < 90 * 60) { tick(5); t += 5; }
-	printf("step-down: igniter at pit %.1f F, set point %.1f F, after %.0f s\n",
-	       pf_from_c(ctrl.pit_c, PF_UNITS_F), pf_from_c(ctrl.setpoint_c, PF_UNITS_F), t);
-	TEST_ASSERT_TRUE_MESSAGE(ctrl.safety.relight_active, "crossing the lowered set point should light the igniter");
-	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_IGNITER));
-	/* it fired at the crossing, not twenty degrees below it */
-	double below_f = pf_from_c(ctrl.setpoint_c, PF_UNITS_F) - pf_from_c(ctrl.pit_c, PF_UNITS_F);
-	printf("step-down: fired %.1f F below the new set point\n", below_f);
-	TEST_ASSERT_TRUE_MESSAGE(below_f < 10, "it should fire at the crossing, not after a long undershoot");
-	TEST_ASSERT_EQUAL_MESSAGE(PF_MODE_HOLD, ctrl.mode, "coasting to a lower target is not a flame-out");
-
-	/* The pit keeps falling for a while with the igniter on, so the low it is judged against is
-	   the bottom of the dip and not where it was when the igniter came on. */
-	t = 0;
-	while (ctrl.safety.relight_active && t < 30 * 60) { tick(5); t += 5; }
-	double low_f = pf_from_c(ctrl.safety.relight_low_c, PF_UNITS_F), now_f = pf_from_c(ctrl.pit_c, PF_UNITS_F);
-	printf("step-down: igniter off after %.0f s, pit %.1f F from a low of %.1f F (rise %.1f F)\n",
-	       t, now_f, low_f, now_f - low_f);
-	TEST_ASSERT_FALSE_MESSAGE(ctrl.safety.relight_active, "once the pit is climbing again the igniter is not needed");
-	/* Coasting down the fire was starved rather than lost, so the question is only whether the pit
-	   has turned around. A few degrees answers it; demanding the full ten would hold the igniter on
-	   well past the point where the grill is plainly recovering. */
-	TEST_ASSERT_TRUE_MESSAGE(now_f - low_f >= 2.5, "it should wait for a real turnaround");
-	TEST_ASSERT_TRUE_MESSAGE(now_f - low_f < 8, "a level change should not need a full relight's worth of rise");
-	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
-}
-
-/* The hard floor is the last word, and it is what the assist hands over to. With the assist off,
-   this is the original path: the fire is out, the grill re-ignites, and a second failure errors. */
-static void test_flameout_reignites_then_errors(void)
-{
-	pf_settings_patch("safety", "{\"relight_enabled\":false}", NULL, 0);
-	pf_control_reload_settings(&ctrl);
-	pf_cmd_mode(PF_MODE_HOLD, 225);
-	tick(250 + 20 * 60);
-	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
-	/* fire dies: empty the pot and put the fire out */
-	pf_sim_model()->fire_lit = false;
-	pf_sim_model()->pot_pellets_g = 0;
-	/* pellets that arrive can't relight without the igniter */
-	double t = 0;
-	while (ctrl.mode == PF_MODE_HOLD && t < 40 * 60) { tick(10); t += 10; pf_sim_model()->fire_lit = false; }
+	double t = until_mode(PF_MODE_REIGNITE, 30 * 60);
+	printf("relight after %.0f s at pit %.1f F\n", t, pf_from_c(ctrl.pit_c, PF_UNITS_F));
 	TEST_ASSERT_EQUAL(PF_MODE_REIGNITE, ctrl.mode);
 	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_IGNITER));
-	/* let reignite succeed normally */
-	tick(250);
+	TEST_ASSERT_TRUE(ctrl.safety.ss_active);
+	/* the Relight runs Smart Start: the pellets it feeds catch, the rise proves it, and the grill
+	 * goes back to Hold at the same set point, heating */
+	t = until_mode(PF_MODE_HOLD, 15 * 60);
+	printf("back in Hold after %.0f s of Relight\n", t);
 	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	TEST_ASSERT_DOUBLE_WITHIN(0.1, pf_f_to_c(225), ctrl.setpoint_c);
+	TEST_ASSERT_TRUE(ctrl.safety.heating);
 	TEST_ASSERT_EQUAL_INT(0, ctrl.safety.reignite_retries_left);
-	/* second flame-out -> error */
+	/* a second flame-out in the cook has no relight left: the grill stops */
+	tick(20 * 60);
 	pf_sim_model()->fire_lit = false;
 	pf_sim_model()->pot_pellets_g = 0;
-	t = 0;
-	while (ctrl.mode == PF_MODE_HOLD && t < 40 * 60) { tick(10); t += 10; pf_sim_model()->fire_lit = false; }
+	int k = 0;
+	while (ctrl.mode == PF_MODE_HOLD && k < 40 * 60) { dead_pot(5); k += 5; }
 	TEST_ASSERT_EQUAL(PF_MODE_ERROR, ctrl.mode);
 	TEST_ASSERT_EQUAL_STRING("E02_FLAMEOUT", ctrl.safety.error_code);
 }
 
+/* Lowering the set point makes the grill starve the fire and coast, and a starved fire and a dead
+   one cool alike, so the fire is proven where it can be: when the pit reaches the new set point the
+   igniter runs for the proving time while the controller brings the feed back. */
+static void test_a_big_step_down_lights_the_igniter_at_the_crossing(void)
+{
+	pf_cmd_mode(PF_MODE_HOLD, 300);
+	until_mode(PF_MODE_HOLD, 900);
+	tick(25 * 60);
+	TEST_ASSERT_TRUE(ctrl.target_reached);
+	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_IGNITER));
+	{ pf_cmd sp = { .type = PF_CMD_SETPOINT, .num = 225 }; pf_cmdq_push(&sp); }
+	tick(5);
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.safety.stepdown_armed, "a lower set point with the pit above it arms the proof");
+	TEST_ASSERT_FALSE_MESSAGE(pf_outputs_get(PF_OUT_IGNITER), "nothing while the pit coasts down");
+	double t = 0;
+	while (!ctrl.safety.proving && t < 90 * 60) { tick(1); t += 1; }
+	double below_f = pf_from_c(ctrl.setpoint_c, PF_UNITS_F) - pf_from_c(ctrl.pit_c, PF_UNITS_F);
+	printf("step-down: igniter on after %.0f s, %.1f F below the new set point\n", t, below_f);
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.safety.proving, "reaching the lowered set point starts the proof");
+	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_IGNITER));
+	TEST_ASSERT_TRUE_MESSAGE(below_f < 2, "at the set point, not after an undershoot");
+	/* the igniter runs its proving time and goes off; the grill holds the new set point */
+	tick(ctrl.cfg.relight_prove_s - 5);
+	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_IGNITER));
+	tick(10);
+	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_IGNITER));
+	TEST_ASSERT_FALSE(ctrl.safety.proving);
+	tick(30 * 60);
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	TEST_ASSERT_DOUBLE_WITHIN(8.0, pf_f_to_c(225), ctrl.pit_c);
+}
+
+/* With relighting switched off, a flame-out stops the grill instead. */
+static void test_flameout_reignites_then_errors(void)
+{
+	real_plant();
+	pf_settings_patch("safety", "{\"relight_enabled\":false}", NULL, 0);
+	pf_control_reload_settings(&ctrl);
+	pf_cmd_mode(PF_MODE_HOLD, 225);
+	until_mode(PF_MODE_HOLD, 900);
+	tick(20 * 60);
+	int t = 0;
+	while (ctrl.mode == PF_MODE_HOLD && t < 40 * 60) { dead_pot(5); t += 5; }
+	TEST_ASSERT_EQUAL(PF_MODE_ERROR, ctrl.mode);
+	TEST_ASSERT_EQUAL_STRING("E02_FLAMEOUT", ctrl.safety.error_code);
+	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_IGNITER));
+	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_AUGER));
+}
+
 static void test_coldstart_winter(void)
 {
-	pf_settings_patch("safety", "{\"coldstart\":{\"enabled\":true,\"delta_rise\":12,\"timeout_s\":300,\"baseline_window_s\":60}}", NULL, 0);
-	pf_control_reload_settings(&ctrl);
-	pf_sim_reset(-5.0); /* 23 F ambient, below minstartuptemp */
-	tick(15);           /* let the probe filter settle on the cold reading */
+	pf_sim_reset(-5.0); /* 23 F */
+	tick(15);
 	pf_cmd_mode(PF_MODE_HOLD, 225);
 	tick(1);
 	TEST_ASSERT_EQUAL(PF_MODE_STARTUP, ctrl.mode);
-	TEST_ASSERT_TRUE(ctrl.safety.coldstart_active);
-	TEST_ASSERT_DOUBLE_WITHIN(1.5, -5.0, ctrl.safety.baseline_c);
-	tick(320);
-	TEST_ASSERT_TRUE(ctrl.safety.coldstart_reached || ctrl.mode == PF_MODE_HOLD);
+	TEST_ASSERT_TRUE(ctrl.safety.ss_active);
+	double t = 0;
+	while (!ctrl.safety.ss_proven && t < 400) { tick(1); t += 1; }
+	double low = ctrl.safety.ss_baseline_c;
+	printf("winter: proven after %.0f s from a low of %.1f F\n", t, pf_from_c(low, PF_UNITS_F));
+	TEST_ASSERT_TRUE(ctrl.safety.ss_proven);
+	TEST_ASSERT_TRUE(t <= ctrl.cfg.ss_prove_s);
+	TEST_ASSERT_DOUBLE_WITHIN(1.5, -5.0, low);
+	/* startup ends at the exit rise, not on a timer */
+	t += until_mode(PF_MODE_HOLD, 400);
+	double rise_f = pf_delta_from_c(ctrl.safety.filt_c - low, PF_UNITS_F);
+	printf("winter: Hold after %.0f s, %.1f F over the low\n", t, rise_f);
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	TEST_ASSERT_TRUE(rise_f >= 12);
+	TEST_ASSERT_TRUE(ctrl.safety.heating);
+	/* Heating, then at temperature */
+	{
+		tick(2);
+		pf_status st; pf_status_get(&st);
+		cJSON *j = pf_status_to_json(&st, PF_UNITS_F);
+		TEST_ASSERT_TRUE(pf_json_bool(j, "heating.active", false));
+		TEST_ASSERT_EQUAL_STRING("Heating to 225°F", pf_json_str(j, "heating.text", ""));
+		cJSON_Delete(j);
+	}
 	tick(40 * 60);
 	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	TEST_ASSERT_FALSE(ctrl.safety.heating);
 	TEST_ASSERT_EQUAL_STRING("", ctrl.safety.error_code);
 	TEST_ASSERT_DOUBLE_WITHIN(10.0, pf_f_to_c(225), ctrl.pit_c);
-	/* ambient estimate came from the baseline */
 	TEST_ASSERT_DOUBLE_WITHIN(3.0, -5.0, ctrl.ambient_c);
 }
 
 static void test_coldstart_failure(void)
 {
-	pf_settings_patch("safety", "{\"reigniteretries\":0,\"coldstart\":{\"enabled\":true,\"delta_rise\":12,\"timeout_s\":180,\"baseline_window_s\":60}}", NULL, 0);
-	pf_control_reload_settings(&ctrl);
-	pf_sim_reset(-5.0);
+	/* the igniter's heat does not reach the probe, as on Ryan's grill: no rise at all */
+	pf_sim_reset(-34.0);   /* -30 F */
+	pf_sim_model()->igniter_heat_c = 0;
 	tick(3);
 	pf_cmd_mode(PF_MODE_HOLD, 225);
-	/* igniter never lights: keep the pot empty */
-	for (int i = 0; i < 40; i++) { tick(5); pf_sim_model()->pot_pellets_g = 0; pf_sim_model()->fire_lit = false; }
+	dead_pot(200);
+	TEST_ASSERT_EQUAL(PF_MODE_STARTUP, ctrl.mode);
+	/* a rise too small proves nothing */
+	pf_sim_model()->pit_c += pf_delta_to_c(2, PF_UNITS_F);
+	for (int i = 0; i < 8; i++) pf_sim_model()->delay[i] = pf_sim_model()->pit_c;
+	dead_pot(40);
+	TEST_ASSERT_FALSE(ctrl.safety.ss_proven);
+	dead_pot(70);
 	TEST_ASSERT_EQUAL(PF_MODE_ERROR, ctrl.mode);
 	TEST_ASSERT_EQUAL_STRING("E04_STARTUP_FAILED", ctrl.safety.error_code);
+	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_AUGER));
+}
+
+/* The worst case for the small rise: the igniter alone lifts the pit past it with nothing alight.
+ * The exit rise is what the igniter cannot fake, so a fire that never came is still a failed start,
+ * inside two Smart Start windows, and never handed to Hold. */
+static void test_the_igniter_alone_cannot_pass_smart_start(void)
+{
+	pf_sim_reset(10.0);
+	pf_sim_model()->igniter_heat_c = 6.0;
+	tick(3);
+	pf_cmd_mode(PF_MODE_HOLD, 225);
+	tick(1);
+	int t = 0;
+	while (ctrl.mode == PF_MODE_STARTUP && t < 15 * 60) { dead_pot(5); t += 5; }
+	printf("igniter only: %s after %d s (small rise %s)\n", pf_mode_name(ctrl.mode), t, ctrl.safety.ss_proven ? "seen" : "not seen");
+	TEST_ASSERT_EQUAL(PF_MODE_ERROR, ctrl.mode);
+	TEST_ASSERT_EQUAL_STRING("E04_STARTUP_FAILED", ctrl.safety.error_code);
+	TEST_ASSERT_TRUE(t <= 2 * ctrl.cfg.ss_prove_s + 10);
 }
 
 /* Smart Start with what ships: on, five minutes. A fire that never lights is still lighting at
@@ -555,6 +608,7 @@ static void test_coldstart_failure(void)
 static void test_smart_start_defaults_error_after_five_minutes(void)
 {
 	pf_sim_reset(10.0);
+	pf_sim_model()->igniter_heat_c = 0;
 	tick(3);
 	pf_cmd_mode(PF_MODE_HOLD, 225);
 	int t = 0;
@@ -564,6 +618,121 @@ static void test_smart_start_defaults_error_after_five_minutes(void)
 	TEST_ASSERT_EQUAL_MESSAGE(PF_MODE_ERROR, ctrl.mode, "no rise by 5 min: error");
 	TEST_ASSERT_EQUAL_STRING("E04_STARTUP_FAILED", ctrl.safety.error_code);
 	TEST_ASSERT_FALSE_MESSAGE(pf_outputs_get(PF_OUT_IGNITER), "and nothing is lit again");
+}
+
+/* Startup ended by hand on a pot that never lit: the pit never climbs, so nothing falls either. The
+ * heating watch is what catches it -- no gain in the Smart Start time below the minimum target is a
+ * failed start, not a relight of a pot full of pellets. */
+static void test_a_stalled_heat_up_is_a_failed_start(void)
+{
+	pf_sim_reset(10.0);
+	tick(3);
+	pf_cmd_mode(PF_MODE_HOLD, 225);
+	dead_pot(30);
+	pf_cmd skip = { .type = PF_CMD_MODE, .mode = PF_MODE_HOLD, .num = 225, .flag = true };
+	pf_cmdq_push(&skip);
+	dead_pot(2);
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	TEST_ASSERT_TRUE(ctrl.safety.heating);
+	int t = 0;
+	while (ctrl.mode == PF_MODE_HOLD && t < 20 * 60) { dead_pot(5); t += 5; }
+	printf("stalled heat-up: %s after %d s\n", ctrl.safety.error_code, t);
+	TEST_ASSERT_EQUAL(PF_MODE_ERROR, ctrl.mode);
+	TEST_ASSERT_EQUAL_STRING("E04_STARTUP_FAILED", ctrl.safety.error_code);
+	TEST_ASSERT_TRUE(t <= ctrl.cfg.ss_prove_s + 10);
+}
+
+/* -30 F outside, on Ryan's grill's own plant. Every Smart Start threshold is a rise over the grill's
+ * lowest reading, so the cold moves where it starts and nothing else: proven, handed over, heating,
+ * and never a failed start while the fire burns -- even where Smoke settles far under the minimum. */
+static void test_a_start_at_minus_thirty(void)
+{
+	real_plant();
+	pf_sim_reset(-34.4);   /* -30 F */
+	pf_sim_model()->igniter_heat_c = 0;
+	tick(15);
+	pf_cmd_mode(PF_MODE_HOLD, 225);
+	tick(1);
+	double t = 0;
+	while (!ctrl.safety.ss_proven && t < 400) { tick(1); t += 1; }
+	printf("-30 F: proven after %.0f s from %.1f F\n", t, pf_from_c(ctrl.safety.ss_baseline_c, PF_UNITS_F));
+	TEST_ASSERT_TRUE(ctrl.safety.ss_proven);
+	t += until_mode(PF_MODE_HOLD, 400);
+	printf("-30 F: Hold after %.0f s at %.1f F\n", t, pf_from_c(ctrl.pit_c, PF_UNITS_F));
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	tick(60 * 60);
+	printf("-30 F: an hour on, %s at %.0f F, error '%s'\n", pf_mode_name(ctrl.mode), pf_from_c(ctrl.pit_c, PF_UNITS_F), ctrl.safety.error_code);
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	TEST_ASSERT_EQUAL_STRING("", ctrl.safety.error_code);
+	TEST_ASSERT_TRUE(ctrl.safety.established);
+	/* Smoke at -30 F on the P-mode that suits a mild day cannot hold 180 F: that is a feed too low,
+	 * and the grill says so. Ryan's answer is the P-mode, turned down until Smoke sits above 180 F. */
+	pf_settings_patch("cycle_data", "{\"PMode\":0,\"SmokeOnCycleTime\":25}", NULL, 0);
+	pf_control_reload_settings(&ctrl);
+	pf_cmd_mode(PF_MODE_SMOKE, 0);
+	tick(60 * 60);
+	printf("-30 F: Smoke on P0 an hour on at %.0f F, %s %s\n", pf_from_c(ctrl.pit_c, PF_UNITS_F), pf_mode_name(ctrl.mode), ctrl.safety.error_msg);
+	TEST_ASSERT_EQUAL(PF_MODE_SMOKE, ctrl.mode);
+	TEST_ASSERT_TRUE(pf_from_c(ctrl.pit_c, PF_UNITS_F) >= 175);
+}
+
+/* Started again straight after a cook, with the barrel at 300 F: the pellets catch from the heat
+ * and hold the pit, which cannot show a rise on cue. The stopped fall proves it. */
+static void test_a_hot_restart_is_proven_by_the_stopped_fall(void)
+{
+	real_plant();
+	pf_cmd_mode(PF_MODE_HOLD, 300);
+	until_mode(PF_MODE_HOLD, 900);
+	tick(60 * 60);
+	pf_cmd_simple(PF_CMD_STOP);
+	tick(20);
+	double from = ctrl.pit_c;
+	pf_cmd_mode(PF_MODE_HOLD, 300);
+	tick(1);
+	TEST_ASSERT_EQUAL(PF_MODE_STARTUP, ctrl.mode);
+	double t = until_mode(PF_MODE_HOLD, 700);
+	printf("hot restart from %.0f F: Hold after %.0f s (%s)\n", pf_from_c(from, PF_UNITS_F), t, ctrl.safety.ss_held ? "held" : "rose");
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+}
+
+/* The same hot barrel with a dead pot and the igniter's heat reaching the probe: it keeps falling,
+ * so neither proof passes, and it is a failed start. */
+static void test_a_hot_dead_pot_is_not_proven(void)
+{
+	real_plant();
+	pf_cmd_mode(PF_MODE_HOLD, 300);
+	until_mode(PF_MODE_HOLD, 900);
+	tick(60 * 60);
+	pf_cmd_simple(PF_CMD_STOP);
+	tick(20);
+	pf_sim_model()->igniter_heat_c = 6.0;
+	pf_cmd_mode(PF_MODE_HOLD, 300);
+	tick(1);
+	int t = 0;
+	while (ctrl.mode == PF_MODE_STARTUP && t < 15 * 60) { dead_pot(5); t += 5; }
+	printf("hot dead pot: %s after %d s\n", pf_mode_name(ctrl.mode), t);
+	TEST_ASSERT_EQUAL(PF_MODE_ERROR, ctrl.mode);
+	TEST_ASSERT_EQUAL_STRING("E04_STARTUP_FAILED", ctrl.safety.error_code);
+}
+
+/* Smoke whose P-mode cannot hold 180 F: the pit comes down past it, and that is a flame-out or a
+ * feed too low. It is relit once, and when the relit fire still cannot climb the grill stops and
+ * says to lower the P-mode. */
+static void test_smoke_that_cannot_hold_180_is_stopped(void)
+{
+	real_plant();
+	pf_sim_reset(-34.4);
+	pf_settings_patch("cycle_data", "{\"PMode\":9}", NULL, 0);
+	pf_control_reload_settings(&ctrl);
+	pf_cmd_mode(PF_MODE_HOLD, 250);
+	until_mode(PF_MODE_HOLD, 900);
+	tick(60 * 60);
+	pf_cmd_mode(PF_MODE_SMOKE, 0);
+	int t = 0;
+	while (ctrl.mode != PF_MODE_ERROR && t < 4 * 3600) { tick(10); t += 10; }
+	printf("smoke on P9 at -30 F: %s after %d s: %s\n", pf_mode_name(ctrl.mode), t, ctrl.safety.error_msg);
+	TEST_ASSERT_EQUAL(PF_MODE_ERROR, ctrl.mode);
+	TEST_ASSERT_NOT_NULL(strstr(ctrl.safety.error_msg, "P-mode"));
 }
 
 static void test_manual_refused_and_override_expires(void)
@@ -650,7 +819,7 @@ static void test_power_loss_recovery(void)
 {
 	/* setUp has already built the controller; it reads the safety settings on init, so re-init
 	 * after patching them -- shutting the first one down, or the sanitiser calls it a leak */
-	pf_settings_patch("safety", "{\"power_loss\":{\"recovery\":true,\"max_s\":300,\"igniter_s\":180}}", NULL, 0);
+	pf_settings_patch("safety", "{\"power_loss\":{\"recovery\":true,\"max_s\":300}}", NULL, 0);
 	pf_control_shutdown(&ctrl);
 	pf_control_init(&ctrl, true);
 	pf_control_set_checkpoint_path(&ctrl, "/tmp/pf_test_checkpoint.json");
@@ -682,10 +851,10 @@ static void test_power_loss_recovery(void)
 		TEST_ASSERT_EQUAL_STRING(" · Cook resumed", pf_json_str(j, "restarted.resuming", ""));
 		cJSON_Delete(j);
 	}
-	TEST_ASSERT_DOUBLE_WITHIN(1, 180, ctrl.startup_duration_s);
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.safety.ss_active, "the relight runs Smart Start");
 	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.safety.reignite_last);
 	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_IGNITER));
-	tick(200);
+	until_mode(PF_MODE_HOLD, 600);
 	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
 	TEST_ASSERT_DOUBLE_WITHIN(0.5, pf_f_to_c(225), ctrl.setpoint_c);
 	free(soon);
@@ -853,6 +1022,12 @@ int main(void)
 	RUN_TEST(test_flameout_reignites_then_errors);
 	RUN_TEST(test_coldstart_winter);
 	RUN_TEST(test_coldstart_failure);
+	RUN_TEST(test_the_igniter_alone_cannot_pass_smart_start);
+	RUN_TEST(test_a_stalled_heat_up_is_a_failed_start);
+	RUN_TEST(test_a_start_at_minus_thirty);
+	RUN_TEST(test_a_hot_restart_is_proven_by_the_stopped_fall);
+	RUN_TEST(test_a_hot_dead_pot_is_not_proven);
+	RUN_TEST(test_smoke_that_cannot_hold_180_is_stopped);
 	RUN_TEST(test_smart_start_defaults_error_after_five_minutes);
 	RUN_TEST(test_manual_refused_and_override_expires);
 	RUN_TEST(test_warm_restart_resumes_hold);

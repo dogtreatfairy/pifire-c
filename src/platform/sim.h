@@ -7,6 +7,9 @@ typedef struct {
 	/* environment (settable) */
 	double ambient_c;
 	double wind;          /* 0..1 extra heat loss */
+	/* settled pit rise the igniter alone gives, with no fire: 6 C by default, a pessimistic figure
+	 * (on Ryan's grill the fan hid it entirely); 0 is a probe the igniter's heat never reaches */
+	double igniter_heat_c;
 	bool   lid_open;
 	double time_scale;    /* model seconds per real second when driven by the thread (default 1) */
 	/* outputs as last commanded */

@@ -94,6 +94,15 @@ static double query_num(const char *query, const char *key, double dflt)
 
 /* ---------------- commands ---------------- */
 
+/* A set point the grill will not take: outside safety.min_target..max_target (user units). */
+static bool setpoint_refused(double sp, char *err, size_t errn)
+{
+	double lo = pf_set_num("safety.min_target", 160), hi = pf_set_num("safety.max_target", 550);
+	if (sp >= lo && sp <= hi) return false;
+	snprintf(err, errn, "set point must be %.0f-%.0f°%s", lo, hi, pf_settings_units() == PF_UNITS_C ? "C" : "F");
+	return true;
+}
+
 int pf_api_command_json(const char *json, char *err, size_t errn)
 {
 	cJSON *j = cJSON_Parse(json);
@@ -106,10 +115,12 @@ int pf_api_command_json(const char *json, char *err, size_t errn)
 		int m = pf_mode_from_name(pf_json_str(j, "mode", ""));
 		if (m < 0) { snprintf(err, errn, "unknown mode"); rc = -1; }
 		else if (m == PF_MODE_ERROR) { snprintf(err, errn, "cannot request Error mode"); rc = -1; }
-		else { c.type = PF_CMD_MODE; c.mode = (pf_mode)m; c.num = pf_json_num(j, "setpoint", 0); c.flag = pf_json_bool(j, "force", false); /* force: leave Startup/Reignite now */ }
+		else if (pf_json_num(j, "setpoint", 0) > 0 && setpoint_refused(pf_json_num(j, "setpoint", 0), err, errn)) rc = -1;
+		else { c.type = PF_CMD_MODE; c.mode = (pf_mode)m; c.num = pf_json_num(j, "setpoint", 0); c.flag = pf_json_bool(j, "force", false); /* force: leave Startup/Relight now */ }
 	} else if (!strcmp(cmd, "setpoint")) {
 		c.type = PF_CMD_SETPOINT; c.num = pf_json_num(j, "setpoint", 0);
 		if (c.num <= 0) { snprintf(err, errn, "setpoint required"); rc = -1; }
+		else if (setpoint_refused(c.num, err, errn)) rc = -1;
 	} else if (!strcmp(cmd, "stop")) {
 		c.type = PF_CMD_STOP;
 	} else if (!strcmp(cmd, "smoke_plus")) {

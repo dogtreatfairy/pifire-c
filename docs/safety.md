@@ -15,9 +15,10 @@ Every relay write goes through one arbiter (`src/core/outputs.c`) guarded by a m
 
 | check | default | action |
 |---|---|---|
-| Over-temperature, any mode | `safety.maxtemp` 550 °F | Error `E01_OVERTEMP`; auger/igniter off, fan runs `error_cooldown_fan_s` if the pit is hot |
-| Flame-out in Smoke/Hold | pit below the startup floor | Reignite (`reigniteretries`) then Error `E02_FLAMEOUT` |
-| Smart Start (`safety.coldstart`) | on; `delta_rise` 12 °F within `timeout_s` 300 s | shown under Settings › Startup & Shutdown. Baseline = running minimum of the 30 s-filtered pit in the first 60 s; startup cannot finish until the pit is `delta_rise` above it; no rise by `timeout_s` from the start of startup → `E04_STARTUP_FAILED` straight away (no second light: an unlit pot is a pot full of pellets). Skipped for a hot grill (pit ≥ 140 °F or `startup_exit_temp`, whichever is higher), where a failing fire is the flame-out check's. The flame-out floor becomes `max(baseline+delta, 0.9×exit temperature)` |
+| Overheat, any mode | `safety.maxtemp` 650 °F | Error `E01_OVERTEMP`; auger/igniter off, fan runs `error_cooldown_fan_s` if the pit is hot (probes read to 750 °F so this trips as overheat, not as a probe fault) |
+| Set point range | `safety.min_target` 160 °F – `safety.max_target` 550 °F | the API refuses a set point outside it; the controller holds any other source inside it |
+| Smart Start (Startup, Relight) | `startup.smartstart`: +3 °F, then +12 °F, each within 300 s | see *Smart Start* below; no proof → `E04_STARTUP_FAILED`, grill stops |
+| Flame-out in Smoke/Hold | 20 °F (`safety.relight_drop`) below the working temperature, or the peak while heating | Relight (`reigniteretries`, 1 per cook) then Error `E02_FLAMEOUT`; see *Flame supervision* |
 | Igniter cap | 5 min (`safety.igniter_max_on_s`, never more than 300 s) | igniter forced off, `W07_IGNITER_CAP` |
 | Auger cap | 60 s continuous | auger forced off (also applies in Manual), `W08_AUGER_CAP` |
 | Primary probe fault | 10 s without a valid reading while cooking | Error `E05_PROBE_FAULT` |
@@ -35,65 +36,67 @@ The controller output is a ratio of the cycle; the daemon enforces `cycle_data.u
 
 Learning only *observes* (steady-state feed vs. set point and ambient); it never bypasses the interlocks. Autotune oscillates the feed by ±0.15 around the learned feed-forward with a 1 °C hysteresis, aborts if the pit runs 50 °F over the set point or stops oscillating for 15 min, and any mode change cancels it. Its result is a suggestion until you press *Apply*.
 
-## Flame-out protection
+## Smart Start
 
-The classic flame-out check is a fixed floor: after startup the daemon computes a temperature the
-pit should never fall below, and dropping under it means the fire is out and the grill has to start
-again. That floor is the last word, and by the time it speaks there is usually nothing left in the
-pot to catch.
+One sequence decides the grill is lit, for a first light and for a Relight alike. It follows a burner
+control's trial for ignition (a hard time limit, then a second proof before handing over), with the
+pit temperature in place of a flame sensor. Every threshold is a rise over the grill's own lowest
+reading, so it works the same at -30 °F outside as at 90 °F; the weather only moves where it starts.
 
-Flame-out protection is the earlier, cheaper answer. There are two ways to arrive at a fire in
-trouble, and they need different triggers.
+1. **Prove.** The pit, filtered over 10 s, must hold `prove_rise` (3 °F) above its running minimum
+   for 15 s within `prove_s` (300 s, never more than the igniter may run). The minimum keeps moving
+   down while the fan cools the pit, so the turn upward is the evidence. A barrel 150 °F or more
+   above the outdoor air may instead prove it by its fall stopping: the lowest reading not moving
+   down by 1 °F for 2 min, which no barrel without a fire can do (one with a time constant three
+   times Ryan's still loses more than 4 °F).
+2. **Exit.** Proven, startup carries on until the pit is `exit_rise` (12 °F) over the minimum, within
+   a second `prove_s`, then hands over to Smoke or Hold. Three degrees alone cannot tell a fire from
+   the igniter's own heat; twelve can, and a real fire makes it at once (27 s on Ryan's grill).
+3. **Fail.** No proof, or no exit rise, in time is `E04_STARTUP_FAILED` and the grill stops. There is
+   no second light: a pot that did not catch is a pot full of pellets.
 
-**Holding.** The grill reached its set point and the pit is sliding away from it. Nothing has been
-asked of the grill, so any real distance below the target is a fault: the trigger is falling
-`safety.relight_drop` (20 °F by default) below the set point.
+The feed during a light is the ambient startup profile, or, in a hot barrel, the learned feed for
+36 °F above the pit when that is more (Ryan's choice for Relight, 2026-09-29): enough that a caught
+fire raises the pit, which is how the light is proven.
 
-**Coming down.** The set point was lowered by more than `safety.relight_drop`, so the grill
-deliberately starves the fire and coasts. That coast is exactly when a fire dies, and by the end of
-it there may be nothing left to catch — waiting for another twenty degrees of undershoot would mean
-waiting through the most dangerous part of the manoeuvre. So the trigger here is the moment the pit
-**crosses the new set point on the way down**: the point from which it ought to be recovering rather
-than still falling. It arms only when the pit is above the new target when the change is made, since
-a set point dropped to somewhere the grill has not reached yet involves no coast at all.
+The thresholds were checked against Ryan's grill: a warm restart on 2026-09-29 fell for 219 s under
+the fan with the igniter on (no igniter heat reached the probe), caught at about 220 s, and passed
++3 °F at 258 s and +12 °F at 285 s. A 30 s filter and 30 s hold would have proven it at 309 s, a
+failed start on a fire that had lit; the 10 s filter and 15 s hold prove it at 279 s.
 
-Both end on the pit climbing back **above the lowest point it reached** — recovery from the bottom
-of the dip is the evidence the fire is winning, and waiting for the whole way back to the set point
-would hold the igniter on through the entire recovery. The lowest point keeps moving down while the
-pit is still falling, so the test is always against the bottom of this dip and not where the igniter
-came on.
+## Flame supervision
 
-How much of a climb counts depends on which trigger started it, because the two are asking different
-questions:
+Startup raises the pit from its baseline; Smoke and Hold go on raising it from where startup handed
+over until it reaches the **working temperature** — the set point in Hold, `safety.smoke_min`
+(180 °F) in Smoke, where the P-mode is set so that Smoke sits at or above it. Anything else is a
+flame-out or a feed that is too low.
 
-| Started by | Ends on | Why |
-|---|---|---|
-| A fire falling away from its target | `safety.relight_recover`, 10 °F | The question is whether there is a fire at all, and only a substantial rise answers it |
-| A coast down to a lower set point | `safety.relight_recover_step`, 3 °F | The fire was never in doubt, only starved. The question is merely whether the pit has stopped falling, and a couple of degrees of turnaround is the whole answer |
+* **Fall.** The reference is the working temperature once reached, and before that the highest the
+  pit has been. Falling `relight_drop` (20 °F) below it is a flame-out: a Relight through Smart Start
+  if `relight_enabled` and attempts remain, otherwise `E02_FLAMEOUT` and the grill stops.
+* **Climb.** Below the working temperature (by more than 10 °F) the pit must gain 3 °F in every
+  300 s. Until it is 12 °F past the handover, a pit that does not is a fire that never got going:
+  `E04_STARTUP_FAILED`, grill stops. After that the fire is burning what it is given, so nothing is
+  piling up: it is reported (`W10_NOT_HEATING`, "feed too low" — lower the P-mode in Smoke), and the
+  fall rule stops the grill if the fire is failing.
+* **Coast.** A set point lowered below the pit, or Smoke entered from a hotter Hold, is a coast: a
+  starved fire and a dead one cool alike, so nothing is judged on the way down. When the pit reaches
+  the working temperature the igniter runs for `relight_prove_s` (180 s) while the feed comes back,
+  catching the fire if it has died down. Temperature alone cannot tell a dying fire during a coast;
+  this proves it where it can be proven.
+* **Excluded:** an open lid and the recovery after it (at most 5 min, as for notifications — a fall
+  still going after that is not the lid), and a tuning measurement.
 
-Four things bound it:
+Notifications: the *Heating* rule fires when startup hands over ("Hold · Heating to 225°F", or
+"Heating" in Smoke); *Relight* fires when a flame-out is relit; *At Temperature* when the working
+temperature is reached.
 
-* **The holding trigger only applies to a pit that had arrived.** A grill climbing to a set point,
-  or to a new one after a change, is far below it for ordinary reasons. `target_reached` is cleared
-  when the set point changes, so a step up re-arms it exactly as a fresh cook does. The coast-down
-  trigger is the deliberate exception: it exists precisely for the window where the grill has not
-  arrived yet.
-* **An open lid is excluded.** The pit falls twenty degrees because the heat walked out, not
-  because the fire went out, and the igniter has nothing to fix.
-* **A tuning measurement is excluded.** The relay deliberately drives the pit to both sides of the
-  set point and leaves it there for minutes at a time. That is the measurement, not a fire in
-  trouble, and lighting the igniter would both corrupt it and have nothing to fix.
-* **The igniter's continuous-on cap still applies and still wins.** Protection never overrides it.
-* **It gives up.** If the pit has not climbed back to within half the trigger distance of the set
-  point within `safety.relight_timeout_s` (5 minutes), the fire is out rather than struggling and it
-  hands over to the flame-out path, which knows how to restart the grill and when to stop trying.
-  Without that deadline the assist would hold the igniter on until its own cap while keeping the pit
-  just warm enough that nothing else noticed.
-
-The escalation clock is deliberately *not* reset by the igniter switching off after a recovery: the
-igniter's own heat can lift the pit a few degrees with the fire still out, so the assist can cycle.
-Only the pit genuinely climbing back towards the set point resets it.
-
+Background: industrial burner controls (NFPA 85/86, EN 298) prove flame within seconds, allow at most
+one or two recycles with a purge, then lock out. Pellet appliances prove ignition by a flue or pit
+rise within a time limit and tell the owner to empty the pot after a failed ignition (EN 14785
+manuals); Weber's pellet-grill patent relights automatically a limited number of times. With minutes
+of thermal lag this grill cannot detect flame loss in seconds, so it is kept safe by not feeding a
+fire it has not proven and not relighting a pot that never caught.
 
 ## Safety audit, 2026-09-29
 
@@ -112,19 +115,16 @@ surface) and the fixes that followed.
   interrupted startup whose fire Smart Start had not confirmed; never when the Pi rebooted with an
   unsynchronised clock and the pit has lost more than 30% of its heat; restores relight retries; an
   interrupted tuning run shuts down instead of resuming. Otherwise E08.
-- **Flame-out in Hold** is a pit 20 F (`relight_drop`) below its set point, or, before it has
-  arrived, 20 F below the highest it had climbed. From that point the igniter is on and the auger
-  feeds at the startup rate, not the controller's; no rise within `relight_timeout_s` is a re-ignite,
-  and a failed re-ignite is an error. A hot relight must rise 3 C within the Smart Start time or it
-  is E02. Every trigger is a temperature or a time, never a weight, so it behaves the same on any grill.
-- **Hold or Smoke from Manual, Prime or Shutdown** goes through Startup. Reignite and Error cannot be
+- **Flame-out and ignition** are Smart Start and flame supervision (above). Every trigger is a
+  temperature or a time, never a weight, so it behaves the same on any grill.
+- **Hold or Smoke from Manual, Prime or Shutdown** goes through Startup. Relight and Error cannot be
   requested; Prime and Manual only from Stop or Monitor; Prime is one auger run at most (`auger_max_on_s`)
   and ends when its feed does.
-- **Set point** is held 25 F below `safety.maxtemp`, whoever sets it.
+- **Set point** stays within `safety.min_target`–`max_target` (160–550 F), whoever sets it.
 - **Error cool-down fan** stops if the pit rises 10 F above where it was when the error was raised
   (it would be feeding a fire). An overtemperature in Stop or Error raises an alert.
 - **Igniter cap** is enforced even while the probe is invalid and stays tripped for the mode;
-  default 600 s. **Auger cap** is followed by a 15 s rest.
+  default and ceiling 300 s. **Auger cap** is followed by a 15 s rest.
 - **Shutdown** runs its time and then until the pit is below `restart_hot_temp`, capped at 3x.
 - **A clean start with a hot pit** that is not resuming a cook runs the Shutdown cool-down.
 - **Wi-Fi recovery** reloads the radio driver at any time but restarts the Pi only when the grill is

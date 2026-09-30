@@ -115,6 +115,8 @@ static val trait_of(const cJSON *status, const inst *in, const char *entity, con
 		/* seconds since the grill was last given a new mode or set point: a pit short of its
 		 * target is ordinary while it climbs, and only worth reporting once it has had time */
 		{ "grill", "aiming_s", "aiming_s" },
+		/* from the end of startup until the pit reaches its working temperature */
+		{ "grill", "heating", "heating.active" }, { "grill", "heating_to", "heating.text" },
 		{ "hopper", "level", "hopper_pct" },
 		{ "controller", "duty", "cycle.u_applied" }, { "controller", "feedforward", "cycle.u_ff" },
 		{ "controller", "error", "controller.error" },
@@ -664,7 +666,7 @@ void pf_rules_tick(const cJSON *status, double now)
 	 * Otherwise every look under the lid was "running cold" twenty minutes later and "reached
 	 * temperature" again once it came back. */
 	bool lid = pf_json_bool((cJSON *)status, "lid_event", false) || pf_json_bool((cJSON *)status, "lid_open", false);
-	bool cooking = !strcmp(mode, "Startup") || !strcmp(mode, "Reignite") || !strcmp(mode, "Smoke") ||
+	bool cooking = !strcmp(mode, "Startup") || !strcmp(mode, "Relight") || !strcmp(mode, "Smoke") ||
 	               !strcmp(mode, "Hold") || !strcmp(mode, "Shutdown");
 
 	pthread_mutex_lock(&g_mu);
@@ -856,6 +858,8 @@ static const struct trait_def TRAIT_TABLE[] = {
 		 * is ordinary while it climbs; this is what separates climbing from not getting there. */
 		{ "grill", "aiming_s", "duration", "s", "Time Since Mode Or Target Changed", false },
 		{ "grill", "lid_open", "bool", "", "Lid Open", false },
+		{ "grill", "heating", "bool", "", "Heating To Working Temperature", false },
+		{ "grill", "heating_to", "string", "", "Heating Text", false },
 		{ "output", "state", "bool", "", "State", false }, { "output", "percent", "percent", "%", "Fan Percent", false },
 		{ "hopper", "level", "percent", "%", "Hopper Level", false },
 		{ "controller", "duty", "number", "", "Auger Duty", false }, { "controller", "feedforward", "number", "", "Feed Forward", false },
@@ -967,7 +971,7 @@ cJSON *pf_rules_catalogue_json(const cJSON *status)
 	cJSON *tk = cJSON_AddArrayToObject(o, "tokens");
 	for (int i = 0; TOKENS[i]; i++) cJSON_AddItemToArray(tk, cJSON_CreateString(TOKENS[i]));
 	cJSON *md = cJSON_AddArrayToObject(o, "modes");
-	for (const char *const *m = (const char *const[]){ "Stop", "Monitor", "Startup", "Reignite", "Smoke",
+	for (const char *const *m = (const char *const[]){ "Stop", "Monitor", "Startup", "Relight", "Smoke",
 	     "Hold", "Shutdown", "Manual", "Error", NULL }; *m; m++)
 		cJSON_AddItemToArray(md, cJSON_CreateString(*m));
 	cJSON *lv = cJSON_AddArrayToObject(o, "levels");

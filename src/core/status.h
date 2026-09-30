@@ -31,10 +31,12 @@ typedef struct {
 	char restart_reason[96]; double restart_wall; bool restart_resumed;
 	double lid_open_until;
 	bool target_reached;
-	double startup_duration, shutdown_duration, prime_duration, prime_amount;
-	bool coldstart_active, coldstart_reached;
-	double coldstart_baseline_c, coldstart_deadline;
-	double startup_exit_c;      /* 0 = startup runs the full timer */
+	double shutdown_duration, prime_duration, prime_amount;
+	/* Smart Start (Startup, Relight): proving ignition, then the exit rise, each against a deadline */
+	bool ss_active, ss_proven;
+	double ss_baseline_c, ss_deadline;
+	bool heating;               /* Smoke or Hold, from the end of startup to the working temperature */
+	bool proving;               /* igniter proving the fire after a set-point decrease */
 	int pmode;
 	double cook_start_wall;     /* 0 when no cook is running */
 	char error_code[32];

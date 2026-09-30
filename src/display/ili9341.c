@@ -620,7 +620,7 @@ static void temp_confirm(tft_t *t)
 		break;
 	case PF_ACT_HOLD: {
 		const char *m = pf_json_str(t->status, "mode", "");
-		if (!strcmp(m, "Hold") || !strcmp(m, "Startup") || !strcmp(m, "Reignite")) { c.type = PF_CMD_SETPOINT; c.num = t->ui.temp_value; }
+		if (!strcmp(m, "Hold") || !strcmp(m, "Startup") || !strcmp(m, "Relight")) { c.type = PF_CMD_SETPOINT; c.num = t->ui.temp_value; }
 		else { c.type = PF_CMD_MODE; c.mode = PF_MODE_HOLD; c.num = t->ui.temp_value; }
 		pf_cmdq_push(&c);
 		break;

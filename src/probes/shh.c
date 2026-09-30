@@ -26,10 +26,12 @@ double pf_shh_ohms_to_c(double ohms, const pf_shh *p)
 	double c = 1.0 / invT - 273.15;
 	double f = pf_c_to_f(c);
 	/* The range a probe can sensibly report. The floor used to be 0 F, which threw away real
-	 * readings on a winter morning: an ambient probe outside in Wisconsin is below that for weeks.
-	 * It can be widened safely only because an open circuit is now rejected before it gets here,
-	 * rather than arriving as a very cold thermistor. */
-	if (f < -40 || f > 600) return NAN;
+	 * readings on a winter morning: an ambient probe outside in Wisconsin is below that for weeks,
+	 * and the grill has to start at -30 F. It can be widened safely only because an open circuit is
+	 * now rejected before it gets here, rather than arriving as a very cold thermistor. The ceiling
+	 * is above the 650 F overheat limit, so a pit that hot reads as overheating and not as a probe
+	 * that has stopped working. */
+	if (f < -58 || f > 750) return NAN;
 	return c;
 }
 

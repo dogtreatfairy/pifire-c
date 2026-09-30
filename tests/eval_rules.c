@@ -89,7 +89,7 @@ int main(void)
 	snprintf(db, sizeof db, "/tmp/pf_eval_%d.db", (int)getpid());
 	pf_settings_init(cfg);
 	pf_settings_force_sim();
-	pf_settings_patch("startup", "{\"smartstart\":{\"enabled\":false},\"startup_exit_temp\":0,\"start_to_mode\":{\"after_startup_mode\":\"Hold\",\"primary_setpoint\":250}}", NULL, 0);
+	pf_settings_patch("startup", "{\"start_to_mode\":{\"after_startup_mode\":\"Hold\",\"primary_setpoint\":250}}", NULL, 0);
 	pf_settings_patch("controller", "{\"selected\":\"adaptive\"}", NULL, 0);
 	pf_db_open(db);
 	pf_controllers_init(NULL);
