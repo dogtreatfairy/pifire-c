@@ -136,7 +136,7 @@ const shutdown = (s) => dialog((close) => el('div', {}, el('h3', {}, 'Stop?'),
   el('p', { class: 'muted' }, `End Cook: feed off, fan on ${fmtDur(s.timers.shutdown_duration)} to cool the pot. Emergency Stop: all outputs off now.`),
   el('div', { class: 'btnrow' },
     el('button', { class: 'btn ghost', type: 'button', onclick: () => close() }, 'Cancel'),
-    el('button', { class: 'btn danger', type: 'button', onclick: () => { close(); cmd({ cmd: 'mode', mode: 'Shutdown' }); } }, lucide(MODE_ICON.Shutdown, 'ic btn-ic'), ' End Cook')),
+    el('button', { class: 'btn end', type: 'button', onclick: () => { close(); cmd({ cmd: 'mode', mode: 'Shutdown' }); } }, lucide(MODE_ICON.Shutdown, 'ic btn-ic'), ' End Cook')),
   el('button', { class: 'btn danger block', type: 'button', style: 'margin-top:10px', onclick: () => { close(); cmd({ cmd: 'stop' }); } }, lucide(MODE_ICON.Stop, 'ic btn-ic'), ' Emergency Stop')));
 const stopGrill = (s) => (s.mode === 'Error' ? cmd({ cmd: 'stop' }) : confirmDialog('Stop Grill?', 'All outputs off immediately.', 'Stop', true).then((ok) => ok && cmd({ cmd: 'stop' })));
 
@@ -156,21 +156,21 @@ function controlBar(s) {
       right.push(b('play', '', { active: true, cls: 'ok', disabled: true, aria: s.mode }),
         b('smoke', '', { cls: 'accent', onclick: () => confirmDialog('Skip to Smoke?', 'Ends startup. Confirm the fire is lit.', 'Smoke').then((ok) => ok && cmd({ cmd: 'mode', mode: 'Smoke', force: true })), aria: 'Smoke' }),
         b('target', '', { cls: 'ok', onclick: () => confirmDialog('Skip to Hold?', 'Ends startup. Confirm the fire is lit.', 'Hold').then((ok) => ok && holdAt(s, false, true)), aria: 'Hold' }),
-        b('power', '', { cls: 'danger', onclick: () => shutdown(s), aria: 'Shutdown' }));
+        b('power', '', { cls: 'end', onclick: () => shutdown(s), aria: 'Shutdown' }));
       break;
     case 'Prime':
-      right.push(b('play', 'Prime', { active: true, cls: 'ok', disabled: true }), b('power', '', { cls: 'danger', onclick: () => shutdown(s), aria: 'Shutdown' }));
+      right.push(b('play', 'Prime', { active: true, cls: 'ok', disabled: true }), b('power', '', { cls: 'end', onclick: () => shutdown(s), aria: 'Shutdown' }));
       break;
     case 'Smoke':
       right.push(b('smoke', s.s_plus ? 'Smoke+' : `P${PF.settings?.cycle_data?.PMode ?? ''}`, { active: true, cls: 'accent', caret: true, onclick: () => smokeMenu(s) }),
-        b('target', '', { onclick: () => holdAt(s, false), aria: 'Hold' }), b('power', '', { cls: 'danger', onclick: () => shutdown(s), aria: 'Shutdown' }));
+        b('target', '', { onclick: () => holdAt(s, false), aria: 'Hold' }), b('power', '', { cls: 'end', onclick: () => shutdown(s), aria: 'Shutdown' }));
       break;
     case 'Hold':
       right.push(b('smoke', '', { onclick: () => cmd({ cmd: 'mode', mode: 'Smoke' }), aria: 'Smoke' }),
-        b('target', `${fmtTemp(s.setpoint)}°`, { active: true, cls: 'ok', onclick: () => holdAt(s, true) }), b('power', '', { cls: 'danger', onclick: () => shutdown(s), aria: 'Shutdown' }));
+        b('target', `${fmtTemp(s.setpoint)}°`, { active: true, cls: 'ok', onclick: () => holdAt(s, true) }), b('power', '', { cls: 'end', onclick: () => shutdown(s), aria: 'Shutdown' }));
       break;
     case 'Shutdown':
-      right.push(b('power', 'Cooling', { active: true, cls: 'danger', disabled: true }), stop);
+      right.push(b('power', 'Cooling', { active: true, cls: 'info', disabled: true }), stop);
       break;
     case 'Manual':
       right.push(b('wrench', 'Manual', { active: true, onclick: () => (location.hash = '#/more/manual') }), stop);
@@ -237,7 +237,7 @@ export function renderHome(view) {
       case 'Hold': t = { text: `Target ${fmtTemp(s.setpoint)}${u}`, cls: '', tap: true }; break;
       case 'Startup': case 'Relight': t = s.next_mode === 'Hold' && s.setpoint > 0 ? { text: `Igniting → hold ${fmtTemp(s.setpoint)}${u}`, cls: '', tap: true } : { text: 'Igniting → smoke', cls: '' }; break;
       case 'Smoke': t = { text: s.s_plus ? 'Smoke+' : 'Smoke', cls: 'accent' }; break;
-      case 'Shutdown': t = { text: 'Cooling', cls: 'danger' }; break;
+      case 'Shutdown': t = { text: 'Cooling', cls: 'info' }; break;
       case 'Prime': t = { text: `Priming ${s.timers.prime_amount} g`, cls: '' }; break;
       case 'Error': t = { text: s.safety.error_code.replace(/_/g, ' '), cls: 'danger' }; break;
       case 'Manual': t = { text: 'Manual Outputs', cls: 'warn' }; break;

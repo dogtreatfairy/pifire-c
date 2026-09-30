@@ -52,6 +52,9 @@
   --warn:   #ffcc00;  --on-warn:   #1a1500;
   --danger: #ff453a;  --on-danger: #1a0402;
   --info:   #5ac8fa;  --on-info:   #041018;
+  /* A cook ending on purpose: the chequered flag, End Cook. Not a fault (red) and not the grill
+   * being worked on (blue, which is what Cooling is once the cook has ended). */
+  --end:    #bf5af2;  --on-end:    #14061c;
 
   /* The same five meanings again, as INK on the page rather than as a fill.
    *
@@ -67,11 +70,13 @@
   --warn-ink-d:   #ffcc00; --warn-ink-l:   #75590a;
   --danger-ink-d: #ff453a; --danger-ink-l: #b3261e;
   --info-ink-d:   #5ac8fa; --info-ink-l:   #0b5f80;
+  --end-ink-d:    #c77dff; --end-ink-l:    #7b2cbf;
   --accent-ink: light-dark(var(--accent-ink-l), var(--accent-ink-d));
   --ok-ink:     light-dark(var(--ok-ink-l), var(--ok-ink-d));
   --warn-ink:   light-dark(var(--warn-ink-l), var(--warn-ink-d));
   --danger-ink: light-dark(var(--danger-ink-l), var(--danger-ink-d));
   --info-ink:   light-dark(var(--info-ink-l), var(--info-ink-d));
+  --end-ink:    light-dark(var(--end-ink-l), var(--end-ink-d));
   /* the ink for a filled swatch whose colour is chosen at runtime (the
      settings tiles); web/icons.js picks it per colour and passes it in */
   --on-tile: #0b0b0c;
@@ -241,7 +246,7 @@ small, .muted { color: var(--muted); }
 .pill-mode[data-mode="Hold"] { background: color-mix(in oklab, var(--ok) 25%, var(--surface2)); }
 .pill-mode[data-mode="Smoke"] { background: color-mix(in oklab, var(--accent) 30%, var(--surface2)); }
 .pill-mode[data-mode="Startup"], .pill-mode[data-mode="Relight"], .pill-mode[data-mode="Prime"] { background: color-mix(in oklab, var(--accent) 30%, var(--surface2)); }
-.pill-mode[data-mode="Shutdown"] { background: color-mix(in oklab, var(--danger) 30%, var(--surface2)); }
+.pill-mode[data-mode="Shutdown"] { background: color-mix(in oklab, var(--info) 30%, var(--surface2)); }
 .pill-mode[data-mode="Error"] { background: var(--danger); color: var(--on-danger); }
 
 .btn { border: 0; border-radius: var(--r-md); padding: 13px 18px; font-weight: 600; background: var(--surface2); cursor: pointer; transition: background-color var(--dur-1) var(--ease); min-height: var(--h-row); }
@@ -388,7 +393,7 @@ legend { font-weight: 600; margin-bottom: 6px; }
 /* Three verbs share the row rather than wrapping two-and-one, which reads as an accident. The
    basis is what three of them fit in at 402 pt with the page gutter, so the order the row is read
    in -- dismissive first, committing last -- survives on a phone. */
-.form-actions:has(> .btn:nth-child(3)) > .btn { flex: 1 1 5.5rem; min-width: 0; padding-inline: 8px; }
+.form-actions:has(> .btn:nth-child(3)) > .btn { flex: 1 1 5.5rem; min-width: 0; padding-inline: 8px; white-space: normal; line-height: 1.2; }
 /* A footer inside a card pulls its rule out to the card's own edges, which is why it carries a
    negative margin -- see --bleed, which is zero at page level and so leaves it flush there. */
 
@@ -536,7 +541,7 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .cb { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 50px; height: 44px; padding: 0 12px; border: 0; border-radius: var(--r-lg); background: transparent; color: var(--muted); font-weight: 700; font-size: var(--fs-md); cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background var(--dur-1) var(--ease); }
 .cb .ic { width: 22px; height: 22px; flex: none; }
 .cb:disabled { cursor: default; }
-.cb.ok { color: var(--ok-ink); } .cb.accent { color: var(--accent-ink); } .cb.danger { color: var(--danger-ink); } .cb.info { color: var(--info-ink); }
+.cb.ok { color: var(--ok-ink); } .cb.accent { color: var(--accent-ink); } .cb.danger { color: var(--danger-ink); } .cb.info { color: var(--info-ink); } .cb.end { color: var(--end-ink); }
 .cb.active { background: color-mix(in oklab, var(--accent) 22%, var(--surface)); color: var(--text); }
 .cb.active.ok { color: var(--ok-ink); } .cb.active.accent { color: var(--accent-ink); } .cb.active.danger { background: var(--danger); color: var(--on-danger); } .cb.active.info { color: var(--info-ink); }
 .cb-caret { display: inline-flex; align-items: center; padding-right: 8px; color: var(--accent-ink); }
@@ -686,7 +691,7 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .readout .rd-val[hidden] { display: none; }
 .readout[data-mode="Hold"] .rd-mode { background: var(--ok); color: var(--on-ok); }
 .readout[data-mode="Smoke"] .rd-mode, .readout[data-mode="Startup"] .rd-mode, .readout[data-mode="Relight"] .rd-mode, .readout[data-mode="Prime"] .rd-mode { background: var(--accent); color: var(--on-accent); }
-.readout[data-mode="Shutdown"] .rd-mode { background: var(--danger); color: var(--on-danger); }
+.readout[data-mode="Shutdown"] .rd-mode { background: var(--info); color: var(--on-info); }
 .readout[data-mode="Manual"] .rd-mode { background: var(--warn); color: var(--on-warn); }
 .readout[data-mode="Error"] .rd-mode { background: var(--danger); color: var(--on-danger); }
 /* a tuning run is a mode of its own as far as the reader is concerned, so it gets its own colour */
@@ -961,6 +966,13 @@ h2 { font-size: var(--fs-xs); letter-spacing: var(--track-label); margin: var(--
   color: var(--danger-ink); box-shadow: none;
 }
 .btn.danger:hover { background: color-mix(in oklab, var(--danger) 22%, var(--surface)); }
+/* End Cook, the same family in the chequered flag's purple */
+.btn.end {
+  background: color-mix(in oklab, var(--end) 14%, var(--surface));
+  border-color: color-mix(in oklab, var(--end) 40%, var(--line));
+  color: var(--end-ink); box-shadow: none;
+}
+.btn.end:hover { background: color-mix(in oklab, var(--end) 22%, var(--surface)); }
 .btn.ghost { background: transparent; box-shadow: none; }
 .cgroup { background: var(--surface); border-color: var(--line); box-shadow: none; }
 .cb.active { background: color-mix(in oklab, var(--accent) 22%, var(--surface2)); box-shadow: none; }
@@ -1494,14 +1506,14 @@ main.view:has(> .screen-actions) { padding-bottom: calc(var(--tab-h) + env(safe-
     --bg: var(--bg-d); --surface: var(--surface-d); --surface2: var(--surface2-d);
     --line: var(--line-d); --line2: var(--line2-d); --text: var(--text-d); --muted: var(--muted-d);
     --accent-ink: var(--accent-ink-d); --ok-ink: var(--ok-ink-d); --warn-ink: var(--warn-ink-d);
-    --danger-ink: var(--danger-ink-d); --info-ink: var(--info-ink-d);
+    --danger-ink: var(--danger-ink-d); --info-ink: var(--info-ink-d); --end-ink: var(--end-ink-d);
   }
   @media (prefers-color-scheme: light) {
     :root:not([data-theme="dark"]) {
       --bg: var(--bg-l); --surface: var(--surface-l); --surface2: var(--surface2-l);
       --line: var(--line-l); --line2: var(--line2-l); --text: var(--text-l); --muted: var(--muted-l);
       --accent-ink: var(--accent-ink-l); --ok-ink: var(--ok-ink-l); --warn-ink: var(--warn-ink-l);
-      --danger-ink: var(--danger-ink-l); --info-ink: var(--info-ink-l);
+      --danger-ink: var(--danger-ink-l); --info-ink: var(--info-ink-l); --end-ink: var(--end-ink-l);
       --tile-ink: #fff;
     }
   }
@@ -1509,7 +1521,7 @@ main.view:has(> .screen-actions) { padding-bottom: calc(var(--tab-h) + env(safe-
     --bg: var(--bg-l); --surface: var(--surface-l); --surface2: var(--surface2-l);
     --line: var(--line-l); --line2: var(--line2-l); --text: var(--text-l); --muted: var(--muted-l);
       --accent-ink: var(--accent-ink-l); --ok-ink: var(--ok-ink-l); --warn-ink: var(--warn-ink-l);
-      --danger-ink: var(--danger-ink-l); --info-ink: var(--info-ink-l);
+      --danger-ink: var(--danger-ink-l); --info-ink: var(--info-ink-l); --end-ink: var(--end-ink-l);
       --tile-ink: #fff;
   }
 }

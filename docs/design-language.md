@@ -33,11 +33,14 @@ probe settings, everywhere they appear.
 |---|---|---|
 | The grill is doing what you asked | `--ok` green | Hold, a probe that has reached its target |
 | The grill is working towards it | `--accent` orange | Smoke, Startup, Prime, the primary button |
-| Something is being done *to* the grill | `--info` blue | a tuning run |
+| Something is being done *to* the grill | `--info` blue | Shutdown (Cooling), a tuning run |
 | Attention, not yet a fault | `--warn` yellow | Manual mode, an unsaved change |
-| A fault, or an action that ends something | `--danger` red | Error, Emergency Stop, End Cook, Shutdown and its chequered flag |
+| A cook ending on purpose | `--end` purple | the chequered flag, End Cook |
+| A fault, or stopping everything now | `--danger` red | Error, Stop, Emergency Stop |
 
-A red menu row means it stops something. Nothing else is red.
+A red menu row means it stops everything now. Nothing else is red. The graceful end of a cook is the
+chequered flag in purple, and once it is under way (Cooling) it is blue like anything else being done
+to the grill.
 
 **Red is for a fault, not for a number getting smaller.** A hopper at a quarter, a battery at a
 fifth and a probe on one bar are all *attention* — amber — because each is still working and each

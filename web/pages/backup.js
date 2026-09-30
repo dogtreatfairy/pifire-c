@@ -1,4 +1,4 @@
-import { PF, el, api, patchSettings, toast, confirmDialog, dialog, pushScreen, itemRow, iconBtn, addRow, screenActions } from '../app.js';
+import { PF, el, api, patchSettings, toast, confirmDialog, dialog, pushScreen, itemRow, iconBtn, addRow, screenActions, actionBtn } from '../app.js';
 import { fieldInput, readField } from './settings.js';
 import { icon as lucide } from '../icons.js';
 
@@ -282,7 +282,7 @@ export function renderBackup(view) {
       form.append(node);
       if (f.path === 'schedule') node.querySelector('select').onchange = async (e) => { await save({ schedule: e.target.value }); };
     }
-    form.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'submit' }, 'Save')));
+    form.append(el('div', { class: 'form-actions' }, actionBtn('save', 'Save', { type: 'submit' })));
     form.onsubmit = async (e) => {
       e.preventDefault();
       const patch = {};

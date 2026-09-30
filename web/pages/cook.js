@@ -308,7 +308,7 @@ export async function limitsDialog(p) {
       el('p', { class: 'help' }, 'Alert outside this range. Blank disables.'),
       el('div', { class: 'field inline' }, el('label', {}, `Alarm above (${degUnit()})`), hi),
       el('div', { class: 'field inline' }, el('label', {}, `Alarm below (${degUnit()})`), lo),
-      el('div', { class: 'btnrow' }, el('button', { class: 'btn ghost', type: 'button', onclick: () => close(undefined) }, 'Cancel'), el('button', { class: 'btn primary', type: 'submit' }, 'Save')));
+      el('div', { class: 'btnrow' }, actionBtn('cancel', 'Cancel', { onclick: () => close(undefined) }), actionBtn('save', 'Save', { type: 'submit' })));
   });
 }
 

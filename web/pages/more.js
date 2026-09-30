@@ -272,7 +272,7 @@ export async function hardware(view) {
     fold('Display', null, displayCard, 'monitor', '#5e5ce6', false, nameOf(man.modules.display, 'display')),
     fold('Hopper Sensor', null, distCard, 'ruler', '#ac8e68', false, nameOf(man.modules.distance, 'dist')),
     fold('Probe Hardware', null, probeCard, 'thermometer', '#ff453a', false, `${nDev} device${nDev === 1 ? '' : 's'}`),
-    el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'button', onclick: async () => {
+    el('div', { class: 'form-actions' }, actionBtn('save', 'Save Hardware', { onclick: async () => {
       try {
         plat.system_type = plat.system_type || 'rpi';
         await patchSettings('platform', plat);
@@ -288,5 +288,5 @@ export async function hardware(view) {
           await api('/admin/reboot', { body: {} }); toast('Rebooting…');
         } else toast(boot.reboot ? 'Saved · Reboot to apply boot configuration' : 'Saved');
       } catch (e) { toast(e.message, true); }
-    } }, 'Save Hardware')));
+    } })));
 }

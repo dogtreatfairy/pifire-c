@@ -14,7 +14,7 @@ async function profileDialog(p = {}, isCur = false) {
       el('div', { class: 'field' }, el('label', {}, 'Rating'), rating),
       el('div', { class: 'field' }, el('label', {}, 'Notes'), comments),
       p.id && !isCur ? el('div', { class: 'form-actions' }, actionBtn('load', 'Load These Pellets', { size: '', class: 'primary', onclick: () => close('load') }, 'package')) : null,
-      el('div', { class: 'btnrow' }, actionBtn('cancel', 'Cancel', { size: '', onclick: () => close(undefined) }), el('button', { class: 'btn primary', type: 'submit' }, lucide('check', 'ic btn-ic'), el('span', {}, 'Save'))));
+      el('div', { class: 'btnrow' }, actionBtn('cancel', 'Cancel', { size: '', onclick: () => close(undefined) }), actionBtn('save', 'Save', { type: 'submit' })));
   });
 }
 
