@@ -241,7 +241,7 @@ small, .muted { color: var(--muted); }
 .pill-mode[data-mode="Hold"] { background: color-mix(in oklab, var(--ok) 25%, var(--surface2)); }
 .pill-mode[data-mode="Smoke"] { background: color-mix(in oklab, var(--accent) 30%, var(--surface2)); }
 .pill-mode[data-mode="Startup"], .pill-mode[data-mode="Relight"], .pill-mode[data-mode="Prime"] { background: color-mix(in oklab, var(--accent) 30%, var(--surface2)); }
-.pill-mode[data-mode="Shutdown"] { background: color-mix(in oklab, var(--info) 30%, var(--surface2)); }
+.pill-mode[data-mode="Shutdown"] { background: color-mix(in oklab, var(--danger) 30%, var(--surface2)); }
 .pill-mode[data-mode="Error"] { background: var(--danger); color: var(--on-danger); }
 
 .btn { border: 0; border-radius: var(--r-md); padding: 13px 18px; font-weight: 600; background: var(--surface2); cursor: pointer; transition: background-color var(--dur-1) var(--ease); min-height: var(--h-row); }
@@ -686,7 +686,7 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .readout .rd-val[hidden] { display: none; }
 .readout[data-mode="Hold"] .rd-mode { background: var(--ok); color: var(--on-ok); }
 .readout[data-mode="Smoke"] .rd-mode, .readout[data-mode="Startup"] .rd-mode, .readout[data-mode="Relight"] .rd-mode, .readout[data-mode="Prime"] .rd-mode { background: var(--accent); color: var(--on-accent); }
-.readout[data-mode="Shutdown"] .rd-mode { background: var(--info); color: var(--on-info); }
+.readout[data-mode="Shutdown"] .rd-mode { background: var(--danger); color: var(--on-danger); }
 .readout[data-mode="Manual"] .rd-mode { background: var(--warn); color: var(--on-warn); }
 .readout[data-mode="Error"] .rd-mode { background: var(--danger); color: var(--on-danger); }
 /* a tuning run is a mode of its own as far as the reader is concerned, so it gets its own colour */
@@ -1214,6 +1214,12 @@ button.dt-cells > .chev { position: absolute; right: var(--pad-x); top: 50%; tra
 .btn.sm .btn-ic, .btn.xs .btn-ic { width: 14px; height: 14px; }
 
 .btn.sm { min-height: var(--h-control); align-self: center; white-space: nowrap; }
+/* A footer's buttons are small buttons, however they were built: a section's Save, a dialog's
+   Cancel and Set, the same size as Install, Check and Add Probe. They were the large button, half
+   again as tall as every other action in the app. */
+.form-actions > .btn, .btnrow > .btn { padding: 8px 12px; min-height: var(--h-control); font-size: var(--fs-md); align-self: center; white-space: nowrap; position: relative; }
+.form-actions > .btn .btn-ic, .btnrow > .btn .btn-ic { width: 14px; height: 14px; }
+.form-actions > .btn::after, .btnrow > .btn::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: var(--h-touch); transform: translateY(-50%); }
 /* A control drawn smaller than a thumb still has to be hittable by one. Material asks for 48 dp and
    WCAG 2.5.8 for 24 CSS px; the visible button stays at --h-control, which is what keeps a list
    dense, and an invisible target is grown around it to --h-touch. It grows vertically only: two

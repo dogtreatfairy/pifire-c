@@ -33,9 +33,9 @@ probe settings, everywhere they appear.
 |---|---|---|
 | The grill is doing what you asked | `--ok` green | Hold, a probe that has reached its target |
 | The grill is working towards it | `--accent` orange | Smoke, Startup, Prime, the primary button |
-| Something is being done *to* the grill | `--info` blue | Shutdown, a tuning run |
+| Something is being done *to* the grill | `--info` blue | a tuning run |
 | Attention, not yet a fault | `--warn` yellow | Manual mode, an unsaved change |
-| A fault, or an action that ends something | `--danger` red | Error, Emergency Stop, End Cook |
+| A fault, or an action that ends something | `--danger` red | Error, Emergency Stop, End Cook, Shutdown and its chequered flag |
 
 A red menu row means it stops something. Nothing else is red.
 
@@ -148,6 +148,14 @@ text is for:
 Three sizes are deliberately outside it: the gauge's own text, which is in SVG user units and scales
 with the gauge rather than with the page, and Home's hero temperature, which is fluid
 (`clamp(76px, 24vw, 120px)`) because it should fill whatever phone it is on.
+
+### One button size for actions
+
+An action is a small button — `--h-control` tall, icon and label — wherever it sits: Install, Check
+and Add Probe in a bar, Save at the foot of a settings section, Cancel and Set in a dialog. Footers
+(`.form-actions`, `.btnrow`) give every button in them those metrics, so a hand-built footer cannot
+come out half again as tall as the rest; build new ones with `actionBtn()` so they carry the verb's
+icon too. The large button is only for a full-width block action.
 
 ### One press, one look
 

@@ -31,7 +31,7 @@ static uint16_t mode_fill(const pf_gfx *g, const char *mode)
 	if (!strcmp(mode, "Hold")) return g->th.ok;
 	if (!strcmp(mode, "Smoke") || !strcmp(mode, "Startup") || !strcmp(mode, "Relight") || !strcmp(mode, "Prime")) return g->th.accent;
 	if (!strcmp(mode, "Error")) return g->th.danger;
-	if (!strcmp(mode, "Shutdown")) return g->th.info;
+	if (!strcmp(mode, "Shutdown")) return g->th.danger;   /* the chequered flag: a cook ending */
 	if (!strcmp(mode, "Manual")) return g->th.warn;
 	return g->th.card2;   /* Stop, Monitor */
 }
@@ -327,7 +327,7 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 		} else {
 			if (!strcmp(mode, "Hold")) ADD(PF_ACT_SMOKE, 0, "Smoke Mode");
 			else ADD(PF_ACT_HOLD, 0, "Hold Mode");
-			if (strcmp(mode, "Shutdown")) ADD(PF_ACT_END_COOK, 0, "Shutdown");
+			if (strcmp(mode, "Shutdown")) { ADD(PF_ACT_END_COOK, 0, "Shutdown"); DANGER(); }
 			ADD(PF_ACT_STOP, 0, "Stop"); DANGER();
 		}
 		ADD(PF_ACT_BACK, 0, "Back");
@@ -336,7 +336,7 @@ int pf_menu_build(const cJSON *status, const pf_ui_state *ui, pf_menu_item *out,
 	case PF_LIST_STOP:
 		/* Finish asks which kind: the normal shutdown under the flag, the emergency stop under the
 		 * square. There is no plain Stop row in the menu; Finish is the way a cook ends. */
-		ADD(PF_ACT_END_COOK, 0, "Shutdown");
+		ADD(PF_ACT_END_COOK, 0, "Shutdown"); DANGER();
 		ADD(PF_ACT_STOP_GRILL, 0, "Emergency Stop"); DANGER();
 		ADD(PF_ACT_BACK, 0, "Back");
 		break;
@@ -607,7 +607,7 @@ static void draw_datablock(pf_gfx *g, const cJSON *s, const cJSON *primary, cons
 		bool proven = pf_json_bool((cJSON *)s, "smartstart.proven", false);
 		pf_gfx_text(g, R, p3, x, ly, proven ? "IGNITION PROVEN" : "PROVING IGNITION", proven ? g->th.ok : g->th.muted); ly += l3 + 2;
 	} else if (!strcmp(mode, "Shutdown")) {
-		pf_gfx_text(g, B, p1, x, ly, "COOLING", g->th.info); ly += l1;
+		pf_gfx_text(g, B, p1, x, ly, "COOLING", g->th.danger); ly += l1;
 	} else if (!strcmp(mode, "Error")) {
 		snprintf(line, sizeof line, "%.10s", pf_json_str((cJSON *)s, "safety.error_code", "ERROR"));
 		pf_gfx_text(g, B, p2, x, ly, line, g->th.danger); ly += l2;

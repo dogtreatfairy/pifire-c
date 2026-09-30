@@ -1,4 +1,4 @@
-import { PF, el, api, patchSettings, toast, degUnit, confirmDialog, setBack, alertSupport, requestAlertPermission, showSystemNotification, ensurePushSubscription, onStatus, fold } from '../app.js';
+import { PF, el, api, patchSettings, toast, degUnit, confirmDialog, setBack, alertSupport, requestAlertPermission, showSystemNotification, ensurePushSubscription, onStatus, fold, actionBtn } from '../app.js';
 import { renderRules } from './rules.js';
 import { icon as lucide, brandIcon, tileStyle, MODE_ICON } from '../icons.js';
 import { renderLearning } from './learning.js';
@@ -26,7 +26,7 @@ const PAGES = [
   { key: 'probesetup', title: 'Probes', sub: 'Connect, name and assign profiles', section: 'Hardware', icon: 'thermometer', color: '#ff453a', custom: (v) => import('./probes.js').then((m) => m.renderProbes(v, { setup: true })) },
   { key: 'probeprofiles', title: 'Probe Profiles', sub: 'Steinhart\u2013Hart curves per probe', section: 'Hardware', icon: 'activity', color: '#ff9f0a', custom: (v) => import('./probes.js').then((m) => m.renderProbeProfiles(v)) },
   { key: 'hardware', title: 'Grill Hardware', sub: 'Board, pins, display, hopper sensor', section: 'Hardware', icon: 'cpu', color: '#64d2ff', custom: (v) => import('./more.js').then((m) => m.hardware(v)) },
-  { key: 'startup', title: 'Startup & Shutdown', sub: 'Ignition, next mode, cool-down', section: 'Cooking', icon: MODE_ICON.Shutdown, color: '#30d158', sections: [
+  { key: 'startup', title: 'Startup & Shutdown', sub: 'Ignition, next mode, cool-down', section: 'Cooking', icon: MODE_ICON.Shutdown, color: '#ff453a', sections: [
     { id: 'startup', title: 'Startup', fields: [
       B('start_to_mode.ask', 'Ask when starting', 'Start prompts for mode and temperature. Off: uses the defaults below'),
       S('start_to_mode.after_startup_mode', 'Default mode', 'Mode after startup; preselected when Start prompts', [['Smoke', 'Smoke'], ['Hold', 'Hold']]),
@@ -400,7 +400,7 @@ function pageCard(pg) {
     const card = el('div', { class: 'card' });
     for (const f of sec.fields) card.append(fieldInput(f, f.path ? get(f.group ? (PF.settings[f.group] || {}) : data, f.path) : undefined));
     /* a section of notes and device-side buttons has nothing to store, so it has nothing to save */
-    if (sec.fields.some((f) => f.path)) card.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'submit' }, 'Save')));
+    if (sec.fields.some((f) => f.path)) card.append(el('div', { class: 'form-actions' }, actionBtn('save', 'Save', { type: 'submit' })));
     if (sec.collapsible) {
       /* Built from the same parts as a settings row -- icon tile, title, one line saying what it
          is, then whether it is on -- so a service you can open looks like the rows above it rather
@@ -478,7 +478,7 @@ async function controllerCard(tuned, onClear) {
         const f = { path: o.option_name, label: o.option_friendly_name, help: o.option_description, type: o.option_type === 'bool' ? 'bool' : o.units === 'temp_delta' ? 'tempdelta' : 'num' };
         card.append(fieldInput(f, cfg[o.option_name] ?? o.option_default));
       }
-      card.append(el('div', { class: 'form-actions' }, el('button', { class: 'btn primary', type: 'submit' }, 'Save Controller')));
+      card.append(el('div', { class: 'form-actions' }, actionBtn('save', 'Save Controller', { type: 'submit' })));
     }
     form.append(el('h2', {}, 'Controller'), card);
     wrap.append(form);
