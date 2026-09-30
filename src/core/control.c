@@ -440,10 +440,10 @@ static void enter_mode(pf_control *c, pf_mode m, double now)
 	case PF_MODE_PRIME:
 		pf_outputs_set(PF_OUT_FAN, false);
 		pf_outputs_set(PF_OUT_POWER, true);
-		/* A prime is a few grams to seat the auger, and it ends when the feed does. It used to last
-		 * amount / rate whatever the auger cap cut the feed to, so a 1 kg prime sat for most of an
+		/* A prime is one auger run at most, and it ends when the feed does. The limit is the auger's
+		 * continuous-on cap, a time, so it means the same on every grill; a weight would not. It used
+		 * to last amount / rate whatever the cap cut the feed to, so a 1 kg prime sat for most of an
 		 * hour and then lit the grill with nobody there. */
-		if (c->prime_amount_g > 50) c->prime_amount_g = 50;
 		if (c->prime_amount_g < 0) c->prime_amount_g = 0;
 		c->prime_duration_s = c->cfg.augerrate > 0 ? c->prime_amount_g / c->cfg.augerrate : 0;
 		if (c->cfg.auger_max_on_s > 0 && c->prime_duration_s > c->cfg.auger_max_on_s) c->prime_duration_s = c->cfg.auger_max_on_s;
