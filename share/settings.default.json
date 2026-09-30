@@ -1,5 +1,5 @@
 {
-  "schema_version": 29,
+  "schema_version": 30,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -174,7 +174,6 @@
   },
   "smoke_plus": {
     "enabled": false,
-    "min_temp": 160,
     "max_temp": 220,
     "on_time": 5,
     "off_time": 5,

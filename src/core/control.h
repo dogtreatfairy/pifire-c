@@ -42,7 +42,7 @@ typedef struct {
 	int startup_pwm_duty;
 	double shutdown_s; bool auto_power_off;
 	/* smoke plus */
-	bool splus_default; double splus_min_c, splus_max_c, splus_on_s, splus_off_s; int splus_duty; bool splus_ramp;
+	bool splus_default; double splus_max_c, splus_on_s, splus_off_s; int splus_duty; bool splus_ramp;
 	/* pwm fan */
 	bool dc_fan, pwm_control_default; double pwm_update_s; int pwm_hz, pwm_min_duty, pwm_max_duty;
 	int pwm_n; double pwm_ranges_c[PF_SS_MAX]; int pwm_profiles[PF_SS_MAX + 1];

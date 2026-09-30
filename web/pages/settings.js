@@ -54,8 +54,7 @@ const PAGES = [
     ] },
     { id: 'smoke_plus', title: 'Smoke+', fields: [
     S('enabled', 'Default smoke mode', 'Initial Smoke mode; switchable from Home', [['false', 'Smoke'], ['true', 'Smoke+']], true),
-    T('min_temp', 'Smoke+ works above', 'Below this the fan stays on continuously'),
-    T('max_temp', 'Smoke+ works below', 'Above this the fan stays on continuously'),
+    T('max_temp', 'Smoke+ works below', 'Above this the fan stays on'),
     I('on_time', 'Fan on (s)', '', { min: 1 }), I('off_time', 'Fan off (s)', '', { min: 1 }),
     B('fan_ramp', 'Ramp fan speed', 'DC fan only: ramp up instead of switching'), I('duty_cycle', 'Ramp target speed (%)', 'DC fan only', { min: 10, max: 100 }),
     ] },

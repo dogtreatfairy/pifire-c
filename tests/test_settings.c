@@ -100,6 +100,7 @@ static void test_smart_start_migration_and_limits(void)
 	      "\"relight_timeout_s\":300,\"relight_recover\":10},"
 	      "\"startup\":{\"duration\":240,\"startup_exit_temp\":140,\"smartstart\":{\"enabled\":true,\"exit_temp\":120,"
 	      "\"profiles\":[{\"startuptime\":360,\"augerontime\":15,\"p_mode\":0}]}},"
+	      "\"smoke_plus\":{\"min_temp\":160,\"max_temp\":220},"
 	      "\"notify\":{\"rules\":[{\"id\":\"mine\",\"when\":{\"conditions\":[{\"trait\":\"mode\",\"value\":\"Reignite\"}]}}]}}", f);
 	fclose(f);
 	TEST_ASSERT_EQUAL_INT(0, pf_settings_init(path));
@@ -114,6 +115,8 @@ static void test_smart_start_migration_and_limits(void)
 	                       "safety.relight_timeout_s", "safety.relight_recover", "startup.duration", "startup.startup_exit_temp",
 	                       "startup.smartstart.enabled", "startup.smartstart.exit_temp", "startup.smartstart.profiles.0.startuptime" };
 	for (size_t i = 0; i < sizeof gone / sizeof gone[0]; i++) TEST_ASSERT_EQUAL_DOUBLE_MESSAGE(-1, pf_set_num(gone[i], -1), gone[i]);
+	TEST_ASSERT_EQUAL_DOUBLE(-1, pf_set_num("smoke_plus.min_temp", -1));   /* schema 30 */
+	TEST_ASSERT_EQUAL_DOUBLE(220, pf_set_num("smoke_plus.max_temp", 0));
 	char mode[16] = "";
 	pf_set_str("notify.rules.0.when.conditions.0.value", mode, sizeof mode, "");
 	TEST_ASSERT_EQUAL_STRING("Relight", mode);

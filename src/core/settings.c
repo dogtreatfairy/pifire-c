@@ -20,7 +20,7 @@ static unsigned g_gen;
 static const char *const temp_paths[] = {
 	"safety.maxtemp", "safety.min_target", "safety.max_target", "safety.smoke_min", "safety.restart_hot_temp",
 	"startup.start_to_mode.primary_setpoint",
-	"keep_warm.temp", "smoke_plus.min_temp", "smoke_plus.max_temp",
+	"keep_warm.temp", "smoke_plus.max_temp",
 	NULL
 };
 /* Temperature *deltas* (no offset). */
@@ -165,6 +165,7 @@ static int validate(cJSON *root, char *err, size_t errn)
 	double tmin = pf_json_num(root, "safety.min_target", c ? 71 : 160), tmax = pf_json_num(root, "safety.max_target", c ? 288 : 550);
 	CHECK(tmax > tmin && tmax < maxtemp, "safety.max_target must be above the minimum target and below the overheat limit");
 	CHECK(tmin >= (c ? 38 : 100), "safety.min_target must be at least %s", c ? "38 C" : "100 F");
+	CHECK(pf_json_num(root, "smoke_plus.max_temp", c ? 104 : 220) > tmin, "smoke_plus.max_temp must be above the minimum set point");
 	double smin = pf_json_num(root, "safety.smoke_min", c ? 82 : 180);
 	CHECK(smin >= (c ? 38 : 100) && smin < tmax, "safety.smoke_min must be at least %s and below the maximum target", c ? "38 C" : "100 F");
 	double prove = pf_json_num(root, "startup.smartstart.prove_s", 300);
@@ -947,6 +948,15 @@ int pf_settings_init(const char *path)
 			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
 			if (sv) cJSON_SetNumberValue(sv, 29); else cJSON_AddNumberToObject(g_root, "schema_version", 29);
 			LOGI(TAG, "settings migrated to schema 29 (Smart Start, set point limits, Relight)");
+			added = 1;
+		}
+		if (ver < 30) {
+			/* Smoke+ works below one temperature; above the minimum set point is implied */
+			cJSON *sp = cJSON_GetObjectItem(g_root, "smoke_plus");
+			if (sp) cJSON_DeleteItemFromObject(sp, "min_temp");
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 30); else cJSON_AddNumberToObject(g_root, "schema_version", 30);
+			LOGI(TAG, "settings migrated to schema 30 (Smoke+ lower bound is the minimum set point)");
 			added = 1;
 		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */

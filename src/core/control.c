@@ -108,7 +108,6 @@ static void load_cfg(pf_cfg *g)
 	g->auto_power_off = B("shutdown.auto_power_off", false);
 
 	g->splus_default = B("smoke_plus.enabled", false);
-	g->splus_min_c = T("smoke_plus.min_temp", 160);
 	g->splus_max_c = T("smoke_plus.max_temp", 220);
 	g->splus_on_s = N("smoke_plus.on_time", 5);
 	g->splus_off_s = N("smoke_plus.off_time", 5);
@@ -2322,7 +2321,9 @@ static void run_fan_logic(pf_control *c, double now)
 	}
 
 	if (splus_phase && c->s_plus) {
-		if (c->pit_c > g->splus_max_c || c->pit_c < g->splus_min_c) {
+		/* below the minimum set point the fire needs all the air it can get; that floor is the one
+		 * every setting has, so Smoke+ has no lower bound of its own */
+		if (c->pit_c > g->splus_max_c || c->pit_c < g->min_target_c) {
 			if (!fan) fan_on(c, c->duty_cycle);
 		} else if (fan && now - c->fan_toggle_t > g->splus_on_s) {
 			pf_outputs_set(PF_OUT_FAN, false);
