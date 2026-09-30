@@ -953,20 +953,6 @@ static void render_btscan(pf_gfx *g, const pf_ui_state *ui)
 }
 
 /* Network info: a QR code for the grill's web address, plus the address and Wi-Fi in text. */
-/* Wi-Fi join text for a QR code (the form phone cameras understand), with the characters the
- * format reserves escaped. */
-static void wifi_qr_text(char *out, size_t n, const char *ssid, const char *psk)
-{
-	size_t k = 0;
-	const char *parts[] = { "WIFI:T:WPA;S:", ssid, ";P:", psk, ";;" };
-	for (int i = 0; i < 5; i++)
-		for (const char *c = parts[i]; *c && k + 2 < n; c++) {
-			if ((i == 1 || i == 3) && strchr("\\;,:\"", *c)) out[k++] = '\\';
-			out[k++] = *c;
-		}
-	out[k] = 0;
-}
-
 static void render_netinfo(pf_gfx *g, const cJSON *s)
 {
 	int W = g->vw, H = g->vh;
@@ -976,16 +962,7 @@ static void render_netinfo(pf_gfx *g, const cJSON *s)
 	const char *ssid = pf_json_str((cJSON *)s, "net.ssid", "");
 	int port = (int)pf_json_num((cJSON *)s, "net.port", 80);
 	int signal = (int)pf_json_num((cJSON *)s, "net.signal", 0);
-	/* While the setup hotspot is up, the screen is how a phone gets on it: the code joins the
-	 * hotspot, and its name and password are written out for a phone that cannot scan. The
-	 * password is this grill's own (see wifi.c), so it has to be readable here. */
-	bool hs = pf_json_bool((cJSON *)s, "net.hotspot", false);
-	char psk[64] = "";
-	if (hs) pf_set_str("network.hotspot_password", psk, sizeof psk, "");
-	char l1[80], l2[80];
-	snprintf(l1, sizeof l1, "Wi-Fi  %.40s", ssid);
-	snprintf(l2, sizeof l2, "Password  %.40s", psk);
-	if (!ip[0] && !hs) {
+	if (!ip[0]) {
 		pf_gfx_text_center(g, B, 20, W / 2, H / 2 - 30, "No network", g->th.muted);
 		pf_gfx_text_center(g, R, 15, W / 2, H / 2, "Join Wi-Fi via setup hotspot", g->th.muted);
 		return;
@@ -993,14 +970,12 @@ static void render_netinfo(pf_gfx *g, const cJSON *s)
 	char url[80];
 	if (port == 80) snprintf(url, sizeof url, "http://%.40s/", ip);
 	else snprintf(url, sizeof url, "http://%.40s:%d/", ip, port % 100000);
-	char code[160];
-	if (hs) wifi_qr_text(code, sizeof code, ssid, psk); else snprintf(code, sizeof code, "%s", url);
 
 	pf_qr q;
 	int top = 40, bottom = H - 4;
-	if (pf_qr_encode(code, &q)) {
+	if (pf_qr_encode(url, &q)) {
 		/* quiet zone of four modules, scaled to whatever room the panel has */
-		int avail = (bottom - top) - (hs ? 44 : 34);
+		int avail = (bottom - top) - 34;
 		int scale = avail / (q.size + 8);
 		if (scale < 2) scale = 2;
 		int side = (q.size + 8) * scale;
@@ -1010,11 +985,6 @@ static void render_netinfo(pf_gfx *g, const cJSON *s)
 			for (int x = 0; x < q.size; x++)
 				if (q.m[y][x]) pf_gfx_rect(g, ox + (x + 4) * scale, oy + (y + 4) * scale, scale, scale, 0x0000);
 		top = oy + side + 6;
-	}
-	if (hs) {
-		pf_gfx_text_center(g, B, 16, W / 2, top, l1, g->th.text);
-		pf_gfx_text_center(g, B, 16, W / 2, top + 20, l2, g->th.text);
-		return;
 	}
 	pf_gfx_text_center(g, B, 16, W / 2, top, url, g->th.text);
 	if (ssid[0]) {

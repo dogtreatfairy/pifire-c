@@ -848,6 +848,20 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 26 (fuel-without-heat limit removed)");
 			added = 1;
 		}
+		if (ver < 27) {
+			/* alpha.189 replaced the standard hotspot password with a generated one: ten characters
+			 * of lower case and digits without 0 o 1 l i. That is rolled back, and a grill carrying
+			 * one of those goes back to the documented password. */
+			cJSON *net = cJSON_GetObjectItem(g_root, "network");
+			cJSON *pw = net ? cJSON_GetObjectItem(net, "hotspot_password") : NULL;
+			if (cJSON_IsString(pw) && strlen(pw->valuestring) == 10 &&
+			    strspn(pw->valuestring, "abcdefghjkmnpqrstuvwxyz23456789") == 10)
+				cJSON_SetValuestring(pw, "pifire1234");
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 27); else cJSON_AddNumberToObject(g_root, "schema_version", 27);
+			LOGI(TAG, "settings migrated to schema 27 (standard hotspot password)");
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);

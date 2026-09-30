@@ -134,7 +134,8 @@ surface) and the fixes that followed.
   CORS; the WebSocket checks the same. Settings limits have ceilings and are reset to defaults when
   out of range at load. Backup restores are validated and refuse symlinks. SMB values are checked and
   the folder passed with `-D`. The root helpers resolve and validate their arguments. The setup
-  hotspot gets a random per-device password (shown on the panel) and serves network setup only.
+  hotspot serves network setup only; its password stays the documented `pifire1234` (a random
+  per-device one was tried in alpha.189 and rolled back: a grill without a screen could not be set up).
   MQTT accepts no commands unless `mqtt.allow_control`, and then only stop, shutdown, set point,
   timers and targets.
 - **Not done yet:** release signing (updates are checked against SHA256SUMS from the same release,
