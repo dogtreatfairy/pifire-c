@@ -135,6 +135,77 @@ export function remote(view) {
   return () => clearTimeout(pollT);
 }
 
+// ---- remote access through a Cloudflare Tunnel ----
+/* The tunnel, its public hostname and the Access policy in front of it are made in the Cloudflare
+   dashboard; the grill runs the connector and checks the Access token on every request that comes
+   through it. Until the team and audience tag are here, the tunnel is up but lets nothing in. */
+export function cloudflare(view) {
+  const card = el('div', { class: 'card' });
+  view.append(el('h2', {}, 'Cloudflare'), card);
+  let pollT = null;
+  const act = async (verb, msg, body = {}) => { try { await api(`/network/cloudflare/${verb}`, { body }); toast(msg); setTimeout(load, 1500); } catch (e) { toast(e.message, true); } };
+  const load = async () => {
+    let t;
+    try { t = await api('/network/cloudflare'); } catch (e) { card.innerHTML = ''; card.append(el('div', { class: 'muted' }, e.message)); return; }
+    card.innerHTML = '';
+    card.append(el('p', { class: 'help' }, 'Your own domain, reachable anywhere. No port forwarding and no app on the phone. Cloudflare Access signs you in, and the grill checks every request itself.'));
+    const url = t.hostname ? `https://${t.hostname}/` : '';
+    const access = t.team && t.aud;
+    const state = { Connected: `connected (${t.connections} link${t.connections === 1 ? '' : 's'})`, Connecting: 'connecting…', Stopped: 'stopped', NoToken: 'no tunnel token', NotInstalled: 'not installed' }[t.state] || t.state;
+    const rows = [['cloudflared', !t.installed ? 'not installed' : t.version || 'installed'], ['Status', state],
+      ['Access', !t.verify ? 'this build cannot verify (no libcrypto)' : access ? `${t.team}.cloudflareaccess.com` : 'not set up (tunnel requests refused)']];
+    if (url) rows.push(['Address', el('a', { href: url, target: '_blank' }, url)]);
+    const kv = el('div', { class: 'kv' });
+    for (const [k, v] of rows) kv.append(el('div', {}, k), el('div', {}, v));
+    card.append(kv);
+    if (t.busy) card.append(el('p', { class: 'muted' }, `Working: ${t.last_action}…`));
+    else if (t.last_action && t.last_ok === false) {
+      const out = (t.last_output || '').trim();
+      card.append(el('div', { class: 'card tight', style: 'margin:10px 0;border-color:var(--warn)' }, el('div', { class: 'help' }, `${t.last_action} failed: ${out.split('\n').filter(Boolean).join(' · ') || 'see daemon log'}`)));
+    }
+    if (t.state === 'Simulator') { card.append(el('p', { class: 'muted' }, 'Not available in the simulator.')); return; }
+    const row = el('div', { class: 'btnrow', style: 'margin-top:10px' });
+    card.append(row);
+    if (!t.installed) {
+      row.append(actionBtn('download', 'Install cloudflared', { class: 'primary', disabled: t.busy, onclick: async () => { if (await confirmDialog('Install cloudflared?', 'Adds the Cloudflare package repository and installs the tunnel connector (~1 min).', 'Install')) act('install', 'Installing…'); } }));
+    } else {
+      /* Access first: a tunnel without it is refused request by request, so it is the step that
+         decides whether the rest is any use. Set it from the local network -- through the tunnel
+         nothing gets in until it is set. */
+      const team = el('input', { type: 'text', value: t.team || '', placeholder: 'myteam', autocapitalize: 'off', spellcheck: false });
+      const aud = el('input', { type: 'text', value: t.aud || '', placeholder: '64 hex characters', autocapitalize: 'off', spellcheck: false });
+      card.append(el('h3', { style: 'margin-top:14px' }, 'Access'),
+        el('div', { class: 'field' }, el('label', {}, 'Team Name'), el('div', { class: 'help' }, '<team>.cloudflareaccess.com (Zero Trust → Settings)'), team),
+        el('div', { class: 'field' }, el('label', {}, 'Application Audience (AUD) Tag'), el('div', { class: 'help' }, 'Zero Trust → Access → Applications → your app'), aud),
+        el('div', { class: 'form-actions' }, actionBtn('save', 'Save', { onclick: async () => {
+          try { await patchSettings('network', { cloudflare_team: team.value.trim(), cloudflare_aud: aud.value.trim() }); toast('Saved'); load(); } catch (e) { toast(e.message, true); }
+        } })));
+      card.append(el('h3', { style: 'margin-top:14px' }, 'Tunnel'));
+      const tunnel = el('div', { class: 'btnrow' });
+      if (!t.active) {
+        const tok = el('input', { type: 'password', autocomplete: 'off', placeholder: t.token ? 'stored; paste to replace' : 'eyJ…' });
+        card.append(el('div', { class: 'field' }, el('label', {}, 'Tunnel Token'), el('div', { class: 'help' }, 'Networks → Tunnels → your tunnel. The token or the whole install command'), tok));
+        /* dismissive on the left, the commit on the right */
+        if (t.token) tunnel.append(actionBtn('delete', 'Forget Token', { disabled: t.busy, onclick: async () => { if (await confirmDialog('Forget the tunnel token?', 'The connector stops and the token is deleted from the grill.', 'Forget', true)) act('forget', 'Forgotten'); } }));
+        tunnel.append(actionBtn('start', 'Connect', { class: 'primary', disabled: t.busy, onclick: () => {
+          const v = tok.value.trim();
+          if (!v && !t.token) { toast('Paste the tunnel token first', true); return; }
+          act('start', 'Connecting…', { token: v });
+        } }, 'play'));
+      } else {
+        tunnel.append(actionBtn('stop', 'Disconnect', { disabled: t.busy, onclick: async () => { if (await confirmDialog('Disconnect?', 'The grill is unreachable through Cloudflare until reconnected.', 'Disconnect', true)) act('stop', 'Disconnected'); } }, 'square'));
+      }
+      card.append(tunnel);
+      card.append(el('p', { class: 'help', style: 'margin-top:12px' },
+        'In the tunnel, add a public hostname (e.g. grill.example.com) with service HTTP → localhost:', String(t.port || 80),
+        '. Then add an Access self-hosted application for that hostname with a policy that allows only you. Add to Home Screen from the https address.'));
+    }
+    if (t.busy || (t.active && !t.online)) { clearTimeout(pollT); pollT = setTimeout(load, 3000); }
+  };
+  load();
+  return () => clearTimeout(pollT);
+}
+
 function about(view) {
   view.append(el('div', { class: 'card' }, el('h3', {}, 'PiFire'), el('p', { class: 'muted' }, 'Pellet grill controller in C for the Pi Zero 2 W and up. MIT. Includes civetweb, cJSON, SQLite, uPlot.')));
 }

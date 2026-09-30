@@ -197,6 +197,7 @@ add_library(pfcore STATIC
   src/net/wifi.c
   src/net/netmgr.c
   src/net/tailscale.c
+  src/net/cloudflare.c
   src/web/api.c
   src/web/server.c
   ${PF_EMBED_OUT}
@@ -252,6 +253,7 @@ if(PF_BUILD_TESTS)
   pf_test(test_gfx)
   pf_test(test_qr)
   pf_test(test_webpush)
+  pf_test(test_cloudflare)
   pf_test(test_rules)
   pf_test(test_adaptive)
   pf_test(test_chefiq)

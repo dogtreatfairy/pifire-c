@@ -1174,6 +1174,10 @@
   "network": {
     "tailscale_hostname": "pifire",
     "tailscale_https": false,
+    "cloudflare_enabled": false,
+    "cloudflare_team": "",
+    "cloudflare_aud": "",
+    "cloudflare_hostname": "",
     "hotspot_ssid": "",
     "hotspot_password": "pifire1234",
     "force_setup": false,

@@ -37,6 +37,18 @@ export const PF = {
  * is safe even when the first attempt did arrive and only its answer was lost. */
 const ATTEMPT_MS = [5000, 7000, 10000];
 let reqSeq = 0;
+/* Cloudflare Access answers for the grill when its session has run out: the API call is redirected
+ * to the sign-in page on another origin, which a fetch cannot follow and which looked exactly like
+ * the grill being unreachable -- for ever, because nothing ever navigated anywhere. Reloading the page
+ * lets the browser follow the redirect, sign in, and come back. Once a minute at most, so a sign-in
+ * that keeps failing is a page to look at rather than a reload loop. */
+function signInAgain() {
+  let last = 0;
+  try { last = Number(sessionStorage.getItem('pf-signin') || 0); } catch { /* storage blocked */ }
+  if (Date.now() - last < 60000) return;
+  try { sessionStorage.setItem('pf-signin', String(Date.now())); } catch { /* storage blocked */ }
+  location.reload();
+}
 export async function api(path, opts = {}) {
   const method = opts.method || (opts.body ? 'POST' : 'GET');
   const rid = method === 'GET' ? null : `${Date.now().toString(36)}-${(++reqSeq).toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -67,7 +79,10 @@ async function apiOnce(path, opts, method, rid, ms) {
       body: opts.body ? JSON.stringify(opts.body) : undefined,
       signal: ac.signal,
       cache: 'no-store',
+      /* the grill never redirects an API call; something in front of it does (see signInAgain) */
+      redirect: 'manual',
     });
+    if (r.type === 'opaqueredirect') { signInAgain(); const err = new Error('Signing In Again'); err.retry = false; throw err; }
     /* The body is read inside the timeout, not after it. Headers arriving is not the same as the
        answer arriving: a tunnel that stalls mid-body leaves this await hanging for ever, and the
        timer that was meant to prevent exactly that had already been cleared. */
@@ -1018,8 +1033,9 @@ window.addEventListener('hashchange', route);
  * answered the same question twice. Now there is a single mark. It is the Tailscale logo when this
  * browser is talking to the grill through the tailnet -- which is decided by the address in the
  * address bar, not by the grill merely having Tailscale installed, because the two are different
- * facts and only the first is about this connection. Otherwise it is a plain network glyph. Green
- * when the live link is up, red when it is not. */
+ * facts and only the first is about this connection. The same goes for Cloudflare: its mark when the
+ * address is the tunnel's hostname. Otherwise it is a plain network glyph. Green when the live link
+ * is up, red when it is not. */
 let lastNet = {};
 function overTailscale(net) {
   const ts = net && net.tailscale;
@@ -1028,15 +1044,22 @@ function overTailscale(net) {
   const name = (ts.name || '').toLowerCase();
   return (name && (host === name || host === name.split('.')[0])) || /\.ts\.net$/.test(host) || /^100\./.test(host);
 }
+/* The tunnel's hostname is only known to the grill once a request has come through it, so until the
+   status stream says so, being on the address this page was loaded from is not enough to tell. */
+function overCloudflare(net) {
+  const cf = net && net.cloudflare;
+  return !!(cf && cf.name && location.hostname.toLowerCase() === cf.name.toLowerCase());
+}
 function paintLink() {
   const l = document.getElementById('ind-link');
   if (!l) return;
-  const ts = overTailscale(lastNet);
+  const ts = overTailscale(lastNet), cf = !ts && overCloudflare(lastNet);
   l.className = `tb-ind ${PF.connected ? 'ok' : 'bad'}`;
   l.title = PF.connected
-    ? (ts ? `Connected via Tailscale${lastNet.tailscale && lastNet.tailscale.name ? ' · ' + lastNet.tailscale.name : ''}` : 'Connected')
+    ? (ts ? `Connected via Tailscale${lastNet.tailscale && lastNet.tailscale.name ? ' · ' + lastNet.tailscale.name : ''}`
+      : cf ? `Connected via Cloudflare · ${lastNet.cloudflare.name}` : 'Connected')
     : 'Disconnected';
-  l.replaceChildren(ts ? brandIcon('tailscale') : lucide('network'));
+  l.replaceChildren(ts ? brandIcon('tailscale') : cf ? brandIcon('cloudflare-mono') : lucide('network'));
 }
 const bars = (n, cls) => el('span', { class: `sig s${n} ${cls}` }, [1, 2, 3, 4].map((i) => el('i', { class: i <= n ? 'on' : '' })));
 const wifiBars = (pct) => (!pct ? 0 : pct >= 75 ? 4 : pct >= 55 ? 3 : pct >= 35 ? 2 : 1);

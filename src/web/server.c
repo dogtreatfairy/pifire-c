@@ -10,6 +10,7 @@
 #include "core/status.h"
 #include "core/util.h"
 #include "controllers/registry.h"
+#include "net/cloudflare.h"
 #include "net/sysinfo.h"
 #include "probes/probes.h"
 #include "web/api.h"
@@ -484,6 +485,32 @@ static int static_handler(struct mg_connection *conn, void *cbdata)
 	return serve_embedded(conn, ri->local_uri);
 }
 
+/* Everything that arrives through Cloudflare is from the internet, and the grill has no login of its
+ * own, so it is let in only with a Cloudflare Access token this grill verifies (net/cloudflare.c).
+ * Cloudflare's edge puts CF-Ray and CF-Connecting-IP on every request it forwards, and a client
+ * cannot take them off; that is how a tunnelled request is told from one on the local network or
+ * the tailnet, which both arrive without them. Pages, API and WebSocket alike: this runs before
+ * any handler. */
+static int begin_request(struct mg_connection *conn)
+{
+	if (!mg_get_header(conn, "Cf-Ray") && !mg_get_header(conn, "Cf-Connecting-Ip")) return 0;
+	char why[256];
+	if (!pf_cloudflare_check(mg_get_header(conn, "Cf-Access-Jwt-Assertion"), mg_get_header(conn, "Host"), why, sizeof why)) return 0;
+	const struct mg_request_info *ri = mg_get_request_info(conn);
+	/* once a minute is enough to say why; a page load is dozens of requests */
+	static _Atomic double last_log;
+	double now = pf_now();
+	if (now - atomic_load(&last_log) > 60) { atomic_store(&last_log, now); LOGW(TAG, "refused %s %.80s through Cloudflare: %s", ri->request_method, ri->local_uri, why); }
+	cJSON *j = cJSON_CreateObject();
+	cJSON_AddStringToObject(j, "result", "ERROR");
+	cJSON_AddStringToObject(j, "message", why);
+	char *txt = cJSON_PrintUnformatted(j);
+	cJSON_Delete(j);
+	send_json(conn, 403, txt ? txt : "{}");
+	free(txt);
+	return 403;
+}
+
 static int log_message(const struct mg_connection *conn, const char *message)
 {
 	(void)conn;
@@ -520,6 +547,7 @@ int pf_web_start(const char *bind_addr, int port)
 	struct mg_callbacks cb;
 	memset(&cb, 0, sizeof cb);
 	cb.log_message = log_message;
+	cb.begin_request = begin_request;
 	mg_init_library(0);
 	g_ctx = mg_start(&cb, NULL, options);
 	if (!g_ctx) { LOGE(TAG, "failed to start web server on %s", listen); return -1; }

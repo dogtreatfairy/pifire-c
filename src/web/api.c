@@ -18,6 +18,7 @@
 #include "features/update.h"
 #include "net/netmgr.h"
 #include "net/sysinfo.h"
+#include "net/cloudflare.h"
 #include "net/tailscale.h"
 #include "features/push.h"
 #include "features/rules.h"
@@ -556,6 +557,16 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 	if (post && !strncmp(p, "/network/tailscale/", 19)) {
 		char err[160];
 		if (pf_tailscale_action(p + 19, err, sizeof err)) { reply_err(resp, 409, err); return; }
+		reply_ok(resp);
+		return;
+	}
+	if (get && !strcmp(p, "/network/cloudflare")) { reply(resp, 200, pf_cloudflare_status_json()); return; }
+	if (post && !strncmp(p, "/network/cloudflare/", 20)) {
+		char err[160];
+		cJSON *j = cJSON_Parse(req->body);
+		int rc = pf_cloudflare_action(p + 20, pf_json_str(j, "token", ""), err, sizeof err);
+		cJSON_Delete(j);
+		if (rc) { reply_err(resp, 409, err); return; }
 		reply_ok(resp);
 		return;
 	}

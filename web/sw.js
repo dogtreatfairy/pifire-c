@@ -75,8 +75,11 @@ const netFetch = (req, init = {}) => fetch(req, { ...init, signal: AbortSignal.t
    the page: the app showed a broken shell instead of the perfectly good one in the cache, on the
    one origin where it could not simply be reloaded. A server error falls back to the cache like any
    other failure. A 404 does not -- that is the server answering, and pretending otherwise would
-   hide real mistakes behind stale files. */
-const usable = (r) => r && (r.ok || (r.status >= 400 && r.status < 500));
+   hide real mistakes behind stale files. Nor does a redirect: the grill never sends one, so it is
+   Cloudflare Access sending the page to sign in, and the cached shell in its place would leave the
+   app signed out and unable to say so. The redirect is handed to the browser to follow, and it is
+   never cached. */
+const usable = (r) => r && (r.ok || (r.status >= 400 && r.status < 500) || r.type === 'opaqueredirect');
 
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;

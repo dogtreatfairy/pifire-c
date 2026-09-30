@@ -1,0 +1,105 @@
+#!/bin/bash
+# pifire-cloudflare: the privileged side of PiFire's Cloudflare Tunnel integration (sudoers lets the
+# pifire user run this). The tunnel is remotely managed: it is created in the Cloudflare dashboard,
+# which also holds its public hostname and the Access policy in front of it, and the grill only runs
+# the connector with the tunnel's token. Sub-commands:
+#   status            {"installed":..,"version":..,"token":..,"enabled":..,"active":..}
+#   install           add Cloudflare's apt repository (official keyring) and install cloudflared
+#   start             read a tunnel token on stdin (or reuse the stored one when stdin is empty),
+#                     store it root-only and run the connector as a systemd service
+#   stop              stop the connector and keep it from starting at boot; the token is kept
+#   forget            stop, and delete the stored token
+#
+# The token is a credential: whoever has it can run this tunnel. So it never goes on a command line
+# (where `ps` would show it to every user), it lives in a root-only file, and the connector runs as
+# a throwaway systemd user that can read nothing else on the machine.
+set -euo pipefail
+cmd="${1:-status}"
+DIR=/etc/pifire-cloudflared
+ENV="$DIR/tunnel.env"
+UNIT=/etc/systemd/system/pifire-cloudflared.service
+SVC=pifire-cloudflared
+# where the grill asks whether the tunnel is up (GET /ready); loopback only
+METRICS=127.0.0.1:20241
+
+write_unit() {
+	local bin
+	bin=$(command -v cloudflared)
+	cat >"$UNIT" <<UNIT
+[Unit]
+Description=Cloudflare Tunnel for PiFire
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=$ENV
+ExecStart=$bin tunnel --no-autoupdate --metrics $METRICS run
+Restart=always
+RestartSec=5
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+	systemctl daemon-reload
+}
+
+case "$cmd" in
+	status)
+		inst=false ver=""
+		if command -v cloudflared >/dev/null 2>&1; then inst=true; ver=$(cloudflared --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true); fi
+		tok=false; [ -s "$ENV" ] && tok=true
+		en=false; systemctl is-enabled --quiet "$SVC" 2>/dev/null && en=true
+		act=false; systemctl is-active --quiet "$SVC" 2>/dev/null && act=true
+		printf '{"installed":%s,"version":"%s","token":%s,"enabled":%s,"active":%s}\n' "$inst" "$ver" "$tok" "$en" "$act"
+		;;
+	install)
+		if command -v cloudflared >/dev/null 2>&1; then echo "already installed"; else
+			echo "adding Cloudflare's cloudflared repository"
+			mkdir -p --mode=0755 /usr/share/keyrings
+			curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg
+			echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' >/etc/apt/sources.list.d/cloudflared.list
+			apt-get update -qq
+			DEBIAN_FRONTEND=noninteractive apt-get install -y -qq cloudflared
+		fi
+		echo "installed $(cloudflared --version 2>/dev/null | head -1)"
+		;;
+	start)
+		command -v cloudflared >/dev/null 2>&1 || { echo "cloudflared is not installed" >&2; exit 2; }
+		tok=""
+		# Accepts the bare token, or the whole "cloudflared service install <token>" line the
+		# dashboard offers to copy: the token is its last word.
+		if [ ! -t 0 ]; then tok=$(head -c 8192 | awk '{ for (i = 1; i <= NF; i++) w = $i } END { print w }'); fi
+		if [ -n "$tok" ]; then
+			# a tunnel token is base64 of a small JSON object and nothing else; anything else is
+			# refused rather than written into a file systemd reads
+			[[ "$tok" =~ ^[A-Za-z0-9+/_=-]{40,4096}$ ]] || { echo "that does not look like a tunnel token" >&2; exit 2; }
+			install -d -m 700 -o root -g root "$DIR"
+			umask 077
+			printf 'TUNNEL_TOKEN=%s\n' "$tok" >"$ENV.new"
+			mv -f "$ENV.new" "$ENV"
+		fi
+		[ -s "$ENV" ] || { echo "no tunnel token: paste the token from the Cloudflare dashboard" >&2; exit 2; }
+		write_unit
+		systemctl enable "$SVC" >/dev/null 2>&1
+		systemctl restart "$SVC"
+		echo "started"
+		;;
+	stop)
+		systemctl disable --now "$SVC" >/dev/null 2>&1 || true
+		echo "stopped"
+		;;
+	forget)
+		systemctl disable --now "$SVC" >/dev/null 2>&1 || true
+		rm -f "$ENV" "$UNIT"
+		systemctl daemon-reload
+		echo "forgotten"
+		;;
+	*) echo "usage: pifire-cloudflare status|install|start|stop|forget" >&2; exit 2 ;;
+esac

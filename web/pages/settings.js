@@ -26,7 +26,7 @@ const PAGES = [
   { key: 'probesetup', title: 'Probes', sub: 'Connect, name and assign profiles', section: 'Hardware', icon: 'thermometer', color: '#ff453a', custom: (v) => import('./probes.js').then((m) => m.renderProbes(v, { setup: true })) },
   { key: 'probeprofiles', title: 'Probe Profiles', sub: 'Steinhart\u2013Hart curves per probe', section: 'Hardware', icon: 'activity', color: '#ff9f0a', custom: (v) => import('./probes.js').then((m) => m.renderProbeProfiles(v)) },
   { key: 'hardware', title: 'Grill Hardware', sub: 'Board, pins, display, hopper sensor', section: 'Hardware', icon: 'cpu', color: '#64d2ff', custom: (v) => import('./more.js').then((m) => m.hardware(v)) },
-  { key: 'startup', title: 'Startup & Shutdown', sub: 'Ignition, next mode, cool-down', section: 'Cooking', icon: MODE_ICON.Shutdown, color: '#bf5af2', sections: [
+  { key: 'startup', title: 'Startup & Shutdown', sub: 'Ignition, next mode, cool-down', section: 'Cooking', icon: 'play', color: '#30d158', sections: [
     { id: 'startup', title: 'Startup', fields: [
       B('start_to_mode.ask', 'Ask when starting', 'Start prompts for mode and temperature. Off: uses the defaults below'),
       S('start_to_mode.after_startup_mode', 'Default mode', 'Mode after startup; preselected when Start prompts', [['Smoke', 'Smoke'], ['Hold', 'Hold']]),
@@ -155,6 +155,7 @@ const PAGES = [
   ] },
   { key: 'network', title: 'Wi-Fi & Hotspot', sub: 'Networks, connection, hotspot', section: 'Network', icon: 'wifi', color: '#0a84ff', custom: networkPage },
   { key: 'remote', title: 'Tailscale', sub: 'Remote access over the tailnet', section: 'Network', brand: 'tailscale', custom: (v) => import('./more.js').then((m) => m.remote(v)) },
+  { key: 'cloudflare', title: 'Cloudflare', sub: 'Remote access on your own domain', section: 'Network', brand: 'cloudflare', custom: (v) => import('./more.js').then((m) => m.cloudflare(v)) },
   { key: 'webserver', title: 'Web Server', sub: 'Port', section: 'Network', icon: 'network', color: '#8e8e93', sections: [{ id: 'web', fields: [I('port', 'Port', 'Restart required', { min: 1, max: 65535 })] }] },
   // ---- System
   { key: 'general', title: 'General', sub: 'Name, units', section: 'System', icon: 'settings-2', color: '#8e8e93', sections: [{ id: 'globals', fields: [

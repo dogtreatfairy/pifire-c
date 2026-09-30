@@ -129,19 +129,41 @@ bool pf_file_exists(const char *path)
 
 int pf_run_capture(const char *const argv[], char *out, size_t n, int timeout_s)
 {
-	int fds[2];
+	return pf_run_capture_in(argv, NULL, out, n, timeout_s);
+}
+
+int pf_run_capture_in(const char *const argv[], const char *input, char *out, size_t n, int timeout_s)
+{
+	int fds[2], in[2] = { -1, -1 };
 	if (pipe2(fds, O_CLOEXEC) < 0) return -1;
+	if (input && pipe2(in, O_CLOEXEC) < 0) { close(fds[0]); close(fds[1]); return -1; }
 	pid_t pid = fork();
-	if (pid < 0) { close(fds[0]); close(fds[1]); return -1; }
+	if (pid < 0) { close(fds[0]); close(fds[1]); if (input) { close(in[0]); close(in[1]); } return -1; }
 	if (pid == 0) {
 		dup2(fds[1], STDOUT_FILENO);
 		dup2(fds[1], STDERR_FILENO);
-		int devnull = open("/dev/null", O_RDONLY);
-		if (devnull >= 0) dup2(devnull, STDIN_FILENO);
+		if (input) dup2(in[0], STDIN_FILENO);
+		else {
+			int devnull = open("/dev/null", O_RDONLY);
+			if (devnull >= 0) dup2(devnull, STDIN_FILENO);
+		}
 		execvp(argv[0], (char *const *)argv);
 		_exit(127);
 	}
 	close(fds[1]);
+	if (input) {
+		/* a secret handed over this way never appears on a command line; it is a few hundred bytes,
+		 * well inside the pipe buffer, so writing it all before reading cannot deadlock */
+		close(in[0]);
+		size_t len = strlen(input), off = 0;
+		while (off < len) {
+			ssize_t wr = write(in[1], input + off, len - off);
+			if (wr < 0 && errno == EINTR) continue;
+			if (wr <= 0) break;
+			off += (size_t)wr;
+		}
+		close(in[1]);
+	}
 	size_t w = 0;
 	if (out && n) out[0] = 0;
 	double deadline = pf_now() + timeout_s;

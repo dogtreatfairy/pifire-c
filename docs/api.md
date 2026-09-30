@@ -67,6 +67,10 @@ Recipe step: `{"mode":"Startup|Smoke|Hold|Shutdown","setpoint":225,"s_plus":fals
 
 `GET /network/tailscale` — the grill's Tailscale state, with `peers: [{name, dns, ip, online, os}]` for the other machines on the tailnet (the backup page offers them under a share's Host field).
 
+`GET /network/cloudflare` — the Cloudflare Tunnel state: `{installed, version, state, token, enabled, active, online, connections, team, aud, hostname, verify, busy, last_action, last_ok, last_output}`. `POST /network/cloudflare/{install|start|stop|forget}`; `start` takes `{"token": "…"}` (the tunnel token, or the whole `cloudflared service install …` line; empty reuses the stored one). The token is handed to the helper on stdin and stored root-only; it is never returned.
+
+**Through Cloudflare.** A request carrying `CF-Ray` or `CF-Connecting-IP` came through Cloudflare's edge and is answered only if its `Cf-Access-Jwt-Assertion` is a valid Cloudflare Access token for `network.cloudflare_team` and `network.cloudflare_aud`: RS256, signed by one of the team's published keys, right issuer and audience, not expired. Anything else — pages, API and `/ws` alike — gets `403 {"result":"ERROR","message":…}`. Requests on the local network and the tailnet are unaffected.
+
 
 `GET /network/status`, `GET /network/scan?rescan=1`, `GET /network/saved`, `POST /network/connect {ssid,psk}`, `POST /network/forget {ssid}`, `POST /network/hotspot {on}`.
 

@@ -8,6 +8,7 @@
 #include "features/learning.h"
 #include "features/weather.h"
 #include "net/netmgr.h"
+#include "net/cloudflare.h"
 #include "net/tailscale.h"
 #include <math.h>
 #include <pthread.h>
@@ -267,7 +268,7 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 	}
 	{
 		/* how to reach the grill: the panel builds its QR code from this and the web header
-		 * shows the Wi-Fi strength and the Tailscale state without polling anything extra */
+		 * shows the Wi-Fi strength and the Tailscale and Cloudflare state without polling anything extra */
 		char ip[32], ssid[64], ts[128];
 		int signal = 0;
 		bool hotspot = false, ts_on = false, ts_up = false;
@@ -283,6 +284,14 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 			cJSON *to = cJSON_AddObjectToObject(no, "tailscale");
 			cJSON_AddBoolToObject(to, "online", ts_up);
 			cJSON_AddStringToObject(to, "name", ts);
+		}
+		char cf[128];
+		bool cf_on = false, cf_up = false;
+		pf_cloudflare_brief(&cf_on, &cf_up, cf, sizeof cf);
+		if (cf_on) {
+			cJSON *co = cJSON_AddObjectToObject(no, "cloudflare");
+			cJSON_AddBoolToObject(co, "online", cf_up);
+			cJSON_AddStringToObject(co, "name", cf);
 		}
 	}
 	cJSON *probes = cJSON_AddArrayToObject(o, "probes");

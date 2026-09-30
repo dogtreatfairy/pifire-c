@@ -44,6 +44,7 @@ install -m 755 "$BIN" /usr/local/bin/pifired.new && mv -f /usr/local/bin/pifired
 install -m 755 install/pifire-boardcfg /usr/local/bin/pifire-boardcfg
 install -m 755 install/pifire-update-apply /usr/local/bin/pifire-update-apply
 install -m 755 install/pifire-tailscale /usr/local/bin/pifire-tailscale
+install -m 755 install/pifire-cloudflare /usr/local/bin/pifire-cloudflare
 install -m 755 install/pifire-system-update /usr/local/bin/pifire-system-update
 install -m 755 install/pifire-wifi-reset /usr/local/bin/pifire-wifi-reset
 install -d -o pifire -g pifire -m 750 /etc/pifire /var/lib/pifire /var/lib/pifire/cookfiles /var/lib/pifire/update
@@ -54,7 +55,7 @@ install -m 644 install/99-pifire.rules /etc/udev/rules.d/99-pifire.rules
 install -d /etc/NetworkManager/dnsmasq-shared.d
 install -m 644 install/pifire-captive.conf /etc/NetworkManager/dnsmasq-shared.d/pifire-captive.conf
 cat > /etc/sudoers.d/pifire <<'SUDO'
-pifire ALL=(root) NOPASSWD: /usr/local/bin/pifire-boardcfg, /usr/local/bin/pifire-update-apply, /usr/local/bin/pifire-tailscale, /usr/local/bin/pifire-system-update, /usr/local/bin/pifire-wifi-reset, /usr/bin/systemctl reboot, /usr/bin/systemctl poweroff, /usr/bin/rfkill unblock bluetooth
+pifire ALL=(root) NOPASSWD: /usr/local/bin/pifire-boardcfg, /usr/local/bin/pifire-update-apply, /usr/local/bin/pifire-tailscale, /usr/local/bin/pifire-cloudflare, /usr/local/bin/pifire-system-update, /usr/local/bin/pifire-wifi-reset, /usr/bin/systemctl reboot, /usr/bin/systemctl poweroff, /usr/bin/rfkill unblock bluetooth
 SUDO
 chmod 440 /etc/sudoers.d/pifire
 
