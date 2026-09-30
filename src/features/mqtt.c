@@ -138,34 +138,6 @@ static void on_connect(struct mosquitto *m, void *ud, int rc)
 	LOGI(TAG, "connected to %s:%d as %s", g_cfg.broker, g_cfg.port, g_cfg.id);
 }
 static void on_disconnect(struct mosquitto *m, void *ud, int rc) { (void)m; (void)ud; atomic_store(&g_connected, false); if (rc) LOGW(TAG, "disconnected (%d), will retry", rc); }
-/* What a broker may ask of the grill. Anyone who can publish to <id>/cmd is whoever the broker
- * lets in, which on a home network is often everyone, so control is off unless the user turns
- * notify.mqtt.allow_control on, and even then the broker gets only what brings a cook to an end
- * or adjusts one already burning: stop, shutdown, the set point, timers and probe targets. It
- * never lights the grill, never drives an output by hand, never primes, and never touches the
- * settings -- those need someone standing at the grill or signed in to its own page. */
-static bool mqtt_cmd_allowed(const char *body, char *why, size_t n)
-{
-	if (!pf_set_bool("notify.mqtt.allow_control", false)) { snprintf(why, n, "control over MQTT is off"); return false; }
-	cJSON *j = cJSON_Parse(body);
-	if (!j) { snprintf(why, n, "invalid JSON"); return false; }
-	const char *cmd = pf_json_str(j, "cmd", "");
-	bool ok = false;
-	if (!strcmp(cmd, "stop") || !strcmp(cmd, "setpoint") || !strcmp(cmd, "timer") || !strcmp(cmd, "target")) ok = true;
-	else if (!strcmp(cmd, "mode")) {
-		int m = pf_mode_from_name(pf_json_str(j, "mode", ""));
-		pf_status st;
-		pf_status_get(&st);
-		/* Smoke and Hold only as a change to a fire already going: from idle they would light it.
-		 * "force" (cut Startup short) is a judgement for someone watching the grill. */
-		ok = m == PF_MODE_STOP || m == PF_MODE_SHUTDOWN
-		     || ((m == PF_MODE_SMOKE || m == PF_MODE_HOLD) && pf_mode_is_firing(st.mode) && !pf_json_bool(j, "force", false));
-	}
-	if (!ok) snprintf(why, n, "'%.40s' is not allowed over MQTT", cmd);
-	cJSON_Delete(j);
-	return ok;
-}
-
 static void on_message(struct mosquitto *m, void *ud, const struct mosquitto_message *msg)
 {
 	(void)m; (void)ud;
@@ -174,7 +146,6 @@ static void on_message(struct mosquitto *m, void *ud, const struct mosquitto_mes
 	memcpy(body, msg->payload, (size_t)msg->payloadlen);
 	body[msg->payloadlen] = 0;
 	char err[128];
-	if (!mqtt_cmd_allowed(body, err, sizeof err)) { LOGW(TAG, "command on %s refused: %s", msg->topic, err); return; }
 	if (pf_api_command_json(body, err, sizeof err)) LOGW(TAG, "bad command on %s: %s", msg->topic, err);
 }
 

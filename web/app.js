@@ -1245,7 +1245,7 @@ setTimeout(fitViewport, 500);
 
 // ---------- boot ----------
 (async () => {
-  try { PF.settings = await api('/settings'); PF.units = PF.settings.globals.units; applyTheme(); } catch (e) { if (!/setup hotspot/.test(e.message)) toast('Could not load settings', true); }   /* the hotspot serves network setup only */
+  try { PF.settings = await api('/settings'); PF.units = PF.settings.globals.units; applyTheme(); } catch (e) { toast('Could not load settings', true); }
   try { PF.status = await api('/status'); } catch (e) { /* ws will fill in */ }
   route();
   emit();

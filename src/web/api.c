@@ -96,9 +96,6 @@ static double query_num(const char *query, const char *key, double dflt)
 
 int pf_api_command_json(const char *json, char *err, size_t errn)
 {
-	/* the WebSocket and MQTT reach commands here without passing pf_api_dispatch; the setup
-	 * hotspot's rule (network setup only) holds for them too */
-	if (pf_api_hotspot_active()) { snprintf(err, errn, "setup hotspot: network setup only"); return -1; }
 	cJSON *j = cJSON_Parse(json);
 	if (!j) { snprintf(err, errn, "invalid JSON"); return -1; }
 	const char *cmd = pf_json_str(j, "cmd", "");
@@ -238,16 +235,6 @@ void pf_api_dispatch(const pf_api_req *req, pf_api_resp *resp)
 	const char *p = req->path;
 	const char *m = req->method;
 	bool get = !strcmp(m, "GET"), post = !strcmp(m, "POST"), put = !strcmp(m, "PUT") || !strcmp(m, "PATCH");
-
-	/* The setup hotspot is an open door by design -- it exists for a phone that has never seen
-	 * this grill -- so while it is up the API answers only what joining a network needs: the
-	 * status, the system summary, and the network pages. Settings (with their stored passwords
-	 * and tokens), commands, backups and the rest wait for the grill to be on a real network. */
-	if (pf_api_hotspot_active()) {
-		bool allowed = (get && (!strcmp(p, "/status") || !strcmp(p, "/system")))
-		               || ((get || post) && !strncmp(p, "/network/", 9));
-		if (!allowed) { reply_err(resp, 403, "setup hotspot: network setup only"); return; }
-	}
 
 	if (get && !strcmp(p, "/status")) {
 		pf_status st;

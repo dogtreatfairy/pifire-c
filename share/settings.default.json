@@ -1,5 +1,5 @@
 {
-  "schema_version": 27,
+  "schema_version": 28,
   "globals": {
     "grill_name": "",
     "units": "F",
@@ -366,8 +366,7 @@
       "password": "",
       "id": "PiFire",
       "homeassistant_autodiscovery_topic": "homeassistant",
-      "update_sec": 30,
-      "allow_control": false
+      "update_sec": 30
     },
     "webhook": {
       "enabled": false,

@@ -155,7 +155,6 @@ const PAGES = [
       X('mqtt.broker', 'Broker host', ''), I('mqtt.port', 'Broker port', '', { min: 1, max: 65535 }),
       X('mqtt.username', 'Username', ''), { path: 'mqtt.password', label: 'Password', type: 'password' },
       X('mqtt.id', 'Device ID', 'Topic prefix'), I('mqtt.update_sec', 'Publish every (s)', '', { min: 5 }),
-      B('mqtt.allow_control', 'Allow control', 'Stop, shutdown, set point, timers, targets'),
     ] },
     { id: 'notify', title: 'Webhook', sub: 'POST events as JSON', icon: 'webhook', color: '#8e8e93', collapsible: 'webhook.enabled', fields: [
       { type: 'note', help: 'POSTs every event as JSON.' },

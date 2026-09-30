@@ -862,6 +862,15 @@ int pf_settings_init(const char *path)
 			LOGI(TAG, "settings migrated to schema 27 (standard hotspot password)");
 			added = 1;
 		}
+		if (ver < 28) {
+			/* alpha.189's MQTT gate is rolled back: Home Assistant controls the grill again */
+			cJSON *mq = pf_json_path(g_root, "notify.mqtt");
+			if (mq) cJSON_DeleteItemFromObject(mq, "allow_control");
+			cJSON *sv = cJSON_GetObjectItem(g_root, "schema_version");
+			if (sv) cJSON_SetNumberValue(sv, 28); else cJSON_AddNumberToObject(g_root, "schema_version", 28);
+			LOGI(TAG, "settings migrated to schema 28 (MQTT control restored)");
+			added = 1;
+		}
 		/* after the migrations so a new release's built-in rules reach an existing settings file */
 		if (adopt_builtin_rules(g_root, defaults)) added = 1;
 		cJSON_Delete(defaults);

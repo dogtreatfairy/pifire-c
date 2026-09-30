@@ -129,14 +129,13 @@ surface) and the fixes that followed.
 - **A clean start with a hot pit** that is not resuming a cook runs the Shutdown cool-down.
 - **Wi-Fi recovery** reloads the radio driver at any time but restarts the Pi only when the grill is
   stopped and cool (a restart mid-cook leaves the fan off while the pot smoulders, then relights).
-- **Remote surface.** Requests must be addressed to the grill by a name it answers to (DNS rebinding);
-  a browser Origin must match; state-changing requests must be JSON (or gzip for a restore); no
-  CORS; the WebSocket checks the same. Settings limits have ceilings and are reset to defaults when
-  out of range at load. Backup restores are validated and refuse symlinks. SMB values are checked and
-  the folder passed with `-D`. The root helpers resolve and validate their arguments. The setup
-  hotspot serves network setup only; its password stays the documented `pifire1234` (a random
-  per-device one was tried in alpha.189 and rolled back: a grill without a screen could not be set up).
-  MQTT accepts no commands unless `mqtt.allow_control`, and then only stop, shutdown, set point,
-  timers and targets.
+- **Remote surface.** PiFire runs on trusted home networks and is driven by Home Assistant,
+  automations and people's own dashboards, so the API, the WebSocket and MQTT accept commands from
+  any host or origin (CORS open), the API answers normally while the setup hotspot is up, and the
+  hotspot password is the documented `pifire1234`. Restrictions on all of these were tried in
+  alpha.189 and rolled back. What stays: settings limits have ceilings and are reset to defaults when
+  out of range at load; backup restores are validated and refuse symlinks; SMB values are checked and
+  the folder passed with `-D`; the root helpers resolve and validate their arguments; webhooks are
+  http and https only.
 - **Not done yet:** release signing (updates are checked against SHA256SUMS from the same release,
   which proves integrity, not authorship) and redacting stored secrets from `GET /settings`.

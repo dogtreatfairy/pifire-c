@@ -11,14 +11,9 @@
 #include "core/util.h"
 #include "controllers/registry.h"
 #include "net/sysinfo.h"
-#include "net/tailscale.h"
 #include "probes/probes.h"
 #include "web/api.h"
 #include <civetweb.h>
-#include <arpa/inet.h>
-#include <ctype.h>
-#include <strings.h>
-#include <unistd.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdint.h>
@@ -36,7 +31,6 @@ extern const pf_embedded_file pf_web_files[];
 extern const size_t pf_web_count;
 
 static struct mg_context *g_ctx;
-static const char *who_refused(const struct mg_connection *conn, bool changes_something);
 static pthread_mutex_t g_ws_mu = PTHREAD_MUTEX_INITIALIZER;
 /* One writer per client.
  *
@@ -189,10 +183,7 @@ static int serve_embedded(struct mg_connection *conn, const char *path)
 
 static int ws_connect(const struct mg_connection *conn, void *cbdata)
 {
-	(void)cbdata;
-	/* the live connection takes commands, so it answers to the same rule as the API */
-	const char *why = who_refused(conn, false);
-	if (why) { LOGW(TAG, "websocket refused: %s", why); return 1; }
+	(void)conn; (void)cbdata;
 	/* counted by thread, not by table slot: a ghost that was dropped from the table still holds a
 	 * worker, and counting slots let reconnects pile ghosts up until no thread was left for HTTP */
 	pthread_mutex_lock(&g_ws_mu);
@@ -343,86 +334,9 @@ static void send_json(struct mg_connection *conn, int status, const char *json)
 {
 	mg_printf(conn,
 	          "HTTP/1.1 %d %s\r\nContent-Type: application/json\r\nContent-Length: %zu\r\n"
-	          "Cache-Control: no-store\r\nConnection: close\r\n\r\n",
+	          "Cache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
 	          status, status < 300 ? "OK" : "Error", strlen(json));
 	mg_write(conn, json, strlen(json));
-}
-
-/* Who may drive the grill.
- *
- * There is no login: the owner's phone is the only client, and it loads this app from this daemon.
- * What must never happen is a web page from somewhere else doing it -- any page open on a phone on
- * the same network could otherwise post "start" to pifire.local (a browser sends a plain-text POST
- * cross-site without asking), or open the WebSocket, which no browser restricts at all. That is a
- * fire lit by an advert. So:
- *   - a request must be addressed to this grill by a name it answers to: an IP address, localhost,
- *     its hostname or <hostname>.local, its Tailscale name, or one listed in web.allowed_hosts.
- *     A page that has pointed its own domain at the grill (DNS rebinding) arrives with its own
- *     name, and is refused;
- *   - a browser's Origin, when it sends one, must be this same host;
- *   - anything that changes something must say it is JSON (or gzip, for a backup being restored).
- *     A browser will not send that cross-site without asking first, and this server never says yes:
- *     it sends no Access-Control-Allow-Origin at all. */
-static void host_of(const char *in, char *out, size_t n)
-{
-	/* "Host: name:80", "[fe80::1]:80", or the host part of "https://name:443/..." */
-	const char *h = in;
-	const char *sch = strstr(h, "://");
-	if (sch) h = sch + 3;
-	size_t l = 0;
-	if (*h == '[') { h++; while (h[l] && h[l] != ']') l++; }
-	else while (h[l] && h[l] != ':' && h[l] != '/') l++;
-	if (l >= n) l = n - 1;
-	for (size_t i = 0; i < l; i++) out[i] = (char)tolower((unsigned char)h[i]);
-	out[l] = 0;
-	if (l && out[l - 1] == '.') out[l - 1] = 0;
-}
-
-static bool host_allowed(const char *host)
-{
-	if (!host[0]) return false;
-	unsigned char buf[16];
-	if (inet_pton(AF_INET, host, buf) == 1 || inet_pton(AF_INET6, host, buf) == 1) return true;
-	if (!strcmp(host, "localhost")) return true;
-	char hn[128] = "";
-	if (gethostname(hn, sizeof hn - 8) == 0 && hn[0]) {
-		for (char *q = hn; *q; q++) *q = (char)tolower((unsigned char)*q);
-		if (!strcmp(host, hn)) return true;
-		char local[140];
-		snprintf(local, sizeof local, "%s.local", hn);
-		if (!strcmp(host, local)) return true;
-	}
-	char ts[128] = "";
-	pf_tailscale_brief(NULL, NULL, ts, sizeof ts);
-	size_t tl = strlen(ts);
-	while (tl && ts[tl - 1] == '.') ts[--tl] = 0;
-	if (ts[0] && !strcasecmp(host, ts)) return true;
-	cJSON *extra = pf_set_dup("web.allowed_hosts");
-	bool ok = false;
-	const cJSON *it;
-	cJSON_ArrayForEach(it, extra) if (cJSON_IsString(it) && !strcasecmp(it->valuestring, host)) ok = true;
-	cJSON_Delete(extra);
-	return ok;
-}
-
-/* 0 = allowed; otherwise the reason, for the log */
-static const char *who_refused(const struct mg_connection *conn, bool changes_something)
-{
-	const char *h = mg_get_header(conn, "Host");
-	char host[160] = "";
-	host_of(h ? h : "", host, sizeof host);
-	if (!host_allowed(host)) return "not addressed to this grill";
-	const char *origin = mg_get_header(conn, "Origin");
-	if (origin && *origin && strcmp(origin, "null")) {
-		char oh[160];
-		host_of(origin, oh, sizeof oh);
-		if (strcmp(oh, host)) return "from another site";
-	} else if (origin && !strcmp(origin, "null")) return "from an opaque origin";
-	if (changes_something) {
-		const char *ct = mg_get_header(conn, "Content-Type");
-		if (!ct || (strncasecmp(ct, "application/json", 16) && strncasecmp(ct, "application/gzip", 16))) return "not JSON";
-	}
-	return NULL;
 }
 
 /* Retried commands.
@@ -484,16 +398,6 @@ static int api_handler(struct mg_connection *conn, void *cbdata)
 {
 	(void)cbdata;
 	const struct mg_request_info *ri = mg_get_request_info(conn);
-	{
-		bool changes = strcmp(ri->request_method, "GET") && strcmp(ri->request_method, "HEAD");
-		if (!strcmp(ri->request_method, "OPTIONS")) { send_json(conn, 405, "{\"result\":\"ERROR\",\"message\":\"not allowed\"}"); return 405; }
-		const char *why = who_refused(conn, changes);
-		if (why) {
-			LOGW(TAG, "refused %s %s: %s", ri->request_method, ri->local_uri, why);
-			send_json(conn, 403, "{\"result\":\"ERROR\",\"message\":\"refused\"}");
-			return 403;
-		}
-	}
 	/* The body is read onto the heap, sized from Content-Length. Eight civetweb workers each
 	 * carrying a 64 KB request buffer on their stack was a lot of stack for a request that is
 	 * usually a hundred bytes, and anything larger than the buffer used to be truncated into
