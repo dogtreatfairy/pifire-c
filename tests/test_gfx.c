@@ -3,6 +3,7 @@
 #include "display/screens.h"
 #include "unity.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 void setUp(void) {}
@@ -422,6 +423,43 @@ static void test_main_screen_focus_and_its_menus(void)
 	TEST_ASSERT_EQUAL_INT(PF_FOCUS_PROBE0, ui.main_focus);
 	render_to(&g, st, &ui, "focus_probe");
 	TEST_ASSERT_EQUAL_INT(1, pf_main_probe_index(st, 0));   /* Probe 1 is the second probe in the status */
+	/* In Smoke there is no set point: the P-mode takes its stop. The plate must land on the P-mode
+	 * line in the data block and leave the pit's reading alone. */
+	set_mode(st, "Smoke", 0);
+	ui.main_focus = PF_FOCUS_NONE;
+	render_to(&g, st, &ui, "smoke_plain");
+	uint16_t *plain = malloc(sizeof(uint16_t) * (size_t)g.w * (size_t)g.h);
+	TEST_ASSERT_NOT_NULL(plain);
+	memcpy(plain, g.px, sizeof(uint16_t) * (size_t)g.w * (size_t)g.h);
+	ui.main_focus = PF_FOCUS_SETPOINT;
+	render_to(&g, st, &ui, "focus_pmode");
+	int col = g.vw - 100, pit_changed = 0, block_changed = 0;
+	for (int y = 76; y < 160; y++)
+		for (int x = 0; x < g.w; x++) {
+			if (g.px[y * g.w + x] == plain[y * g.w + x]) continue;
+			if (x < col - 6) pit_changed++; else block_changed++;
+		}
+	free(plain);
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, pit_changed, "in Smoke the pit is not what a press changes");
+	TEST_ASSERT_TRUE_MESSAGE(block_changed > 200, "the P-mode line must turn over when picked out");
+	/* the P-mode selector it opens */
+	ui.main_focus = PF_FOCUS_NONE;
+	ui.temp_kind = 2; ui.temp_value = 2; ui.temp_focus = 0; ui.temp_editing = false;
+	snprintf(ui.temp_title, sizeof ui.temp_title, "%s", "P-MODE");
+	snprintf(ui.temp_button, sizeof ui.temp_button, "%s", "Set");
+	pf_nav_push(&ui, PF_SCR_TEMP, 0);
+	render_to(&g, st, &ui, "pmode_select");
+	pf_nav_reset(&ui);
+	/* and the light theme, where the plate is the dark text colour with light words */
+	pf_gfx_set_theme(&g, "light");
+	ui.main_focus = PF_FOCUS_SETPOINT;
+	render_to(&g, st, &ui, "focus_pmode_light");
+	ui.main_focus = PF_FOCUS_PROBE0;
+	render_to(&g, st, &ui, "focus_probe_light");
+	ui.main_focus = PF_FOCUS_NONE;
+	pf_gfx_set_theme(&g, "dark");
+	ui.temp_kind = 0;
+	set_mode(st, "Hold", 0);
 	/* with a timer running, the banner's corner is a stop of its own, between the mode and the set point */
 	cJSON *tm = cJSON_GetObjectItem(st, "timer");
 	cJSON_ReplaceItemInObject(tm, "running", cJSON_CreateTrue()); cJSON_ReplaceItemInObject(tm, "remaining", cJSON_CreateNumber(754));

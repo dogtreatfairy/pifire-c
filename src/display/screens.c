@@ -497,9 +497,11 @@ static void draw_banner(pf_gfx *g, const cJSON *s, const char *mode, int ring)  
 	bool tuning_fill = pf_json_bool((cJSON *)s, "tuning.running", false) || pf_json_bool((cJSON *)s, "autotune.active", false);
 	uint16_t fill = tuning_fill ? g->th.info : mode_fill(g, mode), tc = on_fill_text(g, fill);
 	pf_gfx_rect(g, 0, 0, g->vw, 34, fill);
-	/* picked out by the knob: a two-pixel ring in the banner's own text colour, under the words */
-	if (ring == 1) { pf_gfx_rrect(g, 2, 2, W - 96, 30, 5, tc); pf_gfx_rrect(g, 4, 4, W - 100, 26, 3, fill); }
-	if (ring == 2) { pf_gfx_rrect(g, W - 92, 2, 90, 30, 5, tc); pf_gfx_rrect(g, W - 90, 4, 86, 26, 3, fill); }
+	/* Picked out by the knob: the part turns over, a plate in the banner's text colour with its words
+	 * in the banner's fill -- the same inversion as everything else the knob picks out. */
+	if (ring == 1) pf_gfx_rrect(g, 3, 3, W - 98, 28, 5, tc);
+	if (ring == 2) pf_gfx_rrect(g, W - 91, 1, 88, 32, 5, tc);   /* tall enough for the TIMER label over the time */
+	uint16_t mc = ring == 1 ? fill : tc, cc = ring == 2 ? fill : tc;
 	/* A tuning run holds set points like any cook, so "HOLD" tells you nothing about why the pit is
 	 * deliberately swinging either side of its target. Say what it is doing, and what it is aiming
 	 * at, because during a run the set point is the thing that keeps changing. */
@@ -528,7 +530,7 @@ static void draw_banner(pf_gfx *g, const cJSON *s, const char *mode, int ring)  
 	upper(up);
 	int px = 24;
 	while (px > 14 && pf_gfx_number_width(B, px, up) > W - 76) px -= 2;   /* leave the clock its corner */
-	pf_gfx_text(g, B, px, 10, 3 + (24 - px) / 2, up, tc);
+	pf_gfx_text(g, B, px, 10, 3 + (24 - px) / 2, up, mc);
 	/* right: countdown while a mode is timed, else how long the grill has been running */
 	char clk[16] = "";
 	double remaining = pf_json_num((cJSON *)s, "timers.mode_remaining", 0), cook = pf_json_num((cJSON *)s, "cook_elapsed", 0);
@@ -539,11 +541,11 @@ static void draw_banner(pf_gfx *g, const cJSON *s, const char *mode, int ring)  
 		/* a running timer takes the corner from the cook time: it is the one the cook set and is
 		 * waiting on. A mode's own countdown still comes first. */
 		fmt_clock(clk, sizeof clk, pf_json_num((cJSON *)s, "timer.remaining", 0));
-		pf_gfx_text_right(g, B, 9, W - 10, 1, "TIMER", tc);
-		pf_gfx_text_right(g, B, 18, W - 10, 11, clk, tc);
+		pf_gfx_text_right(g, B, 9, W - 10, 1, "TIMER", cc);
+		pf_gfx_text_right(g, B, 18, W - 10, 11, clk, cc);
 		clk[0] = 0;
 	} else if (cook > 0) fmt_clock(clk, sizeof clk, cook);
-	if (clk[0]) pf_gfx_text_right(g, B, 22, W - 10, 4, clk, tc);
+	if (clk[0]) pf_gfx_text_right(g, B, 22, W - 10, 4, clk, cc);
 }
 
 /* three filled tiles: on = bright fill with dark bold text, off = dark tile with grey text */
@@ -566,12 +568,25 @@ static void draw_tiles(pf_gfx *g, const cJSON *s, int y, int h, int px)
 	}
 }
 
-/* right-hand data block: set point, error, and one status line */
-/* where the hopper was drawn on the last main screen, so the focus ring can find it */
-static int g_hop_x, g_hop_y, g_hop_w, g_hop_h;
-static int g_sp_x, g_sp_y, g_sp_w, g_sp_h;   /* and the set point, likewise */
+/* What the knob has picked out on the main screen turns over: a solid plate in the text colour with
+ * the item's own words in the background colour, white with black on the dark theme.
+ *
+ * It was a two-pixel ring in the accent, and on this screen that is the colour of the set point
+ * inside it and of a probe running over its target: at arm's length the ring was a thin line around
+ * something already orange, and which thing it went round was a matter of guessing. A filled block
+ * is how the menus have always shown a selection. It cannot be the accent here, because every
+ * colour on this screen already says something -- orange the set point and over target, green done,
+ * blue the auger -- and inverse video is the one look that no status uses. */
+static uint16_t sel_plate(const pf_gfx *g) { return g->th.text; }
+static uint16_t sel_ink(const pf_gfx *g) { return g->th.bg; }
 
-static void draw_datablock(pf_gfx *g, const cJSON *s, const cJSON *primary, const char *mode, const char *units, int x, int y, int w, bool compact)
+/* right-hand data block: set point, error, and one status line */
+/* what can be picked out in the block, and where the last main screen drew it */
+enum { DB_FOCUS_NONE = 0, DB_FOCUS_SETPOINT, DB_FOCUS_HOPPER };
+static int g_hop_h;
+static int g_sp_h;   /* the set point, or Smoke's P-mode: whatever a press there changes */
+
+static void draw_datablock(pf_gfx *g, const cJSON *s, const cJSON *primary, const char *mode, const char *units, int x, int y, int w, bool compact, int focus)
 {
 	g_hop_h = 0;
 	int p1 = compact ? 22 : 26, p2 = compact ? 18 : 22, p3 = compact ? 14 : 16, l1 = p1 + 4, l2 = p2 + 4, l3 = p3 + 2;
@@ -588,8 +603,10 @@ static void draw_datablock(pf_gfx *g, const cJSON *s, const cJSON *primary, cons
 		int sz = compact ? 34 : 38;
 		snprintf(line, sizeof line, "%.0f" DEG, sp);
 		while (sz > 24 && pf_gfx_text_width(B, sz, line) > w - 4) sz -= 2;
-		pf_gfx_text(g, B, sz, x, ly, line, g->th.accent);
-		g_sp_x = x - 4; g_sp_y = ly - 2; g_sp_w = w + 8; g_sp_h = pf_gfx_line_height(B, sz) + 4;
+		g_sp_h = pf_gfx_line_height(B, sz) + 4;
+		bool on = focus == DB_FOCUS_SETPOINT;
+		if (on) pf_gfx_rrect(g, x - 4, ly - 2, w + 8, g_sp_h, 5, sel_plate(g));
+		pf_gfx_text(g, B, sz, x, ly, line, on ? sel_ink(g) : g->th.accent);
 		ly += pf_gfx_line_height(B, sz) + 2;
 		if (valid && !strcmp(mode, "Hold")) {
 			double e = pit - sp, tight = units[0] == 'C' ? 4 : 7, wide = units[0] == 'C' ? 8 : 15;
@@ -599,8 +616,13 @@ static void draw_datablock(pf_gfx *g, const cJSON *s, const cJSON *primary, cons
 			ly += l2;
 		}
 	} else if (!strcmp(mode, "Smoke")) {
-		snprintf(line, sizeof line, "P-MODE %d", pf_set_int("cycle_data.PMode", 2));
-		pf_gfx_text(g, B, p2, x, ly, line, g->th.accent); ly += l2;
+		/* Smoke has no set point to change; its P-mode is the number that decides how it smokes,
+		 * so it takes the set point's place as the thing a press there changes */
+		snprintf(line, sizeof line, "P-MODE %d", pf_set_int("cycle_data.PMode", 2) % 100);
+		g_sp_h = l2 + 2;
+		bool on = focus == DB_FOCUS_SETPOINT;
+		if (on) pf_gfx_rrect(g, x - 4, ly - 3, w + 8, g_sp_h + 2, 5, sel_plate(g));
+		pf_gfx_text(g, B, p2, x, ly, line, on ? sel_ink(g) : g->th.accent); ly += l2 + 2;
 		if (pf_json_bool((cJSON *)s, "s_plus", false)) { pf_gfx_text(g, B, p2, x, ly, "SMOKE+", g->th.ok); ly += l2; }
 	} else if (!strcmp(mode, "Startup") || !strcmp(mode, "Relight")) {
 		pf_gfx_text(g, B, p1, x, ly, "IGNITING", g->th.accent); ly += l1;
@@ -625,17 +647,19 @@ static void draw_datablock(pf_gfx *g, const cJSON *s, const cJSON *primary, cons
 		 * spent most of a long cook claiming a fault it did not have, which is the surest way to
 		 * teach someone to ignore the colour. */
 		uint16_t hc = hop <= 10 ? g->th.danger : hop <= 25 ? g->th.warn : g->th.ok;
-		pf_gfx_text(g, B, p3, x, ly, line, hop <= 25 ? g->th.danger : g->th.text);
+		g_hop_h = l3 + 22;
+		bool on = focus == DB_FOCUS_HOPPER;
+		if (on) pf_gfx_rrect(g, x - 4, ly - 2, w + 8, g_hop_h, 5, sel_plate(g));
+		pf_gfx_text(g, B, p3, x, ly, line, on ? sel_ink(g) : hop <= 25 ? g->th.danger : g->th.text);
 		ly += l3;
 		/* Six pixels of bar is nothing at arm's length in daylight. Give it real height and an
 		 * outline, so the level reads as a level rather than as a hairline. */
 		pf_gfx_bar(g, x, ly + 2, w, 14, hop / 100.0, hc, g->th.card2);
-		g_hop_x = x - 4; g_hop_y = ly - l3 - 2; g_hop_w = w + 8; g_hop_h = l3 + 22;
 	}
 	if (pf_json_bool((cJSON *)s, "lid_open", false)) pf_gfx_text(g, B, p3, x, ly + 12, "LID OPEN", g->th.danger);
 }
 
-static void draw_pit(pf_gfx *g, const cJSON *primary, const char *units, const char *mode, int x, int y, int big, int maxw)
+static void draw_pit(pf_gfx *g, const cJSON *primary, const char *units, const char *mode, int x, int y, int big, int maxw, bool focused)
 {
 	bool stopped = !strcmp(mode, "Stop");
 	bool valid = primary && cJSON_IsNumber(cJSON_GetObjectItem((cJSON *)primary, "temp"));
@@ -643,7 +667,7 @@ static void draw_pit(pf_gfx *g, const cJSON *primary, const char *units, const c
 	fmt_temp(v, sizeof v, valid ? cJSON_GetObjectItem((cJSON *)primary, "temp") : NULL);
 	if (stopped) { snprintf(v, sizeof v, "0"); valid = false; }
 	/* big number with the unit at half size, baseline-aligned to its bottom right */
-	uint16_t c = valid ? g->th.text : g->th.muted;
+	uint16_t c = focused ? sel_ink(g) : valid ? g->th.text : g->th.muted;
 	char u[4];
 	snprintf(u, sizeof u, DEG "%c", units[0]);
 	int small = big / 3;
@@ -677,7 +701,7 @@ static void pf_sel_ring(pf_gfx *g, int x, int y, int w, int h, int r, uint16_t e
 	pf_gfx_rrect(g, x + 1, y + 1, w - 2, h - 2, r > 1 ? r - 1 : r, fill);
 }
 
-static void draw_probe_col(pf_gfx *g, const cJSON *p, const char *units, bool blink, int x, int y, int w)
+static void draw_probe_col(pf_gfx *g, const cJSON *p, const char *units, bool blink, int x, int y, int w, bool focused)
 {
 	const cJSON *tv = cJSON_GetObjectItem((cJSON *)p, "temp");
 	double target = pf_json_num((cJSON *)p, "target", 0), eta = pf_json_num((cJSON *)p, "eta_s", -1);
@@ -685,19 +709,23 @@ static void draw_probe_col(pf_gfx *g, const cJSON *p, const char *units, bool bl
 	bool wireless = pf_json_bool((cJSON *)p, "wireless", false);
 	double over = hit ? tv->valuedouble - target : 0, step = units[0] == 'C' ? 3 : 5;
 	uint16_t alert = over >= 2 * step ? g->th.danger : over >= step ? g->th.accent : g->th.ok;
-	bool filled = hit && !blink;
+	/* picked out by the knob: the card turns over, and stays over -- it does not flash with its
+	 * alarm while it is the thing a press will act on */
+	if (focused) alert = sel_plate(g);
+	bool filled = focused || (hit && !blink);
 	if (filled) pf_gfx_rrect(g, x, y, w, 62, 6, alert);
 	else {
 		pf_gfx_rrect(g, x, y, w, 62, 6, g->th.card);
 		if (hit) { pf_gfx_rrect(g, x, y, w, 62, 6, alert); pf_gfx_rrect(g, x + 3, y + 3, w - 6, 56, 4, g->th.card); }
 	}
-	uint16_t tc = filled ? g->th.accent_text : hit ? alert : valid ? g->th.text : g->th.muted;
-	uint16_t mc = filled ? g->th.accent_text : hit ? alert : g->th.muted;
+	uint16_t fink = focused ? sel_ink(g) : g->th.accent_text;   /* the ink on a filled card */
+	uint16_t tc = filled ? fink : hit ? alert : valid ? g->th.text : g->th.muted;
+	uint16_t mc = filled ? fink : hit ? alert : g->th.muted;
 	/* The Bluetooth rune is an identity mark -- "this probe is wireless" -- not a status light. It
 	 * is Bluetooth blue, always, except on a filled card where it takes the card's own text colour.
 	 * The signal bars are gone from the card, as they are from the phone's: a card read across a
 	 * garden carries the mark, the name and the battery, the reading, and the target. */
-	uint16_t rune = filled ? g->th.accent_text : g->th.info;
+	uint16_t rune = filled ? fink : g->th.info;
 	char name[12], t[8], tg[12] = "", et[8] = "";
 	snprintf(name, sizeof name, "%.8s", pf_json_str((cJSON *)p, "name", "?"));
 	upper(name);
@@ -705,9 +733,9 @@ static void draw_probe_col(pf_gfx *g, const cJSON *p, const char *units, bool bl
 	if (target > 0) snprintf(tg, sizeof tg, "%.0f" DEG, target);
 	if (target > 0 && !hit && eta > 0) fmt_eta(et, sizeof et, eta);
 	int battery = wireless ? (int)pf_json_num((cJSON *)p, "battery", -1) : -2;
-	uint16_t tgc = filled ? g->th.accent_text : tc == alert ? alert : g->th.accent;
-	uint16_t dim = filled ? g->th.accent_text : g->th.muted;
-	uint16_t batc = filled ? g->th.accent_text : battery <= 20 && battery >= 0 ? g->th.danger : g->th.text;
+	uint16_t tgc = filled ? fink : tc == alert ? alert : g->th.accent;
+	uint16_t dim = filled ? fink : g->th.muted;
+	uint16_t batc = filled ? fink : battery <= 20 && battery >= 0 ? g->th.danger : g->th.text;
 	/* The battery is plain text -- "81%" -- at the right of the name line. The phone's cell with the
 	 * number inside it was drawn here too, and at this size the number sat on its own fill with no
 	 * contrast left; three characters of type say the same thing and can be read. */
@@ -756,48 +784,35 @@ static void render_main(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 		if (!strcmp(role, "Food") && pf_json_bool((cJSON *)p, "enabled", true) && pf_json_bool((cJSON *)p, "home", true) && !pf_json_bool((cJSON *)p, "companion", false) && nf < 3) food[nf++] = p;
 	}
 
-	/* The focus ring: a turn of the knob picks out the banner, the pit, the hopper or a probe card,
-	 * and a press acts on it. Two pixels of the accent following the block's own corner, drawn
-	 * under the block so the block's own fill leaves exactly the ring showing. */
+	/* What a turn of the knob has picked out -- the banner, the set point (or Smoke's P-mode), the
+	 * hopper or a probe card -- turns over (see sel_plate), and a press acts on it. Where the mode
+	 * has no set point and no P-mode, the pit's reading stands for it: a press there starts a hold. */
 	int f = ui->main_focus;
 	int top = H - 66, w = (W - 12 - 10) / 3;
 	int pit_x, pit_y, pit_w, pit_h, col = W - 100;
 	if (landscape) { pit_x = 4; pit_y = 76; pit_w = col - 10; pit_h = 84; }
 	else { pit_x = 6; pit_y = 78; pit_w = W - 12; pit_h = 100; }
-	bool sp_box = false;   /* set once the block has drawn; the ring around the pit is the fallback */
+	int dbf = f == PF_FOCUS_SETPOINT ? DB_FOCUS_SETPOINT : f == PF_FOCUS_HOPPER ? DB_FOCUS_HOPPER : DB_FOCUS_NONE;
+	/* whether the block has a set point to pick out is only known once it has drawn, so it draws
+	 * first; the pit's plate, when the pit stands in, goes under the reading */
 	if (landscape) {
 		draw_tiles(g, s, 39, 36, 20);
-		draw_pit(g, primary, units, mode, 8, 78, 100, col - 12);
-		draw_datablock(g, s, primary, mode, units, col, 80, W - col - 6, true);
-		if (nf == 0) pf_gfx_text(g, R, 16, 8, top + 22, "No food probes enabled", g->th.muted);
+		draw_datablock(g, s, primary, mode, units, col, 80, W - col - 6, true, dbf);
 	} else {
 		draw_tiles(g, s, 39, 36, 18);
-		draw_pit(g, primary, units, mode, 10, 80, 118, W - 16);
-		draw_datablock(g, s, primary, mode, units, 10, 190, W - 20, true);
+		draw_datablock(g, s, primary, mode, units, 10, 190, W - 20, true, dbf);
 	}
-	sp_box = g_sp_h > 0;
-	if (f == PF_FOCUS_SETPOINT) {
-		if (sp_box) {
-			pf_gfx_rrect(g, g_sp_x, g_sp_y, g_sp_w, g_sp_h, 5, g->th.accent);
-			pf_gfx_rrect(g, g_sp_x + 2, g_sp_y + 2, g_sp_w - 4, g_sp_h - 4, 3, g->th.bg);
-			if (landscape) draw_datablock(g, s, primary, mode, units, col, 80, W - col - 6, true);
-			else draw_datablock(g, s, primary, mode, units, 10, 190, W - 20, true);
-		} else {
-			pf_gfx_rrect(g, pit_x, pit_y, pit_w, pit_h, 6, g->th.accent); pf_gfx_rrect(g, pit_x + 2, pit_y + 2, pit_w - 4, pit_h - 4, 4, g->th.bg);
-			if (landscape) draw_pit(g, primary, units, mode, 8, 78, 100, col - 12); else draw_pit(g, primary, units, mode, 10, 80, 118, W - 16);
-		}
-	}
-	if (f == PF_FOCUS_HOPPER && g_hop_h > 0) {
-		/* the hopper's place is known once the block has drawn; ring it and draw the block again */
-		pf_gfx_rrect(g, g_hop_x, g_hop_y, g_hop_w, g_hop_h, 4, g->th.accent);
-		pf_gfx_rrect(g, g_hop_x + 2, g_hop_y + 2, g_hop_w - 4, g_hop_h - 4, 2, g->th.bg);
-		if (landscape) draw_datablock(g, s, primary, mode, units, col, 80, W - col - 6, true);
-		else draw_datablock(g, s, primary, mode, units, 10, 190, W - 20, true);
+	bool pit_on = f == PF_FOCUS_SETPOINT && g_sp_h == 0;
+	if (pit_on) pf_gfx_rrect(g, pit_x, pit_y, pit_w, pit_h, 6, sel_plate(g));
+	if (landscape) {
+		draw_pit(g, primary, units, mode, 8, 78, 100, col - 12, pit_on);
+		if (nf == 0) pf_gfx_text(g, R, 16, 8, top + 22, "No food probes enabled", g->th.muted);
+	} else {
+		draw_pit(g, primary, units, mode, 10, 80, 118, W - 16, pit_on);
 	}
 	for (int i = 0; i < nf; i++) {
 		int cx = 6 + i * (w + 5);
-		if (f == PF_FOCUS_PROBE0 + i) pf_gfx_rrect(g, cx - 2, top - 2, w + 4, 66, 8, g->th.accent);
-		draw_probe_col(g, food[i], units, ui->blink, cx, top, w);
+		draw_probe_col(g, food[i], units, ui->blink, cx, top, w, f == PF_FOCUS_PROBE0 + i);
 	}
 }
 
@@ -875,6 +890,15 @@ static void render_temp(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 	snprintf(v, sizeof v, "%.0f", ui->temp_value);
 	char unit[4] = { (char)0xC2, (char)0xB0, units[0], 0 };
 	if (ui->temp_kind == 1) snprintf(unit, sizeof unit, "MIN");
+	/* P-mode: the number with its P, and what it means in seconds, which is the whole of it -- the
+	 * auger feeds for the on time and then pauses, ten seconds longer for every step */
+	char pause[40] = "";
+	if (ui->temp_kind == 2) {
+		snprintf(v, sizeof v, "P%.0f", ui->temp_value);
+		unit[0] = 0;
+		snprintf(pause, sizeof pause, "Feed %ds, pause %ds",
+		         pf_set_int("cycle_data.SmokeOnCycleTime", 15) % 1000, (pf_set_int("cycle_data.SmokeOffCycleTime", 45) + 10 * (int)ui->temp_value) % 10000);
+	}
 	int bh = H - 34 - 46;
 	int big = W >= 320 ? 96 : 76;
 	int vw = pf_gfx_text_width(B, big, v), uw = pf_gfx_text_width(B, big / 3, unit);
@@ -886,7 +910,9 @@ static void render_temp(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 		pf_gfx_rrect(g, left - 14, 38, vw + uw + 34, bh - 4, 8, plate);
 	}
 	uint16_t vc = on_value && ui->temp_editing && ui->blink ? g->th.accent_text : g->th.text;
+	if (pause[0]) ty -= 12;
 	pf_gfx_text(g, B, big, left, ty, v, vc);
+	if (pause[0]) pf_gfx_text_center(g, B, 16, W / 2, ty + pf_gfx_line_height(B, big) + 2, pause, on_value && ui->temp_editing && ui->blink ? g->th.accent_text : g->th.muted);
 	pf_gfx_text(g, B, big / 3, left + vw + 6, ty + (int)(big * 0.18), unit, on_value && ui->temp_editing && ui->blink ? g->th.accent_text : g->th.muted);
 
 	/* the two buttons */
@@ -1061,7 +1087,7 @@ static void render_manual(pf_gfx *g, const cJSON *s, const pf_ui_state *ui)
 	int pit_h = avail - block;
 	int big = pit_h > 58 ? 52 : pit_h - 6;
 	if (big < 26) big = 26;
-	draw_pit(g, primary, pf_json_str((cJSON *)s, "units", "F"), "Monitor", 8, 38, big, W - 16);
+	draw_pit(g, primary, pf_json_str((cJSON *)s, "units", "F"), "Monitor", 8, 38, big, W - 16, false);
 
 	int y = H - block - 2;
 	for (int i = 0; i < 3; i++) {

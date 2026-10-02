@@ -120,13 +120,13 @@ function primeMenu() {
       el('button', { class: 'btn primary', type: 'button', onclick: async () => { close(); const g = await numberDialog('Prime Amount', 10, { min: 1, max: 100, step: 5, unit: ' g', presets: [5, 10, 20, 30] }); if (g) cmd({ cmd: 'prime', amount: g, next: 'Startup' }); } }, 'Prime & Start')),
     el('button', { class: 'btn ghost block', type: 'button', onclick: () => close() }, 'Cancel')));
 }
-// Smoke button menu: Smoke <-> Smoke+ plus a 1-9 dial pad for the P-mode
+// Smoke button menu: Smoke <-> Smoke+ plus a P0-P9 pad for the P-mode (pause 45 s + 10 s per step)
 function smokeMenu(s) {
   const cur = PF.settings?.cycle_data?.PMode ?? 2;
   return dialog((close) => el('div', {}, el('h3', {}, s.s_plus ? 'Smoke+' : 'Smoke'),
     el('button', { class: 'btn block', type: 'button', style: 'margin-bottom:12px', onclick: async () => { close(); const to = !s.s_plus; if (await confirmDialog(to ? 'Switch to Smoke+?' : 'Switch to Smoke?', to ? 'Fan cycles on and off for more smoke.' : 'Fan runs continuously.', to ? 'Smoke+' : 'Smoke')) cmd({ cmd: 'smoke_plus', enabled: to }); } }, s.s_plus ? 'Switch to Smoke' : 'Switch to Smoke+'),
     el('div', { class: 'help' }, `P-Mode · Current ${cur} · Higher: less feed, more smoke`),
-    el('div', { class: 'presets pad' }, ...Array.from({ length: 9 }, (_, i) => i + 1).map((n) => el('button', { class: `btn ${n === cur ? 'primary' : ''}`, type: 'button', onclick: async () => { close(); try { await patchSettings('cycle_data', { PMode: n }); toast(`P-Mode ${n}`); } catch (e) { toast(e.message, true); } } }, String(n)))),
+    el('div', { class: 'presets pad' }, ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 0].map((n) => el('button', { class: `btn ${n === cur ? 'primary' : ''}`, type: 'button', style: n === 0 ? 'grid-column:2' : null, onclick: async () => { close(); try { await patchSettings('cycle_data', { PMode: n }); toast(`P-Mode ${n}`); } catch (e) { toast(e.message, true); } } }, String(n)))),
     el('button', { class: 'btn ghost block', type: 'button', onclick: () => close() }, 'Cancel')));
 }
 /* One Stop, which asks which kind: End Cook is the graceful one (feed stops, the fan cools the

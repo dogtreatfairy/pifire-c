@@ -205,6 +205,21 @@ static void open_timer(tft_t *t)
 	pf_nav_push(&t->ui, PF_SCR_TEMP, 0);
 }
 
+/* Smoke's P-mode, P0 to P9: one step a click, clamped at the ends rather than wrapping, because
+ * P9 to P0 in one click is a different cook. */
+static void open_pmode(tft_t *t)
+{
+	int pm = pf_set_int("cycle_data.PMode", 2);
+	t->ui.temp_value = pm < 0 ? 0 : pm > 9 ? 9 : pm;
+	t->ui.temp_action = PF_ACT_PMODE;
+	t->ui.temp_kind = 2;
+	t->ui.temp_focus = 0;
+	t->ui.temp_editing = true;
+	pf_strlcpy(t->ui.temp_title, "P-MODE", sizeof t->ui.temp_title);
+	pf_strlcpy(t->ui.temp_button, "Set", sizeof t->ui.temp_button);
+	pf_nav_push(&t->ui, PF_SCR_TEMP, 0);
+}
+
 static void open_confirm(tft_t *t, pf_action act, const char *text, const char *yes, bool danger)
 {
 	t->ui.confirm_action = act;
@@ -219,6 +234,12 @@ static void spin_temp(tft_t *t, int dir, double now)
 {
 	bool c = false;
 	double step = temp_step(t, &c), lo = c ? 50 : 120, hi = c ? 300 : 570;
+	if (t->ui.temp_kind == 2) {   /* P-mode: ten values, one a click however fast it is spun */
+		t->ui.temp_value += dir;
+		if (t->ui.temp_value < 0) t->ui.temp_value = 0;
+		if (t->ui.temp_value > 9) t->ui.temp_value = 9;
+		return;
+	}
 	if (t->ui.temp_kind == 1) { step = 1; lo = 1; hi = 600; }   /* minutes: one a click, faster when spun */
 	if (now - t->spin_last_t < 0.5) t->spin_count++; else t->spin_count = 0;
 	t->spin_last_t = now;
@@ -634,6 +655,21 @@ static void temp_confirm(tft_t *t)
 		c.type = PF_CMD_TIMER_START; c.num = t->ui.temp_value * 60; c.aux = 0;
 		pf_cmdq_push(&c);
 		break;
+	case PF_ACT_PMODE: {
+		/* the same setting the app's P-mode picker writes, and the same word to the control loop
+		 * that the app's save sends: without it the loop kept the old pause until something else
+		 * reloaded the settings. It takes the new one at its next auger cycle. */
+		char patch[32], err[120], msg[24];
+		int pm = (int)t->ui.temp_value;
+		snprintf(patch, sizeof patch, "{\"PMode\":%d}", pm);
+		if (pf_settings_patch("cycle_data", patch, err, sizeof err) == 0) {
+			pf_cmd_simple(PF_CMD_SETTINGS_CHANGED);
+			snprintf(msg, sizeof msg, "P-Mode %d", pm);
+			show_message(t, msg, 2);
+		}
+		else { LOGW(TAG, "could not set P-mode: %s", err); show_message(t, "Save Failed", 3); }
+		return;
+	}
 	default: break;
 	}
 	pf_nav_reset(&t->ui);
@@ -755,9 +791,10 @@ static void focus_act(tft_t *t, const char *mode)
 	t->ui.main_focus = PF_FOCUS_NONE;
 	if (f == PF_FOCUS_MODE) { pf_nav_push(&t->ui, PF_SCR_LIST, PF_LIST_MODE); return; }
 	if (f == PF_FOCUS_TIMER) { pf_nav_push(&t->ui, PF_SCR_LIST, PF_LIST_TIMER); return; }
+	if (f == PF_FOCUS_SETPOINT && !strcmp(mode, "Smoke")) { open_pmode(t); return; }
 	if (f == PF_FOCUS_SETPOINT) {
 		/* the pit's number is the set point: in Hold it changes it, from anywhere else it starts
-		 * a hold there */
+		 * a hold there. Smoke has no set point; there it is the P-mode, above. */
 		open_temp(t, PF_ACT_HOLD, "HOLD", !strcmp(mode, "Hold") ? "Set" : "Start",
 		          pf_json_num(t->status, "setpoint", 0) > 0 ? pf_json_num(t->status, "setpoint", 0) : pf_set_num("startup.start_to_mode.primary_setpoint", 225));
 		return;

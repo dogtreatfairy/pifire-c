@@ -81,6 +81,7 @@ typedef enum {
 	PF_ACT_RECIPE_EXIT,   /* confirmed: leave the recipe, the grill keeps its mode */
 	PF_ACT_STOP_GRILL,    /* confirmed: stop */
 	PF_ACT_TIMER_CHANGE,  /* the minutes selector, loaded with what is left */
+	PF_ACT_PMODE,         /* Smoke's P-mode, from the main screen: the value selector, P0..P9 */
 } pf_action;
 
 /* The marks a menu row wears: drawn from lines and discs at the panel's own resolution. */
@@ -152,7 +153,7 @@ typedef struct {
 	int temp_focus;            /* 0 = the value, 1 = the action button, 2 = Back */
 	bool temp_editing;         /* a press on the value toggles this */
 	pf_action temp_action;     /* what the action button does once pressed */
-	int temp_kind;             /* 0 = a temperature, 1 = minutes (the timer) */
+	int temp_kind;             /* 0 = a temperature, 1 = minutes (the timer), 2 = Smoke's P-mode */
 	char temp_title[20], temp_button[12], temp_probe[32];
 
 	/* confirmation */
