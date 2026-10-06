@@ -659,7 +659,7 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 	case PF_CMD_LID_TOGGLE:
 		if (c->mode == PF_MODE_HOLD) {
 			if (c->lid_open) { c->lid_open = false; fan_on(c, c->duty_cycle); }
-			else { c->lid_open = true; c->lid_open_until = now + c->cfg.lid_pause_s; pf_outputs_set(PF_OUT_AUGER, false); pf_outputs_set(PF_OUT_FAN, false); pf_cycle_stop(&c->cycle); c->target_reached = false; }
+			else { c->lid_open = true; c->lid_open_until = now + c->cfg.lid_pause_s; pf_outputs_set(PF_OUT_AUGER, false); fan_on(c, c->duty_cycle); pf_cycle_stop(&c->cycle); c->target_reached = false; }
 		}
 		break;
 	case PF_CMD_PRIME:
@@ -2435,8 +2435,13 @@ static void run_mode(pf_control *c, double now)
 			c->lid_open = true;
 			c->lid_open_until = now + g->lid_pause_s;
 			c->target_reached = false;
+			/* The feed pauses; the fan does not. It used to stop as well, and a fire in a pot with
+			 * no air for the length of the pause can go out -- the one thing an open lid must not
+			 * cause. It runs as it would anywhere else, and is switched on here because the fan
+			 * logic stands aside for the pause: one caught in a Smoke+ off phase, or turned down
+			 * by the fan PID, would otherwise stay off for the whole of it. */
 			pf_outputs_set(PF_OUT_AUGER, false);
-			pf_outputs_set(PF_OUT_FAN, false);
+			fan_on(c, c->duty_cycle);
 			pf_cycle_stop(&c->cycle);
 			learn_reset_window(c, now);
 			LOGI(TAG, "lid open detected: pausing feed for %.0f s", g->lid_pause_s);

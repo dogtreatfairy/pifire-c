@@ -154,9 +154,34 @@ static void test_lid_open_pauses_feed(void)
 	printf("lid detected after %d s at pit %.1f C\n", waited, ctrl.pit_c);
 	TEST_ASSERT_TRUE(ctrl.lid_open);
 	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_AUGER));
-	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_FAN));
+	/* the feed pauses and the fan keeps the fire alive, every second of the pause */
+	int fan_off = 0;
+	while (ctrl.lid_open) { if (!pf_outputs_get(PF_OUT_FAN)) fan_off++; TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_AUGER)); tick(1); }
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, fan_off, "the fan must run while the lid pause holds the feed");
 	pf_sim_model()->lid_open = false;
 	tick(120);
+	TEST_ASSERT_FALSE(ctrl.lid_open);
+	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_FAN));
+}
+
+/* The lid pause from the app or the panel, rather than detected: the same rule, feed off, fan on --
+ * including when it starts with the fan off, as it is in a Smoke+ off phase. */
+static void test_a_lid_toggle_keeps_the_fan(void)
+{
+	pf_cmd_mode(PF_MODE_HOLD, 225);
+	tick(250 + 40 * 60);
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	pf_outputs_set(PF_OUT_FAN, false);
+	pf_cmd c = { .type = PF_CMD_LID_TOGGLE };
+	pf_cmdq_push(&c);
+	tick(1);
+	TEST_ASSERT_TRUE(ctrl.lid_open);
+	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_AUGER));
+	TEST_ASSERT_TRUE_MESSAGE(pf_outputs_get(PF_OUT_FAN), "a paused feed must not take the fan with it");
+	tick(10);
+	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_FAN));
+	pf_cmdq_push(&c);   /* and closing it ends the pause */
+	tick(1);
 	TEST_ASSERT_FALSE(ctrl.lid_open);
 	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_FAN));
 }
@@ -1003,6 +1028,7 @@ int main(void)
 	UNITY_BEGIN();
 	RUN_TEST(test_full_cook);
 	RUN_TEST(test_lid_open_pauses_feed);
+	RUN_TEST(test_a_lid_toggle_keeps_the_fan);
 	RUN_TEST(test_a_lid_drop_is_recognised_and_restarts_the_clock);
 	RUN_TEST(test_a_grill_cooling_by_itself_is_not_a_lid);
 	RUN_TEST(test_overtemp_errors);
