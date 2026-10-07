@@ -92,9 +92,10 @@ const PAGES = [
   { key: 'misc', title: 'Misc', sub: 'Auger rate, lid-open detection, rest-to targets, keep warm', section: 'Cooking', icon: 'sliders-horizontal', color: '#8e8e93', sections: [
     { id: 'globals', title: 'Auger', fields: [N('augerrate', 'Auger rate (g/s)', 'Pellets per second of auger run; for priming and usage estimates', { step: 0.01, min: 0.01 })] },
     { id: 'cycle_data', title: 'Lid-Open Detection', fields: [
-    B('LidOpenDetectEnabled', 'Detect an open lid', 'Sudden temperature drop pauses the auger'),
+    B('LidOpenDetectEnabled', 'Detect an open lid', 'Sudden drop: holds the learned feed until the lid is back on'),
     I('LidOpenThreshold', 'Drop that counts as open (%)', 'Percentage below the set point', { min: 1, max: 50 }),
-    I('LidOpenPauseTime', 'Pause length (s)', '', { min: 10 }),
+    I('LidOpenPauseTime', 'Pause length (s)', 'At most; control resumes sooner once the pit climbs', { min: 10 }),
+    { path: 'LidOpenResumeRise', label: 'Rise that closes it', help: 'Over the lowest reading while open: control resumes', type: 'tempdelta' },
   ] },
     { id: 'notify', title: 'Rest-To Targets', fields: [{ path: 'rest_margin', label: 'Rest-to offset', help: 'Added to rest-to targets so the rested temperature lands on target', type: 'tempdelta' }] },
     { id: 'keep_warm', title: 'Keep Warm', fields: [T('temp', 'Keep-warm temperature', 'When a Keep Warm probe reaches target'), B('s_plus', 'Use Smoke+ while keeping warm', '')] },

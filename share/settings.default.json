@@ -86,6 +86,7 @@
     "LidOpenDetectEnabled": false,
     "LidOpenThreshold": 15,
     "LidOpenPauseTime": 60,
+    "LidOpenResumeRise": 10,
     "FanPidEnabled": false
   },
   "controller": {

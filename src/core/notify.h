@@ -29,6 +29,9 @@ typedef struct {
 	 * then worked out as the probe climbs -- the rest temperature plus a small margin, less the
 	 * carry-over its rate of climb predicts -- rather than fixed. 0 = target_c is a take-off. */
 	double rest_c;
+	/* the temperature the meat is cooking in (its ambient sensor, else the set point, else the
+	 * pit), averaged over a few minutes: what the take-off and the time to target are worked from */
+	double cook_sm_c, last_tick_t;
 	/* After a rest-to alert, the rest itself is watched: the temperature and climb at the alert,
 	 * then the peak, so the carry-over that actually happened can correct the next estimate. */
 	bool rest_watch; double pull_c, pull_rate, pull_predicted_c, rest_peak_c, rest_peak_t, rest_watch_t;
@@ -94,7 +97,11 @@ void pf_notify_timer_pause(pf_notify *n, double now);
 void pf_notify_timer_resume(pf_notify *n, double now);
 void pf_notify_timer_cancel(pf_notify *n);
 const pf_notify_probe *pf_notify_find(const pf_notify *n, const char *label);
-/* Python-compatible estimator: smoothed, exponentially weighted linear regression. */
+/* Time to a target from the recent climb (smoothed, exponentially weighted linear fit), -1 when it
+ * is not climbing. With the cooking temperature known the climb is taken as the exponential
+ * approach it is, which lands later than the line does and is where the meat actually arrives;
+ * without it (NAN) the line stands in. */
+double pf_notify_estimate_eta_to(const double *temps, int n, double target, double interval_s, double cook_c);
 double pf_notify_estimate_eta(const double *temps, int n, double target, double interval_s);
 /* How fast a probe is climbing, C per second, 0 when it is not climbing or has too little history. */
 double pf_notify_probe_rate(const pf_notify *n, const char *label);

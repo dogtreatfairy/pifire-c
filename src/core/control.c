@@ -57,6 +57,7 @@ static void load_cfg(pf_cfg *g)
 	g->lid_detect = B("cycle_data.LidOpenDetectEnabled", false);
 	g->lid_threshold_pct = N("cycle_data.LidOpenThreshold", 15);
 	g->lid_pause_s = N("cycle_data.LidOpenPauseTime", 60);
+	g->lid_resume_rise_c = D("cycle_data.LidOpenResumeRise", 10);
 	g->fan_pid = B("cycle_data.FanPidEnabled", false);
 
 	g->max_temp_c = T("safety.maxtemp", 650);
@@ -659,7 +660,7 @@ static void handle_cmd(pf_control *c, const pf_cmd *cmd, double now)
 	case PF_CMD_LID_TOGGLE:
 		if (c->mode == PF_MODE_HOLD) {
 			if (c->lid_open) { c->lid_open = false; fan_on(c, c->duty_cycle); }
-			else { c->lid_open = true; c->lid_open_until = now + c->cfg.lid_pause_s; pf_outputs_set(PF_OUT_AUGER, false); fan_on(c, c->duty_cycle); pf_cycle_stop(&c->cycle); c->target_reached = false; }
+			else { c->lid_open = true; c->lid_open_until = now + c->cfg.lid_pause_s; c->lid_low_c = c->pit_c; pf_outputs_set(PF_OUT_AUGER, false); fan_on(c, c->duty_cycle); pf_cycle_stop(&c->cycle); c->target_reached = false; }
 		}
 		break;
 	case PF_CMD_PRIME:
@@ -2230,8 +2231,18 @@ static void run_hold_cycle(pf_control *c, double now)
 {
 	if (!pf_cycle_done(&c->cycle, now)) return;
 	double u;
-	if (c->lid_open || !c->cinst) {
+	if (!c->cinst) {
 		u = c->cfg.u_min;
+	} else if (c->lid_open) {
+		/* The lid is open, so the pit reading is the garden's and says nothing about the fire. The
+		 * controller is not asked: it would floor the feed against that reading and wind up for an
+		 * overshoot once the lid closed, which is what the pause was for. But feeding nothing lets
+		 * the fire burn down for the length of the pause. So the feed is the one the grill has
+		 * learned holds this set point -- what the fire needs to stay where it was -- until the lid
+		 * is back on and the pit has climbed off its low (run_mode), or the pause runs out. */
+		int nobs = 0;
+		c->learn.u_ff = pf_learning_uff(c->setpoint_c, isnan(c->ambient_c) ? 20 : c->ambient_c, c->cfg.u_min, c->cfg.u_max, &nobs);
+		u = c->learn.u_ff;
 	} else if (c->autotune.active) {
 		u = autotune_step(c, now);
 		c->ctrl_reset_needed = true;
@@ -2434,6 +2445,7 @@ static void run_mode(pf_control *c, double now)
 		if (c->target_reached && g->lid_detect && !c->lid_open && (c->pit_c < lid_thresh_c || dropped)) {
 			c->lid_open = true;
 			c->lid_open_until = now + g->lid_pause_s;
+			c->lid_low_c = c->pit_c;
 			c->target_reached = false;
 			/* The feed pauses; the fan does not. It used to stop as well, and a fire in a pot with
 			 * no air for the length of the pause can go out -- the one thing an open lid must not
@@ -2444,19 +2456,30 @@ static void run_mode(pf_control *c, double now)
 			fan_on(c, c->duty_cycle);
 			pf_cycle_stop(&c->cycle);
 			learn_reset_window(c, now);
-			LOGI(TAG, "lid open detected: pausing feed for %.0f s", g->lid_pause_s);
-			event(PF_LVL_INFO, "LID_OPEN", "Lid open detected, feed paused");
+			LOGI(TAG, "lid open detected: holding the learned feed for up to %.0f s", g->lid_pause_s);
+			event(PF_LVL_INFO, "LID_OPEN", "Lid open detected, holding the learned feed");
 		}
-		if (c->lid_open && now > c->lid_open_until) {
-			c->lid_open = false;
-			fan_on(c, c->duty_cycle);
-			pf_cycle_begin(&c->cycle, &c->ccfg, now, g->u_min);
-			LOGI(TAG, "lid open pause ended");
+		if (c->lid_open) {
+			/* The lid is back on when the pit, having bottomed out, has climbed a set distance off
+			 * that low: the garden's air stops flowing through and the fire shows again. The timer
+			 * is the backstop for a lid left open, or a pit that never turned. */
+			if (c->pit_valid && c->pit_c < c->lid_low_c) c->lid_low_c = c->pit_c;
+			bool risen = c->pit_valid && c->pit_c >= c->lid_low_c + g->lid_resume_rise_c;
+			if (risen || now > c->lid_open_until) {
+				c->lid_open = false;
+				fan_on(c, c->duty_cycle);
+				/* Hold's cycle is already running at the learned feed and the controller takes the
+				 * next one; Smoke starts a fresh cycle, as it always did */
+				if (c->mode != PF_MODE_HOLD) pf_cycle_begin(&c->cycle, &c->ccfg, now, g->u_min);
+				if (risen) LOGI(TAG, "lid closed: the pit is %.1f C off its low, control resumes", c->pit_c - c->lid_low_c);
+				else LOGI(TAG, "lid open pause ended");
+			}
 		}
 	}
 
-	/* cycle engine */
-	if (feeding && !c->lid_open) {
+	/* cycle engine: through an open lid, Hold keeps feeding at the learned rate (run_hold_cycle);
+	 * Smoke's fixed cycle pauses as it always did */
+	if (feeding && (!c->lid_open || c->mode == PF_MODE_HOLD)) {
 		if (c->mode == PF_MODE_HOLD) run_hold_cycle(c, now);
 		else if (c->mode != PF_MODE_PRIME && pf_cycle_done(&c->cycle, now)) smoke_cycle(c, now);
 		bool want = pf_cycle_auger_on(&c->cycle, now);

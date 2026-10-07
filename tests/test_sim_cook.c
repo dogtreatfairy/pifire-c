@@ -137,9 +137,13 @@ static void test_full_cook(void)
 	TEST_ASSERT_EQUAL_UINT(0, pf_outputs_mask());
 }
 
-static void test_lid_open_pauses_feed(void)
+/* An open lid in Hold: the controller is not asked (the pit reading is the garden's), the fan runs,
+ * and the auger feeds at the rate the grill has learned holds this set point -- the fire stays where
+ * it was. The pause ends when the lid is back on, which the pit shows by climbing ten degrees off
+ * its low, long before the timer that backs it up. */
+static void test_an_open_lid_holds_the_learned_feed_and_the_rise_closes_it(void)
 {
-	pf_settings_patch("cycle_data", "{\"LidOpenDetectEnabled\":true,\"LidOpenThreshold\":15,\"LidOpenPauseTime\":60}", NULL, 0);
+	pf_settings_patch("cycle_data", "{\"LidOpenDetectEnabled\":true,\"LidOpenThreshold\":15,\"LidOpenPauseTime\":900,\"LidOpenResumeRise\":10}", NULL, 0);
 	pf_control_reload_settings(&ctrl);
 	pf_cmd_mode(PF_MODE_HOLD, 225);
 	tick(250 + 40 * 60);
@@ -153,14 +157,21 @@ static void test_lid_open_pauses_feed(void)
 	while (!ctrl.lid_open && waited < 300) { tick(5); waited += 5; }
 	printf("lid detected after %d s at pit %.1f C\n", waited, ctrl.pit_c);
 	TEST_ASSERT_TRUE(ctrl.lid_open);
-	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_AUGER));
-	/* the feed pauses and the fan keeps the fire alive, every second of the pause */
-	int fan_off = 0;
-	while (ctrl.lid_open) { if (!pf_outputs_get(PF_OUT_FAN)) fan_off++; TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_AUGER)); tick(1); }
-	TEST_ASSERT_EQUAL_INT_MESSAGE(0, fan_off, "the fan must run while the lid pause holds the feed");
+	/* through the open lid: the fan every second, the auger at the learned rate -- not off, not flat out */
+	int fan_off = 0, auger_on = 0;
+	for (int i = 0; i < 90; i++) { if (!pf_outputs_get(PF_OUT_FAN)) fan_off++; if (pf_outputs_get(PF_OUT_AUGER)) auger_on++; tick(1); }
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.lid_open, "a lid still open keeps the pause");
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, fan_off, "the fan must run while the lid is open");
+	TEST_ASSERT_TRUE_MESSAGE(auger_on > 0 && auger_on < 90, "the auger feeds at the learned rate, neither nothing nor flat out");
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.02, ctrl.learn.u_ff, ctrl.u_raw, "the feed through the pause is the learned feed-forward");
+	/* the lid goes back on: the pit bottoms out and climbs, and ten degrees off the low ends the pause */
 	pf_sim_model()->lid_open = false;
-	tick(120);
-	TEST_ASSERT_FALSE(ctrl.lid_open);
+	int t = 0;
+	while (ctrl.lid_open && t < 800) { tick(1); t++; }
+	printf("lid: pause ended %d s after the lid closed, pit %.1f C off its low of %.1f C\n", t, ctrl.pit_c - ctrl.lid_low_c, ctrl.lid_low_c);
+	TEST_ASSERT_FALSE_MESSAGE(ctrl.lid_open, "control resumed");
+	TEST_ASSERT_TRUE_MESSAGE(t < 700, "on the rise, not on the timer");
+	TEST_ASSERT_TRUE_MESSAGE(ctrl.pit_c >= ctrl.lid_low_c + pf_delta_to_c(10, PF_UNITS_F) - 0.01, "and the rise was the ten degrees asked for");
 	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_FAN));
 }
 
@@ -176,7 +187,7 @@ static void test_a_lid_toggle_keeps_the_fan(void)
 	pf_cmdq_push(&c);
 	tick(1);
 	TEST_ASSERT_TRUE(ctrl.lid_open);
-	TEST_ASSERT_FALSE(pf_outputs_get(PF_OUT_AUGER));
+	/* the auger is not asserted off: in Hold the pause feeds at the learned rate (see above) */
 	TEST_ASSERT_TRUE_MESSAGE(pf_outputs_get(PF_OUT_FAN), "a paused feed must not take the fan with it");
 	tick(10);
 	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_FAN));
@@ -1014,12 +1025,83 @@ static void test_the_ambient_sensor_sees_the_meat_come_off(void)
 	TEST_ASSERT_TRUE_MESSAGE(np->removed, "the fall in ambient is a removal");
 	TEST_ASSERT_TRUE_MESSAGE(np->rest_watch, "and the rest is watched from that moment");
 	double pulled = np->pull_c;
+	/* the ambient sensor cools from the grill's heat to the room's and passes through the meat's own
+	 * temperature on the way: for a moment the two read the same, and the probe is still in the meat */
+	for (int k = 0; k < 20; k++) { t += 3; s.p[1].temp_c = pf_f_to_c(400) - (pf_f_to_c(400) - pf_f_to_c(75)) * (k + 1) / 20.0; s.p[0].temp_c = pulled + 0.02 * k; pf_notify_tick(&nt, &s, PF_MODE_HOLD, t, PF_UNITS_F); }
+	TEST_ASSERT_TRUE_MESSAGE(np->rest_watch, "the ambient crossing the meat's temperature on its way down is not a probe out of the meat");
 	/* the rest: up 6 F over ten minutes, then away */
 	for (int k = 0; k < 200; k++) { t += 3; s.p[0].temp_c = pulled + (6.0 * 5 / 9) * k / 200.0; pf_notify_tick(&nt, &s, PF_MODE_HOLD, t, PF_UNITS_F); }
-	for (int k = 0; k < 20; k++) { t += 3; s.p[0].temp_c -= 0.2; pf_notify_tick(&nt, &s, PF_MODE_HOLD, t, PF_UNITS_F); }
+	/* then down a degree a minute, which is how a resting roast gives its heat back */
+	for (int k = 0; k < 30; k++) { t += 3; s.p[0].temp_c -= 0.05; pf_notify_tick(&nt, &s, PF_MODE_HOLD, t, PF_UNITS_F); }
 	TEST_ASSERT_FALSE_MESSAGE(np->rest_watch, "the rest peaked and fell, so it has been learned from");
 	printf("rest seen by the ambient sensor: predicted %.1f F, rested %.1f F, correction x%.2f\n", np->pull_predicted_c * 9 / 5, 6.0, pf_carryover_k("Testmeat"));
 	TEST_ASSERT_TRUE(pf_carryover_k("Testmeat") != 1.0);
+}
+
+/* A probe pulled out of the meat reads the air within seconds. That fall is not a rest, and the
+ * carry-over it would teach -- none -- is not the meat's. A thin flank steak cooling fast on a
+ * board is still a rest, and still teaches. */
+static void rest_watch_case(const char *meat, double fall_per_sample)
+{
+	pf_notify nt; memset(&nt, 0, sizeof nt);
+	pf_sensors s; memset(&s, 0, sizeof s);
+	s.n = 2; s.primary = -1;
+	pf_strlcpy(s.p[0].label, "BTY", sizeof s.p[0].label); pf_strlcpy(s.p[0].name, "BTY", sizeof s.p[0].name);
+	s.p[0].role = PF_PROBE_FOOD; s.p[0].enabled = true; s.p[0].valid = true; s.p[0].companion = 1;
+	pf_strlcpy(s.p[1].label, "BTYAmb", sizeof s.p[1].label); s.p[1].role = PF_PROBE_AUX; s.p[1].enabled = true; s.p[1].valid = true;
+	s.p[1].companion = -1; s.p[1].is_companion = true;
+	pf_notify_sync(&nt, &s);
+	TEST_ASSERT_EQUAL(0, pf_notify_set_rest(&nt, "BTY", pf_f_to_c(140), 0));
+	pf_notify_set_target_note(&nt, "BTY", meat, "Medium", pf_f_to_c(140));
+	double t = 1000, centre = pf_f_to_c(100);
+	for (int k = 0; k < 400; k++) { t += 3; centre += 2.0 * 5 / 9 / 20; s.p[0].temp_c = centre; s.p[1].temp_c = pf_f_to_c(400); pf_notify_tick(&nt, &s, PF_MODE_HOLD, t, PF_UNITS_F); }
+	for (int k = 0; k < 3; k++) { t += 3; s.p[1].temp_c = pf_f_to_c(75); pf_notify_tick(&nt, &s, PF_MODE_HOLD, t, PF_UNITS_F); }
+	const pf_notify_probe *np = pf_notify_find(&nt, "BTY");
+	TEST_ASSERT_TRUE(np->removed && np->rest_watch);
+	/* a short climb, then the fall under test */
+	for (int k = 0; k < 10; k++) { t += 3; s.p[0].temp_c += 0.1; pf_notify_tick(&nt, &s, PF_MODE_HOLD, t, PF_UNITS_F); }
+	for (int k = 0; k < 40 && np->rest_watch; k++) { t += 3; s.p[0].temp_c = fmax(s.p[0].temp_c - fall_per_sample, s.p[1].temp_c); pf_notify_tick(&nt, &s, PF_MODE_HOLD, t, PF_UNITS_F); }
+	TEST_ASSERT_FALSE_MESSAGE(np->rest_watch, "the watch is over");
+}
+static void test_a_probe_pulled_out_of_the_meat_teaches_nothing(void)
+{
+	rest_watch_case("Pulledmeat", 1.0);   /* a degree C every three seconds: the air */
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(1e-9, 1.0, pf_carryover_k("Pulledmeat"), "nothing was learned from a probe in the air");
+	rest_watch_case("Flankmeat", 0.15);   /* five F a minute: a thin steak on a cold board, and still the meat */
+	TEST_ASSERT_TRUE_MESSAGE(pf_carryover_k("Flankmeat") != 1.0, "a thin cut's quick rest still teaches");
+	rest_watch_case("Yankedmeat", 100);   /* the reading settles at the room air the ambient sensor reads: the probe is out */
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(1e-9, 1.0, pf_carryover_k("Yankedmeat"), "a probe reading its own ambient is out of the meat");
+}
+
+/* Time to a target: the centre makes an exponential approach to the temperature it cooks in, and
+ * the line through the last minute lands early by everything the climb will still slow. Given the
+ * cooking temperature the estimate follows the approach; without it, the line stands in. */
+static void test_time_to_target_follows_the_approach_not_the_line(void)
+{
+	double cook = pf_f_to_c(225), t0 = pf_f_to_c(100), tau = 4000, target = pf_f_to_c(195), end = 2400;
+	double temps[PF_ETA_SAMPLES];
+	for (int i = 0; i < PF_ETA_SAMPLES; i++) { double t = end - (PF_ETA_SAMPLES - 1 - i) * 3.0; temps[i] = cook - (cook - t0) * exp(-t / tau); }
+	double now_c = temps[PF_ETA_SAMPLES - 1];
+	double truth = tau * log((cook - now_c) / (cook - target));
+	double line = pf_notify_estimate_eta(temps, PF_ETA_SAMPLES, target, 3.0);
+	double curve = pf_notify_estimate_eta_to(temps, PF_ETA_SAMPLES, target, 3.0, cook);
+	printf("time to 195 F from %.0f F in a 225 F pit: truly %.0f min; the line says %.0f, the approach %.0f\n", pf_c_to_f(now_c), truth / 60, line / 60, curve / 60);
+	TEST_ASSERT_TRUE_MESSAGE(line > 0 && curve > 0, "both have an answer");
+	TEST_ASSERT_TRUE_MESSAGE(line < truth * 0.8, "the line is early by a long way");
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(truth * 0.05, truth, curve, "the approach lands within five percent");
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(1e-6, line, pf_notify_estimate_eta_to(temps, PF_ETA_SAMPLES, target, 3.0, NAN), "with no cooking temperature it is the line");
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(1e-6, pf_notify_estimate_eta(temps, PF_ETA_SAMPLES, cook + 2, 3.0), pf_notify_estimate_eta_to(temps, PF_ETA_SAMPLES, cook + 2, 3.0, cook), "a target the approach could never reach falls back to the line");
+}
+
+/* The carry-over estimate fades out as the climb dies rather than cutting off: there used to be a
+ * cliff between "not climbing" and "barely climbing" that the take-off jumped across. */
+static void test_carryover_fades_with_a_dying_climb_rather_than_cutting_off(void)
+{
+	double centre = pf_f_to_c(150), cook = pf_f_to_c(225);
+	double over = pf_carryover_model_c(0.0022, centre, cook), under = pf_carryover_model_c(0.0018, centre, cook), stall = pf_carryover_model_c(0.00002, centre, cook);
+	printf("carry-over, F: at 0.0022 C/s %.1f, at 0.0018 %.1f, in a stall %.2f\n", over * 9 / 5, under * 9 / 5, stall * 9 / 5);
+	TEST_ASSERT_TRUE_MESSAGE(under < over && under > over * 0.75, "a climb just under the fade is a little less, not a cliff");
+	TEST_ASSERT_TRUE_MESSAGE(stall < 0.1, "a stall carries nothing");
 }
 
 int main(void)
@@ -1027,7 +1109,7 @@ int main(void)
 	pf_log_init(PF_LOG_WARN);
 	UNITY_BEGIN();
 	RUN_TEST(test_full_cook);
-	RUN_TEST(test_lid_open_pauses_feed);
+	RUN_TEST(test_an_open_lid_holds_the_learned_feed_and_the_rise_closes_it);
 	RUN_TEST(test_a_lid_toggle_keeps_the_fan);
 	RUN_TEST(test_a_lid_drop_is_recognised_and_restarts_the_clock);
 	RUN_TEST(test_a_grill_cooling_by_itself_is_not_a_lid);
@@ -1063,5 +1145,8 @@ int main(void)
 	RUN_TEST(test_carryover_learns_from_rests);
 	RUN_TEST(test_carryover_follows_the_cut_and_the_heat);
 	RUN_TEST(test_the_ambient_sensor_sees_the_meat_come_off);
+	RUN_TEST(test_a_probe_pulled_out_of_the_meat_teaches_nothing);
+	RUN_TEST(test_time_to_target_follows_the_approach_not_the_line);
+	RUN_TEST(test_carryover_fades_with_a_dying_climb_rather_than_cutting_off);
 	return UNITY_END();
 }

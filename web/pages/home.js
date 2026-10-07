@@ -247,7 +247,7 @@ export function renderHome(view) {
 
     const bits = [];
     if (s.cook_elapsed > 0) bits.push(`Running ${fmtDur(s.cook_elapsed)}`);
-    if (s.mode === 'Hold' && s.lid_open) bits.push('Lid open · auger paused');
+    if (s.mode === 'Hold' && s.lid_open) bits.push('Lid open · holding feed');
     if ((s.mode === 'Startup' || s.mode === 'Relight') && s.smartstart?.active) bits.push(s.smartstart.proven ? 'Ignition proven' : 'Proving ignition');
     else if (s.heating?.active) bits.push(s.heating.text);
     if (s.safety?.proving) bits.push('Igniter proving');

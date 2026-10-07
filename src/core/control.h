@@ -17,6 +17,7 @@ typedef struct {
 	int pmode;
 	double u_min, u_max;
 	bool lid_detect; double lid_threshold_pct, lid_pause_s;
+	double lid_resume_rise_c;   /* the climb off the low that says the lid is back on */
 	bool fan_pid;
 	/* safety */
 	double max_temp_c, restart_hot_c;
@@ -115,6 +116,7 @@ typedef struct {
 	bool fan_pid_active;
 	/* lid / fan */
 	bool lid_open; double lid_open_until;
+	double lid_low_c;           /* the lowest the pit has been since the lid opened: the pause ends once it has climbed back from there */
 	/* A lid event: the pit falling faster than a grill can cool by itself, and the recovery after it.
 	 * Recognised whether or not the feed pause is switched on, so notifications and learning can
 	 * tell a cook checking the meat from a fire going out. */

@@ -78,6 +78,7 @@ double pf_notify_rest_margin_c(void)
 }
 
 #define CARRY_LEARNED_MAX_C 8.0
+#define CARRY_FADE_RATE_C_S 0.002   /* about 0.2 F a minute */
 
 static void carry_key(char *out, size_t n, const char *meat)
 {
@@ -130,6 +131,12 @@ double pf_carryover_model_c(double rate_c_s, double centre_c, double cook_c)
 	if (g < 0.004) g = 0.004;
 	if (g > 0.06) g = 0.06;
 	double c = g * gap;
+	/* A climb slower than a fifth of a degree F a minute is not a cook storing heat for later; it
+	 * is a stall, or the last of the approach, and the time constant it implies is not the
+	 * thickness. The estimate fades out with the rate rather than cutting off: the cut-off left a
+	 * cliff between "not climbing" (nothing) and "barely climbing" (the full clamped figure) that
+	 * the take-off jumped across, firing the alert because the estimate moved, not the meat. */
+	if (rate_c_s < CARRY_FADE_RATE_C_S) c *= rate_c_s / CARRY_FADE_RATE_C_S;
 	return c > CARRY_LEARNED_MAX_C ? CARRY_LEARNED_MAX_C : c;
 }
 
@@ -200,31 +207,56 @@ void pf_notify_timer_resume(pf_notify *n, double now)
 }
 void pf_notify_timer_cancel(pf_notify *n) { memset(&n->timer, 0, sizeof n->timer); }
 
-/* ---- ETA (port of notifications.py _estimate_eta) ---- */
+/* ---- ETA ---- */
 
-double pf_notify_estimate_eta(const double *temps, int n, double target, double interval_s)
+/* The recent climb, in degrees per sample: a five-point moving average, then a line through it
+ * weighted towards the latest samples (e-folding every ten, so the last minute or two is what
+ * counts). `last` gets the smoothed newest reading. Zero when it is not climbing. */
+static double weighted_slope(const double *temps, int n, double *last)
+{
+	double sm[PF_ETA_SAMPLES], w[PF_ETA_SAMPLES], wsum = 0, xbar = 0, ybar = 0;
+	if (n < 1 || n > PF_ETA_SAMPLES) { if (last) *last = 0; return 0; }
+	for (int i = 0; i < n; i++) {
+		if (i < 2 || i >= n - 2) { sm[i] = temps[i]; continue; }
+		sm[i] = (temps[i - 2] + temps[i - 1] + temps[i] + temps[i + 1] + temps[i + 2]) / 5.0;
+	}
+	for (int i = 0; i < n; i++) { w[i] = exp((double)i / 10.0); wsum += w[i]; }
+	for (int i = 0; i < n; i++) { w[i] /= wsum; xbar += w[i] * i; ybar += w[i] * sm[i]; }
+	double num = 0, den = 0;
+	for (int i = 0; i < n; i++) { num += w[i] * (i - xbar) * (sm[i] - ybar); den += w[i] * (i - xbar) * (i - xbar); }
+	if (last) *last = sm[n - 1];
+	if (den <= 0) return 0;
+	double slope = num / den;
+	return slope > 0 && !isnan(slope) && !isinf(slope) ? slope : 0;
+}
+
+double pf_notify_estimate_eta_to(const double *temps, int n, double target, double interval_s, double cook_c)
 {
 	if (n < 20) return -1;
 	double maxv = temps[0];
 	for (int i = 1; i < n; i++) if (temps[i] > maxv) maxv = temps[i];
 	if (target <= maxv) return -1;
-	/* centered moving average, window 5, edges unchanged */
-	double sm[PF_ETA_SAMPLES];
-	for (int i = 0; i < n; i++) {
-		if (i < 2 || i >= n - 2) { sm[i] = temps[i]; continue; }
-		sm[i] = (temps[i - 2] + temps[i - 1] + temps[i] + temps[i + 1] + temps[i + 2]) / 5.0;
-	}
-	double wsum = 0, xbar = 0, ybar = 0;
-	double w[PF_ETA_SAMPLES];
-	for (int i = 0; i < n; i++) { w[i] = exp((double)i / 10.0); wsum += w[i]; }
-	for (int i = 0; i < n; i++) { w[i] /= wsum; xbar += w[i] * i; ybar += w[i] * sm[i]; }
-	double num = 0, den = 0;
-	for (int i = 0; i < n; i++) { num += w[i] * (i - xbar) * (sm[i] - ybar); den += w[i] * (i - xbar) * (i - xbar); }
-	if (den == 0) return -1;
-	double slope = num / den;
-	if (slope <= 0) return -1;
-	double eta = (target - sm[n - 1]) / slope * interval_s;
+	double last;
+	double slope = weighted_slope(temps, n, &last);
+	if (!(slope > 0)) return -1;
+	double rate = slope / interval_s;   /* C per second */
+	/* The centre climbs towards the temperature it is cooking in, and more slowly the closer it
+	 * gets: an exponential approach, not a line. The line through the last minute lands early by
+	 * however much the climb slows between here and the target -- a probe at 140 F in a 225 F pit
+	 * heading for 195 says 50 minutes where the approach takes 80, and the figure grows as the
+	 * cook goes on, which is the estimate everybody has learned not to trust. With the cooking
+	 * temperature known the time constant is the gap over the rate, measured, and the time to the
+	 * target follows from the two gaps. The line stands in when the cooking temperature is unknown
+	 * or the target sits at or above it, where the approach would never arrive. */
+	double gap = cook_c - last, to_go = cook_c - target, eta;
+	if (isfinite(cook_c) && gap > 0 && to_go > 2.0 && gap > to_go) eta = gap / rate * log(gap / to_go);
+	else eta = (target - last) / rate;
 	return (eta < 0 || isinf(eta) || isnan(eta)) ? -1 : eta;
+}
+
+double pf_notify_estimate_eta(const double *temps, int n, double target, double interval_s)
+{
+	return pf_notify_estimate_eta_to(temps, n, target, interval_s, NAN);
 }
 
 /* How fast a probe is climbing, in C per second, from the same recency-weighted fit the ETA uses.
@@ -239,19 +271,7 @@ double pf_notify_probe_rate(const pf_notify *n, const char *label)
 	double lin[PF_ETA_SAMPLES];
 	int cnt = p->hist_len;
 	for (int i = 0; i < cnt; i++) lin[i] = p->hist[(p->hist_head - cnt + i + PF_ETA_SAMPLES) % PF_ETA_SAMPLES];
-	double sm[PF_ETA_SAMPLES];
-	for (int i = 0; i < cnt; i++) {
-		if (i < 2 || i >= cnt - 2) { sm[i] = lin[i]; continue; }
-		sm[i] = (lin[i - 2] + lin[i - 1] + lin[i] + lin[i + 1] + lin[i + 2]) / 5.0;
-	}
-	double w[PF_ETA_SAMPLES], wsum = 0, xbar = 0, ybar = 0;
-	for (int i = 0; i < cnt; i++) { w[i] = exp((double)i / 10.0); wsum += w[i]; }
-	for (int i = 0; i < cnt; i++) { w[i] /= wsum; xbar += w[i] * i; ybar += w[i] * sm[i]; }
-	double num = 0, den = 0;
-	for (int i = 0; i < cnt; i++) { num += w[i] * (i - xbar) * (sm[i] - ybar); den += w[i] * (i - xbar) * (i - xbar); }
-	if (den <= 0) return 0;
-	double slope = num / den / ETA_INTERVAL_S;
-	return slope > 0 && !isnan(slope) && !isinf(slope) ? slope : 0;
+	return weighted_slope(lin, cnt, NULL) / ETA_INTERVAL_S;
 }
 
 static void push_sample(pf_notify_probe *p, double c)
@@ -261,7 +281,7 @@ static void push_sample(pf_notify_probe *p, double c)
 	if (p->hist_len < PF_ETA_SAMPLES) p->hist_len++;
 }
 
-static void recalc_eta(pf_notify_probe *p)
+static void recalc_eta(pf_notify_probe *p, double cook_c)
 {
 	double lin[PF_ETA_SAMPLES];
 	int n = p->hist_len;
@@ -277,12 +297,12 @@ static void recalc_eta(pf_notify_probe *p)
 	for (int k = 0; k < p->nsteps; k++)
 		if (!p->steps[k].fired && (!next || p->steps[k].temp_c < next->temp_c)) next = &p->steps[k];
 	if (next) {
-		double es = pf_notify_estimate_eta(lin, n, next->temp_c, ETA_INTERVAL_S);
+		double es = pf_notify_estimate_eta_to(lin, n, next->temp_c, ETA_INTERVAL_S, cook_c);
 		if (es >= 0) { p->eta_step_s = es; snprintf(p->next_step, sizeof p->next_step, "%s", next->name); }
 		else snprintf(p->next_step, sizeof p->next_step, "%s", next->name);
 	}
 
-	double e = pf_notify_estimate_eta(lin, n, p->target_c, ETA_INTERVAL_S);
+	double e = pf_notify_estimate_eta_to(lin, n, p->target_c, ETA_INTERVAL_S, cook_c);
 	/* blend with the previous estimate (minus the time that passed) so the readout counts down
 	 * smoothly instead of jumping with every re-fit; a stall (no slope) clears it */
 	if (e < 0) { p->eta_s = -1; return; }
@@ -351,16 +371,28 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 		/* A rest-to target moves with the climb: the faster the meat is still rising, the more it
 		 * will carry on rising off the heat, so the earlier it has to come off. Until there is a
 		 * rate to go on the take-off sits at the aim itself, which errs on the late side. */
-		double cook_c = cook_temp_c(n, s, si), rate_now = p->target_c > 0 ? pf_notify_probe_rate(n, p->label) : 0;
+		double cook_raw = cook_temp_c(n, s, si), rate_now = p->target_c > 0 ? pf_notify_probe_rate(n, p->label) : 0;
+		/* The air round the meat swings with every lid and every fan cycle, and a take-off or a time
+		 * to target that followed each swing would swing with it. Averaged over four minutes: the
+		 * cook changes more slowly than that, the gusts do not. */
+		if (isfinite(cook_raw)) {
+			double dt = p->last_tick_t > 0 ? now - p->last_tick_t : 0;
+			if (!(p->cook_sm_c > 0)) p->cook_sm_c = cook_raw;
+			else p->cook_sm_c += (cook_raw - p->cook_sm_c) * fmin(1.0, dt / 240.0);
+		}
+		p->last_tick_t = now;
+		double cook_c = isfinite(cook_raw) ? p->cook_sm_c : NAN;
 		/* Off the heat, seen by the probe's own ambient sensor: the air round the meat falls from the
 		 * grill's towards the room's. More than 20 C (36 F) under what it read on the heat, twice
 		 * running, is a removal. That moment -- not the alert -- is where the rest starts: the
 		 * carry-over is measured from it, a rest-to target taken off early or late still teaches,
 		 * and the alert has been answered, since the meat is off. */
+		bool amb_ok = false;
+		double amb = NAN;
 		{
 			int a = s->p[si].companion;
-			bool amb_ok = a >= 0 && a < s->n && s->p[a].valid && isfinite(s->p[a].temp_c);
-			double amb = amb_ok ? s->p[a].temp_c : NAN;
+			amb_ok = a >= 0 && a < s->n && s->p[a].valid && isfinite(s->p[a].temp_c);
+			amb = amb_ok ? s->p[a].temp_c : NAN;
 			if (amb_ok && !p->removed) {
 				if (!(p->amb_on > 0) || amb > p->amb_on) p->amb_on = amb;
 				else if (amb > p->amb_on - 20.0) p->amb_on += (amb - p->amb_on) * 0.02;   /* follows the grill down slowly */
@@ -384,9 +416,26 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 		 * after half an hour stayed on the grill, and teaches nothing about resting */
 		if (p->rest_watch) {
 			if (t > p->rest_peak_c) { p->rest_peak_c = t; p->rest_peak_t = now; }
-			if (p->rest_peak_c - t >= 1.1) {
-				double predicted = p->pull_predicted_c, actual = p->rest_peak_c - p->pull_c;
-				pf_carryover_learn(p->meat, predicted, actual);
+			/* A probe with an ambient sensor says outright when it is out of the meat: both of its
+			 * tips are then in the same room air and read the same. The test is not that the two
+			 * agree -- the ambient cools from the grill's heat to the room's once the meat is off,
+			 * and passes through the meat's own temperature on the way -- but that the meat tip has
+			 * come down to room air with it: the ambient under 40 C and the tip within 3 C of it.
+			 * Resting meat is never there while the watch is on (it ends at the first fall from
+			 * the peak, minutes in), and a rest in a warm cooler keeps the ambient above that. */
+			if (amb_ok && amb < 40.0 && t <= amb + 3.0) {
+				LOGI("notify", "%s reads the air its ambient sensor reads: the probe is out of the meat, nothing learned", p->label);
+				p->rest_watch = false;
+			} else if (p->rest_peak_c - t >= 1.1) {
+				/* A probe pulled out of the meat reads the air within seconds, and the fall from its
+				 * peak is the probe's, not the meat's. The tell is how fast it fell: a bare tip in
+				 * room air gives up a degree in a second or two, where even a thin flank steak on a
+				 * cold board gives up a few degrees a minute. Faster than six degrees C a minute
+				 * (about eleven F) is air. */
+				if ((p->rest_peak_c - t) / fmax(now - p->rest_peak_t, 1.0) < 0.1) {
+					double predicted = p->pull_predicted_c, actual = p->rest_peak_c - p->pull_c;
+					pf_carryover_learn(p->meat, predicted, actual);
+				} else LOGI("notify", "%s fell straight off its peak: the probe came out, nothing learned", p->label);
 				p->rest_watch = false;
 			} else if (now - p->rest_watch_t > 1800) p->rest_watch = false;
 		}
@@ -400,7 +449,7 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 				p->reached = true;
 				p->eta_s = -1;
 				if (p->after != PF_AFTER_NONE) { n->pending_action = p->after; p->after = PF_AFTER_NONE; }
-			} else if (do_eta) recalc_eta(p);
+			} else if (do_eta) recalc_eta(p, cook_c);
 		}
 		/* A step speaks once, going up, and only while there is a cook to speak about. It resets
 		 * when the probe falls back below it by a couple of degrees, so a probe pulled out and put
