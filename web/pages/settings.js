@@ -168,6 +168,7 @@ const PAGES = [
   { key: 'appearance', title: 'Appearance', sub: 'Theme, optional features', section: 'System', icon: 'palette', color: '#bf5af2', sections: [{ id: 'globals', fields: [
     S('theme', 'Theme', '', [['dark', 'Dark'], ['light', 'Light'], ['auto', 'Follow system']]),
     B('show_recipes', 'Show recipes', 'Recipe programs on the Cook page'),
+    B('probe_priority', 'Prioritize probe cards', 'Home: probes with an alert first, then probes in use, then the rest, each A–Z. Off: probe settings order'),
   ] }] },
   { key: 'backup', title: 'Backup', sub: 'Settings, tuning, recipes, cook files', section: 'System', icon: 'archive', color: '#30d158', custom: (v) => import('./backup.js').then((m) => m.renderBackup(v)) },
   { key: 'updates', title: 'Software Updates', sub: 'PiFire and system packages', section: 'System', icon: 'refresh-cw', color: '#0a84ff', before: (v) => import('./updates.js').then((m) => m.renderUpdates(v)), sections: [

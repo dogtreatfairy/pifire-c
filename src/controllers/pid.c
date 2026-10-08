@@ -106,7 +106,7 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 	double derv = (in->pit_c - s->last_pit) / dt;
 	s->d = s->kd * derv;
 
-	s->u = s->p + s->i + s->d;
+	s->u = fmax(-1.0, fmin(2.0, s->p + s->i + s->d));
 	s->last_pit = in->pit_c;
 	s->last_t = in->now_s;
 

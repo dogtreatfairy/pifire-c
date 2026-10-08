@@ -328,6 +328,33 @@ int pf_alarms_flash_word(char *out, size_t n)
 	return best != NULL;
 }
 
+int pf_alarms_probe_alert(const char *label, char *out, size_t n)
+{
+	if (n) out[0] = 0;
+	if (!label || !label[0]) return 0;
+	/* probe_word keeps sixteen characters of the label, so a longer one is matched on those */
+	size_t want = strlen(label); if (want > 16) want = 16;
+	double now = pf_wall();
+	pthread_mutex_lock(&g_mu);
+	const alarm_t *best = NULL;
+	for (int i = 0; i < PF_ALARMS_MAX; i++) {
+		const alarm_t *a = &g_tab[i];
+		if (!a->used || a->retired || a->acked || a->flash[0] != '\x01' || a->shelved_until > now) continue;
+		if (!a->active && !a->notice) continue;
+		const char *l = a->flash + 1, *e = strchr(l, '\x01');
+		if (!e || (size_t)(e - l) != want || strncmp(l, label, want)) continue;
+		if (!best || a->raised_ts > best->raised_ts) best = a;
+	}
+	if (best) {
+		const char *nm = strchr(best->flash + 1, '\x01');
+		const char *act = nm ? strchr(nm + 1, '\x01') : NULL;
+		/* a flash with no action of its own is still something waiting to be seen */
+		pf_strlcpy(out, act && act[1] ? act + 1 : "Attention", n);
+	}
+	pthread_mutex_unlock(&g_mu);
+	return best != NULL;
+}
+
 cJSON *pf_alarms_json(void)
 {
 	double now = pf_wall();

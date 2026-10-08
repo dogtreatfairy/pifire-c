@@ -76,6 +76,10 @@ void pf_alarms_flash_probe_code(const char *code, const char *label, const char 
 void pf_alarms_flash_code(const char *code, const char *word);   /* the newest entry with this code */
 /* The word to flash right now: the newest unacknowledged entry carrying one. 0 = nothing. */
 int  pf_alarms_flash_word(char *out, size_t n);
+/* What is standing on one probe: the action of the newest unacknowledged flash that names it --
+ * "Flip", "Remove from Heat" -- so the app can lift that probe's card above the rest until somebody
+ * has seen it. The same entries the panel flashes, by the same test. 0 = nothing on this probe. */
+int  pf_alarms_probe_alert(const char *label, char *out, size_t n);
 
 cJSON   *pf_alarms_json(void);
 unsigned pf_alarms_generation(void);

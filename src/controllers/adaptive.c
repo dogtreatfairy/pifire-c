@@ -627,7 +627,7 @@ static double update(void *self, const pf_ctrl_in *in, pf_ctrl_dbg *dbg)
 		if (isfinite(derv)) s->derv_f += (derv - s->derv_f) * dt / (tf + dt);
 	}
 	s->d = s->kd * s->derv_f;
-	s->u = s->ff + s->p + s->i + s->d;
+	s->u = clampd(s->ff + s->p + s->i + s->d, -1.0, 2.0);
 	/* On the way up to a set point it has not yet reached, the grill is never fed less than what
 	 * holds the pit where it is now. Below that the pit can only fall, and a pit that falls before
 	 * it has ever arrived is the ten-degree sag this grill showed at 250 F: the derivative braked

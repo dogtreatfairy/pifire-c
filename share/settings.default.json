@@ -6,6 +6,7 @@
     "debug_mode": false,
     "theme": "dark",
     "show_recipes": true,
+    "probe_priority": true,
     "augerrate": 0.3,
     "first_time_setup": false,
     "prime_ignition": false,

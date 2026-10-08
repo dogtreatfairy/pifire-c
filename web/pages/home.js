@@ -194,6 +194,136 @@ function controlBar(s) {
  * came to do are first, and the detail follows. Its settings are on the Probes tab, one layer
  * further in, where they are wanted about once. */
 
+// ---- probe cards: one full-width card per food probe, stacked under the gauge
+/* The card is the drawing in examples/probe-card.png. Name on top with the link marks opposite it;
+   the reading large at the left with its unit beside it; what the target is for in the middle; the
+   target and the time to it at the right; and one line along the foot for what the probe wants
+   done next. Every slot is there whether or not it has anything in it, so the reading does not move
+   when a target is set or cleared -- a card that rearranged itself as targets came and went read as
+   a different card each time.
+
+   Spans, not divs: the card is a <button> so it focuses, answers the keyboard and takes the app's
+   press layer like every other control, and a button may only hold phrasing content. */
+function probeCard(label) {
+  const c = {};
+  c.name = el('span', { class: 'pc-name' });
+  c.links = el('span', { class: 'pc-links' });
+  c.temp = el('span', { class: 'pc-temp' });
+  c.unit = el('span', { class: 'pc-unit' });
+  c.meat = el('span', { class: 'pc-meat' });
+  c.done = el('span', { class: 'pc-done' });
+  c.tgt = el('span', { class: 'v' });
+  c.eta = el('span', { class: 'v' });
+  c.msg = el('span', { class: 'pc-msg' });
+  c.root = el('button', { class: 'pcell pcard', type: 'button', onclick: () => openProbe(label) },
+    c.name, c.links,
+    el('span', { class: 'pc-read' }, c.temp, c.unit),
+    el('span', { class: 'pc-food' }, c.meat, c.done),
+    el('span', { class: 'pc-stats' },
+      el('span', { class: 'pc-stat' }, lucide('thermometer', 'ic'), c.tgt),
+      el('span', { class: 'pc-stat' }, lucide('clock', 'ic'), c.eta)),
+    c.msg);
+  return c;
+}
+const setText = (node, text) => { if (node.textContent !== text) node.textContent = text; };
+
+/* A wireless probe's link, in Lucide marks as drawn: the rune, the bars, the cell. The rune is
+   identity and always Bluetooth blue. The bars and the cell are the readings themselves -- the
+   level variant of each glyph -- and take a colour only at the low end: amber for attention (one
+   bar, a fifth of the battery), red for gone (no link, a tenth left). A probe that is not connected
+   has no battery to speak of, so it shows none. */
+function linkMarks(p) {
+  const bars = p.valid ? Math.max(0, Math.min(4, p.signal ?? 0)) : 0;
+  const sig = lucide(['signal-zero', 'signal-low', 'signal-medium', 'signal-high', 'signal'][bars], `ic pc-sig${bars === 0 ? ' crit' : bars === 1 ? ' low' : ''}`);
+  const out = [btIcon(), sig];
+  if (p.battery >= 0) {
+    const b = Math.max(0, Math.min(100, Math.round(p.battery)));
+    const name = b <= 10 ? 'battery-warning' : b < 34 ? 'battery-low' : b < 67 ? 'battery-medium' : 'battery-full';
+    const bat = lucide(name, `ic pc-batt${b <= 10 ? ' crit' : b <= 20 ? ' low' : ''}`);
+    out.push(el('span', { class: 'pc-batt-w', title: `Battery ${b}%` }, bat));
+  }
+  return out;
+}
+
+/* What the line along the foot says, most urgent first: something waiting to be acknowledged (Flip,
+   Remove from Heat), then resting, then arrived, then the next step on the way up with how long it
+   has to go. Nothing to say is a blank line, not a missing one. */
+function probeMessage(p, hit, u) {
+  if (p.alert) return p.alert;
+  if (p.resting) return `Resting \u00b7 peak ${fmtTemp(p.rest_peak)}${u}`;
+  if (hit) return p.rest > 0 ? `At target \u00b7 rest to ${fmtTemp(p.rest)}${u}` : 'At target';
+  if (p.next_step) {
+    const st = (p.steps || []).find((x) => !x.done && x.name === p.next_step) || (p.steps || []).find((x) => !x.done);
+    const at = st ? ` at ${fmtTemp(st.temp)}${u}` : '';
+    return `${p.next_step}${at}${p.eta_step_s > 0 ? ` in ${fmtEta(p.eta_step_s).replace('< ', '<')}` : ''}`;
+  }
+  return '\u00a0';
+}
+
+function updateProbeCard(c, p) {
+  const u = degUnit();
+  const hit = p.target > 0 && p.valid && p.temp >= p.target;
+  /* The same thresholds the panel uses, so a probe that is amber on the grill is amber on the
+     phone: done, a step over, two steps over -- five degrees a step, three in Celsius. */
+  const step = PF.units === 'C' ? 3 : 5;
+  const over = hit ? p.temp - p.target : 0;
+  const level = !hit ? '' : over >= 2 * step ? 'hit-way' : over >= step ? 'hit-over' : 'hit-done';   /* not 'done': that is the doneness row's class */
+  const cls = `pcell pcard${p.valid ? '' : ' invalid'}${hit ? ` hit ${level}` : ''}${p.alert ? ' alert' : ''}`;
+  if (c.root.className !== cls) c.root.className = cls;
+  const link = p.wireless ? `, signal ${p.valid ? p.signal ?? 0 : 0} of 4${p.battery >= 0 ? `, battery ${Math.round(p.battery)} percent` : ''}` : '';
+  c.root.setAttribute('aria-label', `${p.name} ${p.valid ? `${fmtTemp(p.temp)}${u}` : 'no reading'}${p.alert ? `, ${p.alert}` : ''}${link}`);
+
+  setText(c.name, p.name);
+  /* The link marks only mean something on a wireless probe: the rune (always Bluetooth blue -- it
+     says what the probe is, not how it is doing), the bars, the cell. Rebuilt only when they change. */
+  const lk = p.wireless ? `${p.valid ? p.signal ?? 0 : -1}|${p.battery ?? ''}` : '';
+  if (c.links.dataset.k !== lk) {
+    c.links.dataset.k = lk;
+    c.links.replaceChildren(...(p.wireless ? linkMarks(p) : []));
+  }
+  setText(c.temp, p.valid ? fmtTemp(p.temp) : '\u2014');
+  setText(c.unit, u);
+
+  const has = p.target > 0;
+  setText(c.meat, has ? (p.meat || 'Target') : 'No Target');
+  setText(c.done, has ? (p.done || '\u00a0') : 'Tap to set');
+  c.meat.classList.toggle('muted', !has);
+  c.done.classList.toggle('muted', !has);
+  setText(c.tgt, has ? `${fmtTemp(p.target)}${u}` : '\u2014');
+  setText(c.eta, !has ? '\u2014' : hit ? 'Done' : p.eta_s > 0 ? fmtEta(p.eta_s) : '\u2014');
+  setText(c.msg, probeMessage(p, hit, u));
+}
+
+/* The order of the stack. Prioritised (Settings > Appearance, on by default): a probe with
+   something waiting to be acknowledged first, because it is asking for a hand now; then the probes
+   in this cook; then the rest -- each group A to Z by the name it was given. "In use" is the
+   daemon's own answer (chosen for this cook, or given a target) and only while it is reading, so a
+   probe left dangling off the grate does not sit among the ones in the meat. Off, the stack keeps
+   the order the probes have in their settings. */
+const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+const inUse = (p) => p.target > 0 || (p.in_use && p.valid);
+function orderProbes(food) {
+  if (PF.settings?.globals?.probe_priority === false) return food;
+  const rank = (p) => (p.alert ? 0 : inUse(p) ? 1 : 2);
+  return [...food].sort((a, b) => rank(a) - rank(b) || byName(a, b));
+}
+
+function renderProbeStack(stack, cards, s) {
+  const food = orderProbes(s.probes.filter((p) => p.role === 'Food' && p.enabled && p.home !== false && !p.companion));
+  const seen = new Set();
+  for (const p of food) {
+    let c = cards.get(p.label);
+    if (!c) { c = probeCard(p.label); cards.set(p.label, c); }
+    updateProbeCard(c, p);
+    seen.add(p.label);
+  }
+  for (const [label, c] of cards) if (!seen.has(label)) { c.root.remove(); cards.delete(label); }
+  /* Moving a node restarts its flash, so the cards are only re-laid when the order has changed. */
+  const want = food.map((p) => cards.get(p.label).root);
+  if (want.length !== stack.children.length || want.some((n, i) => stack.children[i] !== n)) stack.replaceChildren(...want);
+  stack.hidden = !food.length;
+}
+
 export function renderHome(view) {
   const outs = ['fan', 'auger', 'igniter'].map((k) => el('span', { class: 'out', 'data-k': k }, k === 'auger' ? 'AUG' : k === 'fan' ? 'FAN' : 'IGN'));
   const header = el('div', { class: 'hbar' }, ...outs);
@@ -210,10 +340,11 @@ export function renderHome(view) {
   const hopBrand = el('span', { class: 'muted' }), hopPct = el('span', { class: 'pct' }), hopFill = el('div');
   const hopper = el('div', { class: 'card tight hopper', hidden: true }, el('div', { class: 'row between' }, el('div', {}, el('strong', {}, 'Hopper'), ' ', hopBrand), hopPct), el('div', { class: 'progress' }, hopFill));
   const manual = el('div', { class: 'card tight', hidden: true });
-  const probes = el('div', { class: 'pgrid' });
+  const probes = el('div', { class: 'pstack' });
+  const cards = new Map();   /* label -> card, kept between updates so a flashing card keeps its beat */
   view.append(
     el('div', { class: 'card hero' }, header, gauge, target, detail, recipeLine, tuneLine, bar),
-    hopper, manual, probes,
+    probes, hopper, manual,
   );
 
   let brand = '';
@@ -299,33 +430,7 @@ export function renderHome(view) {
       }
     } else manual.dataset.state = '';
 
-    probes.innerHTML = '';
-    const food = s.probes.filter((p) => p.role === 'Food' && p.enabled && p.home !== false && !p.companion).slice(0, 3);
-    probes.style.gridTemplateColumns = `repeat(${Math.max(1, food.length)}, 1fr)`;
-    for (const p of food) {
-      const hit = p.target > 0 && p.valid && p.temp >= p.target;
-      /* The same thresholds the panel uses, so a probe that is amber on the grill is amber on the
-         phone: done, a step over, two steps over -- five degrees a step, three in Celsius. */
-      const step = PF.units === 'C' ? 3 : 5;
-      const over = hit ? p.temp - p.target : 0;
-      const level = !hit ? '' : over >= 2 * step ? 'hit-way' : over >= step ? 'hit-over' : 'hit-done';   /* not 'done': that is the doneness row's class and made the card a flex row */
-      probes.append(el('button', { class: `pcell ${p.valid ? '' : 'invalid'} ${hit ? 'hit' : ''} ${level}`, onclick: () => openProbe(p.label) },
-        /* spans, not divs: the cell is a <button> so that it focuses, answers the keyboard and
-           takes the app's press layer like every other control, and a button may only contain
-           phrasing content. The CSS gives each line its own row. */
-        /* Three fixed rows, whatever is set: the mark, the name and the battery on top; the
-           reading in the middle; a two-line block at the foot for what the target is for and the
-           target with its time remaining. The rows do not move when a target is set or cleared --
-           a card whose reading jumped up and down as targets came and went read as three
-           different cards. Nothing else is on it; the link bars and the ambient reading live on
-           the probe's sheet. */
-        el('span', { class: `n ${p.wireless ? 'wl' : ''}` }, p.wireless ? btIcon() : null, el('span', { class: 'nm' }, p.name), p.wireless ? battIcon(p.battery) : null),
-        el('span', { class: 't' }, p.valid ? fmtTemp(p.temp) : '—'),
-        el('span', { class: 'foot' },
-          el('span', { class: 'meat' }, p.target > 0 && (p.meat || p.done) ? [p.meat, p.done].filter(Boolean).join(' \u00b7 ') : '\u00a0'),
-          el('span', { class: `tg ${p.target > 0 ? '' : 'muted'}` }, p.resting ? `Resting \u00b7 peak ${fmtTemp(p.rest_peak)}°` : p.target > 0 ? `${p.rest > 0 ? `off ${fmtTemp(p.target)}° \u2192 ${fmtTemp(p.rest)}°` : `${fmtTemp(p.target)}°`}${!hit && p.eta_s > 0 ? ` \u00b7 ${fmtEta(p.eta_s)}` : hit ? ' \u00b7 done' : ''}` : 'Set target'))));
-    }
-    probes.hidden = !food.length;
+    renderProbeStack(probes, cards, s);
 
   };
   update(PF.status);

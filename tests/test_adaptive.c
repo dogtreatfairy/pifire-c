@@ -152,6 +152,32 @@ static void test_integrator_seed_and_no_opposition(void)
 	ops->destroy(c);
 }
 
+/* Hold at 400 F straight out of startup: the pit is a hundred and twenty degrees short, and with a
+ * narrow learned band the proportional term alone is several times full feed. That is saturation,
+ * not a fault -- but returned as it was, it crossed the daemon's +/-5 sanity line three cycles
+ * running and the grill threw E06 and swapped the controller out. 350 F, thirty degrees closer,
+ * stayed under the line, which is why only the hotter set point failed. */
+static void test_a_hot_set_point_far_off_saturates_instead_of_faulting(void)
+{
+	g_kv[0] = 0;
+	const pf_controller_ops *ops = pf_controller_find("adaptive");
+	void *c = ops->create("{\"_units\":\"C\",\"auto_tune\":false,\"PB\":20,\"Ti\":300,\"Td\":40}", &env);
+	pf_ctrl_dbg dbg;
+	double t = 0;
+	pf_ctrl_in in = { .now_s = t, .pit_c = 80, .setpoint_c = 204.4, .ambient_c = 20, .u_prev_applied = 0.15, .u_ff = 0.45, .cycle_time_s = 25, .u_min = 0.1, .u_max = 0.9 };
+	ops->reset(c, &in);
+	for (int k = 0; k < 10; k++) {
+		in.now_s = t; in.pit_c = 80 + k * 3;
+		double u = ops->update(c, &in, &dbg);
+		TEST_ASSERT_TRUE(isfinite(u));
+		TEST_ASSERT_TRUE(u > in.u_max);          /* still asking for everything it can get */
+		TEST_ASSERT_TRUE(u <= 2.0 && u >= -1.0);  /* but on a scale the daemon accepts */
+		in.u_prev_applied = in.u_max; in.saturated = +1;
+		t += 25;
+	}
+	ops->destroy(c);
+}
+
 /* an oscillation around a 230 C set point, for the top band */
 static double pit_oscillating_hot(double t) { return 230 + 6.0 * sin(t / 40.0); }
 
@@ -447,6 +473,7 @@ int main(void)
 	RUN_TEST(test_learning_refines_a_tune_rather_than_being_overruled_by_it);
 	RUN_TEST(test_gain_change_does_not_jolt_the_integrator);
 	RUN_TEST(test_integrator_seed_and_no_opposition);
+	RUN_TEST(test_a_hot_set_point_far_off_saturates_instead_of_faulting);
 	RUN_TEST(test_a_tune_at_one_temperature_keeps_what_was_learned_at_another);
 	return UNITY_END();
 }

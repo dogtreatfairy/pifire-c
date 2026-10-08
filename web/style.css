@@ -492,23 +492,38 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .hero .line1 { font-size: var(--fs-lg); font-weight: 600; color: var(--accent-ink); margin-top: 2px; cursor: pointer; }
 .hero .line1.ok { color: var(--ok-ink); } .hero .line1.accent { color: var(--accent-ink); } .hero .line1.info { color: var(--info-ink); } .hero .line1.warn { color: var(--warn-ink); } .hero .line1.danger { color: var(--danger-ink); } .hero .line1.muted { color: var(--muted); cursor: default; }
 .hero .line2 { font-size: var(--fs-sm); color: var(--muted); margin: 3px 0 10px; min-height: 1.2em; }
-.pgrid { display: grid; gap: 8px; margin-bottom: 12px; }
-.pcell { background: var(--surface); border: var(--bw) solid var(--line); border-radius: var(--r-md); padding: var(--sp-2) 6px;
-  text-align: center; cursor: pointer; min-width: 0; width: 100%; font: inherit; color: inherit;
-  /* fixed rows: name, reading, foot -- the reading stays put whatever the foot says */
-  display: grid; grid-template-rows: 24px 1fr 36px; align-items: center; height: 124px; }
-.pcell .n, .pcell .t, .pcell .tg, .pcell .amb, .pcell .meat { display: block; }
-.pcell .foot { display: flex; flex-direction: column; justify-content: flex-end; line-height: 1.25; min-width: 0; }
-.pcell .foot .meat, .pcell .foot .tg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pcell .meat { font-size: var(--fs-xs); color: var(--text); }
-.pcell .n { font-size: var(--fs-sm); color: var(--muted); display: flex; align-items: center; justify-content: center; gap: 3px; min-height: 22px; }
-.pcell .n .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pcell .n.wl { justify-content: flex-start; }
-.pcell .n.wl .nm { flex: 1; text-align: left; }
-.pcell .n .ic.bt { width: 14px; height: 14px; color: var(--info-ink); flex: none; }
-.pcell .n .batt { margin-left: auto; }
-.pcell .t { font-size: 2.25rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; margin: 0; align-self: center; }
-.pcell .tg { font-size: var(--fs-sm); color: var(--accent-ink); }
+/* Home probe cards: one full-width card per probe, stacked under the gauge (the drawing is
+   examples/probe-card.png). Three columns -- the reading, what the target is for, the target and
+   its time -- under a line with the name and the link marks, over a line for what the probe wants
+   done next. The reading's box is three digits wide whatever it holds, so the middle column starts
+   in the same place on every card in the stack and does not move as a probe warms past 99. */
+.pstack { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.pcell.pcard { background: var(--surface); border: var(--bw) solid var(--line2); border-radius: var(--r-lg);
+  padding: var(--sp-2) var(--sp-4); width: 100%; min-width: 0; font: inherit; color: inherit; text-align: left; cursor: pointer;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto 1fr auto;
+  grid-template-areas: "name name links" "read food stats" "read msg msg";
+  column-gap: var(--sp-3); row-gap: var(--sp-1); align-items: center; min-height: 116px; }
+.pcard .pc-name { grid-area: name; font-size: var(--fs-md); font-weight: var(--fw-medium); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcard .pc-links { grid-area: links; justify-self: end; display: inline-flex; align-items: center; gap: 6px; min-height: 16px; }
+.pcard .pc-links .ic { width: 20px; height: 20px; flex: none; color: inherit; }
+.pcard .pc-links .ic.bt { width: 18px; height: 18px; margin: 0; color: var(--info-ink); }
+.pcard .pc-links .pc-batt { width: 24px; height: 24px; }
+.pcard .pc-batt-w { display: inline-flex; }
+.pcard .pc-links .ic.low { color: var(--warn-ink); }
+.pcard .pc-links .ic.crit { color: var(--danger-ink); }
+.pcard .pc-read { grid-area: read; display: flex; align-items: flex-start; line-height: 1; align-self: center; }
+.pcard .pc-temp { font-size: var(--fs-3xl); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; letter-spacing: -.02em; min-width: 3ch; }
+.pcard .pc-unit { font-size: var(--fs-xl); font-weight: var(--fw-medium); margin: 2px 0 0 var(--sp-1); }
+.pcard .pc-food { grid-area: food; display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 0; line-height: var(--lh-tight); }
+.pcard .pc-meat, .pcard .pc-done { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcard .pc-meat { font-size: var(--fs-xl); font-weight: var(--fw-semi); }
+.pcard .pc-done { font-size: var(--fs-md); }
+.pcard .pc-stats { grid-area: stats; display: flex; flex-direction: column; gap: var(--sp-1); }
+.pcard .pc-stat { display: flex; align-items: center; gap: 6px; font-size: var(--fs-md); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pcard .pc-stat .ic { width: 18px; height: 18px; flex: none; }
+.pcard .pc-msg { grid-area: msg; text-align: center; font-size: var(--fs-sm); font-weight: var(--fw-bold); text-transform: uppercase; letter-spacing: .02em;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcell.invalid .pc-temp { color: var(--muted); }
 /* A probe that has arrived flashes, exactly as it does on the panel: the whole card fills with the
    colour of how far past its target it is -- done, five degrees over, ten -- half a beat in every
    beat and a half. A number that has changed colour is easy to miss across a garden; one that
@@ -517,14 +532,16 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .pcell.hit.hit-done { --hitc: var(--ok); --hitink: var(--on-ok); }
 .pcell.hit.hit-over { --hitc: var(--accent); --hitink: var(--on-accent); }
 .pcell.hit.hit-way { --hitc: var(--danger); --hitink: var(--on-danger); }
-.pcell.hit .t, .pcell.hit .tg, .pcell.hit .n, .pcell.hit .amb, .pcell.hit .meat { color: inherit; }
+/* Something it is asking for and nobody has acknowledged yet -- Flip, Remove from Heat -- flashes
+   in orange, the panel's attention frame, and wins over the arrival colour until it is cleared. */
+.pcell.alert { --hitc: var(--accent); --hitink: var(--on-accent); border-color: var(--hitc); animation: pf-hit 1.5s steps(1, end) infinite; }
+.pcell.hit .muted, .pcell.alert .muted, .pcell.hit .pc-msg, .pcell.alert .pc-msg, .pcell.hit .pc-temp, .pcell.alert .pc-temp { color: inherit; }
 @keyframes pf-hit { 50% { background: var(--hitc); color: var(--hitink); } }
 /* The flash is information, not decoration -- it is how a probe says it has arrived from across a
    garden. With motion turned down it becomes the colour it was flashing to, said once. The
    !important is answering the blanket rule at the top of the file, which would otherwise run this
    animation at 1 ms and leave the outcome to chance. */
-@media (prefers-reduced-motion: reduce) { .pcell.hit { animation: none !important; background: var(--hitc); color: var(--hitink); } }
-.pcell.invalid .t { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .pcell.hit, .pcell.alert { animation: none !important; background: var(--hitc); color: var(--hitink); } }
 
 /* ---- home: gauge, countdown, P-mode chip, control bar ---- */
 .hbar { grid-template-columns: 1fr 1fr 1fr; }
@@ -878,20 +895,14 @@ details[open] > summary::after { transform: rotate(-90deg); }
 .ptable .prow-btn.off { opacity: .55; }
 .ptable .pval { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pill.sm { padding: 2px 8px; font-size: var(--fs-2xs); }
-.pcell .n .ic.bt { margin-right: 3px; }
 /* Bluetooth signal bars: 4 bars, lit ones in the current text colour */
 .sig { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; vertical-align: -1px; }
 .sig i { display: block; width: 3.5px; border-radius: 1px; background: var(--line); }
 .sig i:nth-child(1) { height: 5px; } .sig i:nth-child(2) { height: 8px; } .sig i:nth-child(3) { height: 11px; } .sig i:nth-child(4) { height: 14px; }
 .sig i.on { background: currentColor; }
 .sig.s1 i.on { background: var(--danger); } .sig.s2 i.on { background: var(--warn); }
-.pcell .n .sig { margin-right: 4px; color: var(--info-ink); }
-.pcell .n .batt.low { color: var(--warn-ink); }
-.pcell .n .batt.crit { color: var(--danger-ink); }
 .irow-main .t .sig, .irow-main .t .batt { margin: 0; }
 .irow-main .t .sig, .irow-main .t .batt:not(.low):not(.crit) { color: var(--muted); }
-.pcell .amb { font-size: var(--fs-xs); color: var(--muted); margin-top: -2px; }
-.pcell .tg.muted { color: var(--muted); }
 .ppop-temp { font-size: var(--fs-3xl); font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; margin: 6px 0 10px; }
 .ppop-temp small { font-size: var(--fs-md); color: var(--muted); margin-left: 4px; }
 

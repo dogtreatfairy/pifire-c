@@ -316,6 +316,12 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 		cJSON_AddNumberToObject(po, "eta_s", s->notify[i].eta_s);
 		cJSON_AddNumberToObject(po, "eta_step_s", s->notify[i].eta_step_s);
 		if (s->notify[i].next_step[0]) cJSON_AddStringToObject(po, "next_step", s->notify[i].next_step);
+		{
+			/* what this probe is asking for and nobody has acknowledged yet: the Home card lifts
+			 * it to the top of the stack and says it, until it is cleared on the panel or a phone */
+			char alert[24];
+			if (pf_alarms_probe_alert(p->label, alert, sizeof alert)) cJSON_AddStringToObject(po, "alert", alert);
+		}
 		/* the steps, with what each has already said, so the app can tick them off */
 		if (s->notify[i].nsteps > 0) {
 			cJSON *steps = cJSON_AddArrayToObject(po, "steps");
