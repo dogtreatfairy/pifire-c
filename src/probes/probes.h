@@ -1,4 +1,10 @@
 #pragma once
+/* The rate-of-change gate (tempq.h): the fastest a reported reading may move, C per second, and
+ * how long a faster disagreement is held off before it is believed. 3 C/s is 5.4 F/s -- a startup
+ * climbs at one or two -- and ten seconds is under one auger cycle. */
+#define PF_PIT_SLEW_C_S  3.0
+#define PF_FOOD_SLEW_C_S 2.0
+#define PF_SLEW_HOLD_S   10.0
 /* The "probe complex": instantiates probe devices from settings.probe_settings.probe_map, maps
  * ports to labelled probes, converts raw samples (Steinhart-Hart, resistor divider), filters, and
  * publishes a snapshot for the control thread and the UI. */
@@ -18,6 +24,7 @@ typedef struct {
 	bool valid;        /* last reading usable */
 	double temp_c;     /* filtered, NAN if invalid */
 	double raw_c;      /* unfiltered */
+	bool unstable;     /* the reported temp_c is being held back from a reading that moved faster than the probe can */
 	double ohms;       /* 0 for non-thermistor */
 	double last_valid_t; /* monotonic; 0 = never */
 	double target_c;   /* notify target, 0 = none (filled by notify engine) */

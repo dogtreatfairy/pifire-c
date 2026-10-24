@@ -22,7 +22,7 @@ Relay trigger level (`platform.triggerlevel`) is active-low on most relay boards
 
 | module | bus | ports | notes |
 |---|---|---|---|
-| `ads1x15` | I2C 0x48–0x4B | ADC0–ADC3 | ADS1115 or ADS1015; per-port resistor divider and reference voltage |
+| `ads1x15` | I2C 0x48–0x4B | ADC0–ADC3 | ADS1115 or ADS1015; per-port resistor divider and reference voltage | One reading is sixteen conversions at 475 SPS (about 60 ms, three or four mains cycles), the mean of the middle eight; the spread of the sixteen is reported per port as `noise_mv` in the device status. A port with nothing plugged in is read once a second as the 3.3 V rail and the others are scaled by it (ratiometric), when it reads within a tenth of `voltage_ref`; `rail_v` in the device status says what it read. |
 | `max31865` | SPI CE0/CE1 | RTD0 | PT-100/PT-1000, 2/3/4 wire; reports resistance |
 | `mcp9600` | I2C 0x60–0x67 | KTT0 | K/J/T/… thermocouple |
 | `ds18b20` | 1-Wire | DS0 | first sensor found or a specific ID |
@@ -79,3 +79,13 @@ sudo install/install.sh
 ```
 
 The installer creates the `pifire` service user (groups gpio/i2c/spi/dialout/netdev/bluetooth), installs the systemd unit with watchdog, udev rules for PWM, the captive-portal dnsmasq snippet, enables I2C/SPI and the hardware watchdog, and starts the service. On first boot without a known Wi-Fi network the grill starts the **PiFire-XXXX** hotspot (password `pifire1234`); join it and follow the setup page.
+
+## Reading chain
+
+Every wired or wireless reading goes through three stages before the display, the controller or the safety rules see it (`src/probes/tempq.c`):
+
+1. a median of five samples, which drops an isolated wrong sample or two in a row;
+2. a running mean of ten, which takes the jitter off the rest -- together about two seconds at the four-hertz poll;
+3. a rate-of-change gate: the reported value may not move faster than 3 °C/s (5.4 °F/s) for the pit probe or 2 °C/s for a food probe, which is faster than any sheathed probe can really read. A reading running away faster than that is followed at that pace and the probe is marked `unstable` in the status; if the disagreement is still there after ten seconds it is believed whole, because a change that lasts that long is the grill. The original PiFire's standard-deviation gate did the same job by holding its last average while the readings scattered; this one does not freeze through a startup ramp.
+
+The safety rules read the pit through a further 30 s filter (`docs/safety.md`), and the daemon logs any raw jump of more than 15 °F inside three seconds with the fan, auger and igniter states at that moment.

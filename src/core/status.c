@@ -305,6 +305,7 @@ cJSON *pf_status_to_json(const pf_status *s, pf_units units)
 		cJSON_AddBoolToObject(po, "in_use", p->in_use);
 		cJSON_AddBoolToObject(po, "home", p->home);
 		cJSON_AddBoolToObject(po, "valid", p->valid);
+		if (p->unstable) cJSON_AddBoolToObject(po, "unstable", true);   /* the reading is being held back: it moved faster than the probe can */
 		add_num_or_null(po, "temp", p->valid ? r1(conv(p->temp_c, units)) : NAN);
 		cJSON_AddNumberToObject(po, "target", p->target_c > 0 ? r1(conv(p->target_c, units)) : 0);
 		cJSON_AddNumberToObject(po, "after", s->notify[i].after);

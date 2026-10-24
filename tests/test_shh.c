@@ -73,55 +73,86 @@ static void test_tempq_rejects_spike(void)
 {
 	pf_tempq q;
 	pf_tempq_init(&q);
-	double v = 0;
-	for (int i = 0; i < 12; i++) v = pf_tempq_push(&q, 100.0);
+	double v = 0, now = 0;
+	for (int i = 0; i < 12; i++) v = pf_tempq_push(&q, 100.0, now += 0.25);
 	TEST_ASSERT_DOUBLE_WITHIN(0.01, 100.0, v);
 
 	/* one wrong reading, then the truth again: the median never lets it reach the average */
-	v = pf_tempq_push(&q, 140.0);
+	v = pf_tempq_push(&q, 140.0, now += 0.25);
 	TEST_ASSERT_DOUBLE_WITHIN(0.01, 100.0, v);
-	for (int i = 0; i < 4; i++) v = pf_tempq_push(&q, 100.0);
+	for (int i = 0; i < 4; i++) v = pf_tempq_push(&q, 100.0, now += 0.25);
 	TEST_ASSERT_DOUBLE_WITHIN(0.01, 100.0, v);
 
 	/* two wrong readings in a row are still outnumbered inside the median window */
-	v = pf_tempq_push(&q, 300.0);
-	v = pf_tempq_push(&q, 295.0);
+	v = pf_tempq_push(&q, 300.0, now += 0.25);
+	v = pf_tempq_push(&q, 295.0, now += 0.25);
 	TEST_ASSERT_DOUBLE_WITHIN(0.01, 100.0, v);
-	for (int i = 0; i < 6; i++) v = pf_tempq_push(&q, 100.0);
+	for (int i = 0; i < 6; i++) v = pf_tempq_push(&q, 100.0, now += 0.25);
 	TEST_ASSERT_DOUBLE_WITHIN(0.01, 100.0, v);
 
 	/* slow real change tracks */
-	for (int i = 1; i <= 10; i++) v = pf_tempq_push(&q, 100.0 + i * 0.5);
+	for (int i = 1; i <= 10; i++) v = pf_tempq_push(&q, 100.0 + i * 0.5, now += 0.25);
 	TEST_ASSERT_TRUE(v > 101.5);
 }
 
-/* The startup ramp is the fastest thing a grill really does, and the old filter stopped updating
- * while it happened because the climb itself blew past its standard-deviation gate. It must track
- * the ramp, and must still drop a spike sitting on top of one. */
+/* The startup ramp is the fastest thing a grill really does, and the original filter stopped
+ * updating while it happened because the climb itself blew past its standard-deviation gate. It
+ * must track the ramp, and must still drop a spike sitting on top of one. */
 static void test_tempq_tracks_a_fast_ramp(void)
 {
 	pf_tempq q;
 	pf_tempq_init(&q);
-	double v = 0;
-	for (int i = 0; i < 12; i++) v = pf_tempq_push(&q, 40.0);
+	pf_tempq_limits(&q, 3.0, 10.0);   /* the pit's gate */
+	double v = 0, now = 0;
+	for (int i = 0; i < 12; i++) v = pf_tempq_push(&q, 40.0, now += 0.25);
 
 	double truth = 40.0;
-	for (int i = 0; i < 60; i++) {           /* 3 C per sample: about 5 F a second at 4 Hz */
-		truth += 3.0;
-		v = pf_tempq_push(&q, truth);
+	for (int i = 0; i < 60; i++) {           /* 0.5 C per sample at 4 Hz: 2 C/s, 3.6 F/s, a hard startup */
+		truth += 0.5;
+		v = pf_tempq_push(&q, truth, now += 0.25);
 	}
 	/* it follows, a little behind: the lag is the two filter stages, not a freeze */
-	TEST_ASSERT_TRUE_MESSAGE(v > truth - 25.0, "the filter should track a fast ramp, not stall");
+	TEST_ASSERT_TRUE_MESSAGE(v > truth - 5.0, "the filter should track a fast ramp, not stall");
 	TEST_ASSERT_TRUE_MESSAGE(v < truth, "the filter should lag slightly, never lead");
+	TEST_ASSERT_FALSE_MESSAGE(q.unstable, "a real ramp is not held back");
 	double before = v;
 
 	/* a spike on top of the ramp is dropped, and the ramp carries on */
-	truth += 3.0;
-	v = pf_tempq_push(&q, truth + 120.0);
+	truth += 0.5;
+	v = pf_tempq_push(&q, truth + 120.0, now += 0.25);
 	TEST_ASSERT_TRUE_MESSAGE(v < before + 10.0, "a spike during a ramp must not reach the output");
-	for (int i = 0; i < 5; i++) { truth += 3.0; v = pf_tempq_push(&q, truth); }
+	for (int i = 0; i < 5; i++) { truth += 0.5; v = pf_tempq_push(&q, truth, now += 0.25); }
 	TEST_ASSERT_TRUE(v > before);
 	TEST_ASSERT_TRUE(v < truth);
+}
+
+/* The gate. The pit read 227 F and 178 F three seconds apart on this grill, which no sheathed probe
+ * can do, and showed it. A level the filter cannot have reached is followed at the probe's own
+ * pace and marked unstable; if it is still there after the hold, it is the grill and is believed;
+ * if it was a burst, the reported value never went far. */
+static void test_tempq_gate_holds_a_run_away_and_believes_one_that_lasts(void)
+{
+	pf_tempq q;
+	pf_tempq_init(&q);
+	pf_tempq_limits(&q, 3.0, 10.0);
+	double v = 0, now = 0;
+	for (int i = 0; i < 12; i++) v = pf_tempq_push(&q, 100.0, now += 0.25);
+	/* a six-second burst reading 27 C high, every sample: too many for the median, too long for the mean */
+	double peak = v;
+	for (int i = 0; i < 24; i++) { v = pf_tempq_push(&q, 127.0, now += 0.25); if (v > peak) peak = v; }
+	TEST_ASSERT_TRUE_MESSAGE(q.unstable, "a reading running away faster than the probe can is not believed");
+	TEST_ASSERT_TRUE_MESSAGE(peak < 100.0 + 3.0 * 6.0 + 0.01, "and the reported value climbs no faster than the slew");
+	/* the burst ends: the value comes back, and the flag clears once the filter agrees */
+	for (int i = 0; i < 40; i++) v = pf_tempq_push(&q, 100.0, now += 0.25);
+	TEST_ASSERT_DOUBLE_WITHIN(0.5, 100.0, v);
+	TEST_ASSERT_FALSE(q.unstable);
+	/* a step that lasts: after the hold it is taken whole */
+	for (int i = 0; i < 44; i++) v = pf_tempq_push(&q, 160.0, now += 0.25);   /* eleven seconds */
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.01, 160.0, v, "a change that outlasts the hold is the grill");
+	TEST_ASSERT_FALSE(q.unstable);
+	/* a reset keeps the limits */
+	pf_tempq_reset(&q);
+	TEST_ASSERT_DOUBLE_WITHIN(1e-9, 3.0, q.slew_c_s);
 }
 
 /* The conversion chain, checked end to end against the grill's own configuration: a PT-1000 on a
@@ -173,5 +204,6 @@ int main(void)
 	RUN_TEST(test_solve);
 	RUN_TEST(test_tempq_rejects_spike);
 	RUN_TEST(test_tempq_tracks_a_fast_ramp);
+	RUN_TEST(test_tempq_gate_holds_a_run_away_and_believes_one_that_lasts);
 	return UNITY_END();
 }

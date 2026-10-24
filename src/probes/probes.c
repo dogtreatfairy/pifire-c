@@ -194,6 +194,10 @@ int pf_probes_init(void)
 		pv->shh.B = pf_json_num(pobj, "B", 0);
 		pv->shh.C = pf_json_num(pobj, "C", 0);
 		pf_tempq_init(&pv->q);
+		/* The rate-of-change gate: a sheathed pit RTD cannot read faster than its own thermal mass
+		 * lets it, and a food probe in meat slower still. Faster than this is not yet believed, for
+		 * ten seconds; a change that is still there after that is the grill, and is taken whole. */
+		pf_tempq_limits(&pv->q, r->role == PF_PROBE_PRIMARY ? PF_PIT_SLEW_C_S : PF_FOOD_SLEW_C_S, PF_SLEW_HOLD_S);
 		if (r->role == PF_PROBE_PRIMARY && r->enabled && g_snap.primary < 0) g_snap.primary = n;
 		n++;
 	}
@@ -329,7 +333,8 @@ void pf_probes_poll(double now)
 		r->raw_c = c;
 		r->ohms = ohms > 0 ? ohms : 0;
 		if (!isnan(c)) {
-			r->temp_c = pf_tempq_push(&pv->q, c);
+			r->temp_c = pf_tempq_push(&pv->q, c, now);
+			r->unstable = pv->q.unstable;
 			r->valid = true;
 			r->last_valid_t = now;
 			/* it is reading while a cook is on, so it is part of the cook from here until the end
@@ -339,7 +344,7 @@ void pf_probes_poll(double now)
 		} else {
 			r->valid = false;
 			/* keep last filtered value visible briefly for the UI, but mark invalid */
-			if (now - r->last_valid_t > 10) { r->temp_c = NAN; pf_tempq_reset(&pv->q); }
+			if (now - r->last_valid_t > 10) { r->temp_c = NAN; r->unstable = false; pf_tempq_reset(&pv->q); }
 		}
 	}
 	pthread_mutex_unlock(&g_mu);
