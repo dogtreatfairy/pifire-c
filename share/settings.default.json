@@ -126,6 +126,7 @@
     },
     "relight_enabled": true,
     "relight_drop": 20,
+    "relight_confirm_s": 60,
     "relight_prove_s": 180
   },
   "startup": {

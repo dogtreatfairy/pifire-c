@@ -31,6 +31,8 @@ void pf_safety_reset(pf_control *c)
 	s->reignite_retries_left = c->cfg.reignite_retries;
 	s->ss_baseline_c = NAN;
 	s->filt_c = NAN;
+	s->fire_c = NAN;
+	s->fall_since = 0;
 	s->peak_c = NAN;
 }
 
@@ -69,6 +71,8 @@ void pf_safety_reset(pf_control *c)
  * put the proof at 309 s -- a failed start on a fire that had lit. Readings on a flat pit move by
  * 0.3 F at most, so a 10 s filter and a 15 s hold reject noise just as well and prove at 279 s. */
 #define PROVE_FILTER_S 10.0
+#define FIRE_FILTER_S  30.0   /* the pit the flame-out rule reads */
+#define FALL_FRACTION  0.06   /* the drop is at least this much of the pit's rise above the outdoor air */
 #define PROVE_HOLD_S 15.0
 #define LID_ALLOW_S  300.0
 #define HOT_DELTA_C  83.3    /* 150 F above the outdoor air */
@@ -206,7 +210,19 @@ int pf_safety_tick(pf_control *c, double now)
 		double dt = c->last_step > 0 ? now - c->last_step : 0.1;
 		double a = dt / PROVE_FILTER_S; if (a > 1) a = 1;
 		s->filt_c = isnan(s->filt_c) ? c->pit_c : s->filt_c + (c->pit_c - s->filt_c) * a;
-	}
+		double b = dt / FIRE_FILTER_S; if (b > 1) b = 1;
+		s->fire_c = isnan(s->fire_c) ? c->pit_c : s->fire_c + (c->pit_c - s->fire_c) * b;
+		/* A diagnostic, not a judgement: the raw pit moving more than 15 F inside three seconds is
+		 * either the fire flaring or the sensor misreading, and the log line that says which
+		 * outputs were switching at that moment is how the two are told apart afterwards. */
+		if (!(s->jump_ref_t > 0) || now - s->jump_ref_t >= 3.0) { s->jump_ref_c = c->pit_c; s->jump_ref_t = now; }
+		else if (fabs(c->pit_c - s->jump_ref_c) >= 8.3 && now - s->jump_said_t >= 10.0) {
+			s->jump_said_t = now;
+			LOGW(TAG, "pit jumped %.0f C in %.1f s (%.0f -> %.0f C) with fan %s, auger %s, igniter %s, feed %.2f",
+			     c->pit_c - s->jump_ref_c, now - s->jump_ref_t, s->jump_ref_c, c->pit_c,
+			     pf_outputs_get(PF_OUT_FAN) ? "on" : "off", pf_outputs_get(PF_OUT_AUGER) ? "on" : "off", pf_outputs_get(PF_OUT_IGNITER) ? "on" : "off", c->u_applied);
+		}
+	} else { s->fire_c = NAN; s->fall_since = 0; s->jump_ref_t = 0; }
 
 	/* 3. Smart Start (Startup, Relight) */
 	if ((m == PF_MODE_STARTUP || m == PF_MODE_REIGNITE) && s->ss_active) {
@@ -291,15 +307,34 @@ int pf_safety_tick(pf_control *c, double now)
 		if (paused || s->stepdown_armed) {
 			s->progress_c = c->pit_c;
 			s->progress_t = now;
+			s->fall_since = 0;
 		} else {
-			if (isnan(s->peak_c) || c->pit_c > s->peak_c) s->peak_c = c->pit_c;
+			/* The fire is judged on the pit filtered over half a minute, and the peak is that filtered
+			 * pit's. A fresh fire flares: on this grill the raw pit went 183, 202, 227, 178 F in ten
+			 * seconds a minute into a 400 F hold, and 128 to 107 in nine, and each time the rule
+			 * read the flare as the peak and the next sample as the fire going out, and relit a fire
+			 * that was burning (the pit was rising again before the relight had begun). A flame-out
+			 * is a fall that lasts: the drop has to stand for relight_confirm_s before it counts, and
+			 * a fire that is really out keeps falling through that. The drop itself is at least a
+			 * twentieth of the pit's rise above the outdoor air, because what the loop lets the pit
+			 * wander by scales with it: 20 F is the floor at 225 F and it is 29 F at 550 F. */
+			double pit = isfinite(s->fire_c) ? s->fire_c : c->pit_c;
+			if (isnan(s->peak_c) || pit > s->peak_c) s->peak_c = pit;
 			/* Hold asks the controller, whose "reached" starts again with every new set point */
 			double ref = (hold ? c->target_reached : s->reached) ? work : fmin(s->peak_c, work);
-			if (c->pit_c <= ref - cfg->relight_drop_c) {
-				char why[96];
-				snprintf(why, sizeof why, "pit %.0f° below %.0f°", pf_delta_from_c(ref - c->pit_c, cfg->units), pf_from_c(ref, cfg->units));
-				return flameout(c, why);
-			}
+			double amb = isfinite(c->ambient_c) ? c->ambient_c : 20.0;
+			double drop = fmax(cfg->relight_drop_c, FALL_FRACTION * (ref - amb));
+			if (pit <= ref - drop) {
+				if (s->fall_since <= 0) {
+					s->fall_since = now;
+					LOGI(TAG, "pit %.0f C under its reference %.0f C: a flame-out if it stands %.0f s", ref - pit, ref, cfg->relight_confirm_s);
+				} else if (now - s->fall_since >= cfg->relight_confirm_s) {
+					char why[96];
+					snprintf(why, sizeof why, "pit %.0f° below %.0f° for %.0f s", pf_delta_from_c(ref - pit, cfg->units), pf_from_c(ref, cfg->units), now - s->fall_since);
+					s->fall_since = 0;
+					return flameout(c, why);
+				}
+			} else s->fall_since = 0;
 			if (s->heating && c->pit_c >= work) {
 				s->heating = false;
 				LOGI(TAG, "working temperature reached (%.0f C)", c->pit_c);
@@ -348,6 +383,7 @@ int pf_safety_tick(pf_control *c, double now)
 		s->last_sp_c = 0;
 		s->stepdown_armed = false;
 		s->proving = false;
+		s->fall_since = 0;
 		if (m != PF_MODE_STARTUP && m != PF_MODE_REIGNITE) { s->peak_c = NAN; s->heating = false; }
 	}
 

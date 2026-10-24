@@ -32,7 +32,7 @@ typedef struct {
 	/* Flame-out: how far the pit may fall from where the fire had it, whether that relights or
 	 * stops, and how long the igniter proves the fire after a set-point decrease. */
 	bool   relight_enabled;
-	double relight_drop_c, relight_prove_s;
+	double relight_drop_c, relight_prove_s, relight_confirm_s;
 	/* Smart Start: a rise within the time proves ignition; a larger one ends startup */
 	double ss_prove_s, ss_prove_rise_c, ss_exit_rise_c;
 	/* startup / shutdown */
@@ -63,6 +63,9 @@ typedef struct {
 	bool   ss_held;             /* proven by a hot pit held up, rather than by a rise */
 	double ss_flat_c, ss_flat_t; /* the lowest reading and since when it has not slipped */
 	double filt_c;              /* filtered pit (PROVE_FILTER_S) */
+	double fire_c;              /* the pit the fire is judged on: filtered over FIRE_FILTER_S, so a flare is not a peak and a gust not a fall */
+	double fall_since;          /* when the pit first read a flame-out's drop under its reference; 0 while it does not */
+	double jump_ref_c, jump_ref_t, jump_said_t;   /* the raw pit three seconds ago, for the jump diagnostic */
 	/* flame supervision in Smoke and Hold */
 	double peak_c;              /* the highest the pit has been since it left startup (NAN outside) */
 	bool   heating;             /* from the end of startup until the working temperature */

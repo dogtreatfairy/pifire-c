@@ -77,6 +77,7 @@ static void load_cfg(pf_cfg *g)
 	g->probe_fault_s = N("safety.probe_fault_s", 10);
 	g->relight_enabled = B("safety.relight_enabled", true);
 	g->relight_drop_c = D("safety.relight_drop", 20);
+	g->relight_confirm_s = pf_clamp(N("safety.relight_confirm_s", 60), 0, 600);
 	g->relight_prove_s = pf_clamp(N("safety.relight_prove_s", 180), 0, PF_IGNITER_MAX_S);
 	g->use_library = B("learning.use_library", true);
 	g->error_cooldown_fan_s = N("safety.error_cooldown_fan_s", 300);

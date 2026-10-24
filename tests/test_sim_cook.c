@@ -277,7 +277,7 @@ static void test_a_dead_pot_is_not_fed_for_long(void)
 	double fell_f = pf_delta_from_c(sp - ctrl.pit_c, PF_UNITS_F);
 	printf("dead pot: Relight after %d s, %.1f F below the set point\n", t, fell_f);
 	TEST_ASSERT_EQUAL_MESSAGE(PF_MODE_REIGNITE, ctrl.mode, "a twenty-degree drop is relit");
-	TEST_ASSERT_TRUE(fell_f >= 19 && fell_f < 23);
+	TEST_ASSERT_TRUE_MESSAGE(fell_f >= 19 && fell_f < 36, "the drop, plus the minute it has to stand and the half-minute filter");
 	TEST_ASSERT_TRUE(pf_outputs_get(PF_OUT_IGNITER));
 	/* the relight does not catch: no rise in its time is a failed start, and the grill stops */
 	double fed0 = ctrl.auger_total_on_s;
@@ -311,7 +311,36 @@ static void test_a_fire_lost_on_the_way_up_is_caught_at_the_drop(void)
 	double fell_f = pf_delta_from_c(peak - ctrl.pit_c, PF_UNITS_F);
 	printf("on the way up: Relight after %d s, %.1f F below a peak of %.0f F\n", t, fell_f, pf_from_c(peak, PF_UNITS_F));
 	TEST_ASSERT_EQUAL_MESSAGE(PF_MODE_REIGNITE, ctrl.mode, "a climbing pit falling back from its peak is a flame-out");
-	TEST_ASSERT_TRUE(fell_f >= 19 && fell_f < 25);
+	TEST_ASSERT_TRUE_MESSAGE(fell_f >= 19, "not before the drop; the default plant cools unrealistically fast, so the minute it must stand takes it well past");
+}
+
+/* A fresh fire flares. A minute into a 400 F hold on this grill the raw pit read 183, 202, 227, 178 F
+ * in ten seconds, and 128 down to 107 in nine, and the rule took each flare for the peak and the
+ * next sample for the fire going out: three 400 F holds in a row were relit or stopped with the fire
+ * burning. A flaring fire is not a lost one. */
+static void test_a_flaring_fire_is_not_a_flame_out(void)
+{
+	real_plant();
+	pf_cmd_mode(PF_MODE_HOLD, 400);
+	until_mode(PF_MODE_HOLD, 900);
+	tick(60);
+	TEST_ASSERT_EQUAL(PF_MODE_HOLD, ctrl.mode);
+	int left = ctrl.safety.reignite_retries_left;
+	/* eight flares a minute apart: up 27 F for three seconds, then 45 F under that for five */
+	for (int k = 0; k < 8; k++) {
+		double p0 = pf_sim_model()->pit_c;
+		pf_sim_model()->pit_c = p0 + 15; tick(3);
+		pf_sim_model()->pit_c = p0 - 12; tick(5);
+		pf_sim_model()->pit_c = p0; tick(52);
+		TEST_ASSERT_EQUAL_MESSAGE(PF_MODE_HOLD, ctrl.mode, "a flare is not a flame-out");
+	}
+	TEST_ASSERT_EQUAL_INT_MESSAGE(left, ctrl.safety.reignite_retries_left, "no relight was spent");
+	TEST_ASSERT_EQUAL_STRING("", ctrl.safety.error_code);
+	/* and the same fire, really out, is still caught */
+	int t = 0;
+	while (ctrl.mode == PF_MODE_HOLD && t < 30 * 60) { dead_pot(5); t += 5; }
+	printf("flares ignored; the dead pot was relit after %d s\n", t);
+	TEST_ASSERT_EQUAL(PF_MODE_REIGNITE, ctrl.mode);
 }
 
 /* Hold from Manual goes through Startup: straight to Hold fed a cold pot with no igniter. */
@@ -1163,6 +1192,7 @@ int main(void)
 	RUN_TEST(test_overtemp_with_a_falling_pit_keeps_the_fan);
 	RUN_TEST(test_stop_records_nothing);
 	RUN_TEST(test_flameout_protection_lights_the_igniter_and_recovers);
+	RUN_TEST(test_a_flaring_fire_is_not_a_flame_out);
 	RUN_TEST(test_a_big_step_down_lights_the_igniter_at_the_crossing);
 	RUN_TEST(test_flameout_reignites_then_errors);
 	RUN_TEST(test_coldstart_winter);

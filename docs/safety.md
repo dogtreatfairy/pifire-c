@@ -18,7 +18,7 @@ Every relay write goes through one arbiter (`src/core/outputs.c`) guarded by a m
 | Overheat, any mode | `safety.maxtemp` 650 °F | Error `E01_OVERTEMP`; auger/igniter off, fan runs `error_cooldown_fan_s` if the pit is hot (probes read to 750 °F so this trips as overheat, not as a probe fault) |
 | Set point range | `safety.min_target` 160 °F – `safety.max_target` 550 °F | the API refuses a set point outside it; the controller holds any other source inside it |
 | Smart Start (Startup, Relight) | `startup.smartstart`: +3 °F, then +12 °F, each within 300 s | see *Smart Start* below; no proof → `E04_STARTUP_FAILED`, grill stops |
-| Flame-out in Smoke/Hold | 20 °F (`safety.relight_drop`) below the working temperature, or the peak while heating | Relight (`reigniteretries`, 1 per cook) then Error `E02_FLAMEOUT`; see *Flame supervision* |
+| Flame-out in Smoke/Hold | 20 °F (`safety.relight_drop`, at least 6 % of the pit's rise above the outdoor air) below the working temperature, or the peak while heating, on the pit filtered over 30 s, for `safety.relight_confirm_s` (60 s) | Relight (`reigniteretries`, 1 per cook) then Error `E02_FLAMEOUT`; see *Flame supervision* |
 | Igniter cap | 5 min (`safety.igniter_max_on_s`, never more than 300 s) | igniter forced off, `W07_IGNITER_CAP` |
 | Auger cap | 60 s continuous | auger forced off (also applies in Manual), `W08_AUGER_CAP` |
 | Primary probe fault | 10 s without a valid reading while cooking | Error `E05_PROBE_FAULT` |
@@ -72,8 +72,13 @@ over until it reaches the **working temperature** — the set point in Hold, `sa
 flame-out or a feed that is too low.
 
 * **Fall.** The reference is the working temperature once reached, and before that the highest the
-  pit has been. Falling `relight_drop` (20 °F) below it is a flame-out: a Relight through Smart Start
-  if `relight_enabled` and attempts remain, otherwise `E02_FLAMEOUT` and the grill stops.
+  pit has been. Falling `relight_drop` (20 °F, or 6 % of the pit's rise above the outdoor air if
+  that is more: 29 °F at 550 °F) below it, and staying there for `relight_confirm_s` (60 s), is a
+  flame-out: a Relight through Smart Start if `relight_enabled` and attempts remain, otherwise
+  `E02_FLAMEOUT` and the grill stops. The pit this is judged on, and the peak, are filtered over
+  30 s: a fresh fire flares, and the raw pit on a pellet grill can read 50 °F apart three seconds
+  running a minute into a hot hold. A fire that is out keeps falling through the minute; a flare
+  does not.
 * **Climb.** Below the working temperature (by more than 10 °F) the pit must gain 3 °F in every
   300 s. Until it is 12 °F past the handover, a pit that does not is a fire that never got going:
   `E04_STARTUP_FAILED`, grill stops. After that the fire is burning what it is given, so nothing is
