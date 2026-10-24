@@ -77,8 +77,11 @@ double pf_notify_rest_margin_c(void)
 	return pf_settings_units() == PF_UNITS_C ? v : v * 5.0 / 9.0;
 }
 
-#define CARRY_LEARNED_MAX_C 8.0
-#define CARRY_FADE_RATE_C_S 0.002   /* about 0.2 F a minute */
+#define CARRY_MODEL_MAX_C   14.0   /* 25 F: a thick cut off a very hot grill */
+#define CARRY_LEARNED_MAX_C 20.0
+#define CARRY_FADE_RATE_C_S 0.004   /* about 0.4 F a minute */
+#define CARRY_SMOOTH_S      300.0  /* the take-off follows the estimate over five minutes */
+#define CARRY_FREEZE_C      3.0    /* within this of the take-off (about 5 F) it may only come forward */
 
 static void carry_key(char *out, size_t n, const char *meat)
 {
@@ -127,9 +130,9 @@ double pf_carryover_model_c(double rate_c_s, double centre_c, double cook_c)
 	double gap = cook_c - centre_c;
 	if (!(gap > 0)) return 0;
 	double tau = gap / rate_c_s;
-	double g = tau / 300000.0;
-	if (g < 0.004) g = 0.004;
-	if (g > 0.06) g = 0.06;
+	double g = tau / 100000.0;
+	if (g < 0.04) g = 0.04;
+	if (g > 0.08) g = 0.08;
 	double c = g * gap;
 	/* A climb slower than a fifth of a degree F a minute is not a cook storing heat for later; it
 	 * is a stall, or the last of the approach, and the time constant it implies is not the
@@ -137,7 +140,7 @@ double pf_carryover_model_c(double rate_c_s, double centre_c, double cook_c)
 	 * cliff between "not climbing" (nothing) and "barely climbing" (the full clamped figure) that
 	 * the take-off jumped across, firing the alert because the estimate moved, not the meat. */
 	if (rate_c_s < CARRY_FADE_RATE_C_S) c *= rate_c_s / CARRY_FADE_RATE_C_S;
-	return c > CARRY_LEARNED_MAX_C ? CARRY_LEARNED_MAX_C : c;
+	return c > CARRY_MODEL_MAX_C ? CARRY_MODEL_MAX_C : c;
 }
 
 double pf_carryover_learned_c(double rate_c_s, double centre_c, double cook_c, const char *meat)
@@ -171,6 +174,7 @@ int pf_notify_set_rest(pf_notify *n, const char *label, double rest_c, int after
 	if (pf_notify_set_target(n, label, pf_notify_rest_pull_c(rest_c, rate, NAN, NAN, p0 ? p0->meat : ""), after)) return -1;
 	pf_notify_probe *p = find_mut(n, label);
 	p->rest_c = rest_c;
+	p->carry_sm_c = -1;   /* unset: the first tick seeds it from the climb */
 	p->finish_c = rest_c;
 	return 0;
 }
@@ -274,6 +278,27 @@ double pf_notify_probe_rate(const pf_notify *n, const char *label)
 	return weighted_slope(lin, cnt, NULL) / ETA_INTERVAL_S;
 }
 
+double pf_notify_probe_rate_long(const pf_notify *n, const char *label)
+{
+	const pf_notify_probe *p = pf_notify_find(n, label);
+	if (!p || p->hist_len < 50) return 0;   /* two and a half minutes */
+	int cnt = p->hist_len < 100 ? p->hist_len : 100;   /* at most five */
+	/* a plain least-squares line through the five-point-smoothed readings: every minute counts
+	 * the same, so one odd minute moves the answer a fifth, not all of it. Five minutes, not
+	 * longer: a steak sits for minutes and then climbs 40 F in two, and a window that remembered
+	 * the sitting would still be calling it slow as it came off. */
+	double xbar = (cnt - 1) / 2.0, ybar = 0, num = 0, den = 0, sm[PF_ETA_SAMPLES];
+	for (int i = 0; i < cnt; i++) {
+		double acc = 0; int k = 0;
+		for (int j = i - 2; j <= i + 2; j++) if (j >= 0 && j < cnt) { acc += p->hist[(p->hist_head - cnt + j + PF_ETA_SAMPLES) % PF_ETA_SAMPLES]; k++; }
+		sm[i] = acc / k; ybar += sm[i];
+	}
+	ybar /= cnt;
+	for (int i = 0; i < cnt; i++) { num += (i - xbar) * (sm[i] - ybar); den += (i - xbar) * (i - xbar); }
+	double slope = den > 0 ? num / den / ETA_INTERVAL_S : 0;
+	return slope > 0 && isfinite(slope) ? slope : 0;
+}
+
 static void push_sample(pf_notify_probe *p, double c)
 {
 	p->hist[p->hist_head] = c;
@@ -372,13 +397,13 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 		 * will carry on rising off the heat, so the earlier it has to come off. Until there is a
 		 * rate to go on the take-off sits at the aim itself, which errs on the late side. */
 		double cook_raw = cook_temp_c(n, s, si), rate_now = p->target_c > 0 ? pf_notify_probe_rate(n, p->label) : 0;
+		double tick_dt = p->last_tick_t > 0 ? now - p->last_tick_t : 0;
 		/* The air round the meat swings with every lid and every fan cycle, and a take-off or a time
 		 * to target that followed each swing would swing with it. Averaged over four minutes: the
 		 * cook changes more slowly than that, the gusts do not. */
 		if (isfinite(cook_raw)) {
-			double dt = p->last_tick_t > 0 ? now - p->last_tick_t : 0;
 			if (!(p->cook_sm_c > 0)) p->cook_sm_c = cook_raw;
-			else p->cook_sm_c += (cook_raw - p->cook_sm_c) * fmin(1.0, dt / 240.0);
+			else p->cook_sm_c += (cook_raw - p->cook_sm_c) * fmin(1.0, tick_dt / 240.0);
 		}
 		p->last_tick_t = now;
 		double cook_c = isfinite(cook_raw) ? p->cook_sm_c : NAN;
@@ -401,7 +426,7 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 				if (!p->removed && ++p->removed_n >= 2) {
 					p->removed = true;
 					p->rest_watch = true; p->pull_c = t; p->pull_rate = rate_now;
-					p->pull_predicted_c = pf_carryover_model_c(rate_now, t, p->amb_on);
+					p->pull_predicted_c = p->carry_sm_c;
 					p->rest_peak_c = t; p->rest_peak_t = now; p->rest_watch_t = now;
 					char key[96];
 					snprintf(key, sizeof key, "RULE_probe-target:%.32s", p->label);
@@ -411,7 +436,23 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 			} else if (amb_ok && p->removed && amb > p->amb_on - 10.0) { p->removed = false; p->removed_n = 0; }   /* back on the heat */
 			else if (!p->removed) p->removed_n = 0;
 		}
-		if (p->rest_c > 0 && !p->reached) p->target_c = pf_notify_rest_pull_c(p->rest_c, rate_now, t, cook_c, p->meat);
+		/* The take-off for a rest-to target. The carry-over is read from the climb of the last five
+		 * minutes (the cut's thickness, not the moment's), and then the take-off follows that
+		 * estimate over five minutes rather than jumping with it: a take-off that climbed six
+		 * degrees in the last minutes of a steak, because the rate of the moment had dipped, asked
+		 * for the steak four degrees under its rest and had it overcooked. And once the meat is
+		 * within five degrees of the take-off, the take-off may only come forward: later is the
+		 * direction that cannot be undone. */
+		if (p->rest_c > 0 && !p->reached) {
+			double raw = pf_carryover_model_c(pf_notify_probe_rate_long(n, p->label), t, cook_c);
+			if (!(p->carry_sm_c >= 0)) p->carry_sm_c = raw;   /* just set, or a struct from zero */
+			else p->carry_sm_c += (raw - p->carry_sm_c) * fmin(1.0, tick_dt / CARRY_SMOOTH_S);
+			double carry = p->carry_sm_c * pf_carryover_k(p->meat);
+			if (carry > CARRY_LEARNED_MAX_C) carry = CARRY_LEARNED_MAX_C;
+			double off = p->rest_c + PF_REST_MARGIN_C - carry;
+			if (p->target_c > 0 && t >= p->target_c - CARRY_FREEZE_C && off > p->target_c) off = p->target_c;
+			p->target_c = off;
+		}
 		/* the rest after a rest-to alert: a real rest peaks and falls away; a probe still climbing
 		 * after half an hour stayed on the grill, and teaches nothing about resting */
 		if (p->rest_watch) {
@@ -443,7 +484,7 @@ void pf_notify_tick(pf_notify *n, const pf_sensors *s, pf_mode mode, double now,
 			if (t >= p->target_c) {
 				if (p->rest_c > 0 && !p->removed) {
 					p->rest_watch = true; p->pull_c = t; p->pull_rate = rate_now;
-					p->pull_predicted_c = pf_carryover_model_c(rate_now, t, cook_c);   /* before the learned correction: that is what it corrects */
+					p->pull_predicted_c = p->carry_sm_c;   /* before the learned correction: that is what it corrects */
 					p->rest_peak_c = t; p->rest_peak_t = now; p->rest_watch_t = now;
 				}
 				p->reached = true;

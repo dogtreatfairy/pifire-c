@@ -501,30 +501,32 @@ legend { font-weight: 600; margin-bottom: 6px; }
    reading's box is three digits wide whatever it holds, so the middle column starts in the same
    place on every card in the stack and does not move as a probe warms past 99. */
 .pstack { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
-.pcell { background: var(--surface); border: var(--bw) solid var(--line); border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3);
+.pcell { background: var(--surface); border: var(--bw) solid var(--line); border-radius: var(--r-md); padding: var(--sp-3) var(--sp-4);
   text-align: left; cursor: pointer; min-width: 0; width: 100%; font: inherit; color: inherit;
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: 22px 1fr 18px;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: 26px 1fr 22px;
   grid-template-areas: "name name name" "read food stats" "msg msg msg"; column-gap: var(--sp-3); align-items: center; }
-.pcell .n { grid-area: name; font-size: var(--fs-sm); color: var(--muted); display: flex; align-items: center; gap: 3px; min-height: 22px; min-width: 0; }
+.pcell .n { grid-area: name; font-size: var(--fs-md); color: var(--muted); display: flex; align-items: center; gap: 4px; min-height: 26px; min-width: 0; }
 .pcell .n .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pcell .n .pc-bt { display: inline-flex; flex: none; }
-.pcell .n .ic.bt { width: 14px; height: 14px; color: var(--text); flex: none; margin-right: 3px; }   /* the text colour, not Bluetooth blue: blue on the arrival green was unreadable */
+.pcell .n .ic.bt { width: 16px; height: 16px; color: var(--text); flex: none; margin-right: 3px; }   /* the text colour, not Bluetooth blue: blue on the arrival green was unreadable */
 .pcell .n .pc-links { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; flex: none; }
 .pcell .n .sig { color: var(--text); }
 .pcell .n .batt { margin: 0; }
 .pcell .n .batt.low { color: var(--warn-ink); }
 .pcell .n .batt.crit { color: var(--danger-ink); }
-.pcell .t { grid-area: read; font-size: 2.25rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; min-width: 3ch; text-align: center; }
+.pcell .t { grid-area: read; display: inline-flex; align-items: baseline; justify-content: center; font-size: var(--fs-3xl); font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.02em; line-height: 1; min-width: 3ch; }
+.pcell .t small { font-size: var(--fs-md); font-weight: 500; color: var(--muted); margin-left: 3px; letter-spacing: 0; }
 .pcell .pc-food { grid-area: food; display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 0; line-height: 1.25; }
 .pcell .meat, .pcell .pc-done, .pcell .tg { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pcell .meat { font-size: var(--fs-xl); font-weight: 600; color: var(--text); }
+.pcell .meat { font-size: var(--fs-xl); font-weight: 700; color: var(--text); }
 .pcell .meat.muted { color: var(--muted); }
-.pcell .pc-done { font-size: var(--fs-sm); color: var(--muted); }
-.pcell .pc-stats { grid-area: stats; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
-.pcell .tg { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-lg); color: var(--accent-ink); font-variant-numeric: tabular-nums; }
+.pcell .pc-done { font-size: var(--fs-md); color: var(--muted); }
+.pcell .pc-stats { grid-area: stats; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; }
+.pcell .tg { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-xl); font-weight: 600; color: var(--accent-ink); font-variant-numeric: tabular-nums; }
+.pcell .tg.eta { font-size: var(--fs-lg); font-weight: 500; color: var(--text); }
 .pcell .tg[hidden] { display: none; }
-.pcell .tg .ic { width: 16px; height: 16px; flex: none; color: var(--muted); }
-.pcell .pc-msg { grid-area: msg; text-align: center; font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--accent-ink);
+.pcell .tg .ic { width: 18px; height: 18px; flex: none; color: var(--muted); }
+.pcell .pc-msg { grid-area: msg; text-align: center; font-size: var(--fs-sm); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--accent-ink); align-self: end;
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pcell.invalid .t { color: var(--muted); }
 /* A probe that has arrived flashes, exactly as it does on the panel: the whole card fills with the

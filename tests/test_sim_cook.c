@@ -996,9 +996,46 @@ static void test_carryover_follows_the_cut_and_the_heat(void)
 	       flank * 9 / 5, one * 9 / 5, two * 9 / 5, low * 9 / 5, hot * 9 / 5, brisket * 9 / 5);
 	TEST_ASSERT_TRUE_MESSAGE(flank < one && one < two, "on the same grill, the thicker cut carries further");
 	TEST_ASSERT_TRUE_MESSAGE(low < hot, "the same roast carries further off a hotter grill");
-	TEST_ASSERT_TRUE_MESSAGE(flank * 9 / 5 < 4 && two * 9 / 5 > 7, "a flank steak a couple of degrees, a 2 inch steak most of ten");
-	TEST_ASSERT_TRUE_MESSAGE(brisket * 9 / 5 < 3, "a brisket near 200 barely moves");
+	TEST_ASSERT_TRUE_MESSAGE(flank * 9 / 5 < 15 && two * 9 / 5 > 15, "a flank steak off a hot grill a dozen degrees, a 2 inch steak twenty-odd");
+	TEST_ASSERT_TRUE_MESSAGE(brisket * 9 / 5 < 4, "a brisket near 200 barely moves");
 	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(1e-9, 0, pf_carryover_model_c(0.01, pf_f_to_c(150), pf_f_to_c(140)), "nothing carries when the meat is hotter than its surroundings");
+}
+
+/* The take-off is settled, not twitchy. It is read from the climb of the cook (the last five
+ * minutes, not the last thirty seconds) and follows that over five minutes, and once the meat is
+ * within five degrees of it, it may only come forward. A steak's take-off that climbed from 115
+ * to 121 F in its last minutes, because the rate of the moment dipped at a flip, asked for the
+ * steak four degrees under its rest and overcooked it. */
+static void test_the_take_off_settles_and_only_comes_forward_near_the_end(void)
+{
+	pf_notify nt; memset(&nt, 0, sizeof nt);
+	pf_sensors s; memset(&s, 0, sizeof s);
+	s.n = 2; s.primary = -1;
+	pf_strlcpy(s.p[0].label, "BTX", sizeof s.p[0].label); pf_strlcpy(s.p[0].name, "BTX", sizeof s.p[0].name);
+	s.p[0].role = PF_PROBE_FOOD; s.p[0].enabled = true; s.p[0].valid = true; s.p[0].companion = 1;
+	pf_strlcpy(s.p[1].label, "BTXAmb", sizeof s.p[1].label); s.p[1].role = PF_PROBE_AUX; s.p[1].enabled = true; s.p[1].valid = true;
+	s.p[1].companion = -1; s.p[1].is_companion = true;
+	pf_notify_sync(&nt, &s);
+	TEST_ASSERT_EQUAL(0, pf_notify_set_rest(&nt, "BTX", pf_f_to_c(125), 0));
+	pf_notify_set_target_note(&nt, "BTX", "Steakmeat", "Medium Rare", pf_f_to_c(125));
+	const pf_notify_probe *np = pf_notify_find(&nt, "BTX");
+	double t = 1000, centre = pf_f_to_c(60), grill = pf_f_to_c(450), step = 2.0 * 5 / 9 / 20;   /* 2 F a minute, thick */
+	for (int k = 0; k < 300; k++) { t += 3; centre += step; s.p[0].temp_c = centre; s.p[1].temp_c = grill; pf_notify_tick(&nt, &s, PF_MODE_HOLD, t, PF_UNITS_F); }
+	double off0 = np->target_c;
+	printf("thick steak at 2 F/min over 450 F, resting to 125: comes off at %.1f F\n", pf_c_to_f(off0));
+	TEST_ASSERT_TRUE_MESSAGE(pf_c_to_f(off0) < 125 - 10, "a thick cut off a hot grill comes off well under its rest");
+	/* the reading stands still for a minute -- a flip, the lid -- and the take-off barely moves */
+	for (int k = 0; k < 20; k++) { t += 3; pf_notify_tick(&nt, &s, PF_MODE_HOLD, t, PF_UNITS_F); }
+	TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(0.6, off0, np->target_c, "a minute's pause does not move the take-off a degree");
+	/* on up to within five degrees of the take-off */
+	while (centre < np->target_c - 2.5 && t < 20000) { t += 3; centre += step; s.p[0].temp_c = centre; pf_notify_tick(&nt, &s, PF_MODE_HOLD, t, PF_UNITS_F); }
+	TEST_ASSERT_FALSE(np->reached);
+	double off1 = np->target_c;
+	/* then a ten-minute stall: the estimate of the moment would raise the take-off, and it does not */
+	for (int k = 0; k < 200; k++) { t += 3; pf_notify_tick(&nt, &s, PF_MODE_HOLD, t, PF_UNITS_F); }
+	printf("  within five degrees it was %.1f F; after a ten-minute stall %.1f F\n", pf_c_to_f(off1), pf_c_to_f(np->target_c));
+	TEST_ASSERT_TRUE_MESSAGE(np->target_c <= off1 + 1e-9, "within five degrees the take-off never climbs");
+	TEST_ASSERT_FALSE_MESSAGE(np->reached, "and the stall did not fire the alert");
 }
 
 /* A Bluetooth probe's ambient sensor says when the meat came off: the rest is timed from there,
@@ -1144,6 +1181,7 @@ int main(void)
 	RUN_TEST(test_a_rest_target_comes_off_early_by_the_climb);
 	RUN_TEST(test_carryover_learns_from_rests);
 	RUN_TEST(test_carryover_follows_the_cut_and_the_heat);
+	RUN_TEST(test_the_take_off_settles_and_only_comes_forward_near_the_end);
 	RUN_TEST(test_the_ambient_sensor_sees_the_meat_come_off);
 	RUN_TEST(test_a_probe_pulled_out_of_the_meat_teaches_nothing);
 	RUN_TEST(test_time_to_target_follows_the_approach_not_the_line);

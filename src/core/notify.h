@@ -32,6 +32,9 @@ typedef struct {
 	/* the temperature the meat is cooking in (its ambient sensor, else the set point, else the
 	 * pit), averaged over a few minutes: what the take-off and the time to target are worked from */
 	double cook_sm_c, last_tick_t;
+	/* the carry-over the model predicts for this probe, before the per-meat correction, averaged
+	 * over five minutes: the take-off is worked from this, not from the estimate of the moment */
+	double carry_sm_c;
 	/* After a rest-to alert, the rest itself is watched: the temperature and climb at the alert,
 	 * then the peak, so the carry-over that actually happened can correct the next estimate. */
 	bool rest_watch; double pull_c, pull_rate, pull_predicted_c, rest_peak_c, rest_peak_t, rest_watch_t;
@@ -105,6 +108,9 @@ double pf_notify_estimate_eta_to(const double *temps, int n, double target, doub
 double pf_notify_estimate_eta(const double *temps, int n, double target, double interval_s);
 /* How fast a probe is climbing, C per second, 0 when it is not climbing or has too little history. */
 double pf_notify_probe_rate(const pf_notify *n, const char *label);
+/* The same over the last five minutes, weighted evenly, 0 until there are two and a half:
+ * the climb of the cook rather than of the moment, for the thickness the carry-over is read from. */
+double pf_notify_probe_rate_long(const pf_notify *n, const char *label);
 /* How much further the centre will climb after it comes off the heat, in C, from that rate.
  *
  * The meat keeps cooking on the heat already in it, and the rate of climb at the moment it comes
@@ -131,14 +137,26 @@ static inline double pf_carryover_c(double rate_c_s)
  * with the time constant -- a thin cut loses its surface heat to the room faster than it can move
  * inward -- so the rise is
  *
- *     carry = g x (T_cook - T_centre),   g = tau / 300000 s, kept between 0.004 and 0.06
+ *     carry = g x (T_cook - T_centre),   g = tau / 100000 s, kept between 0.04 and 0.08
  *
- * g is fitted to the usual carry-over figures: a flank steak off a 450 F grill about 2 F, a 1"
- * steak about 7, a 2" steak about 10, a standing rib roast off 350 F about 10, a roast off 225 F
- * about 4, a brisket at 200 F under 2. Those figures are rules of thumb, which is why the per-meat
- * correction below still applies on top: the model says why two steaks differ, the grill's own
- * rests say by how much on this grill. Capped at 8 C. Falls back to the rate-only estimate when
- * there is no cooking temperature to go on. */
+ * g is fitted to this grill's own rests first and to the published figures second. Two steaks
+ * resting from a 400 F grill carried 15 F (pulled at 130 F, climbing 6 F a minute) and about 20 F
+ * (pulled at 124, climbing 5 F a minute): a fast climb at a high heat is a steep gradient with a
+ * lot of heat behind it, not a thin cut with none, which is what the old scale (tau / 300000,
+ * floor 0.004, capped at 8 C) took it for when it predicted 2 to 9 F. So g is nearly flat: 0.04
+ * for a cut that climbs fast for its gap, rising to 0.08 for one that climbs slowly (a thick roast
+ * holds its heat), and the gap -- how far the cooking temperature is above the centre -- does the
+ * rest. That gives a 1" steak off 450 F 10 to 13 F, a 2" steak 20-odd, a standing rib roast off
+ * 350 F about 18, a chicken breast off 350 F about 8, a pork butt or a brisket at 200 F 3 to 4.
+ * Capped at 14 C. The per-meat correction below applies on top: the model says why two cooks
+ * differ, the grill's own rests say by how much on this grill. Falls back to the rate-only
+ * estimate when there is no cooking temperature to go on.
+ *
+ * The rate this is read with is the climb over the last five minutes, not the last thirty seconds:
+ * the time constant is a property of the cut, and the rate of the moment -- a flip, a lid, a
+ * spritz, the probe knocked -- is not. Nor longer than five: a steak's centre sits for minutes
+ * and then climbs 40 F in two once the heat reaches it, and the rate only ever moves g between
+ * its floor and its ceiling, a factor of two, where the gap moves the whole figure. */
 double pf_carryover_model_c(double rate_c_s, double centre_c, double cook_c);
 
 /* The same estimate corrected by what this grill's rests of this meat have actually done.

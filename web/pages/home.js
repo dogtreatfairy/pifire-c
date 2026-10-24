@@ -213,11 +213,11 @@ function probeCard(label) {
   c.bt = el('span', { class: 'pc-bt' });
   c.name = el('span', { class: 'nm' });
   c.links = el('span', { class: 'pc-links' });
-  c.temp = el('span', { class: 't' });
+  c.temp = el('span', { class: 't' }, el('span'), el('small'));
   c.meat = el('span', { class: 'meat' });
   c.done = el('span', { class: 'pc-done' });
   c.tgt = el('span', { class: 'tg' }, lucide('thermometer', 'ic'), el('span', { class: 'v' }));
-  c.eta = el('span', { class: 'tg' }, lucide('clock', 'ic'), el('span', { class: 'v' }));
+  c.eta = el('span', { class: 'tg eta' }, lucide('clock', 'ic'), el('span', { class: 'v' }));
   c.msg = el('span', { class: 'pc-msg' });
   c.root = el('button', { class: 'pcell', type: 'button', onclick: () => openProbe(label) },
     el('span', { class: 'n' }, c.bt, c.name, c.links),
@@ -266,14 +266,17 @@ function updateProbeCard(c, p) {
     c.bt.replaceChildren(...(p.wireless ? [btIcon()] : []));
     c.links.replaceChildren(...(p.wireless ? [sigBars(p.valid ? Math.max(0, Math.min(4, p.signal ?? 0)) : 0), battIcon(p.battery)].filter(Boolean) : []));
   }
-  setText(c.temp, p.valid ? fmtTemp(p.temp) : '—');
+  setText(c.temp.firstChild, p.valid ? fmtTemp(p.temp) : '—');
+  setText(c.temp.lastChild, p.valid ? degUnit() : '');
 
   const has = p.target > 0;
   setText(c.meat, has ? (p.meat || 'Target') : 'Set target');
   setText(c.done, has ? (p.done || ' ') : ' ');
   c.meat.classList.toggle('muted', !has);
   c.tgt.hidden = c.eta.hidden = !has;
-  setText(c.tgt.lastChild, has ? (p.rest > 0 ? `${fmtTemp(p.target)}° → ${fmtTemp(p.rest)}°` : `${fmtTemp(p.target)}°`) : '');
+  /* One number: the temperature to take it off at. For a rest-to target that is the take-off the
+     daemon keeps moving, which is the only one the cook acts on; what it rests up to is on the sheet. */
+  setText(c.tgt.lastChild, has ? `${fmtTemp(p.target)}°` : '');
   setText(c.eta.lastChild, !has ? '' : hit ? 'done' : p.eta_s > 0 ? fmtEta(p.eta_s) : '—');
   setText(c.msg, probeMessage(p, hit));
 }
