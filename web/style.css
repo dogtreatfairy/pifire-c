@@ -504,26 +504,26 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .pcell { background: var(--surface); border: var(--bw) solid var(--line); border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3);
   text-align: left; cursor: pointer; min-width: 0; width: 100%; font: inherit; color: inherit;
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: 22px 1fr 18px;
-  grid-template-areas: "name name name" "read food stats" "read msg msg"; column-gap: var(--sp-3); align-items: center; }
+  grid-template-areas: "name name name" "read food stats" "msg msg msg"; column-gap: var(--sp-3); align-items: center; }
 .pcell .n { grid-area: name; font-size: var(--fs-sm); color: var(--muted); display: flex; align-items: center; gap: 3px; min-height: 22px; min-width: 0; }
 .pcell .n .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pcell .n .pc-bt { display: inline-flex; flex: none; }
-.pcell .n .ic.bt { width: 14px; height: 14px; color: var(--info-ink); flex: none; margin-right: 3px; }
+.pcell .n .ic.bt { width: 14px; height: 14px; color: var(--text); flex: none; margin-right: 3px; }   /* the text colour, not Bluetooth blue: blue on the arrival green was unreadable */
 .pcell .n .pc-links { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; flex: none; }
-.pcell .n .sig { color: var(--info-ink); }
+.pcell .n .sig { color: var(--text); }
 .pcell .n .batt { margin: 0; }
 .pcell .n .batt.low { color: var(--warn-ink); }
 .pcell .n .batt.crit { color: var(--danger-ink); }
 .pcell .t { grid-area: read; font-size: 2.25rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; min-width: 3ch; text-align: center; }
 .pcell .pc-food { grid-area: food; display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 0; line-height: 1.25; }
 .pcell .meat, .pcell .pc-done, .pcell .tg { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pcell .meat { font-size: var(--fs-md); color: var(--text); }
+.pcell .meat { font-size: var(--fs-xl); font-weight: 600; color: var(--text); }
 .pcell .meat.muted { color: var(--muted); }
-.pcell .pc-done { font-size: var(--fs-xs); color: var(--muted); }
+.pcell .pc-done { font-size: var(--fs-sm); color: var(--muted); }
 .pcell .pc-stats { grid-area: stats; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
-.pcell .tg { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-sm); color: var(--accent-ink); font-variant-numeric: tabular-nums; }
+.pcell .tg { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-lg); color: var(--accent-ink); font-variant-numeric: tabular-nums; }
 .pcell .tg[hidden] { display: none; }
-.pcell .tg .ic { width: 14px; height: 14px; flex: none; color: var(--muted); }
+.pcell .tg .ic { width: 16px; height: 16px; flex: none; color: var(--muted); }
 .pcell .pc-msg { grid-area: msg; text-align: center; font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--accent-ink);
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pcell.invalid .t { color: var(--muted); }
@@ -540,6 +540,12 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .pcell.alert, .pcell.hit.alert { --hitc: var(--accent); --hitink: var(--on-accent); border-color: var(--hitc); animation: pf-hit 1.5s steps(1, end) infinite; }
 .pcell.hit .t, .pcell.hit .tg, .pcell.hit .tg .ic, .pcell.hit .n, .pcell.hit .meat, .pcell.hit .pc-done, .pcell.hit .pc-msg,
 .pcell.alert .t, .pcell.alert .tg, .pcell.alert .tg .ic, .pcell.alert .n, .pcell.alert .meat, .pcell.alert .pc-done, .pcell.alert .pc-msg { color: inherit; }
+/* The link marks too: a card filled with the arrival green or the attention orange has one ink, the one
+   chosen to read on it, and an amber battery or a red bar kept in its own colour vanished into it. */
+.pcell.hit .ic.bt, .pcell.alert .ic.bt, .pcell.hit .sig, .pcell.alert .sig, .pcell.hit .n .batt, .pcell.alert .n .batt, .pcell.hit .n .batt.low, .pcell.alert .n .batt.low, .pcell.hit .n .batt.crit, .pcell.alert .n .batt.crit { color: inherit; }
+.pcell.hit .batt, .pcell.alert .batt { border-color: currentColor; background: transparent; }
+.pcell.hit .batt::after, .pcell.alert .batt::after, .pcell.hit .sig i.on, .pcell.alert .sig i.on { background: currentColor; }
+.pcell.hit .sig i:not(.on), .pcell.alert .sig i:not(.on) { background: currentColor; opacity: .3; }
 @keyframes pf-hit { 50% { background: var(--hitc); color: var(--hitink); } }
 /* The flash is information, not decoration -- it is how a probe says it has arrived from across a
    garden. With motion turned down it becomes the colour it was flashing to, said once. The
