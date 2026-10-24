@@ -492,38 +492,41 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .hero .line1 { font-size: var(--fs-lg); font-weight: 600; color: var(--accent-ink); margin-top: 2px; cursor: pointer; }
 .hero .line1.ok { color: var(--ok-ink); } .hero .line1.accent { color: var(--accent-ink); } .hero .line1.info { color: var(--info-ink); } .hero .line1.warn { color: var(--warn-ink); } .hero .line1.danger { color: var(--danger-ink); } .hero .line1.muted { color: var(--muted); cursor: default; }
 .hero .line2 { font-size: var(--fs-sm); color: var(--muted); margin: 3px 0 10px; min-height: 1.2em; }
-/* Home probe cards: one full-width card per probe, stacked under the gauge (the drawing is
-   examples/probe-card.png). Three columns -- the reading, what the target is for, the target and
-   its time -- under a line with the name and the link marks, over a line for what the probe wants
-   done next. The reading's box is three digits wide whatever it holds, so the middle column starts
-   in the same place on every card in the stack and does not move as a probe warms past 99. */
-.pstack { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-3); }
-.pcell.pcard { background: var(--surface); border: var(--bw) solid var(--line2); border-radius: var(--r-lg);
-  padding: var(--sp-2) var(--sp-4); width: 100%; min-width: 0; font: inherit; color: inherit; text-align: left; cursor: pointer;
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto 1fr auto;
-  grid-template-areas: "name name links" "read food stats" "read msg msg";
-  column-gap: var(--sp-3); row-gap: var(--sp-1); align-items: center; min-height: 116px; }
-.pcard .pc-name { grid-area: name; font-size: var(--fs-md); font-weight: var(--fw-medium); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pcard .pc-links { grid-area: links; justify-self: end; display: inline-flex; align-items: center; gap: 6px; min-height: 16px; }
-.pcard .pc-links .ic { width: 20px; height: 20px; flex: none; color: inherit; }
-.pcard .pc-links .ic.bt { width: 18px; height: 18px; margin: 0; color: var(--info-ink); }
-.pcard .pc-links .pc-batt { width: 24px; height: 24px; }
-.pcard .pc-batt-w { display: inline-flex; }
-.pcard .pc-links .ic.low { color: var(--warn-ink); }
-.pcard .pc-links .ic.crit { color: var(--danger-ink); }
-.pcard .pc-read { grid-area: read; display: flex; align-items: flex-start; line-height: 1; align-self: center; }
-.pcard .pc-temp { font-size: var(--fs-3xl); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; letter-spacing: -.02em; min-width: 3ch; }
-.pcard .pc-unit { font-size: var(--fs-xl); font-weight: var(--fw-medium); margin: 2px 0 0 var(--sp-1); }
-.pcard .pc-food { grid-area: food; display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 0; line-height: var(--lh-tight); }
-.pcard .pc-meat, .pcard .pc-done { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pcard .pc-meat { font-size: var(--fs-xl); font-weight: var(--fw-semi); }
-.pcard .pc-done { font-size: var(--fs-md); }
-.pcard .pc-stats { grid-area: stats; display: flex; flex-direction: column; gap: var(--sp-1); }
-.pcard .pc-stat { display: flex; align-items: center; gap: 6px; font-size: var(--fs-md); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.pcard .pc-stat .ic { width: 18px; height: 18px; flex: none; }
-.pcard .pc-msg { grid-area: msg; text-align: center; font-size: var(--fs-sm); font-weight: var(--fw-bold); text-transform: uppercase; letter-spacing: .02em;
+/* Home probe cards: one full-width card per probe, stacked under the gauge. The parts and their
+   type are the three-across cell's -- the muted name, the reading, the food, the target in the
+   accent colour, the Probes page's bars and cell -- arranged as the drawing in
+   examples/probe-card.png: the name and the link marks along the top, the reading at the left,
+   the food in the middle, the target and its time at the right, a line along the foot for what the
+   probe wants done next. Fixed rows, so the reading stays put whatever the foot says; the
+   reading's box is three digits wide whatever it holds, so the middle column starts in the same
+   place on every card in the stack and does not move as a probe warms past 99. */
+.pstack { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.pcell { background: var(--surface); border: var(--bw) solid var(--line); border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3);
+  text-align: left; cursor: pointer; min-width: 0; width: 100%; font: inherit; color: inherit;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: 22px 1fr 18px;
+  grid-template-areas: "name name name" "read food stats" "read msg msg"; column-gap: var(--sp-3); align-items: center; }
+.pcell .n { grid-area: name; font-size: var(--fs-sm); color: var(--muted); display: flex; align-items: center; gap: 3px; min-height: 22px; min-width: 0; }
+.pcell .n .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcell .n .pc-bt { display: inline-flex; flex: none; }
+.pcell .n .ic.bt { width: 14px; height: 14px; color: var(--info-ink); flex: none; margin-right: 3px; }
+.pcell .n .pc-links { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; flex: none; }
+.pcell .n .sig { color: var(--info-ink); }
+.pcell .n .batt { margin: 0; }
+.pcell .n .batt.low { color: var(--warn-ink); }
+.pcell .n .batt.crit { color: var(--danger-ink); }
+.pcell .t { grid-area: read; font-size: 2.25rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; min-width: 3ch; text-align: center; }
+.pcell .pc-food { grid-area: food; display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 0; line-height: 1.25; }
+.pcell .meat, .pcell .pc-done, .pcell .tg { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pcell .meat { font-size: var(--fs-md); color: var(--text); }
+.pcell .meat.muted { color: var(--muted); }
+.pcell .pc-done { font-size: var(--fs-xs); color: var(--muted); }
+.pcell .pc-stats { grid-area: stats; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
+.pcell .tg { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-sm); color: var(--accent-ink); font-variant-numeric: tabular-nums; }
+.pcell .tg[hidden] { display: none; }
+.pcell .tg .ic { width: 14px; height: 14px; flex: none; color: var(--muted); }
+.pcell .pc-msg { grid-area: msg; text-align: center; font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--accent-ink);
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pcell.invalid .pc-temp { color: var(--muted); }
+.pcell.invalid .t { color: var(--muted); }
 /* A probe that has arrived flashes, exactly as it does on the panel: the whole card fills with the
    colour of how far past its target it is -- done, five degrees over, ten -- half a beat in every
    beat and a half. A number that has changed colour is easy to miss across a garden; one that
@@ -534,8 +537,9 @@ legend { font-weight: 600; margin-bottom: 6px; }
 .pcell.hit.hit-way { --hitc: var(--danger); --hitink: var(--on-danger); }
 /* Something it is asking for and nobody has acknowledged yet -- Flip, Remove from Heat -- flashes
    in orange, the panel's attention frame, and wins over the arrival colour until it is cleared. */
-.pcell.alert { --hitc: var(--accent); --hitink: var(--on-accent); border-color: var(--hitc); animation: pf-hit 1.5s steps(1, end) infinite; }
-.pcell.hit .muted, .pcell.alert .muted, .pcell.hit .pc-msg, .pcell.alert .pc-msg, .pcell.hit .pc-temp, .pcell.alert .pc-temp { color: inherit; }
+.pcell.alert, .pcell.hit.alert { --hitc: var(--accent); --hitink: var(--on-accent); border-color: var(--hitc); animation: pf-hit 1.5s steps(1, end) infinite; }
+.pcell.hit .t, .pcell.hit .tg, .pcell.hit .tg .ic, .pcell.hit .n, .pcell.hit .meat, .pcell.hit .pc-done, .pcell.hit .pc-msg,
+.pcell.alert .t, .pcell.alert .tg, .pcell.alert .tg .ic, .pcell.alert .n, .pcell.alert .meat, .pcell.alert .pc-done, .pcell.alert .pc-msg { color: inherit; }
 @keyframes pf-hit { 50% { background: var(--hitc); color: var(--hitink); } }
 /* The flash is information, not decoration -- it is how a probe says it has arrived from across a
    garden. With motion turned down it becomes the colour it was flashing to, said once. The

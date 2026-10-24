@@ -195,103 +195,87 @@ function controlBar(s) {
  * further in, where they are wanted about once. */
 
 // ---- probe cards: one full-width card per food probe, stacked under the gauge
-/* The card is the drawing in examples/probe-card.png. Name on top with the link marks opposite it;
-   the reading large at the left with its unit beside it; what the target is for in the middle; the
-   target and the time to it at the right; and one line along the foot for what the probe wants
-   done next. Every slot is there whether or not it has anything in it, so the reading does not move
-   when a target is set or cleared -- a card that rearranged itself as targets came and went read as
-   a different card each time.
+/* The card the three-across grid drew, laid out across the width instead of down a narrow cell and
+   stacked one under another beneath the gauge. The parts, their type and the wireless marks are
+   the ones the rest of the app uses -- the muted name with the Bluetooth rune before it, the
+   reading, the food and its doneness, the target in the accent colour, the Probes page's own
+   signal bars and battery cell -- so a probe looks the same wherever it is met. Their arrangement
+   is the drawing in examples/probe-card.png: the name along the top with the link marks opposite
+   it, the reading at the left, the food in the middle, the target and the time to it at the right,
+   and a line along the foot for what the probe wants done next. Every slot is there whether or not
+   it has anything in it, so the reading does not move when a target is set or cleared -- a card
+   that rearranged itself as targets came and went read as a different card each time.
 
    Spans, not divs: the card is a <button> so it focuses, answers the keyboard and takes the app's
    press layer like every other control, and a button may only hold phrasing content. */
 function probeCard(label) {
   const c = {};
-  c.name = el('span', { class: 'pc-name' });
+  c.bt = el('span', { class: 'pc-bt' });
+  c.name = el('span', { class: 'nm' });
   c.links = el('span', { class: 'pc-links' });
-  c.temp = el('span', { class: 'pc-temp' });
-  c.unit = el('span', { class: 'pc-unit' });
-  c.meat = el('span', { class: 'pc-meat' });
+  c.temp = el('span', { class: 't' });
+  c.meat = el('span', { class: 'meat' });
   c.done = el('span', { class: 'pc-done' });
-  c.tgt = el('span', { class: 'v' });
-  c.eta = el('span', { class: 'v' });
+  c.tgt = el('span', { class: 'tg' }, lucide('thermometer', 'ic'), el('span', { class: 'v' }));
+  c.eta = el('span', { class: 'tg' }, lucide('clock', 'ic'), el('span', { class: 'v' }));
   c.msg = el('span', { class: 'pc-msg' });
-  c.root = el('button', { class: 'pcell pcard', type: 'button', onclick: () => openProbe(label) },
-    c.name, c.links,
-    el('span', { class: 'pc-read' }, c.temp, c.unit),
+  c.root = el('button', { class: 'pcell', type: 'button', onclick: () => openProbe(label) },
+    el('span', { class: 'n' }, c.bt, c.name, c.links),
+    c.temp,
     el('span', { class: 'pc-food' }, c.meat, c.done),
-    el('span', { class: 'pc-stats' },
-      el('span', { class: 'pc-stat' }, lucide('thermometer', 'ic'), c.tgt),
-      el('span', { class: 'pc-stat' }, lucide('clock', 'ic'), c.eta)),
+    el('span', { class: 'pc-stats' }, c.tgt, c.eta),
     c.msg);
   return c;
 }
 const setText = (node, text) => { if (node.textContent !== text) node.textContent = text; };
 
-/* A wireless probe's link, in Lucide marks as drawn: the rune, the bars, the cell. The rune is
-   identity and always Bluetooth blue. The bars and the cell are the readings themselves -- the
-   level variant of each glyph -- and take a colour only at the low end: amber for attention (one
-   bar, a fifth of the battery), red for gone (no link, a tenth left). A probe that is not connected
-   has no battery to speak of, so it shows none. */
-function linkMarks(p) {
-  const bars = p.valid ? Math.max(0, Math.min(4, p.signal ?? 0)) : 0;
-  const sig = lucide(['signal-zero', 'signal-low', 'signal-medium', 'signal-high', 'signal'][bars], `ic pc-sig${bars === 0 ? ' crit' : bars === 1 ? ' low' : ''}`);
-  const out = [btIcon(), sig];
-  if (p.battery >= 0) {
-    const b = Math.max(0, Math.min(100, Math.round(p.battery)));
-    const name = b <= 10 ? 'battery-warning' : b < 34 ? 'battery-low' : b < 67 ? 'battery-medium' : 'battery-full';
-    const bat = lucide(name, `ic pc-batt${b <= 10 ? ' crit' : b <= 20 ? ' low' : ''}`);
-    out.push(el('span', { class: 'pc-batt-w', title: `Battery ${b}%` }, bat));
-  }
-  return out;
-}
-
 /* What the line along the foot says, most urgent first: something waiting to be acknowledged (Flip,
    Remove from Heat), then resting, then arrived, then the next step on the way up with how long it
    has to go. Nothing to say is a blank line, not a missing one. */
-function probeMessage(p, hit, u) {
+function probeMessage(p, hit) {
   if (p.alert) return p.alert;
-  if (p.resting) return `Resting \u00b7 peak ${fmtTemp(p.rest_peak)}${u}`;
-  if (hit) return p.rest > 0 ? `At target \u00b7 rest to ${fmtTemp(p.rest)}${u}` : 'At target';
+  if (p.resting) return `Resting · peak ${fmtTemp(p.rest_peak)}°`;
+  if (hit) return p.rest > 0 ? `Rest to ${fmtTemp(p.rest)}°` : '\u00a0';   /* "done" is already on the time line */
   if (p.next_step) {
     const st = (p.steps || []).find((x) => !x.done && x.name === p.next_step) || (p.steps || []).find((x) => !x.done);
-    const at = st ? ` at ${fmtTemp(st.temp)}${u}` : '';
+    const at = st ? ` at ${fmtTemp(st.temp)}°` : '';
     return `${p.next_step}${at}${p.eta_step_s > 0 ? ` in ${fmtEta(p.eta_step_s).replace('< ', '<')}` : ''}`;
   }
-  return '\u00a0';
+  return ' ';
 }
 
 function updateProbeCard(c, p) {
-  const u = degUnit();
   const hit = p.target > 0 && p.valid && p.temp >= p.target;
   /* The same thresholds the panel uses, so a probe that is amber on the grill is amber on the
      phone: done, a step over, two steps over -- five degrees a step, three in Celsius. */
   const step = PF.units === 'C' ? 3 : 5;
   const over = hit ? p.temp - p.target : 0;
   const level = !hit ? '' : over >= 2 * step ? 'hit-way' : over >= step ? 'hit-over' : 'hit-done';   /* not 'done': that is the doneness row's class */
-  const cls = `pcell pcard${p.valid ? '' : ' invalid'}${hit ? ` hit ${level}` : ''}${p.alert ? ' alert' : ''}`;
+  const cls = `pcell${p.valid ? '' : ' invalid'}${hit ? ` hit ${level}` : ''}${p.alert ? ' alert' : ''}`;
   if (c.root.className !== cls) c.root.className = cls;
   const link = p.wireless ? `, signal ${p.valid ? p.signal ?? 0 : 0} of 4${p.battery >= 0 ? `, battery ${Math.round(p.battery)} percent` : ''}` : '';
-  c.root.setAttribute('aria-label', `${p.name} ${p.valid ? `${fmtTemp(p.temp)}${u}` : 'no reading'}${p.alert ? `, ${p.alert}` : ''}${link}`);
+  c.root.setAttribute('aria-label', `${p.name} ${p.valid ? `${fmtTemp(p.temp)}°` : 'no reading'}${p.alert ? `, ${p.alert}` : ''}${link}`);
 
   setText(c.name, p.name);
-  /* The link marks only mean something on a wireless probe: the rune (always Bluetooth blue -- it
-     says what the probe is, not how it is doing), the bars, the cell. Rebuilt only when they change. */
+  /* The link marks only mean something on a wireless probe: the rune before the name (it says what
+     the probe is, not how it is doing), the bars and the cell opposite. Rebuilt only when they
+     change, since the cell is drawn from its number. */
   const lk = p.wireless ? `${p.valid ? p.signal ?? 0 : -1}|${p.battery ?? ''}` : '';
   if (c.links.dataset.k !== lk) {
     c.links.dataset.k = lk;
-    c.links.replaceChildren(...(p.wireless ? linkMarks(p) : []));
+    c.bt.replaceChildren(...(p.wireless ? [btIcon()] : []));
+    c.links.replaceChildren(...(p.wireless ? [sigBars(p.valid ? Math.max(0, Math.min(4, p.signal ?? 0)) : 0), battIcon(p.battery)].filter(Boolean) : []));
   }
-  setText(c.temp, p.valid ? fmtTemp(p.temp) : '\u2014');
-  setText(c.unit, u);
+  setText(c.temp, p.valid ? fmtTemp(p.temp) : '—');
 
   const has = p.target > 0;
-  setText(c.meat, has ? (p.meat || 'Target') : 'No Target');
-  setText(c.done, has ? (p.done || '\u00a0') : 'Tap to set');
+  setText(c.meat, has ? (p.meat || 'Target') : 'Set target');
+  setText(c.done, has ? (p.done || ' ') : ' ');
   c.meat.classList.toggle('muted', !has);
-  c.done.classList.toggle('muted', !has);
-  setText(c.tgt, has ? `${fmtTemp(p.target)}${u}` : '\u2014');
-  setText(c.eta, !has ? '\u2014' : hit ? 'Done' : p.eta_s > 0 ? fmtEta(p.eta_s) : '\u2014');
-  setText(c.msg, probeMessage(p, hit, u));
+  c.tgt.hidden = c.eta.hidden = !has;
+  setText(c.tgt.lastChild, has ? (p.rest > 0 ? `${fmtTemp(p.target)}° → ${fmtTemp(p.rest)}°` : `${fmtTemp(p.target)}°`) : '');
+  setText(c.eta.lastChild, !has ? '' : hit ? 'done' : p.eta_s > 0 ? fmtEta(p.eta_s) : '—');
+  setText(c.msg, probeMessage(p, hit));
 }
 
 /* The order of the stack. Prioritised (Settings > Appearance, on by default): a probe with
